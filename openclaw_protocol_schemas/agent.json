@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "oclaw://schemas/agent.json",
+  "title": "AgentParams",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["message", "idempotencyKey"],
+  "properties": {
+    "message": { "type": "string", "minLength": 1 },
+    "agentId": { "type": "string", "minLength": 1 },
+    "provider": { "type": "string", "minLength": 1 },
+    "model": { "type": "string", "minLength": 1 },
+    "to": { "type": "string", "minLength": 1 },
+    "replyTo": { "type": "string", "minLength": 1 },
+    "sessionId": { "type": "string", "minLength": 1 },
+    "sessionKey": { "type": "string", "minLength": 1 },
+    "thinking": { "type": "string" },
+    "deliver": { "type": "boolean" },
+    "attachments": { "type": "array", "items": {} },
+    "channel": { "type": "string" },
+    "timeout": { "type": "integer", "minimum": 0 },
+    "extraSystemPrompt": { "type": "string" },
+    "bootstrapContextMode": { "enum": ["full", "lightweight"] },
+    "bootstrapContextRunKind": { "enum": ["default", "heartbeat", "cron"] },
+    "idempotencyKey": { "type": "string", "minLength": 1 },
+    "label": { "type": "string" }
+  }
+}
+

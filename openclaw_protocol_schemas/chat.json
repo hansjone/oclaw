@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "oclaw://schemas/chat.json",
+  "title": "ChatParams",
+  "$defs": {
+    "NonEmptyString": { "type": "string", "minLength": 1 },
+    "ChatSendParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sessionKey", "message", "idempotencyKey"],
+      "properties": {
+        "sessionKey": { "$ref": "#/$defs/NonEmptyString" },
+        "message": { "type": "string" },
+        "thinking": { "type": "string" },
+        "interaction_mode": { "type": "string" },
+        "specialist": { "type": "string" },
+        "relay_share_envelope": { "type": "object" },
+        "acp_parent_run_id": { "type": "string" },
+        "acp_child_run_id": { "type": "string" },
+        "attachments": { "type": "array", "items": {} },
+        "timeoutMs": { "type": "integer", "minimum": 0 },
+        "idempotencyKey": { "$ref": "#/$defs/NonEmptyString" }
+      }
+    },
+    "ChatHistoryParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sessionKey"],
+      "properties": {
+        "sessionKey": { "$ref": "#/$defs/NonEmptyString" },
+        "limit": { "type": "integer", "minimum": 1 },
+        "maxChars": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "ChatAbortParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sessionKey"],
+      "properties": {
+        "sessionKey": { "$ref": "#/$defs/NonEmptyString" },
+        "runId": { "type": "string", "minLength": 1 }
+      }
+    }
+  }
+}

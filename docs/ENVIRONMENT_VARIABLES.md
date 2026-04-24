@@ -1,0 +1,405 @@
+# 环境变量总览（AIA）
+
+本项目统一使用 `AIA_*` 前缀环境变量。本文档是唯一维护入口，用于说明变量用途、默认值与生效位置。
+发布级变更记录见：`oclaw/docs/ENVIRONMENT_VARIABLES_CHANGELOG.md`。
+
+## 维护规则
+
+- 新增环境变量时，必须同步更新本文档。
+- 变量命名统一：`AIA_<模块>_<含义>`。
+- 若变量已可在 Admin 配置，优先使用 Admin，环境变量作为启动默认值/兜底。
+- 删除变量时，请同时更新：
+  - 本文档
+  - `README.md` 的示例
+  - 示例环境文件（如 `data/mcp_local.env.example`）
+
+## 核心与调度
+
+- `AIA_ASSISTANT_MODE`
+  - 默认：空（代码内决定默认模式）
+  - 作用：助手模式选择
+  - 生效：`oclaw/platform/llm/chat_models.py`, `oclaw/agents/factory.py`
+
+- `AIA_MANAGER_DECISION_MODE`
+  - 默认：空
+  - 作用：**Legacy（已断开）**：旧 manager 决策模式（如 `rule`）
+  - 说明：oclaw runtime 默认不再走 `CompositeOpsAgent` 的 manager 决策；该变量仅保留以便后续接回 legacy
+  - 生效：`oclaw/agents/manager_agent.py`（仅 legacy 链路）
+
+- `AIA_TURN_MAX_TOOL_WORKERS`
+  - 默认：`8`
+  - 作用：单轮工具并发上限
+  - 生效：`oclaw/openclaw_runtime/gateway.py`, `oclaw/openclaw_runtime/direct_loop.py`
+
+- `AIA_TURN_MAX_TOOL_ROUNDS`
+  - 默认：`8`
+  - 作用：工具循环轮次上限
+  - 生效：`oclaw/openclaw_runtime/gateway.py`, `oclaw/openclaw_runtime/direct_loop.py`
+
+- `AIA_TURN_MAX_CONTEXT_MESSAGES`
+  - 默认：`80`
+  - 作用：上下文消息上限
+  - 生效：`oclaw/openclaw_runtime/gateway.py`, `oclaw/openclaw_runtime/direct_loop.py`
+
+- oclaw async queue/worker（`router -> openclaw_task -> worker`）
+  - 当前版本无独立环境变量；复用以上 `AIA_TURN_MAX_*` 配置控制 direct loop 执行上限
+  - 生效：`oclaw/openclaw_runtime/gateway.py`, `oclaw/openclaw_runtime/worker.py`
+
+- `AIA_PROMPT_FRONTMATTER_STRICT`
+  - 默认：`0`
+  - 作用：`1` 时 `SKILL.md` / `oclaw/prompts/*.md` 的 frontmatter 必须为可解析 YAML；解析失败直接报错（不回落旧版行解析）
+  - 生效：`oclaw/prompts/frontmatter.py`, `oclaw/prompts/loader.py`, `oclaw/openclaw_runtime/skills.py`
+
+- `AIA_SKILLS_PROMPT_IN_SYSTEM`
+  - 默认：`1`（开启；仅当技能运行时启用）
+  - 作用：是否在 system prompt 末尾附加 oclaw 风格的 `<available_skills>` 目录块（与原生 `tools` 并存）
+  - 说明：设为 `0` 可关闭以降低 token；Admin `AIA_SKILL_RUNTIME_ENABLED` 关闭时本块不生成
+  - 生效：`oclaw/openclaw_runtime/skills_prompt.py`, `oclaw/openclaw_runtime/direct_loop.py`
+
+- `AIA_SKILLS_PROMPT_MAX_CHARS`
+  - 默认：`18000`
+  - 作用：技能目录 XML 块最大字符数（超出则从列表尾部丢弃条目）
+  - 生效：`oclaw/openclaw_runtime/skills_prompt.py`
+
+- `AIA_SKILL_DISABLED_NAMES`
+  - 默认：空数组（`[]`）
+  - 作用：按技能名禁用模型可见/可执行技能（JSON 数组字符串，例如 `["skill_a","skill_b"]`）
+  - 说明：禁用后同时影响 manifest/prompt 渲染与 direct loop 工具暴露
+  - 生效：`oclaw/openclaw_runtime/skills.py`, `oclaw/openclaw_runtime/skills_prompt.py`, `oclaw/openclaw_runtime/skill_installer.py`
+
+- `AIA_SKILL_AUTO_INSTALL_ENABLED`
+  - 默认：`1`
+  - 作用：是否允许自动安装 skill（admin auto-install / retry-install(auto)）
+  - 说明：关闭后返回 `auto_install_disabled`，并标记为不可重试
+  - 生效：`oclaw/openclaw_runtime/skill_installer.py`, `oclaw/admin/skills_api.py`
+
+- `AIA_OPENCLAW_RETRYABLE_ERROR_CODES`
+  - 默认：`provider_timeout,provider_rate_limited,provider_temporary_error,provider_unavailable,context_overflow,tool_execution_failed`
+  - 作用：Agent Core run 外环的错误重试白名单（逗号分隔）
+  - 说明：仅当 attempt 返回 `status=retry` 且 `error_code` 命中该白名单时才进入下一次 attempt；未知 code 默认在 Admin 保存时会被过滤并告警
+  - 补充：`relay_envelope_invalid`、`relay_envelope_unsupported_version` 属于输入契约错误，运行时固定按 non-retryable 处理（即使被误加入白名单也不会进入重试链）
+  - 生效：`oclaw/openclaw_runtime/agent_core_run.py`
+
+- `AIA_OPENCLAW_ROUTER_MODE`
+  - 默认：`rule`
+  - 取值：`rule`（启发式）或 `llm_json`（由当前 executor 的 `model.chat` 产出 `{mode,reason}` JSON；解析失败则回落 `rule`）
+  - 说明：亦可通过同名环境变量覆盖；提示词见 `oclaw/prompts_openclaw/router/decide_route.md`
+  - 生效：`oclaw/openclaw_runtime/router.py`, `oclaw/openclaw_runtime/gateway.py`
+
+- oclaw trace 字段与 `event_type` ↔ `oc_stage` 对照见 `oclaw/docs/openclaw-trace-taxonomy.md`
+- Skill 安装错误码与重试建议、trace 排障路径见 `oclaw/docs/openclaw-skill-troubleshooting.md`
+- Relay 文件指针（含 ACP 父子 run）错误码与排障见 `oclaw/docs/openclaw-skill-troubleshooting.md` 的“Relay 文件指针排障”
+
+- `AIA_OPENCLAW_RETRY_CODES_STRICT_MODE`
+  - 默认：`0`
+  - 作用：控制 Admin 保存 `AIA_OPENCLAW_RETRYABLE_ERROR_CODES` 时的未知 code 行为
+  - 说明：`0`=过滤并告警；`1`=直接拒绝保存（HTTP 400）
+  - 生效：`oclaw/admin/routes.py`, `oclaw/admin/static/app.js`
+
+- `AIA_TOOL_ENFORCED_RETRY_MODE`
+  - 默认：`first_round_only`
+  - 作用：**Legacy（已断开）**：工具必需场景下的强制重试策略
+  - 生效：仅 legacy 链路（保留占位，暂不影响 oclaw）
+
+- `AIA_TOOL_LOOP_STATE_MACHINE`
+  - 默认：`1`
+  - 作用：**Legacy（已断开）**：工具循环状态机开关
+  - 生效：仅 legacy 链路（保留占位，暂不影响 oclaw）
+
+- `AIA_TOOL_SIGNATURE_BUDGET`
+  - 默认：`2`
+  - 作用：**Legacy（已断开）**：同签名工具调用预算
+  - 生效：仅 legacy 链路（保留占位，暂不影响 oclaw）
+
+- `AIA_OPENCLAW_ALLOW_LEGACY_FALLBACK`
+  - 默认：`0`（关闭）
+  - 作用：oclaw 执行失败时，是否允许回退到 legacy `executor.run_turn(...)`
+  - 说明：默认 fail-closed（不回退），避免无意中触发旧 manager/runner
+  - 生效：`oclaw/openclaw_runtime/gateway.py`, `oclaw/agents/specialist_agent.py`
+
+## LLM 传输与 replay（OpenAI 兼容）
+
+思路参考 oclaw（MIT）对 `openai-completions` 的 transcript 策略：在请求前修复/规范化 `tool_calls[].id` 与 `role=tool` 的 `tool_call_id`，减少网关 400（空 id、断链、非法字符）。
+
+- `AIA_REPLAY_POLICY_ENABLED`
+  - 默认：`1`（启用）
+  - 作用：是否启用发送前 replay 规范化（修复孤儿 tool 引用 + 重写 tool id）
+  - 生效：`oclaw/platform/llm/replay_policy.py`, `oclaw/platform/llm/chat_models.py`
+
+- `AIA_REPLAY_REPAIR_TOOL_PAIRING`
+  - 默认：`1`
+  - 作用：是否先剥离「assistant 中不存在的 tool_call_id」的 tool 消息上的 id（再执行 id 重写）
+  - 生效：`oclaw/platform/llm/replay_policy.py`
+
+- `AIA_TOOL_CALL_ID_MAX_LEN`
+  - 默认：`40`
+  - 作用：重写后的 tool_call_id 最大长度（适配多数 OpenAI 兼容网关）
+  - 生效：`oclaw/platform/llm/tool_call_id.py`
+
+- `AIA_PROMPT_TOOL_FALLBACK`
+  - 默认：`1`
+  - 作用：原生 tools 失败并进入 prompt-tool 降级时，是否向 system 注入 tools JSON；设为 `0` 则仅剥离 tool 结构、不注入工具清单
+  - 生效：`oclaw/platform/llm/chat_models.py`
+
+- `AIA_NATIVE_TOOLS_DENYLIST_HOSTS`
+  - 默认：空（无静态名单；另有进程内按错误动态记录的 `(host, model)` 缓存）
+  - 作用：可选的 host 子串黑名单，强制走 prompt-tool 模式
+  - 生效：`oclaw/platform/llm/chat_models.py`
+
+## 工具执行与安全
+
+- `AIA_DISABLE_TOOL_CONFIRM`
+  - 默认：`0`
+  - 作用：**Legacy（已断开）**：是否禁用高风险工具确认
+  - 说明：oclaw 工具执行已移除执行时确认策略；该变量保留以便后续接回 legacy
+  - 生效：仅 legacy 链路（保留占位）
+
+- `AIA_ENABLE_MCP_TOOLS`
+  - 默认：`1`
+  - 作用：启用 MCP 工具
+  - 生效：`oclaw/tools/catalog.py`
+
+- `AIA_ENABLE_PLUGIN_TOOLS`
+  - 默认：`0`
+  - 作用：启用插件工具
+  - 生效：`oclaw/tools/catalog.py`
+
+- `AIA_ENABLE_RUN_COMMAND`
+  - 默认：`0`
+  - 作用：允许高风险 `run_command` 工具
+  - 生效：`oclaw/tools/catalog.py`, `oclaw/tools/experts/workspace/shell_tools.py`
+
+- `AIA_TOOL_LLM_MESSAGE_MAX_CHARS`
+  - 默认：`0`（不限制）
+  - 作用：工具结果写回 LLM 的消息长度上限
+  - 说明：`0` 表示不做限制（不推荐，可能触发部分网关的单条消息上限 400）
+  - 生效：`oclaw/chat/tool_runtime.py`
+  - 观测：管理端聊天流 `tool_use_result` 事件会携带 `llm_wire.{truncated_for_llm,max_chars,result_bytes,result_for_llm_bytes,truncate_ms}`
+
+- `AIA_TOOL_LOG_MAX_CHARS`
+  - 默认：`200000`
+  - 作用：`tool_log` 中 args/result 截断上限
+  - 生效：`oclaw/platform/persistence/sqlite_store.py`
+
+## MCP 与工具线侧
+
+- `AIA_MCP_SPECIALISTS`
+  - 默认：`generalist`
+  - 作用：允许使用 MCP 的 specialist 列表
+  - 生效：`oclaw/tools/mcp/adapter.py`
+
+- `AIA_MCP_ENV_ALLOWLIST`
+  - 默认：内置 allowlist（Brave/Google/GitHub/Context7）
+  - 作用：MCP 子进程可透传环境变量白名单
+  - 生效：`oclaw/ops/mcp_env.py`
+
+- `AIA_MCP_FILESYSTEM_EXTRA_ROOTS`
+  - 默认：空
+  - 作用：追加给 filesystem MCP 的根目录
+  - 生效：`oclaw/tools/mcp/filesystem_argv.py`
+
+- `AIA_MCP_WIRE_USAGE_POLICY`
+  - 默认：空（按 base_url 继承）
+  - 作用：是否启用 MCP 工具线侧分层策略
+  - 生效：`oclaw/platform/llm/tool_wire_policy.py`
+
+- `AIA_MCP_WIRE_PENALTY_DISABLE`
+  - 默认：`0`
+  - 作用：禁用线侧陈旧惩罚
+  - 生效：`oclaw/platform/llm/tool_wire_policy.py`
+
+- `AIA_MCP_WIRE_TOP_N_FULL`
+  - 默认：`20`
+  - 作用：全量上送工具数量
+  - 生效：`oclaw/platform/llm/tool_wire_policy.py`
+
+- `AIA_MCP_WIRE_STALE_HOURS`
+  - 默认：`3`
+  - 作用：陈旧判定小时阈值
+  - 生效：`oclaw/platform/llm/tool_wire_policy.py`
+
+- `AIA_MCP_WIRE_PENALTY_MINUTES`
+  - 默认：`30`
+  - 作用：惩罚窗口分钟数
+  - 生效：`oclaw/platform/llm/tool_wire_policy.py`
+
+- `AIA_MCP_WIRE_MEDIUM_RANK_START`
+  - 默认：`21`
+  - 作用：中等层起始排名
+  - 生效：`oclaw/platform/llm/tool_wire_policy.py`
+
+- `AIA_MCP_WIRE_MEDIUM_RANK_END`
+  - 默认：`50`
+  - 作用：中等层结束排名
+  - 生效：`oclaw/platform/llm/tool_wire_policy.py`
+
+- `AIA_MCP_WIRE_MEDIUM_DESC_CHARS`
+  - 默认：`520`
+  - 作用：中等层描述截断长度
+  - 生效：`oclaw/platform/llm/tool_wire_policy.py`
+
+- `AIA_MCP_WIRE_MINIMAL_DESC_CAP`
+  - 默认：`80`
+  - 作用：最小层描述长度
+  - 生效：`oclaw/platform/llm/tool_wire_policy.py`
+
+## LLM 工具载荷与模型兼容
+
+- `AIA_OPENAI_TOOLS_MAX_JSON_CHARS`
+  - 默认：空（按代码内部策略）
+  - 作用：OpenAI tools payload JSON 上限
+  - 生效：`oclaw/platform/llm/chat_models.py`
+
+- `AIA_SHRINK_OPENAI_TOOLS`
+  - 默认：`0`
+  - 作用：强制启用 tools payload 压缩
+  - 生效：`oclaw/platform/llm/chat_models.py`
+
+- `AIA_SHRINK_OPENAI_TOOLS_MAX_JSON`
+  - 默认：`28000`
+  - 作用：压缩目标上限
+  - 生效：`oclaw/platform/llm/chat_models.py`
+
+- `AIA_GEMINI_OPENAI_NONSTREAM_TOOLS`
+  - 默认：`0`
+  - 作用：Gemini OpenAI 兼容下 tools 非流式开关
+  - 生效：`oclaw/platform/llm/chat_models.py`
+
+## 图像能力
+
+- `AIA_IMAGE_MODEL`
+  - 默认：空（走 profile/模型默认）
+  - 作用：图像模型
+  - 生效：`oclaw/platform/llm/image_message_client.py`, `oclaw/agents/specialist_agent.py`
+
+- `AIA_IMAGE_BASE_URL`
+  - 默认：`https://api.openai.com/v1`
+  - 作用：图像服务 base URL
+  - 生效：`oclaw/platform/llm/image_message_client.py`
+
+- `AIA_IMAGE_API_KEY`
+  - 默认：空
+  - 作用：图像 API Key
+  - 生效：`oclaw/platform/llm/image_message_client.py`
+
+- `AIA_IMAGE_CHAT_ENDPOINT`
+  - 默认：`/chat/completions`
+  - 作用：图像接口 endpoint
+  - 生效：`oclaw/platform/llm/image_message_client.py`
+
+- `AIA_IMAGE_RETRIES`
+  - 默认：`3`
+  - 作用：图像请求重试次数
+  - 生效：`oclaw/platform/llm/image_message_client.py`
+
+- `AIA_IMAGE_RETRY_BACKOFF_SEC`
+  - 默认：`0.8`
+  - 作用：图像请求重试退避秒数
+  - 生效：`oclaw/platform/llm/image_message_client.py`
+
+- `AIA_IMAGE_STATUS_RETRIES`
+  - 默认：`4`
+  - 作用：图像状态轮询重试次数
+  - 生效：`oclaw/platform/llm/image_message_client.py`
+
+- `AIA_IMAGE_STATUS_RETRY_BACKOFF_SEC`
+  - 默认：`5.0`
+  - 作用：图像状态轮询退避秒数
+  - 生效：`oclaw/platform/llm/image_message_client.py`
+
+## Memory / RAG
+
+- `AIA_RAG_MODE`
+  - 默认：`keyword`
+  - 作用：RAG 模式（`keyword`/`vector`）
+  - 生效：`oclaw/orchestration/memory.py`
+
+- `AIA_RAG_EMBEDDING_MODE`
+  - 默认：空（优先 OpenAI，失败回退 hash）
+  - 作用：embedding 模式（如 `hash`）
+  - 生效：`oclaw/platform/embeddings/embedding_client.py`
+
+- `AIA_MEMORY_EPISODIC_TTL_DAYS`
+  - 默认：`90`
+  - 作用：episodic memory 过期天数
+  - 生效：`oclaw/orchestration/memory.py`
+
+## 工作区路径策略
+
+- `AIA_WORKSPACE_ROOT`
+  - 默认：项目根
+  - 作用：工作区主根路径
+  - 生效：`oclaw/tools/experts/workspace/workspace_base.py`, `oclaw/indexing/workspace_indexer.py`
+
+- `AIA_WORKSPACE_EXTRA_ROOTS`
+  - 默认：空
+  - 作用：额外可访问根路径（`|` 分隔）
+  - 生效：`oclaw/tools/experts/workspace/workspace_base.py`, `oclaw/tools/mcp/filesystem_argv.py`
+
+- `AIA_WORKSPACE_ALLOW_ANY_PATH`
+  - 默认：`0`
+  - 作用：是否放开内置工具路径限制（高风险）
+  - 生效：`oclaw/tools/experts/workspace/workspace_base.py`
+
+## 网关与运行
+
+- `AIA_ASSISTANT_GATEWAY_HOST`
+  - 默认：`0.0.0.0`
+  - 作用：网关监听地址
+  - 生效：`oclaw/app_server/fastapi_main.py`, `oclaw/ops/main.py`
+
+- `AIA_ASSISTANT_GATEWAY_PORT`
+  - 默认：`8787`
+  - 作用：网关监听端口
+  - 生效：`oclaw/app_server/fastapi_main.py`, `oclaw/ops/main.py`
+
+- `AIA_RUNTIME_LOG_DIR`
+  - 默认：空（使用内部默认目录）
+  - 作用：运行日志目录
+  - 生效：`oclaw/ops/runtime.py`
+
+- `AIA_SSE_QUEUE_MAXSIZE`
+  - 默认：`2000`
+  - 作用：SSE 事件队列上限
+  - 生效：`oclaw/admin/chat_api.py`
+
+## WeCom 长连接
+
+- `AIA_WECOM_LONGCONN_WORKERS`
+  - 默认：`2`
+  - 作用：入站处理 worker 数
+  - 生效：`oclaw/channels/wecom/longconn_runner.py`
+
+- `AIA_WECOM_LONGCONN_INBOUND_QUEUE_MAXSIZE`
+  - 默认：`200`
+  - 作用：入站队列长度上限
+  - 生效：`oclaw/channels/wecom/longconn_runner.py`
+
+## 安全与密钥
+
+- `AIA_ASSISTANT_PASSWORD`
+  - 默认：空（必须配置）
+  - 作用：管理台管理员密码（bootstrap/login）
+  - 生效：`oclaw/platform/config/passwords.py`, `oclaw/admin/routes.py`
+
+- `AIA_ASSISTANT_MASTER_KEY`
+  - 默认：空
+  - 作用：密钥加密（Fernet）主密钥
+  - 生效：`oclaw/platform/persistence/sqlite_store.py`, `oclaw/admin/routes.py`
+
+## 存储与迁移
+
+- `AIA_ASSISTANT_DB_PATH`
+  - 默认：`data/ai_ops.sqlite`
+  - 作用：SQLite 路径
+  - 生效：`oclaw/platform/config/paths.py`
+
+- `AIA_ASSISTANT_PREMERGE_BACKUP_KEEP`
+  - 默认：`3`
+  - 作用：预迁移备份保留数量
+  - 生效：`oclaw/platform/config/paths.py`
+
+- `AIA_LEGACY_DB_FORCE_PREMERGE`
+  - 默认：`0`
+  - 作用：是否强制 legacy DB 覆盖（谨慎使用）
+  - 生效：`oclaw/platform/config/paths.py`

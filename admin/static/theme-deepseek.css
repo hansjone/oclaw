@@ -1,0 +1,775 @@
+/* DeepSeek-like dark theme when body.theme-ds-body is set (e.g. #/chat). */
+
+body.theme-ds-body {
+  --ds-bg: #0d0d0d;
+  /* 右侧对话主区：比侧栏/页面略深的黑 */
+  --ds-chat-main: #050505;
+  --ds-surface: #1a1a1c;
+  --ds-surface-2: #222224;
+  --ds-border: rgba(255, 255, 255, 0.08);
+  --ds-text: #e8e8e8;
+  --ds-text-muted: rgba(232, 232, 232, 0.55);
+  --ds-accent: #5eb3ff;
+  --ds-accent-soft: rgba(94, 179, 255, 0.18);
+  /* 左侧会话列表：贴近侧栏 #0d0d0d，选中仅略提亮 */
+  --chat-sess-hover-bg: rgba(255, 255, 255, 0.05);
+  --chat-sess-active-bg: rgba(255, 255, 255, 0.062);
+  --chat-sess-border: rgba(255, 255, 255, 0.09);
+  /* 用户消息气泡（微信式绿底深字） */
+  --chat-user-bubble-bg: #42b983;
+  --chat-user-bubble-fg: #111111;
+}
+
+body.theme-ds-body .layout .sidebar {
+  background: #161618;
+  border-right-color: var(--ds-border);
+}
+
+body.theme-ds-body .brand__title,
+body.theme-ds-body .nav__item {
+  color: var(--ds-text);
+}
+
+body.theme-ds-body .nav__item:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+body.theme-ds-body .nav__item--active {
+  background: var(--ds-accent-soft);
+  border: 1px solid rgba(94, 179, 255, 0.25);
+  color: var(--ds-text);
+}
+
+body.theme-ds-body .sidebar__footer {
+  border-top-color: var(--ds-border);
+}
+
+body.theme-ds-body .main {
+  background: var(--ds-bg);
+}
+
+body.theme-ds-body .topbar {
+  background: rgba(22, 22, 24, 0.92);
+  border-bottom-color: var(--ds-border);
+}
+
+body.theme-ds-body .topbar__title {
+  color: var(--ds-text);
+}
+
+body.theme-ds-body .content {
+  background: var(--ds-bg);
+  color: var(--ds-text);
+}
+
+body.theme-ds-body .muted {
+  color: var(--ds-text-muted);
+}
+
+body.theme-ds-body .btn {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: var(--ds-border);
+  color: var(--ds-text);
+}
+
+body.theme-ds-body .btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+body.theme-ds-body .btn--primary {
+  background: var(--ds-accent-soft);
+  border-color: rgba(94, 179, 255, 0.45);
+  color: var(--ds-text);
+}
+
+body.theme-ds-body .input {
+  background: var(--ds-surface-2);
+  border-color: var(--ds-border);
+  color: var(--ds-text);
+}
+
+body.theme-ds-body .card {
+  background: var(--ds-surface);
+  border-color: var(--ds-border);
+  color: var(--ds-text);
+}
+
+/* Chat layout（侧栏与主区融入背景：无外侧框、无列间距） */
+.chat-layout {
+  display: flex;
+  gap: 0;
+  flex: 1;
+  min-height: 0;
+}
+
+.chat-nav {
+  width: 252px;
+  flex-shrink: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border: none;
+  border-radius: 0;
+  background: var(--ds-bg);
+  overflow: hidden;
+}
+
+.chat-nav__top {
+  flex-shrink: 0;
+  display: block;
+  padding: 12px 0 6px;
+  border-bottom: none;
+}
+
+.chat-nav__toolbar {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: 0;
+  border-bottom: none;
+  margin-top: -14px;
+  position: relative;
+  z-index: 1;
+}
+
+.chat-nav__new {
+  margin: 0;
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 40px;
+  padding: 8px 0 8px 8px;
+  font-size: 13px;
+  font-family: inherit;
+  border-radius: 0;
+  border: none;
+  /* 与侧栏底一致，上移后与 logo 下沿重叠时盖住底边 */
+  background: var(--ds-bg);
+  color: inherit;
+  box-shadow: none;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 6px;
+  cursor: pointer;
+  text-align: left;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.chat-nav__new:hover {
+  background: var(--chat-sess-hover-bg, rgba(255, 255, 255, 0.06));
+}
+
+.chat-nav__newGlyph {
+  flex-shrink: 0;
+  position: relative;
+  display: inline-block;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background-color: rgba(255, 255, 255, 0.14);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.22);
+  transition: background-color 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.chat-nav__new:hover .chat-nav__newGlyph {
+  background-color: rgba(255, 255, 255, 0.22);
+  transform: scale(1.05);
+}
+
+.chat-nav__newGlyph::before,
+.chat-nav__newGlyph::after {
+  content: "";
+  position: absolute;
+  background-color: #fff;
+  border-radius: 2px;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+}
+
+.chat-nav__newGlyph::before {
+  width: 14px;
+  height: 2px;
+}
+
+.chat-nav__newGlyph::after {
+  width: 2px;
+  height: 14px;
+}
+
+.chat-nav__newLabel,
+.chat-nav__newText {
+  font-size: 13px;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.chat-nav__brand {
+  flex: 1;
+  min-width: 0;
+  font-family: "Outfit", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-weight: 600;
+  font-size: 1.125rem;
+  letter-spacing: 0.02em;
+  line-height: 1.25;
+}
+
+.chat-nav__brandWrap {
+  width: 100%;
+  max-width: 180px;
+  height: 44px;
+  overflow: hidden;
+  border-radius: 0;
+}
+
+.chat-nav__brandLogo {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  /* 负水平偏移：在 cover 裁切下再向左露出一点画面 */
+  object-position: -10px center;
+}
+
+
+.chat-nav__scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 0 0 6px;
+}
+
+.chat-sessions__list {
+  padding: 0;
+}
+
+.chat-nav__footer {
+  flex-shrink: 0;
+  border-top: none;
+  padding: 10px 0 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: transparent;
+}
+
+.chat-nav__user {
+  min-height: 0;
+}
+
+.chat-nav__user-name {
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.35;
+  word-break: break-word;
+}
+
+.chat-nav__user-role {
+  font-size: 11px;
+  margin-top: 2px;
+  line-height: 1.3;
+}
+
+.chat-nav__link {
+  display: inline-block;
+  font-size: 13px;
+  color: rgba(94, 179, 255, 0.95);
+  text-decoration: none;
+}
+
+.chat-nav__link:hover {
+  text-decoration: underline;
+}
+
+.chat-nav__footer-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.chat-sess-btn {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 10px 0 10px 8px;
+  margin-bottom: 0;
+  border-radius: 0;
+  border: 1px solid transparent;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.chat-sess-btn:hover {
+  background: transparent;
+}
+
+.chat-sess-row {
+  border: 1px solid transparent;
+  border-radius: 0;
+}
+
+.chat-sess-row:hover {
+  background: var(--chat-sess-hover-bg, rgba(255, 255, 255, 0.06));
+  border-color: var(--chat-sess-border, rgba(255, 255, 255, 0.12));
+}
+
+.chat-sess-row--active {
+  background: var(--chat-sess-active-bg, rgba(255, 255, 255, 0.062));
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+.chat-sess-row--active .chat-sess-btn {
+  color: var(--ds-text, #e8e8e8);
+}
+
+.chat-sess-row .chat-sess-more {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.chat-sess-row:hover .chat-sess-more,
+.chat-sess-row:focus-within .chat-sess-more {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.chat-sess-row .chat-sess-more--active {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.chat-main {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border: none;
+  border-radius: 0;
+  background: var(--ds-chat-main, #050505);
+  overflow: hidden;
+}
+
+.chat-messages {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* 滚动条：管理台等仍用隐藏式；独立 /chat 页见文件末尾 body.chat-standalone-page */
+.chat-msg__reasoning-pre,
+.chat-pending-files,
+.table-wrap,
+.session-monitor-modal__card {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+
+.chat-msg__reasoning-pre:hover,
+.chat-pending-files:hover,
+.table-wrap:hover,
+.session-monitor-modal__card:hover {
+  scrollbar-color: rgba(94, 179, 255, 0.45) rgba(255, 255, 255, 0.06);
+}
+
+.chat-msg__reasoning-pre::-webkit-scrollbar,
+.chat-pending-files::-webkit-scrollbar,
+.table-wrap::-webkit-scrollbar,
+.session-monitor-modal__card::-webkit-scrollbar {
+  width: 0px;
+  height: 0px;
+}
+
+.chat-msg__reasoning-pre:hover::-webkit-scrollbar,
+.chat-pending-files:hover::-webkit-scrollbar,
+.table-wrap:hover::-webkit-scrollbar,
+.session-monitor-modal__card:hover::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.chat-msg__reasoning-pre::-webkit-scrollbar-track,
+.chat-pending-files::-webkit-scrollbar-track,
+.table-wrap::-webkit-scrollbar-track,
+.session-monitor-modal__card::-webkit-scrollbar-track {
+  background: transparent;
+  border-radius: 999px;
+}
+
+.chat-msg__reasoning-pre::-webkit-scrollbar-thumb,
+.chat-pending-files::-webkit-scrollbar-thumb,
+.table-wrap::-webkit-scrollbar-thumb,
+.session-monitor-modal__card::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 999px;
+}
+
+.chat-msg__reasoning-pre:hover::-webkit-scrollbar-track,
+.chat-pending-files:hover::-webkit-scrollbar-track,
+.table-wrap:hover::-webkit-scrollbar-track,
+.session-monitor-modal__card:hover::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.chat-msg__reasoning-pre:hover::-webkit-scrollbar-thumb,
+.chat-pending-files:hover::-webkit-scrollbar-thumb,
+.table-wrap:hover::-webkit-scrollbar-thumb,
+.session-monitor-modal__card:hover::-webkit-scrollbar-thumb {
+  background: rgba(94, 179, 255, 0.45);
+}
+
+.chat-msg__reasoning-pre::-webkit-scrollbar-thumb:hover,
+.chat-pending-files::-webkit-scrollbar-thumb:hover,
+.table-wrap::-webkit-scrollbar-thumb:hover,
+.session-monitor-modal__card::-webkit-scrollbar-thumb:hover {
+  background: rgba(94, 179, 255, 0.65);
+}
+
+.chat-msg {
+  max-width: 92%;
+  padding: 6px 12px;
+  border-radius: 12px;
+  font-size: 14px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.chat-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.chat-row--assistant {
+  justify-content: flex-start;
+}
+
+.chat-row--user {
+  justify-content: flex-end;
+}
+
+/* 对话区宽度：用户消息不超过中线（右半区减头像轨）；助手消息可越过中线约 2cm。50% 相对 .chat-messages 内一行宽度。 */
+.chat-msg-col {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+}
+
+/* 与 .chat-avatar-slot 48px + .chat-row gap 10px 一致 */
+.chat-msg-col--assistant {
+  max-width: min(max(0px, calc(50% + 2cm - 58px)), 100%);
+}
+
+.chat-msg-col--user {
+  align-items: flex-end;
+  max-width: min(max(0px, calc(50% - 58px)), 100%);
+}
+
+.chat-msg-col .chat-msg {
+  max-width: 100%;
+}
+
+.chat-msg-col--user .chat-msg--user {
+  align-self: flex-end;
+}
+
+.chat-avatar-slot {
+  flex: 0 0 48px;
+  width: 48px;
+  height: 48px;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border-radius: 999px;
+}
+
+.chat-avatar {
+  display: block;
+  width: 48px;
+  height: 48px;
+  max-width: 100%;
+  max-height: 100%;
+  min-width: 0;
+  min-height: 0;
+  border-radius: 999px;
+  object-fit: cover;
+  flex-shrink: 0;
+  box-sizing: border-box;
+}
+
+/* 与助手侧 oliver.svg 一致：浅底 + 内边距，矢量用 contain（避免大 viewBox 在 flex 下撑开一行） */
+.chat-avatar--bot {
+  background: rgba(255, 255, 255, 0.08);
+  padding: 5px;
+  object-fit: contain;
+}
+
+.chat-avatar--userBuiltin {
+  background: rgba(255, 255, 255, 0.08);
+  padding: 5px;
+  object-fit: contain;
+}
+
+.chat-avatar--userPhoto {
+  object-fit: cover;
+  padding: 0;
+  background: transparent;
+}
+
+.chat-row--meta {
+  padding-left: 58px;
+  max-width: min(calc(50% + 2cm), 100%);
+  box-sizing: border-box;
+}
+
+.chat-msg__time {
+  font-size: 11px;
+  line-height: 1.3;
+  color: var(--ds-text-muted, rgba(232, 232, 232, 0.5));
+  margin-bottom: 6px;
+  white-space: nowrap;
+  user-select: none;
+}
+
+.chat-msg--user {
+  align-self: flex-end;
+  background: var(--chat-user-bubble-bg, #42b983);
+  color: var(--chat-user-bubble-fg, #111);
+  border: 1px solid rgba(0, 0, 0, 0.12);
+}
+
+.chat-msg--user .chat-msg__md,
+.chat-msg--user .chat-msg__plain {
+  color: inherit;
+}
+
+.chat-msg--user .chat-msg__md a {
+  color: #0b4d8c;
+}
+
+.chat-msg--user .chat-msg__md pre,
+.chat-msg--user .chat-msg__md code {
+  background: rgba(0, 0, 0, 0.12);
+  color: #111;
+  border-color: rgba(0, 0, 0, 0.12);
+}
+
+.chat-msg--assistant {
+  align-self: flex-start;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--ds-border, rgba(255, 255, 255, 0.08));
+}
+
+.chat-msg--tool {
+  align-self: flex-start;
+  font-family: ui-monospace, monospace;
+  font-size: 12px;
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px dashed rgba(255, 255, 255, 0.12);
+}
+
+/* In-dialog progress (e.g. Core: analyzing request…) during stream; not the footer status line */
+.chat-msg--thinking {
+  align-self: flex-start;
+  max-width: 95%;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--ds-text-muted, rgba(232, 232, 232, 0.72));
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px dashed rgba(255, 255, 255, 0.14);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.chat-task-stage {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 8px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.03);
+  cursor: default;
+}
+
+.chat-task-stage__toggle {
+  margin-left: auto;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--ds-text-muted, rgba(232, 232, 232, 0.72));
+  border-radius: 8px;
+  padding: 1px 6px;
+  line-height: 1.2;
+  cursor: pointer;
+}
+
+.chat-task-stage__toggle:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+/* Fold model reasoning blocks in assistant bubbles (same rules as Streamlit messages.py). */
+.chat-msg--rich {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  white-space: normal;
+}
+
+.chat-msg__text {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.chat-msg__reasoning {
+  align-self: stretch;
+  margin: 4px 0 2px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.03);
+  padding: 4px 10px 6px;
+}
+
+.chat-msg__reasoning:not([open]) {
+  padding-bottom: 2px;
+}
+
+.chat-msg__reasoning > summary {
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--ds-text-muted, rgba(232, 232, 232, 0.7));
+  padding: 2px 2px 4px;
+  user-select: none;
+  list-style-position: outside;
+}
+
+.chat-msg__reasoning[open] > summary {
+  color: var(--ds-text, #e8e8e8);
+  margin-bottom: 6px;
+}
+
+.chat-msg__reasoning-pre {
+  margin: 0;
+  padding: 8px 10px;
+  max-height: 260px;
+  overflow: auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.chat-msg__reasoning-block {
+  margin-bottom: 8px;
+}
+
+.chat-msg__timeline-logs {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 6px 0 2px;
+}
+
+.chat-msg__timeline-detail {
+  margin-top: 0;
+}
+
+.chat-msg__process-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.chat-msg__process-summary::-webkit-details-marker {
+  display: none;
+}
+
+.chat-msg__process-summary::marker {
+  content: "";
+}
+
+.chat-msg__process-status {
+  color: var(--ds-text-muted, rgba(232, 232, 232, 0.78));
+}
+
+.chat-msg__process-caret {
+  color: rgba(232, 232, 232, 0.6);
+  font-size: 12px;
+  line-height: 1;
+}
+
+.chat-msg__reasoning-title {
+  font-size: 11px;
+  opacity: 0.78;
+  margin-bottom: 4px;
+}
+
+.chat-composer {
+  flex-shrink: 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  padding: 10px 12px 12px;
+}
+
+.chat-composer textarea {
+  font-family: inherit;
+  font-size: 14px;
+}
+
+.chat-status {
+  padding: 6px 12px;
+  font-size: 12px;
+  color: var(--ds-text-muted, rgba(232, 232, 232, 0.55));
+}
+
+/* 独立 /chat：左侧会话列表不显示滚动条（仍可滚轮滚动），右侧消息区灰滚动条 */
+body.chat-standalone-page .chat-nav__scroll {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+body.chat-standalone-page .chat-nav__scroll::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+body.chat-standalone-page .chat-messages {
+  scrollbar-width: thin;
+  scrollbar-color: #7a7a7a #2e2e2e;
+}
+
+body.chat-standalone-page .chat-messages::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+body.chat-standalone-page .chat-messages::-webkit-scrollbar-track {
+  background: #2e2e2e;
+}
+
+body.chat-standalone-page .chat-messages::-webkit-scrollbar-thumb {
+  background: #7a7a7a;
+  border-radius: 0;
+}
+
+body.chat-standalone-page .chat-messages::-webkit-scrollbar-thumb:hover {
+  background: #909090;
+}

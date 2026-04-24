@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "oclaw://schemas/sessions.json",
+  "title": "SessionsParams",
+  "$defs": {
+    "NonEmptyString": { "type": "string", "minLength": 1 },
+    "SessionsListParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "limit": { "type": "integer", "minimum": 1 },
+        "search": { "type": "string" }
+      }
+    },
+    "SessionsGetParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key"],
+      "properties": { "key": { "$ref": "#/$defs/NonEmptyString" } }
+    },
+    "SessionsSendParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key", "message"],
+      "properties": {
+        "key": { "$ref": "#/$defs/NonEmptyString" },
+        "message": { "type": "string" },
+        "thinking": { "type": "string" },
+        "attachments": { "type": "array", "items": {} },
+        "timeoutMs": { "type": "integer", "minimum": 0 },
+        "idempotencyKey": { "$ref": "#/$defs/NonEmptyString" },
+        "interaction_mode": { "$ref": "#/$defs/NonEmptyString" },
+        "specialist": { "$ref": "#/$defs/NonEmptyString" }
+      }
+    }
+  }
+}
+

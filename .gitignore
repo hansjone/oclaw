@@ -1,0 +1,74 @@
+.venv/
+build/
+dist/
+*.spec
+__pycache__/
+*.pyc
+.pytest_cache/
+oclaw/scripts/.run/
+oclaw/.venv/
+.venv/
+.mypy_cache/
+data/*.sqlite
+data/*.sqlite-journal
+data/*.sqlite-shm
+data/*.sqlite-wal
+data/attachments/
+oclaw/data/attachments/
+oclaw/data/*.sqlite
+oclaw/data/*.sqlite-journal
+oclaw/data/*.sqlite-shm
+oclaw/data/*.sqlite-wal
+oclaw/data/logs/
+oclaw/data/locks/
+oclaw/data/ops_runtime_state.json
+oclaw/data/mcp_local.env
+oclaw/data/google_oauth_client.json
+oclaw/data/_pre_merge_sqlite_*/
+data/logs/
+data/locks/
+data/ops_runtime_state.json
+data/mcp_local.env
+data/google_oauth_client.json
+data/_pre_merge_sqlite_*/
+# oclaw 子仓库运行态目录（勿提交）
+_local/
+_local/*.env
+_local/*.json
+_local/*.txt
+data/channel_sidecar/
+data/**/node_modules/
+data/**/*.log
+data/**/*.err.log
+platform/data/
+scripts/.run/
+desktop/node_modules/
+desktop/dist/
+desktop/runtime-data/
+# 本地密钥（随仓库目录迁移时记得复制此文件；勿提交）
+src/_local/google_oauth_client.json
+src/_local/mcp_local.env
+# MCP admin export / 安装后自动备份（可重装 JSON，本机 path 与列表可能不同）
+src/_local/mcp_registry_migrated.json
+src/platform/data/*.sqlite
+src/platform/data/*.sqlite-journal
+src/platform/data/*.sqlite-shm
+src/platform/data/*.sqlite-wal
+src/platform/data/logs/
+src/platform/data/locks/
+src/platform/data/ops_runtime_state.json
+# 历史 Vite 前端已移除；若本地仍有残留目录可忽略或手动删除
+web/
+
+# 根目录临时调试日志（勿提交）
+debug-*.log
+.playwright-mcp/
+
+# Python 安装/扩展缓存（非本应用源码）
+Python/_cache/
+oclaw/desktop/node_modules/
+oclaw/desktop/dist/
+oclaw/desktop/runtime-data/
+oclaw/desktop/assets/oclaw.ico
+vendor/openclaw-main.zip
+vendor/openclaw/

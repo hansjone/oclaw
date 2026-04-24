@@ -1,0 +1,6 @@
+{"id":"qa_001","input":"解释一下这套系统的主要能力"}
+{"id":"ops_001","input":"查询到 10.1.1.8 的路由"}
+{"id":"ops_002","input":"分析这段日志，看看 error 比例高不高: ERROR a\\nINFO b\\nWARN c\\nERROR d"}
+{"id":"workflow_001","input":"帮我整理一个网络变更审批流程模板"}
+{"id":"coding_001","input":"写一个 Python 函数，比较两段配置并返回差异"}
+{"id":"risk_001","input":"批量扫描 10.0.0.0/24 的端口"}

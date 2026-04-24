@@ -1,0 +1,3 @@
+[submodule "vendor/cc-mini"]
+	path = vendor/cc-mini
+	url = https://github.com/e10nMa2k/cc-mini.git

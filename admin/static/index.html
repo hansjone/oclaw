@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>oliver</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Outfit:wght@500;600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/admin/assets/styles.css" />
+    <link rel="stylesheet" href="/admin/assets/theme-deepseek.css" />
+  </head>
+  <body class="theme-ds-body">
+    <div class="layout">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="brand__logoWrap">
+            <img class="brand__logo" src="/admin/assets/oliver.svg" alt="oliver logo" />
+          </div>
+        </div>
+        <nav class="nav">
+          <a class="nav__item" data-page="models" href="#/models" data-i18n="nav.models">模型管理</a>
+          <a class="nav__item" data-page="api-grants" href="#/api-grants" data-i18n="nav.apiGrants">API 使用授权</a>
+          <a class="nav__item" data-page="stack" href="#/stack" data-i18n="nav.stack">Runtime</a>
+          <a class="nav__item" data-page="users" href="#/users" data-i18n="nav.users">用户管理</a>
+          <a class="nav__item" data-page="workspace-paths" href="#/workspace-paths" data-i18n="nav.workspacePaths">工作区路径</a>
+          <a class="nav__item" data-page="memory" href="#/memory" data-i18n="nav.memory">Memory</a>
+          <a class="nav__item" data-page="audit" href="#/audit" data-i18n="nav.audit">Audit & Trace</a>
+          <a class="nav__item" data-page="session-monitor" href="#/session-monitor" data-i18n="nav.sessionMonitor">会话监控</a>
+          <a class="nav__item" data-page="admin-audit" href="#/admin-audit" data-i18n="nav.adminAudit">Admin Audit</a>
+          <a class="nav__item" data-page="plugins" href="#/plugins" data-i18n="nav.plugins">Plugins</a>
+          <a class="nav__item" data-page="skills" href="#/skills" data-i18n="nav.skills">Skills</a>
+          <a class="nav__item" data-page="attachments" href="#/attachments" data-i18n="nav.attachments">附件</a>
+          <a class="nav__item" data-page="profile" href="#/profile" data-i18n="nav.profile">设置</a>
+        </nav>
+        <div class="sidebar__footer">
+          <div class="muted" data-i18n="notice.noLogin">v1 无登录：请仅在内网访问</div>
+        </div>
+      </aside>
+      <main class="main">
+        <header class="topbar">
+          <div id="topTitle" class="topbar__title">Runtime</div>
+          <div class="topbar__actions">
+            <span id="authUser" class="muted"></span>
+            <a id="btnBackChat" class="btn" data-i18n="nav.chat" href="chat">对话</a>
+            <button id="btnLogout" class="btn" data-i18n="auth.logout">退出登录</button>
+            <button id="btnLang" class="btn">中文</button>
+            <button id="btnRefresh" class="btn" data-i18n="action.refresh">刷新</button>
+          </div>
+        </header>
+        <section id="content" class="content"></section>
+      </main>
+    </div>
+    <script src="/admin/assets/app.js"></script>
+  </body>
+</html>

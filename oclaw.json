@@ -1,0 +1,57 @@
+{
+  "plugins": {
+    "enabled": ["memory-wiki"],
+    "slots": {
+      "memory": "memory-wiki"
+    },
+    "entries": {
+      "memory-wiki": {
+        "wiki_root": "oclaw/docs/memory-system/wiki",
+        "max_search_results": 20,
+        "max_get_lines": 800,
+        "auto": {
+          "enabled": true,
+          "attachments": {
+            "tabular": {
+              "max_rows_read": 5000,
+              "max_columns": 200,
+              "max_cell_chars": 500,
+              "max_excel_sheets": 50,
+              "large_table_preview_rows": 20,
+              "tool_mode_enabled": true,
+              "tool_mode_min_rows": 20000,
+              "tool_mode_max_bytes": 31457280
+            }
+          },
+          "inject": {
+            "max_chars": 1800,
+            "top_k": 6,
+            "ultra_saver_enabled": true,
+            "min_query_chars": 20,
+            "require_topic_hint": true
+          },
+          "worker": {
+            "enabled": true
+          },
+          "topic_routing": {
+            "rules": [
+              {
+                "topic": "network",
+                "keywords": ["vlan", "router", "switch", "network", "dns", "gateway"]
+              },
+              {
+                "topic": "devops",
+                "keywords": ["deploy", "k8s", "kubernetes", "docker", "ci", "ops"]
+              },
+              {
+                "topic": "engineering",
+                "keywords": ["bug", "fix", "todo", "feature", "refactor", "test"]
+              }
+            ]
+          }
+        }
+      }
+    }
+  }
+}
+

@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "oclaw://schemas/hello_ok.json",
+  "title": "HelloOk",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["type", "protocol", "server", "features", "snapshot", "policy"],
+  "properties": {
+    "type": { "const": "hello-ok" },
+    "protocol": { "type": "integer", "minimum": 1 },
+    "server": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["version", "connId"],
+      "properties": {
+        "version": { "type": "string", "minLength": 1 },
+        "connId": { "type": "string", "minLength": 1 }
+      }
+    },
+    "features": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["methods", "events"],
+      "properties": {
+        "methods": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "events": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+      }
+    },
+    "snapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["presence", "health", "stateVersion", "uptimeMs"],
+      "properties": {
+        "presence": { "type": "array", "items": { "type": "object" } },
+        "health": {},
+        "stateVersion": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["presence", "health"],
+          "properties": {
+            "presence": { "type": "integer", "minimum": 0 },
+            "health": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "uptimeMs": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["maxPayload", "maxBufferedBytes", "tickIntervalMs"],
+      "properties": {
+        "maxPayload": { "type": "integer", "minimum": 1 },
+        "maxBufferedBytes": { "type": "integer", "minimum": 1 },
+        "tickIntervalMs": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "canvasHostUrl": { "type": "string", "minLength": 1 },
+    "auth": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["role", "scopes"],
+      "properties": {
+        "deviceToken": { "type": "string", "minLength": 1 },
+        "role": { "type": "string", "minLength": 1 },
+        "scopes": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "issuedAtMs": { "type": "integer", "minimum": 0 },
+        "deviceTokens": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["deviceToken", "role", "scopes", "issuedAtMs"],
+            "properties": {
+              "deviceToken": { "type": "string", "minLength": 1 },
+              "role": { "type": "string", "minLength": 1 },
+              "scopes": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+              "issuedAtMs": { "type": "integer", "minimum": 0 }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+

@@ -1,0 +1,58 @@
+{
+  "name": "oclaw",
+  "version": "1.0.0",
+  "description": "oclaw desktop shell for admin/chat UI",
+  "main": "main.js",
+  "scripts": {
+    "dev": "electron .",
+    "start": "electron .",
+    "prepare:icon": "node ./tools/generate-icon.cjs",
+    "pack:dir": "npm run prepare:icon && electron-builder --dir -c.win.signAndEditExecutable=false",
+    "pack:win": "npm run prepare:icon && electron-builder --win nsis -c.win.signAndEditExecutable=false"
+  },
+  "keywords": [
+    "electron",
+    "desktop",
+    "oclaw"
+  ],
+  "author": "",
+  "license": "MIT",
+  "type": "commonjs",
+  "devDependencies": {
+    "@resvg/resvg-js": "^2.6.2",
+    "electron": "^41.2.1",
+    "electron-builder": "^26.8.1",
+    "png-to-ico": "^3.0.1"
+  },
+  "build": {
+    "appId": "com.oclaw.desktop",
+    "productName": "oclaw",
+    "artifactName": "oclaw-${version}-${arch}.${ext}",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "**/*",
+      "!dist/**",
+      "!node_modules/.cache/**"
+    ],
+    "win": {
+      "icon": "assets/oclaw.ico",
+      "executableName": "oclaw",
+      "signAndEditExecutable": false,
+      "target": [
+        "nsis"
+      ]
+    },
+    "nsis": {
+      "artifactName": "oclaw-setup-${version}.${ext}",
+      "menuCategory": "oclaw",
+      "shortcutName": "oclaw",
+      "createDesktopShortcut": "always",
+      "createStartMenuShortcut": true,
+      "uninstallDisplayName": "oclaw",
+      "installerIcon": "assets/oclaw.ico",
+      "uninstallerIcon": "assets/oclaw.ico"
+    }
+  }
+}

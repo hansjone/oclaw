@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "oclaw://schemas/frames.json",
+  "title": "GatewayFrame",
+  "type": "object",
+  "oneOf": [
+    { "$ref": "#/$defs/RequestFrame" },
+    { "$ref": "#/$defs/ResponseFrame" },
+    { "$ref": "#/$defs/EventFrame" }
+  ],
+  "$defs": {
+    "NonEmptyString": { "type": "string", "minLength": 1 },
+    "ErrorShape": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "message"],
+      "properties": {
+        "code": { "$ref": "#/$defs/NonEmptyString" },
+        "message": { "$ref": "#/$defs/NonEmptyString" },
+        "details": {},
+        "retryable": { "type": "boolean" },
+        "retryAfterMs": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "RequestFrame": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "id", "method"],
+      "properties": {
+        "type": { "const": "req" },
+        "id": { "$ref": "#/$defs/NonEmptyString" },
+        "method": { "$ref": "#/$defs/NonEmptyString" },
+        "params": {}
+      }
+    },
+    "ResponseFrame": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "id", "ok"],
+      "properties": {
+        "type": { "const": "res" },
+        "id": { "$ref": "#/$defs/NonEmptyString" },
+        "ok": { "type": "boolean" },
+        "payload": {},
+        "error": { "$ref": "#/$defs/ErrorShape" }
+      }
+    },
+    "EventFrame": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "event"],
+      "properties": {
+        "type": { "const": "event" },
+        "event": { "$ref": "#/$defs/NonEmptyString" },
+        "payload": {},
+        "seq": { "type": "integer", "minimum": 0 },
+        "stateVersion": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["presence", "health"],
+          "properties": {
+            "presence": { "type": "integer", "minimum": 0 },
+            "health": { "type": "integer", "minimum": 0 }
+          }
+        }
+      }
+    }
+  }
+}
+

@@ -1,0 +1,2 @@
+"""Detached wiki worker runtime."""
+
