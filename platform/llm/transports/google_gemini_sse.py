@@ -10,7 +10,7 @@ from oclaw.platform.llm.transports.base import ChatModel, LLMResponse, LLMToolCa
 
 
 class GoogleGeminiChatModel(ChatModel):
-    """Native Google Gemini streaming transport (SSE), modeled after OpenClaw's google transport."""
+    """Native Google Gemini streaming transport (SSE), modeled after Oclaw's google transport."""
 
     def __init__(self, *, model: str, api_key: str, base_url: str | None = None):
         self.model = (model or "").strip() or "gemini-2.5-pro"
@@ -34,7 +34,7 @@ class GoogleGeminiChatModel(ChatModel):
                 {
                     "name": name,
                     "description": str(fn.get("description") or ""),
-                    # OpenClaw uses `parametersJsonSchema`
+                    # Oclaw uses `parametersJsonSchema`
                     "parametersJsonSchema": fn.get("parameters") if isinstance(fn.get("parameters"), dict) else {"type": "object"},
                 }
             )
@@ -122,7 +122,7 @@ class GoogleGeminiChatModel(ChatModel):
         model_path = self.model
         if not model_path.startswith("models/") and not model_path.startswith("tunedModels/"):
             model_path = f"models/{model_path}"
-        # Prefer header auth (OpenClaw-style); avoid forcing key into query string.
+        # Prefer header auth (Oclaw-style); avoid forcing key into query string.
         return f"{base}/{model_path}:streamGenerateContent?alt=sse"
 
     @staticmethod

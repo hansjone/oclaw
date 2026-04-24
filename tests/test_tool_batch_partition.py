@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from oclaw.chat.tool_runtime import partition_tool_use_batches
+from oclaw.runtime.chat.tool_runtime import partition_tool_use_batches
 from oclaw.platform.llm.chat_models import LLMToolCall
-from oclaw.tools.base import ToolRegistry, ToolSpec
+from oclaw.runtime.tools.base import ToolRegistry, ToolSpec
 
 
 def _spec(name: str, *, read_only: bool) -> ToolSpec:

@@ -1,6 +1,6 @@
 # LLM provider/transport capability matrix (oclaw)
 
-This project follows an **OpenClaw-style explicit provider/transport selection**:
+This project follows an **Oclaw-style explicit provider/transport selection**:
 
 - You select the transport via **LLM profile `mode`** (not by inferring from `base_url`).
 - `base_url` can be the same unified gateway URL for all providers; the `mode` determines the wire protocol.
@@ -12,7 +12,7 @@ This project follows an **OpenClaw-style explicit provider/transport selection**
 - **`base_url`**: gateway host URL (may be shared across providers)
 - **`api_key`** (profile secret): primary credential source (reused across modes)
 
-Transport selection happens in `oclaw/agents/factory.py`.
+Transport selection happens in `oclaw/runtime/agents/factory.py`.
 
 ## Modes and transports
 
@@ -73,7 +73,7 @@ All transports stream assistant output through the same internal callback:
 For additional providers, follow this pattern:
 
 1. Add a new transport class under `oclaw/platform/llm/transports/`
-2. Extend `mode` selection in `oclaw/agents/factory.py`
+2. Extend `mode` selection in `oclaw/runtime/agents/factory.py`
 3. Add an **offline stream parser test** under `tests/`
 4. Add/verify WS contract tests (delta + final + session.tool)
 

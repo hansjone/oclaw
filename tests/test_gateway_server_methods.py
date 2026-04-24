@@ -2,36 +2,36 @@ from __future__ import annotations
 
 from typing import Any
 
-from oclaw.gateway.server_methods.agent import agent_handlers
-from oclaw.gateway.server_methods.agents import agents_handlers
-from oclaw.gateway.server_methods.chat import chat_handlers
-from oclaw.gateway.server_methods.send import send_handlers
-from oclaw.gateway.server_methods.image import image_handlers
-from oclaw.gateway.server_methods.skills import skills_handlers
-from oclaw.gateway.server_methods.system import system_handlers
-from oclaw.gateway.server_methods.cron import cron_handlers
-from oclaw.gateway.server_methods.devices import device_handlers
-from oclaw.gateway.server_methods.models import models_handlers
-from oclaw.gateway.server_methods.models_auth_status import (
+from oclaw.interfaces.gateway.server_methods.agent import agent_handlers
+from oclaw.interfaces.gateway.server_methods.agents import agents_handlers
+from oclaw.interfaces.gateway.server_methods.chat import chat_handlers
+from oclaw.interfaces.gateway.server_methods.send import send_handlers
+from oclaw.interfaces.gateway.server_methods.image import image_handlers
+from oclaw.interfaces.gateway.server_methods.skills import skills_handlers
+from oclaw.interfaces.gateway.server_methods.system import system_handlers
+from oclaw.interfaces.gateway.server_methods.cron import cron_handlers
+from oclaw.interfaces.gateway.server_methods.devices import device_handlers
+from oclaw.interfaces.gateway.server_methods.models import models_handlers
+from oclaw.interfaces.gateway.server_methods.models_auth_status import (
     invalidate_model_auth_status_cache,
     models_auth_status_handlers,
 )
-from oclaw.gateway.server_methods.push import push_handlers
-from oclaw.gateway.server_methods.channels import channels_handlers
-from oclaw.gateway.server_methods.update import update_handlers
-from oclaw.gateway.server_methods.voicewake import voicewake_handlers
-from oclaw.gateway.server_methods.wizard import wizard_handlers
-from oclaw.gateway.server_methods.tts import tts_handlers
-from oclaw.gateway.server_methods.web import web_handlers
-from oclaw.gateway.server_methods.tools_catalog import tools_catalog_handlers
-from oclaw.gateway.server_methods.tools_effective import tools_effective_handlers
-from oclaw.gateway.server_methods.talk import talk_handlers
-from oclaw.gateway.server_methods.usage import usage_handlers
-from oclaw.gateway.server_methods.exec_approvals import exec_approvals_handlers
-from oclaw.gateway.server_methods.nodes_pending import node_pending_handlers
-from oclaw.gateway.server_methods.nodes import node_handlers
-from oclaw.gateway.server_methods.sessions import sessions_handlers
-from oclaw.gateway.server_methods.doctor import doctor_handlers
+from oclaw.interfaces.gateway.server_methods.push import push_handlers
+from oclaw.interfaces.gateway.server_methods.channels import channels_handlers
+from oclaw.interfaces.gateway.server_methods.update import update_handlers
+from oclaw.interfaces.gateway.server_methods.voicewake import voicewake_handlers
+from oclaw.interfaces.gateway.server_methods.wizard import wizard_handlers
+from oclaw.interfaces.gateway.server_methods.tts import tts_handlers
+from oclaw.interfaces.gateway.server_methods.web import web_handlers
+from oclaw.interfaces.gateway.server_methods.tools_catalog import tools_catalog_handlers
+from oclaw.interfaces.gateway.server_methods.tools_effective import tools_effective_handlers
+from oclaw.interfaces.gateway.server_methods.talk import talk_handlers
+from oclaw.interfaces.gateway.server_methods.usage import usage_handlers
+from oclaw.interfaces.gateway.server_methods.exec_approvals import exec_approvals_handlers
+from oclaw.interfaces.gateway.server_methods.nodes_pending import node_pending_handlers
+from oclaw.interfaces.gateway.server_methods.nodes import node_handlers
+from oclaw.interfaces.gateway.server_methods.sessions import sessions_handlers
+from oclaw.interfaces.gateway.server_methods.doctor import doctor_handlers
 
 
 def _call(handler, *, params: dict[str, Any], context: dict[str, Any] | None = None, client: dict[str, Any] | None = None):
@@ -271,7 +271,7 @@ def test_skills_status_requires_store_then_lists_skills() -> None:
     assert ok["ok"] is True
     payload = ok["payload"] or {}
     assert isinstance(payload.get("skills"), list)
-    # Repo ships oclaw/skills/{main,coding,social}
+    # Repo ships oclaw/runtime/skills/{main,coding,social}
     names = {str(x.get("name")) for x in payload["skills"] if isinstance(x, dict)}
     assert "main" in names
 
@@ -310,7 +310,7 @@ def test_cron_add_and_run_fallback() -> None:
 
 def test_image_generate_falls_back_to_registered_openai_provider() -> None:
     # Get providers via plugin load, then inject into gateway context.
-    from oclaw.gateway.server_plugins import load_gateway_plugins
+    from oclaw.interfaces.gateway.server_plugins import load_gateway_plugins
 
     plugin_out = load_gateway_plugins(
         cfg={"plugins": {"enabled": ["openai"]}},
@@ -532,9 +532,9 @@ def test_voicewake_set_requires_triggers_array() -> None:
     bad = _call(voicewake_handlers["voicewake.set"], params={"triggers": "hey"})
     assert bad["ok"] is False
     assert bad["error"]["code"] == "INVALID_REQUEST"
-    ok = _call(voicewake_handlers["voicewake.set"], params={"triggers": ["Hey OpenClaw", "  ", "hey openclaw"]})
+    ok = _call(voicewake_handlers["voicewake.set"], params={"triggers": ["Hey Oclaw", "  ", "hey oclaw"]})
     assert ok["ok"] is True
-    assert (ok["payload"] or {}).get("triggers") == ["Hey OpenClaw"]
+    assert (ok["payload"] or {}).get("triggers") == ["Hey Oclaw"]
 
 
 def test_wizard_start_next_status_cancel_flow() -> None:

@@ -5,13 +5,13 @@ import os
 from pathlib import Path
 import sys
 
-from oclaw.gateway.python_extensions_loader import build_python_extensions_registry
-from oclaw.gateway.server_plugins import load_gateway_plugins
-from oclaw.tools.catalog import materialize_tool_specs
+from oclaw.interfaces.gateway.python_extensions_loader import build_python_extensions_registry
+from oclaw.interfaces.gateway.server_plugins import load_gateway_plugins
+from oclaw.runtime.tools.catalog import materialize_tool_specs
 
 
 def _load_memory_wiki_api_module():
-    p = Path("d:/project/chatgpt/oclaw/extensions/memory-wiki/api.py")
+    p = Path("d:/project/chatgpt/oclaw/runtime/extensions/memory-wiki/api.py")
     module_name = "test_memory_wiki_api"
     spec = importlib.util.spec_from_file_location(module_name, str(p))
     assert spec is not None and spec.loader is not None

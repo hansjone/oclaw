@@ -3,15 +3,15 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from oclaw.openclaw_runtime.skill_role_binding import (
+from oclaw.runtime.skill_role_binding import (
     SKILL_ROLE_BINDING_ENABLED_SETTING,
     SKILL_ROLE_BINDING_KEY,
     normalize_skill_role_binding,
     ordered_binding_roles,
 )
-from oclaw.openclaw_runtime.skills_prompt import collect_skill_catalog_entries
+from oclaw.runtime.skills_prompt import collect_skill_catalog_entries
 from oclaw.platform.persistence.sqlite_store import SqliteStore
-from oclaw.tools.catalog import default_registry
+from oclaw.runtime.tools.catalog import default_registry
 
 
 def _write_skill(root: Path, name: str) -> None:

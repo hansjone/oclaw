@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from oclaw.chat.agent_messages import build_llm_messages
+from oclaw.runtime.chat.agent_messages import build_llm_messages
 from oclaw.platform.llm.chat_models import RuleBasedChatModel
 from oclaw.platform.persistence.sqlite_store import SqliteStore
 

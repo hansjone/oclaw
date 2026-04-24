@@ -5,9 +5,9 @@ import threading
 import uuid
 from typing import Any, Callable
 
-from oclaw.agents.factory import build_gateway_executor
-from oclaw.openclaw_runtime.gateway import OpenClawGateway
-from oclaw.openclaw_runtime.types import StandardMessage
+from oclaw.runtime.agents.factory import build_gateway_executor
+from oclaw.runtime.gateway import OclawGateway
+from oclaw.runtime.types import StandardMessage
 from oclaw.platform.config.paths import db_path
 from oclaw.platform.persistence.sqlite_store import SqliteStore
 
@@ -27,7 +27,7 @@ async def run_agent_turn_via_bridge(
     msg_text = str(p.get("message") or "").strip()
     attachments = list(p.get("attachments") or [])
     store = SqliteStore(db_path())
-    gw = OpenClawGateway(store=store)
+    gw = OclawGateway(store=store)
 
     ctx = conn.auth_ctx or {}
     tenant_id = str(ctx.get("tenant_id") or "")

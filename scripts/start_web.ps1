@@ -1,10 +1,11 @@
-param(
-    [string]$BindHost = "127.0.0.1",
-    [int]$Port = 8787,
-    [switch]$SkipInstall = $false,
-    [switch]$Background = $false
-)
+param()
 
-# 网页端（/admin、/chat）由网关进程提供，这里只是一个语义化别名。
-& "$PSScriptRoot/start_gateway.ps1" -BindHost $BindHost -Port $Port -SkipInstall:$SkipInstall -Background:$Background
+$ErrorActionPreference = "Stop"
+
+$real = Join-Path $PSScriptRoot "..\\runtime\\operations\\scripts\\start_web.ps1"
+if (-not (Test-Path $real)) {
+    throw "Forward script target not found: $real"
+}
+
+& $real @args
 

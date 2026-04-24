@@ -66,7 +66,7 @@
 - 依赖：`PyYAML`（`requirements.txt`）。
 
 ### Changed
-- `oclaw/prompts/loader.py` 与 `oclaw/openclaw_runtime/skills.py` 统一使用 YAML 解析 frontmatter（失败时默认回落旧行解析，除非开启 STRICT）。
+- `oclaw/prompts/loader.py` 与 `oclaw/oclaw_runtime/skills.py` 统一使用 YAML 解析 frontmatter（失败时默认回落旧行解析，除非开启 STRICT）。
 
 ---
 
@@ -80,7 +80,7 @@
   - `AIA_REPLAY_REPAIR_TOOL_PAIRING`（默认 `1`）
   - `AIA_TOOL_CALL_ID_MAX_LEN`（默认 `40`）
   - `AIA_PROMPT_TOOL_FALLBACK`（默认 `1`）
-  - `oclaw/platform/llm/OPENCLAW_MIT_LICENSE.txt`（oclaw 启发实现之 MIT 署名）
+  - `oclaw/platform/llm/OCLAW_MIT_LICENSE.txt`（oclaw 启发实现之 MIT 署名）
 
 ### Changed
 - 变量前缀统一为 `AIA_*`，项目内不再使用 `OPS_*` / `AI_OPS_*`。
@@ -105,15 +105,15 @@
 ## 2026-04-20 / Unreleased
 
 ### Added
-- `AIA_OPENCLAW_ALLOW_LEGACY_FALLBACK`
+- `AIA_OCLAW_ALLOW_LEGACY_FALLBACK`
   - 默认值：`0`
   - 用途：oclaw runtime 失败时是否允许回退到 legacy `run_turn`
-  - 影响模块：`oclaw/openclaw_runtime/gateway.py`, `oclaw/agents/specialist_agent.py`
+  - 影响模块：`oclaw/oclaw_runtime/gateway.py`, `oclaw/runtime/agents/specialist_agent.py`
 
 ### Changed
 - `AIA_TURN_MAX_*`（tool workers/rounds/context）
   - 变更前：由 legacy turn runner 读取（历史文件名可能为 `agent_core.py`）
-  - 变更后：由 oclaw runtime 读取并生效（`oclaw/openclaw_runtime/gateway.py`）
+  - 变更后：由 oclaw runtime 读取并生效（`oclaw/oclaw_runtime/gateway.py`）
   - 是否需要重启：是（读取自 settings/db/env 的时机取决于运行方式）
 
 ### Deprecated
@@ -135,7 +135,7 @@
 
 ### Changed
 - 无新增环境变量；oclaw runtime 在现有变量下补齐了 memory stage、router sync/async 分流、sqlite task queue、worker 执行链路。
-  - 影响模块：`oclaw/openclaw_runtime/gateway.py`, `oclaw/openclaw_runtime/direct_loop.py`, `oclaw/openclaw_runtime/router.py`, `oclaw/openclaw_runtime/worker.py`, `oclaw/platform/persistence/sqlite_store.py`
+  - 影响模块：`oclaw/oclaw_runtime/gateway.py`, `oclaw/oclaw_runtime/direct_loop.py`, `oclaw/oclaw_runtime/router.py`, `oclaw/oclaw_runtime/worker.py`, `oclaw/platform/persistence/sqlite_store.py`
   - 是否需要重启：是（升级代码后建议重启进程以启动 worker 与新路由逻辑）
 
 ### Migration Checklist
@@ -150,10 +150,10 @@
 ## 2026-04-20 / Unreleased (AgentCore Retry Matrix)
 
 ### Added
-- `AIA_OPENCLAW_RETRYABLE_ERROR_CODES`
+- `AIA_OCLAW_RETRYABLE_ERROR_CODES`
   - 默认值：`provider_timeout,provider_rate_limited,provider_temporary_error,provider_unavailable,context_overflow,tool_execution_failed`
   - 用途：控制 Agent Core run 外环可重试错误白名单
-  - 影响模块：`oclaw/openclaw_runtime/agent_core_run.py`, `oclaw/admin/routes.py`, `oclaw/admin/static/app.js`
+  - 影响模块：`oclaw/oclaw_runtime/agent_core_run.py`, `oclaw/interfaces/admin/routes.py`, `oclaw/interfaces/admin/static/app.js`
 
 ### Changed
 - Agent Core 重试策略从“status=retry 即重试”升级为“retry + error_code 命中白名单才重试”。
@@ -167,15 +167,15 @@
 - [x] 已执行编译/测试回归
 
 ### Changed
-- `AIA_OPENCLAW_RETRYABLE_ERROR_CODES` 已接入 Admin「Tool Policy」页读写链路。
-  - 影响模块：`oclaw/admin/routes.py`, `oclaw/admin/static/app.js`
-- `AIA_OPENCLAW_RETRYABLE_ERROR_CODES` 保存时增加未知 code 过滤与告警返回（`unknown_retryable_error_codes`）。
-  - 影响模块：`oclaw/admin/routes.py`, `oclaw/admin/static/app.js`, `oclaw/openclaw_runtime/agent_core_run.py`
-- `AIA_OPENCLAW_RETRYABLE_ERROR_CODES` 新增严格模式：可配置为未知 code 直接拒绝保存（400）。
-  - 影响模块：`oclaw/admin/routes.py`, `oclaw/admin/static/app.js`
+- `AIA_OCLAW_RETRYABLE_ERROR_CODES` 已接入 Admin「Tool Policy」页读写链路。
+  - 影响模块：`oclaw/interfaces/admin/routes.py`, `oclaw/interfaces/admin/static/app.js`
+- `AIA_OCLAW_RETRYABLE_ERROR_CODES` 保存时增加未知 code 过滤与告警返回（`unknown_retryable_error_codes`）。
+  - 影响模块：`oclaw/interfaces/admin/routes.py`, `oclaw/interfaces/admin/static/app.js`, `oclaw/oclaw_runtime/agent_core_run.py`
+- `AIA_OCLAW_RETRYABLE_ERROR_CODES` 新增严格模式：可配置为未知 code 直接拒绝保存（400）。
+  - 影响模块：`oclaw/interfaces/admin/routes.py`, `oclaw/interfaces/admin/static/app.js`
 
 ### Added
-- `AIA_OPENCLAW_RETRY_CODES_STRICT_MODE`
+- `AIA_OCLAW_RETRY_CODES_STRICT_MODE`
   - 默认值：`0`
   - 用途：控制 Admin 保存 retry code 时对未知值的处理（过滤告警 / 拒绝）
-  - 影响模块：`oclaw/admin/routes.py`, `oclaw/admin/static/app.js`
+  - 影响模块：`oclaw/interfaces/admin/routes.py`, `oclaw/interfaces/admin/static/app.js`

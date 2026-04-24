@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import oclaw.ops.main as ops_main
+import oclaw.runtime.operations.main as ops_main
 
 
 def test_gateway_start_uses_fastapi_only(monkeypatch) -> None:

@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 import zipfile
 
-from oclaw.openclaw_runtime.skill_installer import (
+from oclaw.runtime.skill_installer import (
     auto_install_skill_from_payload,
     create_skill_from_template,
     install_skill_from_local_dir,
@@ -61,7 +61,7 @@ def test_install_skill_from_registry_archive_file_url(tmp_path: Path) -> None:
     inner = pkg_dir / "demo"
     inner.mkdir(parents=True, exist_ok=True)
     (inner / "SKILL.md").write_text(
-        "---\nname: reg_demo\ndescription: x\nmetadata: {\"openclaw\":{}}\n---\n",
+        "---\nname: reg_demo\ndescription: x\nmetadata: {\"oclaw\":{}}\n---\n",
         encoding="utf-8",
     )
     archive = tmp_path / "reg.zip"
@@ -83,7 +83,7 @@ def test_install_skill_from_clawhub_page_url(tmp_path: Path, monkeypatch) -> Non
     inner = pkg_dir / "demo"
     inner.mkdir(parents=True, exist_ok=True)
     (inner / "SKILL.md").write_text(
-        "---\nname: reg_clawhub_demo\ndescription: x\nmetadata: {\"openclaw\":{}}\n---\n",
+        "---\nname: reg_clawhub_demo\ndescription: x\nmetadata: {\"oclaw\":{}}\n---\n",
         encoding="utf-8",
     )
     archive = tmp_path / "reg_clawhub.zip"
@@ -96,7 +96,7 @@ def test_install_skill_from_clawhub_page_url(tmp_path: Path, monkeypatch) -> Non
         captured["slug"] = slug
         return {"archiveUrl": archive.resolve().as_uri()}
 
-    monkeypatch.setattr("oclaw.tools.skills.clawhub_client.get_skill_detail", _mock_get_detail)
+    monkeypatch.setattr("oclaw.runtime.tools.skills.clawhub_client.get_skill_detail", _mock_get_detail)
 
     out = install_skill_from_registry_archive(
         store=store,
@@ -114,7 +114,7 @@ def test_install_local_allows_sh_files(tmp_path: Path) -> None:
     src = tmp_path / "local_skill"
     src.mkdir(parents=True, exist_ok=True)
     (src / "SKILL.md").write_text(
-        "---\nname: local_with_sh\ndescription: x\nmetadata: {\"openclaw\":{}}\n---\n",
+        "---\nname: local_with_sh\ndescription: x\nmetadata: {\"oclaw\":{}}\n---\n",
         encoding="utf-8",
     )
     (src / "activator.sh").write_text("#!/usr/bin/env bash\necho ok\n", encoding="utf-8")

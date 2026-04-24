@@ -11,12 +11,12 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from oclaw.agents.network_ops_agent import NetworkOpsAgent
+from oclaw.runtime.agents.network_ops_agent import NetworkOpsAgent
 from oclaw.platform.llm.chat_models import RuleBasedChatModel
 from oclaw.platform.persistence.sqlite_store import SqliteStore
-from oclaw.tools.mcp.adapter import materialize_mcp_tools_for_specialist
-from oclaw.tools.mcp.filesystem_argv import build_mcp_process_command, collect_filesystem_mcp_extra_roots
-from oclaw.tools.mcp.runtime import McpProcessRuntime
+from oclaw.runtime.tools.mcp.adapter import materialize_mcp_tools_for_specialist
+from oclaw.runtime.tools.mcp.filesystem_argv import build_mcp_process_command, collect_filesystem_mcp_extra_roots
+from oclaw.runtime.tools.mcp.runtime import McpProcessRuntime
 
 
 class McpWorkspaceFilesystemE2ETests(unittest.TestCase):

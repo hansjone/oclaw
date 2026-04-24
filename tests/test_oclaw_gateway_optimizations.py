@@ -16,7 +16,7 @@ def test_wait_for_agent_job_is_non_blocking_pending(monkeypatch) -> None:
             return False
 
     class DummyStore:
-        def openclaw_run_get(self, run_id: str) -> None:
+        def oclaw_run_get(self, run_id: str) -> None:
             return None
 
         def get_messages(self, session_id: str, limit: int) -> list[Any]:
@@ -100,7 +100,7 @@ def test_turn_runner_emits_delta_only(monkeypatch) -> None:
 
     monkeypatch.setattr(turn_runner, "SqliteStore", lambda _p: DummyStore())
     monkeypatch.setattr(turn_runner, "db_path", lambda: "dummy.sqlite")
-    monkeypatch.setattr(turn_runner, "OpenClawGateway", lambda store: DummyGateway())
+    monkeypatch.setattr(turn_runner, "OclawGateway", lambda store: DummyGateway())
     monkeypatch.setattr(turn_runner, "build_gateway_executor", lambda *a, **k: object())
 
     conn = DummyConn()

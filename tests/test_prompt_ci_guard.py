@@ -6,16 +6,16 @@ from oclaw.platform.config.paths import PROJECT_ROOT
 
 
 _PROMPT_CRITICAL_FILES = (
-    "oclaw/chat/agent.py",
-    "oclaw/agents/network_ops_agent.py",
-    "oclaw/agents/factory.py",
-    "oclaw/chat/agent_messages.py",
-    "oclaw/openclaw_runtime/system_prompt.py",
-    "oclaw/openclaw_runtime/memory_stage.py",
-    "oclaw/openclaw_runtime/project_context_prompt.py",
-    "oclaw/chat/agent_errors.py",
+    "oclaw/runtime/chat/agent.py",
+    "oclaw/runtime/agents/network_ops_agent.py",
+    "oclaw/runtime/agents/factory.py",
+    "oclaw/runtime/chat/agent_messages.py",
+    "oclaw/runtime/system_prompt.py",
+    "oclaw/runtime/memory_stage.py",
+    "oclaw/runtime/project_context_prompt.py",
+    "oclaw/runtime/chat/agent_errors.py",
     "oclaw/platform/llm/image_message_client.py",
-    "oclaw/openclaw_runtime/gateway.py",
+    "oclaw/runtime/gateway.py",
 )
 
 
@@ -25,7 +25,7 @@ def test_prompt_critical_paths_use_prompt_templates() -> None:
         assert (
             "render_prompt(" in text
             or "render_prompt_for_lang(" in text
-            or "render_openclaw_prompt(" in text
+            or "render_runtime_prompt(" in text
         ), (
             f"{rel} must render prompts from oclaw/prompts*.md"
         )
@@ -34,7 +34,7 @@ def test_prompt_critical_paths_use_prompt_templates() -> None:
 def test_prompt_markdown_frontmatter_keys_present() -> None:
     roots = [
         PROJECT_ROOT / "oclaw" / "prompts",
-        PROJECT_ROOT / "oclaw" / "prompts_openclaw",
+        PROJECT_ROOT / "oclaw" / "prompts_runtime",
     ]
     for prompts_root in roots:
         for p in prompts_root.rglob("*.md"):

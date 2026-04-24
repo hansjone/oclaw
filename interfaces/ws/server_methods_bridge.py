@@ -105,7 +105,7 @@ def build_gateway_context(
         rid = str(run_id or "").strip()
         if not rid:
             return {"status": "error", "runId": rid, "summary": "runId required"}
-        run = store.openclaw_run_get(run_id=rid)
+        run = store.oclaw_run_get(run_id=rid)
         if not run:
             return {"status": "pending", "runId": rid, "summary": "run not finished", "pollAfterMs": 250}
         status = str(run.status or "").strip().lower()

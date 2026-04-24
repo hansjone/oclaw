@@ -505,7 +505,7 @@ Keep responses deterministic and JSON-serializable.
 
 - **作用**：按库名/版本拉取较新的官方文档片段，减少「API 记错版本」类幻觉。  
 - **安装**：`python scripts/install_mcp_context7.py`，或管理台 `POST /admin/api/mcp/install` 使用 [`examples/mcp_install_context7.json`](../examples/mcp_install_context7.json) 中的 `payload`。
-- **密钥**：在 **`oclaw/_local/mcp_local.env`**（推荐）或 `data/mcp_local.env`（兼容）设置 `CONTEXT7_API_KEY`（见 [context7.com/dashboard](https://context7.com/dashboard)）。两处都存在时**同键以 `oclaw/_local/mcp_local.env` 为准**（覆盖 `data` 中的同键）。未自定义 `OPS_MCP_ENV_ALLOWLIST` 时，网关默认 allowlist 已包含 `CONTEXT7_API_KEY`（见 `oclaw/ops/mcp_env.py`）；若你自定义了 allowlist，请手动追加该键。  
+- **密钥**：在 **`oclaw/_local/mcp_local.env`**（推荐）或 `data/mcp_local.env`（兼容）设置 `CONTEXT7_API_KEY`（见 [context7.com/dashboard](https://context7.com/dashboard)）。两处都存在时**同键以 `oclaw/_local/mcp_local.env` 为准**（覆盖 `data` 中的同键）。未自定义 `OPS_MCP_ENV_ALLOWLIST` 时，网关默认 allowlist 已包含 `CONTEXT7_API_KEY`（见 `oclaw/runtime/operations/mcp_env.py`）；若你自定义了 allowlist，请手动追加该键。  
 - **装完后**：`Health` → `Sync Tools` → 将 `mcp-context7` 加入通识 specialist 的 MCP 绑定（若脚本已成功 Sync，会自动追加）。
 
 ### 通识侧终端能力（`run_command`）

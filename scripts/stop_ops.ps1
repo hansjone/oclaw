@@ -1,33 +1,11 @@
-param(
-    [switch]$Force = $false
-)
+param()
 
 $ErrorActionPreference = "Stop"
 
-function Write-Step([string]$msg) {
-    Write-Host "==> $msg" -ForegroundColor Cyan
+$real = Join-Path $PSScriptRoot "..\\runtime\\operations\\scripts\\stop_ops.ps1"
+if (-not (Test-Path $real)) {
+    throw "Forward script target not found: $real"
 }
 
-$repoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
-Set-Location $repoRoot
-
-Write-Step "Project root: $repoRoot"
-Write-Step "Stopping stack services..."
-
-try {
-    python -m oclaw.ops stack down
-    Write-Host "Stack stopped." -ForegroundColor Green
-} catch {
-    Write-Host "[WARN] stack down failed: $($_.Exception.Message)" -ForegroundColor Yellow
-    if (-not $Force) {
-        exit 1
-    }
-}
-
-Write-Step "Current status"
-try {
-    python -m oclaw.ops stack status
-} catch {
-    Write-Host "[WARN] Unable to read status after stop." -ForegroundColor Yellow
-}
+& $real @args
 

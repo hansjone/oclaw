@@ -1,4 +1,4 @@
-"""Regression tests for OpenClaw-style tool_call_id replay (see src/platform/llm/tool_call_id.py)."""
+"""Regression tests for Oclaw-style tool_call_id replay (see src/platform/llm/tool_call_id.py)."""
 
 from __future__ import annotations
 

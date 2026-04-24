@@ -125,7 +125,7 @@ class SessionsListMeta:
 
 
 @dataclass(frozen=True)
-class OpenClawTask:
+class OclawTask:
     id: str
     tenant_id: str
     session_id: str
@@ -143,7 +143,7 @@ class OpenClawTask:
 
 
 @dataclass(frozen=True)
-class OpenClawRun:
+class OclawRun:
     run_id: str
     tenant_id: str
     session_id: str
@@ -774,7 +774,7 @@ class SqliteStore:
             )
             conn.execute(
                 """
-                CREATE TABLE IF NOT EXISTS openclaw_task (
+                CREATE TABLE IF NOT EXISTS oclaw_task (
                     id TEXT PRIMARY KEY,
                     tenant_id TEXT NOT NULL,
                     session_id TEXT NOT NULL,
@@ -794,7 +794,7 @@ class SqliteStore:
             )
             conn.execute(
                 """
-                CREATE TABLE IF NOT EXISTS openclaw_run (
+                CREATE TABLE IF NOT EXISTS oclaw_run (
                     run_id TEXT PRIMARY KEY,
                     tenant_id TEXT NOT NULL,
                     session_id TEXT NOT NULL,
@@ -807,7 +807,7 @@ class SqliteStore:
             )
             conn.execute(
                 """
-                CREATE TABLE IF NOT EXISTS openclaw_attempt (
+                CREATE TABLE IF NOT EXISTS oclaw_attempt (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     run_id TEXT NOT NULL,
                     tenant_id TEXT NOT NULL,
@@ -821,16 +821,16 @@ class SqliteStore:
                 """
             )
             conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_openclaw_task_status_updated ON openclaw_task(status, updated_at)"
+                "CREATE INDEX IF NOT EXISTS idx_oclaw_task_status_updated ON oclaw_task(status, updated_at)"
             )
             conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_openclaw_task_tenant_session ON openclaw_task(tenant_id, session_id, created_at DESC)"
+                "CREATE INDEX IF NOT EXISTS idx_oclaw_task_tenant_session ON oclaw_task(tenant_id, session_id, created_at DESC)"
             )
             conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_openclaw_run_tenant_session ON openclaw_run(tenant_id, session_id, updated_at DESC)"
+                "CREATE INDEX IF NOT EXISTS idx_oclaw_run_tenant_session ON oclaw_run(tenant_id, session_id, updated_at DESC)"
             )
             conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_openclaw_attempt_run_no ON openclaw_attempt(run_id, attempt_no)"
+                "CREATE INDEX IF NOT EXISTS idx_oclaw_attempt_run_no ON oclaw_attempt(run_id, attempt_no)"
             )
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_knowledge_chunk_source_updated ON knowledge_chunk(source, updated_at)"
@@ -2685,7 +2685,7 @@ class SqliteStore:
         uid = str(user_id or "").strip()
         if not uid:
             return
-        from oclaw.agents.specialists import dump_agent_profile_bindings, parse_agent_profile_bindings
+        from oclaw.runtime.agents.specialists import dump_agent_profile_bindings, parse_agent_profile_bindings
 
         seeded_key = f"llm_personal_pool_seeded:{uid}"
         act_key = active_llm_profile_setting_key(uid, username)
@@ -4953,22 +4953,22 @@ class SqliteStore:
             return int(cur.rowcount or 0)
 
     # ----------------------------
-    # OpenClaw tasks
+    # Oclaw tasks
     # ----------------------------
-    def openclaw_task_create(
+    def oclaw_task_create(
         self,
         *,
         tenant_id: str,
         session_id: str,
         task_type: str = "async_turn",
         payload: dict[str, Any] | None = None,
-    ) -> OpenClawTask:
+    ) -> OclawTask:
         tid = str(uuid.uuid4())
         ts = utc_now_iso()
         with self._connect() as conn:
             conn.execute(
                 """
-                INSERT INTO openclaw_task
+                INSERT INTO oclaw_task
                     (id, tenant_id, session_id, task_type, status, payload, result, attempt_count, claimed_by, lease_expires_at, last_error, created_at, updated_at, finished_at)
                 VALUES (?, ?, ?, ?, 'queued', ?, '{}', 0, NULL, NULL, '', ?, ?, NULL)
                 """,
@@ -4982,18 +4982,18 @@ class SqliteStore:
                     ts,
                 ),
             )
-        got = self.openclaw_task_get(task_id=tid)
+        got = self.oclaw_task_get(task_id=tid)
         if not got:
-            raise RuntimeError("failed to create openclaw task")
+            raise RuntimeError("failed to create oclaw task")
         return got
 
-    def openclaw_task_claim(
+    def oclaw_task_claim(
         self,
         *,
         worker_id: str,
         lease_seconds: int = 90,
         task_type: str | None = None,
-    ) -> OpenClawTask | None:
+    ) -> OclawTask | None:
         now = datetime.now(timezone.utc)
         lease_expires = (now + timedelta(seconds=max(15, min(int(lease_seconds or 90), 1800)))).isoformat()
         now_iso = now.isoformat()
@@ -5006,7 +5006,7 @@ class SqliteStore:
                 params.append(tt)
             row = conn.execute(
                 f"""
-                SELECT id FROM openclaw_task
+                SELECT id FROM oclaw_task
                 WHERE {where}
                 ORDER BY created_at ASC
                 LIMIT 1
@@ -5018,7 +5018,7 @@ class SqliteStore:
             task_id = str(row["id"])
             cur = conn.execute(
                 """
-                UPDATE openclaw_task
+                UPDATE oclaw_task
                 SET status = 'claimed',
                     attempt_count = attempt_count + 1,
                     claimed_by = ?,
@@ -5031,14 +5031,14 @@ class SqliteStore:
             )
             if not cur.rowcount:
                 return None
-        return self.openclaw_task_get(task_id=task_id)
+        return self.oclaw_task_get(task_id=task_id)
 
-    def openclaw_task_finish(self, *, task_id: str, result: dict[str, Any] | None = None) -> bool:
+    def oclaw_task_finish(self, *, task_id: str, result: dict[str, Any] | None = None) -> bool:
         ts = utc_now_iso()
         with self._connect() as conn:
             cur = conn.execute(
                 """
-                UPDATE openclaw_task
+                UPDATE oclaw_task
                 SET status = 'done',
                     result = ?,
                     lease_expires_at = NULL,
@@ -5051,12 +5051,12 @@ class SqliteStore:
             )
         return bool(cur.rowcount and cur.rowcount > 0)
 
-    def openclaw_task_fail(self, *, task_id: str, error: str, result: dict[str, Any] | None = None) -> bool:
+    def oclaw_task_fail(self, *, task_id: str, error: str, result: dict[str, Any] | None = None) -> bool:
         ts = utc_now_iso()
         with self._connect() as conn:
             cur = conn.execute(
                 """
-                UPDATE openclaw_task
+                UPDATE oclaw_task
                 SET status = 'failed',
                     result = ?,
                     lease_expires_at = NULL,
@@ -5069,7 +5069,7 @@ class SqliteStore:
             )
         return bool(cur.rowcount and cur.rowcount > 0)
 
-    def openclaw_task_get(self, *, task_id: str, tenant_id: str | None = None) -> OpenClawTask | None:
+    def oclaw_task_get(self, *, task_id: str, tenant_id: str | None = None) -> OclawTask | None:
         where = "id = ?"
         params: list[Any] = [str(task_id)]
         if tenant_id:
@@ -5079,7 +5079,7 @@ class SqliteStore:
             row = conn.execute(
                 """
                 SELECT id, tenant_id, session_id, task_type, status, payload, result, attempt_count, claimed_by, lease_expires_at, last_error, created_at, updated_at, finished_at
-                FROM openclaw_task
+                FROM oclaw_task
                 WHERE """ + where + """
                 LIMIT 1
                 """,
@@ -5087,7 +5087,7 @@ class SqliteStore:
             ).fetchone()
         if not row:
             return None
-        return OpenClawTask(
+        return OclawTask(
             id=str(row["id"]),
             tenant_id=str(row["tenant_id"]),
             session_id=str(row["session_id"]),
@@ -5104,14 +5104,14 @@ class SqliteStore:
             finished_at=str(row["finished_at"]) if row["finished_at"] else None,
         )
 
-    def openclaw_task_list(
+    def oclaw_task_list(
         self,
         *,
         status: str | None = None,
         limit: int = 50,
         tenant_id: str | None = None,
         session_id: str | None = None,
-    ) -> list[OpenClawTask]:
+    ) -> list[OclawTask]:
         lim = max(1, min(int(limit or 50), 500))
         where = ""
         params: list[Any] = []
@@ -5129,17 +5129,17 @@ class SqliteStore:
             rows = conn.execute(
                 f"""
                 SELECT id, tenant_id, session_id, task_type, status, payload, result, attempt_count, claimed_by, lease_expires_at, last_error, created_at, updated_at, finished_at
-                FROM openclaw_task
+                FROM oclaw_task
                 {where_clause}
                 ORDER BY created_at DESC
                 LIMIT ?
                 """,
                 (*params, lim),
             ).fetchall()
-        out: list[OpenClawTask] = []
+        out: list[OclawTask] = []
         for row in rows:
             out.append(
-                OpenClawTask(
+                OclawTask(
                     id=str(row["id"]),
                     tenant_id=str(row["tenant_id"]),
                     session_id=str(row["session_id"]),
@@ -5158,7 +5158,7 @@ class SqliteStore:
             )
         return out
 
-    def openclaw_run_upsert(
+    def oclaw_run_upsert(
         self,
         *,
         run_id: str,
@@ -5171,7 +5171,7 @@ class SqliteStore:
         with self._connect() as conn:
             conn.execute(
                 """
-                INSERT INTO openclaw_run(run_id, tenant_id, session_id, status, payload, created_at, updated_at)
+                INSERT INTO oclaw_run(run_id, tenant_id, session_id, status, payload, created_at, updated_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(run_id) DO UPDATE SET
                     status = excluded.status,
@@ -5190,7 +5190,7 @@ class SqliteStore:
             )
         return True
 
-    def openclaw_attempt_append(
+    def oclaw_attempt_append(
         self,
         *,
         run_id: str,
@@ -5205,7 +5205,7 @@ class SqliteStore:
         with self._connect() as conn:
             cur = conn.execute(
                 """
-                INSERT INTO openclaw_attempt(run_id, tenant_id, session_id, attempt_no, status, reason, payload, created_at)
+                INSERT INTO oclaw_attempt(run_id, tenant_id, session_id, attempt_no, status, reason, payload, created_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
@@ -5221,13 +5221,13 @@ class SqliteStore:
             )
             return int(cur.lastrowid or 0)
 
-    def openclaw_attempt_list(self, *, run_id: str, limit: int = 30) -> list[dict[str, Any]]:
+    def oclaw_attempt_list(self, *, run_id: str, limit: int = 30) -> list[dict[str, Any]]:
         lim = max(1, min(int(limit or 30), 200))
         with self._connect() as conn:
             rows = conn.execute(
                 """
                 SELECT id, run_id, tenant_id, session_id, attempt_no, status, reason, payload, created_at
-                FROM openclaw_attempt
+                FROM oclaw_attempt
                 WHERE run_id = ?
                 ORDER BY attempt_no ASC
                 LIMIT ?
@@ -5251,7 +5251,7 @@ class SqliteStore:
             )
         return out
 
-    def openclaw_run_get(self, *, run_id: str, tenant_id: str | None = None) -> OpenClawRun | None:
+    def oclaw_run_get(self, *, run_id: str, tenant_id: str | None = None) -> OclawRun | None:
         where = "run_id = ?"
         params: list[Any] = [str(run_id)]
         if tenant_id:
@@ -5261,7 +5261,7 @@ class SqliteStore:
             row = conn.execute(
                 f"""
                 SELECT run_id, tenant_id, session_id, status, payload, created_at, updated_at
-                FROM openclaw_run
+                FROM oclaw_run
                 WHERE {where}
                 LIMIT 1
                 """,
@@ -5269,7 +5269,7 @@ class SqliteStore:
             ).fetchone()
         if not row:
             return None
-        return OpenClawRun(
+        return OclawRun(
             run_id=str(row["run_id"]),
             tenant_id=str(row["tenant_id"]),
             session_id=str(row["session_id"]),
@@ -5279,14 +5279,14 @@ class SqliteStore:
             updated_at=str(row["updated_at"]),
         )
 
-    def openclaw_run_list(
+    def oclaw_run_list(
         self,
         *,
         tenant_id: str,
         session_id: str | None = None,
         status: str | None = None,
         limit: int = 50,
-    ) -> list[OpenClawRun]:
+    ) -> list[OclawRun]:
         lim = max(1, min(int(limit or 50), 300))
         where = "tenant_id = ?"
         params: list[Any] = [str(tenant_id)]
@@ -5300,17 +5300,17 @@ class SqliteStore:
             rows = conn.execute(
                 f"""
                 SELECT run_id, tenant_id, session_id, status, payload, created_at, updated_at
-                FROM openclaw_run
+                FROM oclaw_run
                 WHERE {where}
                 ORDER BY updated_at DESC
                 LIMIT ?
                 """,
                 (*params, lim),
             ).fetchall()
-        out: list[OpenClawRun] = []
+        out: list[OclawRun] = []
         for row in rows:
             out.append(
-                OpenClawRun(
+                OclawRun(
                     run_id=str(row["run_id"]),
                     tenant_id=str(row["tenant_id"]),
                     session_id=str(row["session_id"]),

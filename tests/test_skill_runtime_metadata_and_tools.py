@@ -5,8 +5,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from oclaw.openclaw_runtime.skills import discover_workspace_skill_manifests
-from oclaw.tools.skills_runtime.materialize_skill_tools import materialize_executable_skill_tools
+from oclaw.runtime.skills import discover_workspace_skill_manifests
+from oclaw.runtime.tools.skills_runtime.materialize_skill_tools import materialize_executable_skill_tools
 
 
 class SkillRuntimeMetadataAndToolsTests(unittest.TestCase):
@@ -30,7 +30,7 @@ class SkillRuntimeMetadataAndToolsTests(unittest.TestCase):
             "name: demo_runtime\n"
             "description: demo\n"
             "metadata:\n"
-            "  openclaw:\n"
+            "  oclaw:\n"
             "    runtime:\n"
             "      type: python\n"
             "      entry: scripts/run.py\n"
@@ -62,7 +62,7 @@ class SkillRuntimeMetadataAndToolsTests(unittest.TestCase):
             "name: demo_runtime_tool\n"
             "description: demo\n"
             "metadata:\n"
-            "  openclaw:\n"
+            "  oclaw:\n"
             "    runtime:\n"
             "      type: python\n"
             "      entry: scripts/run.py\n"

@@ -15,7 +15,7 @@ def _require_ilink_auth(
     authorization_type: str | None,
     authorization: str | None,
 ) -> None:
-    # Minimal contract required by openclaw-weixin:
+    # Minimal contract required by oclaw-weixin:
     # - AuthorizationType: ilink_bot_token
     # - Authorization: Bearer <token>
     if (authorization_type or "").strip() != "ilink_bot_token":

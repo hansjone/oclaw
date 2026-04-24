@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from oclaw.prompts.loader import load_openclaw_prompt_doc, load_prompt_doc, render_openclaw_prompt, render_prompt
+from oclaw.prompts.loader import load_runtime_prompt_doc, load_prompt_doc, render_runtime_prompt, render_prompt
 
 
 def test_load_prompt_doc_with_frontmatter() -> None:
@@ -26,14 +26,14 @@ def test_render_prompt_success() -> None:
     assert "ok=true" in out
 
 
-def test_load_openclaw_prompt_doc_with_frontmatter() -> None:
-    doc = load_openclaw_prompt_doc("roles/specialists/ops/system.md")
+def test_load_runtime_prompt_doc_with_frontmatter() -> None:
+    doc = load_runtime_prompt_doc("roles/specialists/ops/system.md")
     assert doc.frontmatter.get("title") == "oclaw_role_specialist_ops_system"
     assert "你是网络运维专家" in doc.body
 
 
-def test_render_openclaw_prompt_success() -> None:
-    out = render_openclaw_prompt(
+def test_render_runtime_prompt_success() -> None:
+    out = render_runtime_prompt(
         "runtime/project_context_block.md",
         variables={"project_context": "[AGENTS.md]\nfoo"},
         strict=True,

@@ -29,7 +29,7 @@ npm run pack:win
 
 这个命令会自动做两件事：
 
-1. 执行 `prepare:icon`，从 `oclaw/admin/static/oliver.svg` 生成 `desktop/assets/oclaw.ico`
+1. 执行 `prepare:icon`，从 `oclaw/interfaces/admin/static/oliver.svg` 生成 `desktop/assets/oclaw.ico`
 2. 调用 `electron-builder` 生成 NSIS 安装包
 
 ## 4) 打包产物位置

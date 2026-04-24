@@ -705,7 +705,7 @@ def penalty_row_status(
 
 def build_tool_wire_snapshot(store: Any, *, role: str | None = None) -> dict[str, Any]:
     """Aggregate MCP install list + usage + policies for Admin GET."""
-    from oclaw.tools.mcp.registry import McpRegistry
+    from oclaw.runtime.tools.mcp.registry import McpRegistry
 
     admin = load_merged_admin_config(store)
     role_norm = str(role or "").strip().lower() or None

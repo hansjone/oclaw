@@ -3,12 +3,12 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from oclaw.platform.persistence.sqlite_store import OpenClawTask
-from oclaw.wiki_worker.main import _capture_after_turn, _dedup_merge, _process_task
+from oclaw.platform.persistence.sqlite_store import OclawTask
+from oclaw.runtime.workers.wiki.main import _capture_after_turn, _dedup_merge, _process_task
 
 
-def _task(task_id: str = "t1") -> OpenClawTask:
-    return OpenClawTask(
+def _task(task_id: str = "t1") -> OclawTask:
+    return OclawTask(
         id=task_id,
         tenant_id="tenant-1",
         session_id="session-1",
@@ -68,7 +68,7 @@ def test_process_task_writes_index_and_lint_report(tmp_path: Path) -> None:
         "assistant_text": "answer",
     }
     task = _task("t-proc")
-    task = OpenClawTask(**{**task.__dict__, "payload": json.dumps(payload, ensure_ascii=False)})
+    task = OclawTask(**{**task.__dict__, "payload": json.dumps(payload, ensure_ascii=False)})
 
     def _wiki_apply(args: dict) -> dict:
         rel = str(args.get("path") or "").replace("\\", "/").strip("/")

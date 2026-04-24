@@ -11,5 +11,5 @@
 如需查看完整细粒度字段定义，请在仓库中搜索：
 
 - `pipeline`
-- `openclaw_task_id`
-- `openclaw_worker_id`
+- `oclaw_task_id`
+- `oclaw_worker_id`

@@ -10,18 +10,18 @@ from fastapi import Request
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
-from oclaw.application.gateway import process_inbound_payload_usecase
+from oclaw.runtime.application.gateway import process_inbound_payload_usecase
 from oclaw.interfaces.gateway.http_adapter import dispatch_gateway_http_method
 from oclaw.interfaces.ws import ws_gateway_loop
-from oclaw.admin.routes import admin_static_dir, build_admin_router
-from oclaw.agents.agent_scope import list_agent_ids, resolve_agent_workspace_dir, resolve_default_agent_id
-from oclaw.gateway.server_startup_plugins import prepare_gateway_plugin_bootstrap
-from oclaw.openclaw_runtime.hooks_runtime import (
+from oclaw.interfaces.admin.routes import admin_static_dir, build_admin_router
+from oclaw.runtime.agents.agent_scope import list_agent_ids, resolve_agent_workspace_dir, resolve_default_agent_id
+from oclaw.interfaces.gateway.server_startup_plugins import prepare_gateway_plugin_bootstrap
+from oclaw.runtime.hooks_runtime import (
     initialize_hooks_runtime,
     resolve_runtime_config,
     trigger_hook_event,
 )
-from oclaw.openclaw_runtime.skills import skill_runtime_diagnostics
+from oclaw.runtime.skills import skill_runtime_diagnostics
 from oclaw.platform.config.paths import PROJECT_ROOT, db_path
 from oclaw.platform.persistence.sqlite_store import SqliteStore
 from oclaw.interfaces.http.weixin_ilink_api import router as weixin_ilink_router
@@ -36,7 +36,7 @@ def _resolve_startup_workspace_dir(cfg: dict[str, Any]) -> str:
             return ws_text
     except Exception:
         pass
-    return str((PROJECT_ROOT / "oclaw" / "workspace-main").resolve())
+    return str((PROJECT_ROOT / "oclaw" / "runtime" / "assets" / "agent_workspaces" / "workspace-main").resolve())
 
 
 def _resolve_startup_workspace_dirs(cfg: dict[str, Any]) -> list[tuple[str, str]]:

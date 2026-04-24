@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from oclaw.openclaw_runtime.skill_installer import install_skill_from_registry_archive
-from oclaw.tools.skills.clawhub_client import get_skill_detail as clawhub_get_skill_detail
-from oclaw.tools.skills.clawhub_client import search_skills as clawhub_search_skills
+from oclaw.runtime.skill_installer import install_skill_from_registry_archive
+from oclaw.runtime.tools.skills.clawhub_client import get_skill_detail as clawhub_get_skill_detail
+from oclaw.runtime.tools.skills.clawhub_client import search_skills as clawhub_search_skills
 
 
 def build_common_gateway_context(*, store: Any) -> dict[str, Any]:

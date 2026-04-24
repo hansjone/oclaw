@@ -5,7 +5,7 @@ import textwrap
 import unittest
 from pathlib import Path
 
-from oclaw.tools.mcp.runtime import McpProcessRuntime
+from oclaw.runtime.tools.mcp.runtime import McpProcessRuntime
 
 
 class McpRuntimeTests(unittest.TestCase):

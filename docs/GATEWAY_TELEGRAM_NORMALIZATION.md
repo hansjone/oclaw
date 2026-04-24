@@ -10,7 +10,7 @@ Normalization is applied in these handlers:
 - `chat.send`
 - `sessions.send`
 
-The shared implementation lives in `oclaw/gateway/server_methods/telegram_send_normalize.py`.
+The shared implementation lives in `oclaw/interfaces/gateway/server_methods/telegram_send_normalize.py`.
 
 ## Input fields
 

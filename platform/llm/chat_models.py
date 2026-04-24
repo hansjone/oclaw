@@ -37,7 +37,7 @@ def build_default_model() -> ChatModel:
         return RuleBasedChatModel()
     if mode == "ollama":
         try:
-            from oclaw.agents.factory import DEFAULT_OLLAMA_BASE_URL, DEFAULT_OLLAMA_MODEL
+            from oclaw.runtime.agents.factory import DEFAULT_OLLAMA_BASE_URL, DEFAULT_OLLAMA_MODEL
 
             return OpenAIChatModel(model=DEFAULT_OLLAMA_MODEL, api_key="ollama", base_url=DEFAULT_OLLAMA_BASE_URL)
         except Exception:

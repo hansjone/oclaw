@@ -1,13 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-cd "$ROOT_DIR"
+REAL_PATH="$(cd "$(dirname "${BASH_SOURCE[0]}")/../runtime/operations/scripts" && pwd)/stop_ops.sh"
+if [[ ! -f "$REAL_PATH" ]]; then
+  echo "[ERROR] Forward script target not found: $REAL_PATH" >&2
+  exit 1
+fi
 
-printf '==> Project root: %s\n' "$ROOT_DIR"
-printf '==> Stopping stack services...\n'
-python -m oclaw.ops stack down || true
-
-printf '\n==> Current status\n'
-python -m oclaw.ops stack status || true
+exec bash "$REAL_PATH" "$@"
 

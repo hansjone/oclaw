@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from oclaw.openclaw_runtime.direct_loop import run_openclaw_direct_loop
+from oclaw.runtime.direct_loop import run_oclaw_direct_loop
 from oclaw.platform.persistence.sqlite_store import SqliteStore
-from oclaw.tools.base import ToolRegistry, ToolSpec
+from oclaw.runtime.tools.base import ToolRegistry, ToolSpec
 from oclaw.platform.llm.transports.base import LLMResponse, LLMToolCall
 
 
@@ -36,7 +36,7 @@ def test_direct_loop_propagates_on_token_streaming(tmp_path: Path) -> None:
     store = SqliteStore(str(tmp_path / "s.sqlite"))
     sess = store.create_session("t")
     seen: list[str] = []
-    out = run_openclaw_direct_loop(
+    out = run_oclaw_direct_loop(
         store=store,
         session_id=sess.id,
         lang="zh",
@@ -68,7 +68,7 @@ def test_direct_loop_supports_multi_round_tool_then_final(tmp_path: Path) -> Non
             )
         ]
     )
-    out = run_openclaw_direct_loop(
+    out = run_oclaw_direct_loop(
         store=store,
         session_id=sess.id,
         lang="zh",

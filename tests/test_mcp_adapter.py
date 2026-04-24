@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 
 from oclaw.platform.persistence.sqlite_store import SqliteStore
-from oclaw.tools.mcp.adapter import materialize_mcp_tools, materialize_mcp_tools_for_specialist
+from oclaw.runtime.tools.mcp.adapter import materialize_mcp_tools, materialize_mcp_tools_for_specialist
 
 
 class McpAdapterTests(unittest.TestCase):
@@ -147,7 +147,7 @@ class McpAdapterTests(unittest.TestCase):
             self.assertIn("mcp__echo-b__ping", names)
 
     def test_mcp_local_env_file_path_prefers_src_local(self) -> None:
-        from oclaw.ops import mcp_env
+        from oclaw.runtime.operations import mcp_env
 
         p = mcp_env.mcp_local_env_file_path()
         self.assertEqual(p.name, "mcp_local.env")
@@ -156,7 +156,7 @@ class McpAdapterTests(unittest.TestCase):
         self.assertIn("_local", parts)
 
     def test_mcp_env_allowlist_keys_default_when_unset(self) -> None:
-        from oclaw.ops import mcp_env
+        from oclaw.runtime.operations import mcp_env
 
         old = os.environ.pop("OPS_MCP_ENV_ALLOWLIST", None)
         try:

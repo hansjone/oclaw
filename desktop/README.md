@@ -24,7 +24,7 @@ npm run dev
 The app will:
 
 1. Pick an available local port (default prefers `8787`).
-2. Start backend using `python -m oclaw.ops gateway start --host 127.0.0.1 --port <port>`.
+2. Start backend using `python -m oclaw.runtime.operations gateway start --host 127.0.0.1 --port <port>`.
 3. Open `http://127.0.0.1:<port>/chat` in the desktop window.
 
 Logs are written under:

@@ -12,8 +12,8 @@ from fastapi.testclient import TestClient
 from oclaw.interfaces.http.fastapi_app import create_app
 from oclaw.platform.config.paths import db_path
 from oclaw.platform.persistence.sqlite_store import SqliteStore
-from oclaw.tools.experts.workspace.fs_tools import list_files_tool
-from oclaw.tools.experts.workspace.workspace_base import (
+from oclaw.runtime.tools.experts.workspace.fs_tools import list_files_tool
+from oclaw.runtime.tools.experts.workspace.workspace_base import (
     access_from_env,
     build_workspace_path_access,
     clear_workspace_path_access_for_tests,

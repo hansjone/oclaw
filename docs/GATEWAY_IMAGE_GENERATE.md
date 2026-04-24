@@ -5,7 +5,7 @@ This document describes the Python gateway method `image.generate`.
 ## Method
 
 - Name: `image.generate`
-- Handler: `oclaw/gateway/server_methods/image.py`
+- Handler: `oclaw/interfaces/gateway/server_methods/image.py`
 
 ## Input Params
 

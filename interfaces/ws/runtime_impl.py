@@ -32,7 +32,7 @@ from oclaw.interfaces.ws.runtime_loop import close_ws as close_ws_impl, run_conn
 from oclaw.interfaces.ws.server_methods_bridge import build_gateway_context, dispatch_via_server_methods
 from oclaw.interfaces.ws.turn_runner import run_agent_turn_via_bridge
 from oclaw.interfaces.ws.ws_schema import format_validation_errors, get_ws_schemas, validate_or_errors
-from oclaw.openclaw_runtime.relay_pointer import validate_relay_share_envelope
+from oclaw.runtime.relay_pointer import validate_relay_share_envelope
 
 
 class OclawWsGatewayConnection:

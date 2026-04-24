@@ -122,7 +122,7 @@ async function startBackendProcess() {
     AIA_DESKTOP_MODE: "1",
   };
 
-  const args = ["-m", "oclaw.ops", "gateway", "start", "--host", host, "--port", String(port)];
+  const args = ["-m", "oclaw.runtime.operations", "gateway", "start", "--host", host, "--port", String(port)];
   backendProc = spawn(pythonBin, args, {
     cwd: APP_ROOT,
     env,
@@ -212,7 +212,7 @@ async function startChannelProcess() {
   try {
     const cleanupRes = await runPythonInline(
       pythonBin,
-      "from oclaw.ops.runtime import cleanup_orphan_service_processes; k=cleanup_orphan_service_processes('channel:wecom'); print('killed=' + ','.join(str(x) for x in k))",
+      "from oclaw.runtime.operations.runtime import cleanup_orphan_service_processes; k=cleanup_orphan_service_processes('channel:wecom'); print('killed=' + ','.join(str(x) for x in k))",
       { AIA_DATA_DIR: DATA_ROOT },
     );
     if (!cleanupRes.ok) {
@@ -230,7 +230,7 @@ async function startChannelProcess() {
     AIA_DATA_DIR: DATA_ROOT,
     AIA_DESKTOP_MODE: "1",
   };
-  const args = ["-m", "oclaw.ops", "channel", "wecom", "start", "--mode", "ws", "--interval", "3.0", "--deliver-outbound"];
+  const args = ["-m", "oclaw.runtime.operations", "channel", "wecom", "start", "--mode", "ws", "--interval", "3.0", "--deliver-outbound"];
   channelStopping = false;
   channelProc = spawn(pythonBin, args, {
     cwd: APP_ROOT,

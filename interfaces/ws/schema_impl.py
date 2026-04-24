@@ -2,14 +2,13 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any
 
 from jsonschema import Draft202012Validator
 
-from oclaw.platform.config.paths import PROJECT_ROOT
+from oclaw.platform.config.runtime_paths import ws_protocol_schemas_root
 
-_SCHEMA_DIR = Path(PROJECT_ROOT) / "oclaw" / "openclaw_protocol_schemas"
+_SCHEMA_DIR = ws_protocol_schemas_root()
 
 
 def _load_schema(name: str) -> dict[str, Any]:

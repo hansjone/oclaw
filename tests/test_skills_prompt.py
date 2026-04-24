@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from oclaw.openclaw_runtime.skills_prompt import format_skills_for_prompt
+from oclaw.runtime.skills_prompt import format_skills_for_prompt
 
 
 def test_format_skills_for_prompt_xml_shape() -> None:

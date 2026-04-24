@@ -1,10 +1,10 @@
 """OpenAI-compatible tool_call_id / tool result id rewriting.
 
-Inspired by OpenClaw (MIT) `src/agents/tool-call-id.ts`: sanitize ids to strict
+Inspired by Oclaw (MIT) `src/agents/tool-call-id.ts`: sanitize ids to strict
 alphanumeric form and keep assistant.tool_calls[].id paired with role=tool
 tool_call_id in encounter order.
 
-See OPENCLAW_MIT_LICENSE.txt in this package.
+See OCLAW_MIT_LICENSE.txt in this package.
 """
 
 from __future__ import annotations

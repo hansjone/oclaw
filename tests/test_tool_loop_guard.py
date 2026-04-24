@@ -3,10 +3,10 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from oclaw.chat.tool_runtime import ToolExecutionContext, ToolExecutor
+from oclaw.runtime.chat.tool_runtime import ToolExecutionContext, ToolExecutor
 from oclaw.platform.llm.chat_models import LLMToolCall
 from oclaw.platform.persistence.sqlite_store import SqliteStore
-from oclaw.tools.base import ToolRegistry, ToolSpec
+from oclaw.runtime.tools.base import ToolRegistry, ToolSpec
 
 
 def test_tool_loop_guard_blocks_repeated_signature(tmp_path: Path) -> None:

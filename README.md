@@ -1,15 +1,18 @@
-# OpenClaw Architecture Root
+# Oclaw Architecture Root
 
-This directory is the new architecture root for ongoing refactors.
+This repository is fully consolidated under `oclaw/`.
 
 ## Layers
-- `interfaces/`: transport adapters (HTTP/WS/gateway handlers)
+- `runtime/`: core execution loop, routing, skill runtime, hook runtime
+- `interfaces/`: transport adapters (HTTP/WS)
+- `gateway/`: method handlers and protocol bridging
 - `application/`: use-cases and orchestration services
-- `domain/`: business rules and domain primitives
-- `infrastructure/`: integrations and runtime adapters
-- `shared/`: shared utilities/types
+- `infrastructure/`: runtime-facing integrations/adapters
+- `platform/`: shared platform capabilities (llm, persistence, config, files)
+- `tools/`: tool registry, MCP adapters, public/system tools
+- `skills/`: installable skills and runtime manifests
 
-## Migration Rule
-New business logic should be implemented in `oclaw/`.
-`oclaw/` modules remain as compatibility bridges during migration.
+## Naming Rule
+- Use `oclaw` consistently in paths, symbols, and docs.
+- Avoid introducing legacy aliases or old naming variants.
 

@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from oclaw.openclaw_runtime.skill_executor import SkillExecutionContext, SkillExecutor
-from oclaw.tools.base import ToolRegistry, ToolSpec
+from oclaw.runtime.skill_executor import SkillExecutionContext, SkillExecutor
+from oclaw.runtime.tools.base import ToolRegistry, ToolSpec
 
 
 class _DummyStore:

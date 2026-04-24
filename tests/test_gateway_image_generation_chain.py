@@ -3,11 +3,11 @@ from __future__ import annotations
 import importlib.util
 from pathlib import Path
 
-from oclaw.gateway.server_plugins import load_gateway_plugins
+from oclaw.interfaces.gateway.server_plugins import load_gateway_plugins
 
 
 def _load_image_core_generate_image():
-    file_path = (Path(__file__).resolve().parents[1] / "extensions" / "image-generation-core" / "api.py").resolve()
+    file_path = (Path(__file__).resolve().parents[1] / "runtime" / "extensions" / "image-generation-core" / "api.py").resolve()
     spec = importlib.util.spec_from_file_location("test_image_generation_core_api", str(file_path))
     if spec is None or spec.loader is None:
         raise RuntimeError("failed to load image-generation-core api module")

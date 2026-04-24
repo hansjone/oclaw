@@ -22,8 +22,9 @@ def _prompts_root() -> Path:
     return (PROJECT_ROOT / "oclaw" / "prompts").resolve()
 
 
-def _openclaw_prompts_root() -> Path:
-    return (PROJECT_ROOT / "oclaw" / "prompts_openclaw").resolve()
+def _runtime_prompts_root() -> Path:
+    # Runtime prompts are unified into the single prompts tree.
+    return _prompts_root()
 
 
 @lru_cache(maxsize=512)
@@ -37,12 +38,12 @@ def load_prompt_doc(prompt_path: str) -> PromptDoc:
 
 
 @lru_cache(maxsize=512)
-def load_openclaw_prompt_doc(prompt_path: str) -> PromptDoc:
-    p = (_openclaw_prompts_root() / str(prompt_path)).resolve()
+def load_runtime_prompt_doc(prompt_path: str) -> PromptDoc:
+    p = (_runtime_prompts_root() / str(prompt_path)).resolve()
     if not p.exists():
-        raise FileNotFoundError(f"openclaw prompt not found: {prompt_path}")
+        raise FileNotFoundError(f"runtime prompt not found: {prompt_path}")
     raw = p.read_text(encoding="utf-8")
-    fm, body = parse_markdown_document(raw, source=f"openclaw_prompt:{prompt_path}")
+    fm, body = parse_markdown_document(raw, source=f"runtime_prompt:{prompt_path}")
     return PromptDoc(frontmatter=fm, body=body)
 
 
@@ -69,8 +70,8 @@ def render_prompt(prompt_path: str, *, variables: dict[str, Any] | None = None, 
     return out.strip()
 
 
-def render_openclaw_prompt(prompt_path: str, *, variables: dict[str, Any] | None = None, strict: bool = True) -> str:
-    doc = load_openclaw_prompt_doc(prompt_path)
+def render_runtime_prompt(prompt_path: str, *, variables: dict[str, Any] | None = None, strict: bool = True) -> str:
+    doc = load_runtime_prompt_doc(prompt_path)
     vars_in = dict(variables or {})
     missing: set[str] = set()
 
@@ -83,15 +84,15 @@ def render_openclaw_prompt(prompt_path: str, *, variables: dict[str, Any] | None
 
     out = _VAR_RE.sub(_repl, doc.body)
     if strict and missing:
-        raise ValueError(f"missing openclaw prompt variables for {prompt_path}: {', '.join(sorted(missing))}")
+        raise ValueError(f"missing runtime prompt variables for {prompt_path}: {', '.join(sorted(missing))}")
     return out.strip()
 
 
 __all__ = [
     "PromptDoc",
     "load_prompt_doc",
-    "load_openclaw_prompt_doc",
+    "load_runtime_prompt_doc",
     "render_prompt",
     "render_prompt_for_lang",
-    "render_openclaw_prompt",
+    "render_runtime_prompt",
 ]

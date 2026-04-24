@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import unittest
 
-from oclaw.chat.tool_runtime import truncate_tool_result_for_llm_messages, tool_llm_message_max_chars
+from oclaw.runtime.chat.tool_runtime import truncate_tool_result_for_llm_messages, tool_llm_message_max_chars
 
 
 class ToolLlmTruncationTests(unittest.TestCase):

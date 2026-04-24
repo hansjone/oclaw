@@ -1,19 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-cd "$ROOT_DIR"
+REAL_PATH="$(cd "$(dirname "${BASH_SOURCE[0]}")/../runtime/operations/scripts" && pwd)/status_ops.sh"
+if [[ ! -f "$REAL_PATH" ]]; then
+  echo "[ERROR] Forward script target not found: $REAL_PATH" >&2
+  exit 1
+fi
 
-printf '==> Project root: %s\n' "$ROOT_DIR"
-printf '==> Stack status\n'
-python -m oclaw.ops stack status
-
-printf '\n==> WeCom status\n'
-python -m oclaw.ops channel wecom status
-
-cat <<'EOF'
-
-Admin: http://127.0.0.1:8787/admin
-Chat:  http://127.0.0.1:8787/chat
-EOF
+exec bash "$REAL_PATH" "$@"
 

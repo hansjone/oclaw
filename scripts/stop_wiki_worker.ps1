@@ -1,31 +1,11 @@
-param(
-  [switch]$Force
-)
+param()
 
 $ErrorActionPreference = "Stop"
-$runDir = Join-Path $PSScriptRoot ".run"
-$pidFile = Join-Path $runDir "wiki_worker.pid"
 
-if (-not (Test-Path $pidFile)) {
-  Write-Host "[ok] not running (no pid file)"
-  exit 0
+$real = Join-Path $PSScriptRoot "..\\runtime\\operations\\scripts\\stop_wiki_worker.ps1"
+if (-not (Test-Path $real)) {
+    throw "Forward script target not found: $real"
 }
 
-$procId = (Get-Content -Path $pidFile -ErrorAction SilentlyContinue | Select-Object -First 1)
-if (-not $procId) {
-  Remove-Item -Force $pidFile -ErrorAction SilentlyContinue
-  Write-Host "[ok] not running (empty pid file)"
-  exit 0
-}
+& $real @args
 
-try {
-  if ($Force) {
-    taskkill.exe /PID $procId /T /F | Out-Null
-  } else {
-    taskkill.exe /PID $procId /T | Out-Null
-  }
-} catch {
-}
-
-Remove-Item -Force $pidFile -ErrorAction SilentlyContinue
-Write-Host "[ok] stopped pid=$procId"

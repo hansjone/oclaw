@@ -4,7 +4,7 @@ from unittest import mock
 from fastapi.testclient import TestClient
 
 from oclaw.interfaces.http.fastapi_app import create_app
-from oclaw.openclaw_runtime.gateway import OpenClawGatewayResult
+from oclaw.runtime.gateway import OclawGatewayResult
 
 
 def _connect_params() -> dict:
@@ -72,7 +72,7 @@ class WsGatewayTests(unittest.TestCase):
                 on_tool_ui("skill", {"ok": True})
             if callable(on_token):
                 on_token("hello")
-            return OpenClawGatewayResult(
+            return OclawGatewayResult(
                 run_id=str(rid),
                 reply_text="done",
                 trace_id="trace_test",
@@ -83,7 +83,7 @@ class WsGatewayTests(unittest.TestCase):
                 interaction_mode="comprehensive",
             )
 
-        with mock.patch("oclaw.openclaw_runtime.gateway.OpenClawGateway.handle_turn", new=_fake_handle_turn):
+        with mock.patch("oclaw.runtime.gateway.OclawGateway.handle_turn", new=_fake_handle_turn):
             with self.client.websocket_connect("/ws") as ws:
                 ws.receive_json()  # connect.challenge
                 ws.send_json({"type": "req", "id": "c1", "method": "connect", "params": _connect_params()})
@@ -129,7 +129,7 @@ class WsGatewayTests(unittest.TestCase):
     def test_ws_sessions_send_routes_to_agent_flow(self) -> None:
         def _fake_handle_turn(self, **kwargs):  # noqa: ANN001
             rid = kwargs.get("run_id") or "run_test"
-            return OpenClawGatewayResult(
+            return OclawGatewayResult(
                 run_id=str(rid),
                 reply_text="done",
                 trace_id="trace_sessions_send",
@@ -140,7 +140,7 @@ class WsGatewayTests(unittest.TestCase):
                 interaction_mode="comprehensive",
             )
 
-        with mock.patch("oclaw.openclaw_runtime.gateway.OpenClawGateway.handle_turn", new=_fake_handle_turn):
+        with mock.patch("oclaw.runtime.gateway.OclawGateway.handle_turn", new=_fake_handle_turn):
             with self.client.websocket_connect("/ws") as ws:
                 ws.receive_json()
                 ws.send_json({"type": "req", "id": "c1", "method": "connect", "params": _connect_params()})
@@ -166,7 +166,7 @@ class WsGatewayTests(unittest.TestCase):
     def test_ws_agent_run_alias_works(self) -> None:
         def _fake_handle_turn(self, **kwargs):  # noqa: ANN001
             rid = kwargs.get("run_id") or "run_alias"
-            return OpenClawGatewayResult(
+            return OclawGatewayResult(
                 run_id=str(rid),
                 reply_text="ok",
                 trace_id="trace_alias",
@@ -177,7 +177,7 @@ class WsGatewayTests(unittest.TestCase):
                 interaction_mode="comprehensive",
             )
 
-        with mock.patch("oclaw.openclaw_runtime.gateway.OpenClawGateway.handle_turn", new=_fake_handle_turn):
+        with mock.patch("oclaw.runtime.gateway.OclawGateway.handle_turn", new=_fake_handle_turn):
             with self.client.websocket_connect("/ws") as ws:
                 ws.receive_json()
                 ws.send_json({"type": "req", "id": "c1", "method": "connect", "params": _connect_params()})
@@ -208,7 +208,7 @@ class WsGatewayTests(unittest.TestCase):
             if callable(on_token):
                 on_token("he")
                 on_token("llo")
-            return OpenClawGatewayResult(
+            return OclawGatewayResult(
                 run_id=str(rid),
                 reply_text="hello",
                 trace_id="trace_chat_send",
@@ -219,7 +219,7 @@ class WsGatewayTests(unittest.TestCase):
                 interaction_mode="comprehensive",
             )
 
-        with mock.patch("oclaw.openclaw_runtime.gateway.OpenClawGateway.handle_turn", new=_fake_handle_turn):
+        with mock.patch("oclaw.runtime.gateway.OclawGateway.handle_turn", new=_fake_handle_turn):
             with self.client.websocket_connect("/ws") as ws:
                 ws.receive_json()
                 ws.send_json({"type": "req", "id": "c1", "method": "connect", "params": _connect_params()})
@@ -266,7 +266,7 @@ class WsGatewayTests(unittest.TestCase):
             if callable(on_token):
                 on_token("Hel")
                 on_token("lo")
-            return OpenClawGatewayResult(
+            return OclawGatewayResult(
                 run_id=str(rid),
                 reply_text="Hello",
                 trace_id="trace_chat_send_stream",
@@ -277,7 +277,7 @@ class WsGatewayTests(unittest.TestCase):
                 interaction_mode="comprehensive",
             )
 
-        with mock.patch("oclaw.openclaw_runtime.gateway.OpenClawGateway.handle_turn", new=_fake_handle_turn):
+        with mock.patch("oclaw.runtime.gateway.OclawGateway.handle_turn", new=_fake_handle_turn):
             with self.client.websocket_connect("/ws") as ws:
                 ws.receive_json()
                 ws.send_json({"type": "req", "id": "c1", "method": "connect", "params": _connect_params()})

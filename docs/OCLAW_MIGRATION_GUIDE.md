@@ -1,4 +1,4 @@
-# OpenClaw Migration Guide
+# Oclaw Migration Guide
 
 This repository is migrating from legacy `oclaw/` runtime wiring to the new `oclaw/` architecture root.
 
@@ -17,7 +17,7 @@ This repository is migrating from legacy `oclaw/` runtime wiring to the new `ocl
 ## Runtime notes
 - Gateway HTTP method adapter: `POST /gateway/method`
 - WS dispatch first resolves method handlers from shared dispatcher.
-- Inbound payload use-case entrypoint: `oclaw.application.gateway.process_inbound_payload_usecase`
+- Inbound payload use-case entrypoint: `oclaw.runtime.application.gateway.process_inbound_payload_usecase`
 - HTTP app entrypoint moved to: `oclaw.interfaces.http.fastapi_app`
 - WS entrypoint moved to: `oclaw.interfaces.ws.entrypoint`
 - WS runtime bridge path: `oclaw.interfaces.ws.runtime`
@@ -62,9 +62,9 @@ This repository is migrating from legacy `oclaw/` runtime wiring to the new `ocl
 - Legacy root `extensions/` has been merged into `oclaw/extensions/` and removed.
 
 ## Prompt and skills policy
-- Role context is loaded from `oclaw/agent/*`.
+- Role context is loaded from `oclaw/runtime/assets/agent_workspaces/*`.
 - Skills root priority:
   1. `AIA_SKILLS_ROOT`
-  2. `oclaw/skills`
+  2. `oclaw/runtime/skills`
   3. `skills/` (legacy fallback)
 

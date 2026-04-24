@@ -6,7 +6,7 @@ from pathlib import Path
 
 
 def _load_handler_module():
-    p = Path("d:/project/chatgpt/oclaw/hooks/bundled/wiki-auto-inject/handler.py").resolve()
+    p = Path("d:/project/chatgpt/oclaw/runtime/hooks/bundled/wiki-auto-inject/handler.py").resolve()
     spec = importlib.util.spec_from_file_location("wiki_auto_inject_handler_test", str(p))
     assert spec and spec.loader
     mod = importlib.util.module_from_spec(spec)

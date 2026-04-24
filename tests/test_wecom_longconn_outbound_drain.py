@@ -11,7 +11,7 @@ import pytest
 
 def test_wecom_longconn_drains_outbound_on_idle_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
     # Import module under test.
-    import oclaw.channels.wecom.longconn_runner as m
+    import oclaw.interfaces.channels.wecom.longconn_runner as m
 
     # Build a fake websocket that raises timeout once, then exits by raising KeyboardInterrupt.
     class _TimeoutOnceWs:

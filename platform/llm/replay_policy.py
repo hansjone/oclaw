@@ -1,10 +1,10 @@
 """Transcript replay policy for OpenAI-compatible Chat Completions.
 
-Inspired by OpenClaw (MIT) `src/agents/transcript-policy.ts` defaults for
+Inspired by Oclaw (MIT) `src/agents/transcript-policy.ts` defaults for
 `openai-completions`: enable strict tool-call-id sanitization so proxies and
 multi-provider histories do not break on id format / length.
 
-See OPENCLAW_MIT_LICENSE.txt in this package.
+See OCLAW_MIT_LICENSE.txt in this package.
 """
 
 from __future__ import annotations

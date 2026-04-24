@@ -68,13 +68,13 @@ class AdminChatWikiEventsApiTests(unittest.TestCase):
 
     def test_wiki_events_endpoint_returns_finished_wiki_capture_tasks(self) -> None:
         token = self._login()
-        task = self.store.openclaw_task_create(
+        task = self.store.oclaw_task_create(
             tenant_id=self.tenant_id,
             session_id=str(self.session_id),
             task_type="wiki_capture",
             payload={"kind": "captureAfterTurn", "session_id": str(self.session_id)},
         )
-        self.assertTrue(self.store.openclaw_task_finish(task_id=task.id, result={"ok": True, "dedupMerge": {"merged_count": 1, "skipped_dup": 0}}))
+        self.assertTrue(self.store.oclaw_task_finish(task_id=task.id, result={"ok": True, "dedupMerge": {"merged_count": 1, "skipped_dup": 0}}))
         headers = {"authorization": f"Bearer {token}", "accept": "application/json"}
         resp = self.client.get(
             f"/admin/api/chat/sessions/{self.session_id}/wiki-events?limit=10",

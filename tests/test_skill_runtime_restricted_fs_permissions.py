@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from oclaw.tools.skills_runtime.subprocess_exec import run_skill_runtime_entry
+from oclaw.runtime.tools.skills_runtime.subprocess_exec import run_skill_runtime_entry
 
 
 class SkillRuntimeRestrictedFsPermissionTests(unittest.TestCase):

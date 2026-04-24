@@ -4,14 +4,14 @@
 
 关联文档：
 
-- trace 字段与阶段对照：`docs/openclaw-trace-taxonomy.md`
-- skill 安装/执行排障：`docs/openclaw-skill-troubleshooting.md`
+- trace 字段与阶段对照：`docs/oclaw-trace-taxonomy.md`
+- skill 安装/执行排障：`docs/oclaw-skill-troubleshooting.md`
 
 ---
 
 ## 1. 统一入口（只保留最新）
 
-所有运维命令统一通过 `scripts/`，不要再使用 `python -m oclaw.ops ...` 或历史 `.bat` 方式。
+所有运维命令统一通过 `scripts/`，不要再使用 `python -m oclaw.runtime.operations ...` 或历史 `.bat` 方式。
 
 补充：工具脚本也统一放在 `scripts/`（例如 `seed_mcp_registry.py`、`ws_probe.py`）。
 
@@ -272,7 +272,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\weixin_install.ps1
 
 安装目录：
 
-- `data/channel_sidecar/openclaw-weixin/`
+- `data/channel_sidecar/oclaw-weixin/`
 
 ### 11.2 扫码登录（获取 bot token）
 
@@ -282,8 +282,8 @@ powershell -ExecutionPolicy Bypass -File .\scripts\weixin_login.ps1
 
 登录态写入：
 
-- `data/channel_sidecar/openclaw-weixin/state/openclaw-weixin/accounts/*.json`
-- `data/channel_sidecar/openclaw-weixin/state/openclaw-weixin/accounts.json`
+- `data/channel_sidecar/oclaw-weixin/state/oclaw-weixin/accounts/*.json`
+- `data/channel_sidecar/oclaw-weixin/state/oclaw-weixin/accounts.json`
 
 ### 11.3 启动微信 sidecar
 
@@ -305,8 +305,8 @@ powershell -ExecutionPolicy Bypass -File .\scripts\weixin_stop.ps1
 
 日志文件：
 
-- `data/channel_sidecar/openclaw-weixin/logs/weixin_sidecar.log`
-- `data/channel_sidecar/openclaw-weixin/logs/weixin_sidecar.err.log`
+- `data/channel_sidecar/oclaw-weixin/logs/weixin_sidecar.log`
+- `data/channel_sidecar/oclaw-weixin/logs/weixin_sidecar.err.log`
 
 ### 11.4 当前行为说明
 
@@ -440,7 +440,7 @@ python .\scripts\wiki_auto_smoke_test.py
 
 该脚本会：
 
-- 投递一条 `wiki_capture` 任务到 `openclaw_task`
+- 投递一条 `wiki_capture` 任务到 `oclaw_task`
 - 轮询任务状态直到 `done/failed/timeout`
 - 输出当前写入产物状态（`merged-turns.md`、`topic-index.json`、`index.json`、`LINT_REPORT.md`）
 

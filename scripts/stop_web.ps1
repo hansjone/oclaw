@@ -1,8 +1,11 @@
-param(
-    [int]$Port = 8787,
-    [switch]$Force = $false
-)
+param()
 
-# 网页端（/admin、/chat）由网关进程提供，这里只是一个语义化别名。
-& "$PSScriptRoot/stop_gateway.ps1" -Port $Port -Force:$Force
+$ErrorActionPreference = "Stop"
+
+$real = Join-Path $PSScriptRoot "..\\runtime\\operations\\scripts\\stop_web.ps1"
+if (-not (Test-Path $real)) {
+    throw "Forward script target not found: $real"
+}
+
+& $real @args
 

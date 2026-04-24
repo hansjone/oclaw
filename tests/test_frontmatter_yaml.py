@@ -7,13 +7,13 @@ from oclaw.prompts.frontmatter import parse_frontmatter_dict, parse_markdown_doc
 
 def test_parse_yaml_frontmatter_nested_metadata() -> None:
     fm = parse_frontmatter_dict(
-        "name: demo\ndescription: x\nmetadata:\n  openclaw:\n    install:\n      - id: i1\n        kind: node\n",
+        "name: demo\ndescription: x\nmetadata:\n  oclaw:\n    install:\n      - id: i1\n        kind: node\n",
         source="test",
     )
     assert fm.get("name") == "demo"
     md = fm.get("metadata")
     assert isinstance(md, dict)
-    assert isinstance(md.get("openclaw"), dict)
+    assert isinstance(md.get("oclaw"), dict)
 
 
 def test_parse_markdown_document_roundtrip() -> None:

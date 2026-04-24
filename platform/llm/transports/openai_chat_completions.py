@@ -153,7 +153,7 @@ class OpenAIChatModel(ChatModel):
             try:
                 from oclaw.platform.config.paths import db_path
                 from oclaw.platform.persistence.sqlite_store import SqliteStore
-                from oclaw.tools.exposure_plan import build_llm_tools_plan
+                from oclaw.runtime.tools.exposure_plan import build_llm_tools_plan
 
                 plan = build_llm_tools_plan(
                     store=SqliteStore(db_path()),

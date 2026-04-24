@@ -42,21 +42,22 @@ data/**/*.log
 data/**/*.err.log
 platform/data/
 scripts/.run/
+runtime/operations/scripts/.run/
 desktop/node_modules/
 desktop/dist/
 desktop/runtime-data/
 # 本地密钥（随仓库目录迁移时记得复制此文件；勿提交）
-src/_local/google_oauth_client.json
-src/_local/mcp_local.env
+_local/google_oauth_client.json
+_local/mcp_local.env
 # MCP admin export / 安装后自动备份（可重装 JSON，本机 path 与列表可能不同）
-src/_local/mcp_registry_migrated.json
-src/platform/data/*.sqlite
-src/platform/data/*.sqlite-journal
-src/platform/data/*.sqlite-shm
-src/platform/data/*.sqlite-wal
-src/platform/data/logs/
-src/platform/data/locks/
-src/platform/data/ops_runtime_state.json
+_local/mcp_registry_migrated.json
+platform/data/*.sqlite
+platform/data/*.sqlite-journal
+platform/data/*.sqlite-shm
+platform/data/*.sqlite-wal
+platform/data/logs/
+platform/data/locks/
+platform/data/ops_runtime_state.json
 # 历史 Vite 前端已移除；若本地仍有残留目录可忽略或手动删除
 web/
 
@@ -70,5 +71,5 @@ oclaw/desktop/node_modules/
 oclaw/desktop/dist/
 oclaw/desktop/runtime-data/
 oclaw/desktop/assets/oclaw.ico
-vendor/openclaw-main.zip
-vendor/openclaw/
+vendor/oclaw-main.zip
+vendor/oclaw/
