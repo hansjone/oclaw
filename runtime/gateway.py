@@ -434,7 +434,7 @@ class OclawGateway:
     @staticmethod
     def _tabular_limits_from_config() -> dict[str, int]:
         cfg_path_raw = str(os.getenv("AIA_OCLAW_CONFIG_PATH") or "").strip()
-        cfg_path = Path(cfg_path_raw).expanduser() if cfg_path_raw else (Path(PROJECT_ROOT) / "oclaw" / "oclaw.json")
+        cfg_path = Path(cfg_path_raw).expanduser() if cfg_path_raw else (Path(PROJECT_ROOT) / "oclaw.json")
         if not cfg_path.is_absolute():
             cfg_path = (Path(PROJECT_ROOT) / cfg_path).resolve()
         try:

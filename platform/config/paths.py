@@ -14,7 +14,8 @@ from pathlib import Path
 def _project_root() -> Path:
     if getattr(sys, "frozen", False):
         return Path(sys.executable).resolve().parent
-    return Path(__file__).resolve().parents[3]
+    # Source layout: <repo>/platform/config/paths.py
+    return Path(__file__).resolve().parents[2]
 
 
 PROJECT_ROOT = _project_root()
@@ -22,7 +23,7 @@ _DATA_MIGRATION_DONE = False
 
 
 def _canonical_data_root() -> Path:
-    return (PROJECT_ROOT / "oclaw" / "data").resolve()
+    return (PROJECT_ROOT / "data").resolve()
 
 
 def _legacy_platform_data_root() -> Path:
@@ -30,7 +31,7 @@ def _legacy_platform_data_root() -> Path:
 
 
 def _legacy_root_data_root() -> Path:
-    return (PROJECT_ROOT / "data").resolve()
+    return (PROJECT_ROOT.parent / "data").resolve()
 
 
 def _backup_keep_count() -> int:
@@ -177,7 +178,7 @@ def _run_default_data_migration(canonical_db: Path) -> None:
 
 def db_path() -> str:
     global _DATA_MIGRATION_DONE
-    p = os.getenv("AIA_ASSISTANT_DB_PATH") or os.getenv("OPS_ASSISTANT_DB_PATH") or "oclaw/data/ai_ops.sqlite"
+    p = os.getenv("AIA_ASSISTANT_DB_PATH") or os.getenv("OPS_ASSISTANT_DB_PATH") or "data/ai_ops.sqlite"
     path = Path(p)
     if not path.is_absolute():
         path = (PROJECT_ROOT / path).resolve()

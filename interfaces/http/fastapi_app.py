@@ -36,11 +36,11 @@ def _resolve_startup_workspace_dir(cfg: dict[str, Any]) -> str:
         default_agent_id = resolve_default_agent_id(cfg)
         ws = resolve_agent_workspace_dir(cfg, default_agent_id)
         ws_text = str(ws or "").strip()
-        if ws_text:
+        if ws_text and ws_text not in {".", "./"}:
             return ws_text
     except Exception:
         pass
-    return str((PROJECT_ROOT / "oclaw" / "runtime" / "workspaces" / "main").resolve())
+    return str((PROJECT_ROOT / "runtime" / "workspaces" / "main").resolve())
 
 
 def _resolve_startup_workspace_dirs(cfg: dict[str, Any]) -> list[tuple[str, str]]:
@@ -78,7 +78,7 @@ def _relocate_root_scan_artifacts() -> None:
     Normalize them into runtime/data/scan on gateway startup.
     """
     root = PROJECT_ROOT.resolve()
-    target_dir = (PROJECT_ROOT / "oclaw" / "runtime" / "data" / "scan").resolve()
+    target_dir = (PROJECT_ROOT / "runtime" / "data" / "scan").resolve()
     target_dir.mkdir(parents=True, exist_ok=True)
     patterns = ("history_entries_*.json", "state_scan_*.json")
     for pat in patterns:

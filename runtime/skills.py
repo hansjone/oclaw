@@ -87,12 +87,15 @@ def default_skills_root() -> Path:
     # Optional hard-disable for legacy fallback lookups.
     if str(os.getenv("AIA_DISABLE_LEGACY_SKILLS_FALLBACK") or "").strip().lower() in {"1", "true", "yes", "on"}:
         return preferred
-    typo_legacy = (PROJECT_ROOT / "oclaw" / "sills").resolve()
+    typo_legacy = (PROJECT_ROOT / "sills").resolve()
     if typo_legacy.exists() and typo_legacy.is_dir():
         return typo_legacy
-    legacy = (PROJECT_ROOT / "oclaw" / "skills").resolve()
+    legacy = (PROJECT_ROOT / "skills").resolve()
     if legacy.exists() and legacy.is_dir():
         return legacy
+    legacy_parent = (PROJECT_ROOT.parent / "skills").resolve()
+    if legacy_parent.exists() and legacy_parent.is_dir():
+        return legacy_parent
     return preferred
 
 

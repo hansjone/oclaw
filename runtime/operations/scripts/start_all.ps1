@@ -17,7 +17,12 @@ function Write-Step([string]$msg) {
 
 $repoRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))
 $repoParent = Split-Path -Parent $repoRoot
-Set-Location $repoParent
+Set-Location $repoRoot
+$env:PYTHONPATH = $repoParent
+$env:PYTHONSAFEPATH = "1"
+$env:AIA_WORKSPACE_ROOT = $repoRoot
+$env:OPS_WORKSPACE_ROOT = $repoRoot
+$env:OCLAW_WORKSPACE = $repoRoot
 
 Write-Step "Starting gateway + desktop"
 

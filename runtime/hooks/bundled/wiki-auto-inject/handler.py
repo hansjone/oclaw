@@ -11,7 +11,7 @@ def _project_root() -> Path:
 
 
 def _load_config() -> dict[str, Any]:
-    cfg_path = _project_root() / "oclaw" / "oclaw.json"
+    cfg_path = _project_root() / "oclaw.json"
     if not cfg_path.exists():
         return {}
     try:
@@ -29,7 +29,7 @@ def _resolve_wiki_entry(cfg: dict[str, Any]) -> dict[str, Any]:
 
 
 def _resolve_runtime(entry: dict[str, Any]) -> tuple[Path, int, int, bool, int, bool]:
-    root_cfg = str(entry.get("wiki_root") or "oclaw/docs/memory-system/wiki").strip()
+    root_cfg = str(entry.get("wiki_root") or "docs/memory-system/wiki").strip()
     root = Path(root_cfg)
     if not root.is_absolute():
         root = (_project_root() / root).resolve()

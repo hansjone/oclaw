@@ -811,7 +811,7 @@ def build_admin_router() -> APIRouter:
     def api_runtime_scan_artifacts(authorization: str | None = Header(default=None)) -> dict[str, Any]:
         ctx = _resolve_auth(SqliteStore(db_path()), authorization)
         _require_permission(ctx, "admin:read")
-        root = (PROJECT_ROOT / "oclaw" / "runtime" / "data" / "scan").resolve()
+        root = (PROJECT_ROOT / "runtime" / "data" / "scan").resolve()
         allowed_prefixes = ("history_entries_", "state_scan_")
         items: list[dict[str, Any]] = []
         if root.exists() and root.is_dir():
@@ -836,7 +836,7 @@ def build_admin_router() -> APIRouter:
     def api_runtime_scan_artifacts_cleanup(authorization: str | None = Header(default=None)) -> dict[str, Any]:
         ctx = _resolve_auth(SqliteStore(db_path()), authorization)
         _require_permission(ctx, "admin:runtime:write")
-        root = (PROJECT_ROOT / "oclaw" / "runtime" / "data" / "scan").resolve()
+        root = (PROJECT_ROOT / "runtime" / "data" / "scan").resolve()
         allowed_prefixes = ("history_entries_", "state_scan_")
         removed = 0
         if root.exists() and root.is_dir():
@@ -858,7 +858,7 @@ def build_admin_router() -> APIRouter:
         body = payload or {}
         ctx = _resolve_auth(SqliteStore(db_path()), authorization)
         _require_permission(ctx, "admin:runtime:write")
-        root = (PROJECT_ROOT / "oclaw" / "runtime" / "data" / "scan").resolve()
+        root = (PROJECT_ROOT / "runtime" / "data" / "scan").resolve()
         try:
             keep_latest = int(body.get("keep_latest", 20))
         except Exception:

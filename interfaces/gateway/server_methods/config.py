@@ -152,7 +152,7 @@ def _config_open_file_handler(opts: dict[str, Any]) -> Any:
         return None
     if not assert_valid_params(params, _validate_config_get_params, "config.openFile", respond):
         return None
-    config_path = os.getenv("OCLAW_CONFIG_PATH") or "oclaw/oclaw.json"
+    config_path = os.getenv("OCLAW_CONFIG_PATH") or "oclaw.json"
     respond(True, {"ok": True, "path": config_path}, None, None)
     return None
 

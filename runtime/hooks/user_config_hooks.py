@@ -13,7 +13,7 @@ def resolve_hooks_config_storage_path() -> Path:
     Path used for persistent ``hooks.internal.entries`` edits.
 
     Matches ``resolve_runtime_config`` file resolution: ``OCLAW_CONFIG_PATH`` (optional
-    relative to ``PROJECT_ROOT``), else ``<PROJECT_ROOT>/oclaw/oclaw.json``.
+    relative to ``PROJECT_ROOT``), else ``<PROJECT_ROOT>/oclaw.json``.
     """
     raw = str(os.getenv("OCLAW_CONFIG_PATH") or "").strip()
     if raw:
@@ -21,7 +21,7 @@ def resolve_hooks_config_storage_path() -> Path:
         if not p.is_absolute():
             p = (Path(PROJECT_ROOT) / p).resolve()
         return p
-    return (Path(PROJECT_ROOT) / "oclaw" / "oclaw.json").resolve()
+    return (Path(PROJECT_ROOT) / "oclaw.json").resolve()
 
 
 def load_storage_config_document() -> dict[str, Any]:

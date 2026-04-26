@@ -19,7 +19,7 @@ class PromptDoc:
 
 
 def _prompts_root() -> Path:
-    return (PROJECT_ROOT / "oclaw" / "prompts").resolve()
+    return (PROJECT_ROOT / "prompts").resolve()
 
 
 def _runtime_prompts_root() -> Path:

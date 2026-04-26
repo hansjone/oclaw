@@ -16,7 +16,7 @@ from oclaw.platform.persistence.sqlite_store import SqliteStore
 
 
 def _load_cfg() -> dict:
-    cfg_file = (Path(PROJECT_ROOT) / "oclaw" / "oclaw.json").resolve()
+    cfg_file = (Path(PROJECT_ROOT) / "oclaw.json").resolve()
     if not cfg_file.exists():
         return {}
     try:
@@ -30,7 +30,7 @@ def _wiki_root_from_cfg(cfg: dict) -> Path:
     plugins = cfg.get("plugins") if isinstance(cfg, dict) else {}
     entries = plugins.get("entries") if isinstance(plugins, dict) else {}
     mw = entries.get("memory-wiki") if isinstance(entries, dict) else {}
-    root_cfg = str((mw or {}).get("wiki_root") or "oclaw/docs/memory-system/wiki").strip()
+    root_cfg = str((mw or {}).get("wiki_root") or "docs/memory-system/wiki").strip()
     root = Path(root_cfg)
     if not root.is_absolute():
         root = (Path(PROJECT_ROOT) / root).resolve()

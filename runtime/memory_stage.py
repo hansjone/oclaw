@@ -169,7 +169,7 @@ def after_turn_memory(
     except Exception:
         pass
     try:
-        cfg_path = Path(__file__).resolve().parents[2] / "oclaw" / "oclaw.json"
+        cfg_path = Path(__file__).resolve().parents[1] / "oclaw.json"
         cfg = json.loads(cfg_path.read_text(encoding="utf-8")) if cfg_path.exists() else {}
         plugins = cfg.get("plugins") if isinstance(cfg, dict) else {}
         entries = plugins.get("entries") if isinstance(plugins, dict) else {}

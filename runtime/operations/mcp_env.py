@@ -53,7 +53,8 @@ def _expand_env_value(v: str) -> str:
 def _mcp_local_env_paths_in_load_order() -> list[Path]:
     return [
         Path(db_path()).resolve().parent / "mcp_local.env",
-        (PROJECT_ROOT / "oclaw" / "_local" / "mcp_local.env").resolve(),
+        (PROJECT_ROOT / "_local" / "mcp_local.env").resolve(),
+        (PROJECT_ROOT.parent / "_local" / "mcp_local.env").resolve(),
     ]
 
 
@@ -66,7 +67,7 @@ def mcp_local_env_merged() -> dict[str, str]:
 
 
 def mcp_local_env_file_path() -> Path:
-    return (PROJECT_ROOT / "oclaw" / "_local" / "mcp_local.env").resolve()
+    return (PROJECT_ROOT / "_local" / "mcp_local.env").resolve()
 
 
 def gateway_mcp_env_extras() -> dict[str, str]:

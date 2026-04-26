@@ -6,16 +6,16 @@ from oclaw.platform.config.paths import PROJECT_ROOT
 
 
 _PROMPT_CRITICAL_FILES = (
-    "oclaw/runtime/chat/agent.py",
-    "oclaw/runtime/agents/network_ops_agent.py",
-    "oclaw/runtime/agents/factory.py",
-    "oclaw/runtime/chat/agent_messages.py",
-    "oclaw/runtime/system_prompt.py",
-    "oclaw/runtime/memory_stage.py",
-    "oclaw/runtime/project_context_prompt.py",
-    "oclaw/runtime/chat/agent_errors.py",
-    "oclaw/platform/llm/image_message_client.py",
-    "oclaw/runtime/gateway.py",
+    "runtime/chat/agent.py",
+    "runtime/agents/network_ops_agent.py",
+    "runtime/agents/factory.py",
+    "runtime/chat/agent_messages.py",
+    "runtime/system_prompt.py",
+    "runtime/memory_stage.py",
+    "runtime/project_context_prompt.py",
+    "runtime/chat/agent_errors.py",
+    "platform/llm/image_message_client.py",
+    "runtime/gateway.py",
 )
 
 
@@ -33,8 +33,8 @@ def test_prompt_critical_paths_use_prompt_templates() -> None:
 
 def test_prompt_markdown_frontmatter_keys_present() -> None:
     roots = [
-        PROJECT_ROOT / "oclaw" / "prompts",
-        PROJECT_ROOT / "oclaw" / "prompts_runtime",
+        PROJECT_ROOT / "prompts",
+        PROJECT_ROOT / "prompts_runtime",
     ]
     for prompts_root in roots:
         for p in prompts_root.rglob("*.md"):

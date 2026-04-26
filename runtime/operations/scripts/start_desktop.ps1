@@ -22,6 +22,10 @@ if (-not (Test-Path $desktopDir)) {
 
 Set-Location $desktopDir
 $env:PYTHONPATH = $repoParent
+$env:PYTHONSAFEPATH = "1"
+$env:AIA_WORKSPACE_ROOT = $repoRoot
+$env:OPS_WORKSPACE_ROOT = $repoRoot
+$env:OCLAW_WORKSPACE = $repoRoot
 
 if (-not $KeepExistingGateway) {
     Write-Host "==> Cleaning previous gateway listener" -ForegroundColor Cyan

@@ -10,7 +10,7 @@ def _read(path: Path) -> str:
 
 
 def test_main_dynamic_placeholder_only_in_role_system() -> None:
-    root = (PROJECT_ROOT / "oclaw" / "runtime" / "workspaces" / "main").resolve()
+    root = (PROJECT_ROOT / "runtime" / "workspaces" / "main").resolve()
     role_system = _read(root / "ROLE_SYSTEM.md")
     soul = _read(root / "SOUL.md")
     assert "{{MANAGER_DYNAMIC_EXPERTS_HINT}}" in role_system
@@ -22,7 +22,7 @@ def test_main_dynamic_placeholder_only_in_role_system() -> None:
 
 
 def test_main_hard_routing_rule_only_in_role_system() -> None:
-    root = (PROJECT_ROOT / "oclaw" / "runtime" / "workspaces" / "main").resolve()
+    root = (PROJECT_ROOT / "runtime" / "workspaces" / "main").resolve()
     role_system = _read(root / "ROLE_SYSTEM.md")
     assert "回退 `generalist`" in role_system
     for name in ("AGENTS.md", "IDENTITY.md", "USER.md", "SOUL.md"):
@@ -32,7 +32,7 @@ def test_main_hard_routing_rule_only_in_role_system() -> None:
 
 
 def test_every_workspace_has_role_system() -> None:
-    root = (PROJECT_ROOT / "oclaw" / "runtime" / "workspaces").resolve()
+    root = (PROJECT_ROOT / "runtime" / "workspaces").resolve()
     for item in root.iterdir():
         if not item.is_dir():
             continue
@@ -42,7 +42,7 @@ def test_every_workspace_has_role_system() -> None:
 
 
 def test_workspace_legacy_prompt_files_removed() -> None:
-    root = (PROJECT_ROOT / "oclaw" / "runtime" / "workspaces").resolve()
+    root = (PROJECT_ROOT / "runtime" / "workspaces").resolve()
     legacy = ("AGENTS.md", "IDENTITY.md", "USER.md")
     for item in root.iterdir():
         if not item.is_dir():

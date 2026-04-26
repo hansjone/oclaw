@@ -61,7 +61,7 @@ def index_workspace(
     max_chars_per_chunk: int = 1600,
 ) -> IndexStats:
     r = Path(root).resolve() if root else _default_workspace_root()
-    pats = patterns or ["oclaw/**/*.py", "README*.md", "**/*.md"]
+    pats = patterns or ["**/*.py", "README*.md", "**/*.md"]
     files = _iter_files(r, pats, max_files=max(1, int(max_files)))
     client = build_default_embedding_client()
     chunks_upserted = 0

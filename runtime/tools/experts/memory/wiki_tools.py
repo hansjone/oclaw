@@ -9,7 +9,7 @@ from oclaw.runtime.tools.base import ToolSpec
 
 
 def _plugin_cfg() -> dict[str, Any]:
-    cfg_path = (PROJECT_ROOT / "oclaw" / "oclaw.json").resolve()
+    cfg_path = (PROJECT_ROOT / "oclaw.json").resolve()
     if not cfg_path.exists():
         return {}
     try:
@@ -25,7 +25,7 @@ def _plugin_cfg() -> dict[str, Any]:
 
 
 def _wiki_handlers() -> dict[str, Callable[[dict[str, Any]], dict[str, Any]]]:
-    api_path = (PROJECT_ROOT / "oclaw" / "runtime" / "extensions" / "memory-wiki" / "api.py").resolve()
+    api_path = (PROJECT_ROOT / "runtime" / "extensions" / "memory-wiki" / "api.py").resolve()
     spec = importlib.util.spec_from_file_location("memory_wiki_api", str(api_path))
     if spec is None or spec.loader is None:
         return {}

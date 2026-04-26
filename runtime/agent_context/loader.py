@@ -30,7 +30,7 @@ def _workspace_for_role(role: str) -> str:
 
 
 def _role_workspace_signature(role_id: str) -> tuple[Any, ...]:
-    base = (PROJECT_ROOT / "oclaw" / "runtime" / "workspaces").resolve()
+    base = (PROJECT_ROOT / "runtime" / "workspaces").resolve()
     role_root = (base / role_id).resolve()
     if not role_root.exists() or not role_root.is_dir():
         return ("missing", role_id, str(base))
@@ -85,7 +85,7 @@ def build_role_system_context(role: str, template_vars: dict[str, Any] | None = 
         cached = _ROLE_CONTEXT_CACHE.get(cache_key)
     if isinstance(cached, str) and cached.strip():
         return cached
-    base = (PROJECT_ROOT / "oclaw" / "runtime" / "workspaces").resolve()
+    base = (PROJECT_ROOT / "runtime" / "workspaces").resolve()
     roots: list[Path] = []
     role_root = (base / role_id).resolve()
     if role_root.exists() and role_root.is_dir():

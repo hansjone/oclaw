@@ -15,6 +15,19 @@
 
 补充：工具脚本也统一放在 `scripts/`（例如 `seed_mcp_registry.py`、`ws_probe.py`）。
 
+路径基准约定（开源必读）：
+
+- 运行目录固定为仓库根（`.../oclaw`），不要把网关/worker 常驻进程放到上一级目录。
+- 默认配置文件路径为仓库根下的 `oclaw.json`（可用 `OCLAW_CONFIG_PATH` 覆盖）。
+- 默认数据目录为仓库根下的 `data/`（主库：`data/ai_ops.sqlite`）。
+- 相对路径一律按仓库根解析；不要在代码里拼接 `oclaw/...` 二级前缀。
+
+开源前路径自检清单：
+
+- 把仓库目录临时重命名后，`scripts/start_gateway.ps1 -SkipInstall -Background` 仍能启动。
+- `http://127.0.0.1:8787/chat` 返回 200，且后台日志中不出现 `.../oclaw/oclaw/...` 路径。
+- `python -m pytest tests/test_workspace_path_guard.py tests/test_oclaw_startup_workspace_resolution.py -q` 通过。
+
 ---
 
 ## 2. 首次初始化
@@ -362,7 +375,7 @@ AIA_REPLAY_REASONING_SIGNATURE_POLICY=auto
 
 ## 13. memory-wiki 插件启用与排障
 
-### 13.1 启用配置（oclaw/oclaw.json）
+### 13.1 启用配置（oclaw.json）
 
 将 `memory-wiki` 放入启用列表，并建议把 memory slot 指向它：
 
@@ -375,7 +388,7 @@ AIA_REPLAY_REASONING_SIGNATURE_POLICY=auto
     },
     "entries": {
       "memory-wiki": {
-        "wiki_root": "oclaw/docs/memory-system/wiki",
+        "wiki_root": "docs/memory-system/wiki",
         "max_search_results": 20,
         "max_get_lines": 800,
         "auto": {

@@ -19,16 +19,20 @@ function Fail([string]$msg) {
 
 $repoRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))
 $repoParent = Split-Path -Parent $repoRoot
-Set-Location $repoParent
+Set-Location $repoRoot
 
 $runDir = Join-Path $PSScriptRoot ".run"
 New-Item -ItemType Directory -Force -Path $runDir | Out-Null
 $pidFile = Join-Path $runDir "gateway.pid"
 
 Write-Step "Project root: $repoRoot"
-Write-Step "Working directory: $repoParent"
+Write-Step "Working directory: $repoRoot"
 
 $env:PYTHONPATH = $repoParent
+$env:PYTHONSAFEPATH = "1"
+$env:AIA_WORKSPACE_ROOT = $repoRoot
+$env:OPS_WORKSPACE_ROOT = $repoRoot
+$env:OCLAW_WORKSPACE = $repoRoot
 
 $venvPython = Join-Path $repoRoot ".venv/Scripts/python.exe"
 if (Test-Path $venvPython) {
@@ -70,7 +74,7 @@ if ($WithWikiWorker) {
 
 if ($Background) {
     Write-Step "Starting gateway in background"
-    $p = Start-Process -FilePath $pythonExe -ArgumentList @("-m","oclaw.runtime.operations","gateway","start","--host",$BindHost,"--port",$Port) -WorkingDirectory $repoParent -PassThru -WindowStyle Hidden
+    $p = Start-Process -FilePath $pythonExe -ArgumentList @("-m","oclaw.runtime.operations","gateway","start","--host",$BindHost,"--port",$Port) -WorkingDirectory $repoRoot -PassThru -WindowStyle Hidden
     Set-Content -Path $pidFile -Value "$($p.Id)" -Encoding ascii
     Write-Host "gateway.pid = $pidFile" -ForegroundColor DarkGray
     Write-Host "PID = $($p.Id)" -ForegroundColor Green

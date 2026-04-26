@@ -17,7 +17,7 @@ def build_plugin_config_schema(*_args, **_kwargs) -> dict[str, Any]:
             "wiki_root": {
                 "type": "string",
                 "description": "Wiki root directory relative to workspace root.",
-                "default": "oclaw/docs/memory-system/wiki",
+                "default": "docs/memory-system/wiki",
             },
             "max_search_results": {
                 "type": "integer",
@@ -45,9 +45,9 @@ class WikiRuntime:
 
 def _resolve_runtime(api: Any) -> WikiRuntime:
     cfg = dict(getattr(api, "plugin_config", {}) or {})
-    root_cfg = str(cfg.get("wiki_root") or "oclaw/docs/memory-system/wiki").strip()
+    root_cfg = str(cfg.get("wiki_root") or "docs/memory-system/wiki").strip()
     if not root_cfg:
-        root_cfg = "oclaw/docs/memory-system/wiki"
+        root_cfg = "docs/memory-system/wiki"
     root = Path(root_cfg)
     if not root.is_absolute():
         root = (_project_root() / root).resolve()

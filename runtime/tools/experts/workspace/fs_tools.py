@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+from pathlib import Path
 from typing import Any
 
 from oclaw.runtime.tools.base import ToolSpec
@@ -59,11 +60,30 @@ def read_file_tool() -> ToolSpec:
 
 
 def write_file_tool() -> ToolSpec:
+    def _normalize_write_path(path: str) -> str:
+        raw = str(path or "").strip().strip('"').strip("'")
+        if not raw:
+            raise ValueError("path_required")
+        p = Path(raw)
+        if p.is_absolute():
+            return str(p)
+        # Keep generated files out of repo root: default relative writes go under data/<workspace_name>/...
+        ws = resolve_workspace_path(".")
+        ws_name = ws.name or "workspace"
+        rel = raw.lstrip("./\\")
+        if not rel:
+            raise ValueError("path_required")
+        return str(Path("data") / ws_name / rel)
+
     def handler(args: dict[str, Any]) -> dict[str, Any]:
         path = str(args.get("path") or "").strip()
         content = str(args.get("content") or "")
         mode = str(args.get("mode") or "overwrite").strip().lower()
-        p = resolve_workspace_path(path)
+        try:
+            normalized = _normalize_write_path(path)
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc)}
+        p = resolve_workspace_path(normalized)
         p.parent.mkdir(parents=True, exist_ok=True)
         if mode not in ("overwrite", "append"):
             return {"ok": False, "error": "invalid_mode", "allowed": ["overwrite", "append"]}

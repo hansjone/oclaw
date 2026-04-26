@@ -144,19 +144,19 @@ def register_memory_parser(root_sub: argparse._SubParsersAction[argparse.Argumen
     memory_sub = memory.add_subparsers(dest="memory_cmd", required=True)
 
     status = memory_sub.add_parser("status", help="Show memory workload status")
-    status.add_argument("--base-dir", default="oclaw/docs/memory-system", help="Memory system base directory")
+    status.add_argument("--base-dir", default="docs/memory-system", help="Memory system base directory")
     status.add_argument("--review-backlog", type=int, default=0, help="Current due review backlog")
     status.set_defaults(func=_cmd_memory_status)
 
     daily = memory_sub.add_parser("daily", help="Generate today's automated memory run")
-    daily.add_argument("--base-dir", default="oclaw/docs/memory-system", help="Memory system base directory")
+    daily.add_argument("--base-dir", default="docs/memory-system", help="Memory system base directory")
     daily.add_argument("--date", default=None, help="Run date in YYYY-MM-DD")
     daily.add_argument("--focus", default=None, help="Override focus topic")
     daily.add_argument("--review-backlog", type=int, default=0, help="Current due review backlog")
     daily.set_defaults(func=_cmd_memory_daily)
 
     weekly = memory_sub.add_parser("weekly", help="Generate weekly review run sheet")
-    weekly.add_argument("--base-dir", default="oclaw/docs/memory-system", help="Memory system base directory")
+    weekly.add_argument("--base-dir", default="docs/memory-system", help="Memory system base directory")
     weekly.add_argument("--date", default=None, help="Run date in YYYY-MM-DD")
     weekly.add_argument("--review-backlog", type=int, default=0, help="Current due review backlog")
     weekly.set_defaults(func=_cmd_memory_weekly)

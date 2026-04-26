@@ -6,8 +6,12 @@ function Write-Step([string]$msg) {
 
 $repoRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))
 $repoParent = Split-Path -Parent $repoRoot
-Set-Location $repoParent
+Set-Location $repoRoot
 $env:PYTHONPATH = $repoParent
+$env:PYTHONSAFEPATH = "1"
+$env:AIA_WORKSPACE_ROOT = $repoRoot
+$env:OPS_WORKSPACE_ROOT = $repoRoot
+$env:OCLAW_WORKSPACE = $repoRoot
 
 $venvPython = Join-Path $repoRoot ".venv/Scripts/python.exe"
 if (Test-Path $venvPython) {
@@ -17,7 +21,7 @@ if (Test-Path $venvPython) {
 }
 
 Write-Step "Project root: $repoRoot"
-Write-Step "Working directory: $repoParent"
+Write-Step "Working directory: $repoRoot"
 Write-Step "Stack status"
 & $pythonExe -m oclaw.runtime.operations stack status
 

@@ -58,7 +58,7 @@ def _reset_hooks_runtime_state_for_test() -> None:
 
 
 def _ensure_oclaw_path() -> Path:
-    oclaw_dir = (Path(PROJECT_ROOT) / "oclaw").resolve()
+    oclaw_dir = Path(PROJECT_ROOT).resolve()
     if str(oclaw_dir) not in sys.path:
         sys.path.insert(0, str(oclaw_dir))
     return oclaw_dir
@@ -111,7 +111,7 @@ def resolve_runtime_config() -> dict[str, Any]:
             cfg = _deep_merge_dict(cfg, file_cfg)
             return cfg
 
-    default_cfg_path = (Path(PROJECT_ROOT) / "oclaw" / "oclaw.json").resolve()
+    default_cfg_path = (Path(PROJECT_ROOT) / "oclaw.json").resolve()
     file_cfg = _read_json_file(default_cfg_path)
     if isinstance(file_cfg, dict):
         cfg = _deep_merge_dict(cfg, file_cfg)

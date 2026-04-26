@@ -21,7 +21,7 @@ def _project_context_roots() -> tuple[Path, ...]:
     raw_ws = str(os.getenv("OCLAW_WORKSPACE") or "").strip()
     if raw_ws:
         roots.append(Path(raw_ws).expanduser())
-    roots.append(Path(PROJECT_ROOT) / "oclaw" / "runtime" / "workspaces" / "main")
+    roots.append(Path(PROJECT_ROOT) / "runtime" / "workspaces" / "main")
     roots.append(Path(PROJECT_ROOT))
     out: list[Path] = []
     seen: set[str] = set()

@@ -33,13 +33,17 @@ from oclaw.runtime.hooks.user_config_hooks import (
 )
 from oclaw.runtime.hooks.workspace import load_workspace_hook_entries
 from oclaw.runtime.hooks_runtime import resolve_runtime_config
+from oclaw.runtime.tools.experts.workspace.workspace_base import workspace_root
 
 
 def _resolve_cli_workspace(ns: argparse.Namespace) -> str:
     w = getattr(ns, "workspace", None)
     if isinstance(w, str) and w.strip():
         return w.strip()
-    return str(os.getenv("OCLAW_WORKSPACE") or os.getcwd()).strip() or "."
+    env_ws = str(os.getenv("OCLAW_WORKSPACE") or "").strip()
+    if env_ws:
+        return env_ws
+    return str(workspace_root())
 
 
 def prepare_hooks_cli_config(cfg: dict[str, Any] | None) -> dict[str, Any]:

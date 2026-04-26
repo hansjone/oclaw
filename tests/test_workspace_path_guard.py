@@ -12,7 +12,7 @@ from fastapi.testclient import TestClient
 from oclaw.interfaces.http.fastapi_app import create_app
 from oclaw.platform.config.paths import db_path
 from oclaw.platform.persistence.sqlite_store import SqliteStore
-from oclaw.runtime.tools.experts.workspace.fs_tools import list_files_tool
+from oclaw.runtime.tools.experts.workspace.fs_tools import list_files_tool, write_file_tool
 from oclaw.runtime.tools.experts.workspace.workspace_base import (
     access_from_env,
     build_workspace_path_access,
@@ -99,6 +99,21 @@ class WorkspacePathGuardTests(unittest.TestCase):
             with workspace_path_access_scope(None, None):
                 p = resolve_workspace_path(str(f))
                 self.assertEqual(p, f.resolve())
+
+    def test_write_file_relative_path_defaults_to_data_workspace_subdir(self) -> None:
+        with mock.patch.dict(
+            os.environ,
+            {"OPS_WORKSPACE_ROOT": str(self.root), "OPS_WORKSPACE_EXTRA_ROOTS": "", "OPS_WORKSPACE_ALLOW_ANY_PATH": ""},
+            clear=False,
+        ):
+            clear_workspace_path_access_for_tests()
+            spec = write_file_tool()
+            with workspace_path_access_scope(None, None):
+                r = spec.handler({"path": "generated.py", "content": "print('ok')\n", "mode": "overwrite"})
+            self.assertTrue(r.get("ok"), r)
+            expected = (self.root / "data" / self.root.name / "generated.py").resolve()
+            self.assertEqual(str(expected), str(r.get("path")))
+            self.assertTrue(expected.exists())
 
     def test_per_user_extra_roots_from_db(self) -> None:
         f = self.extra / "u.txt"

@@ -6,6 +6,7 @@ import time
 import importlib.util
 import hashlib
 import re
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -15,7 +16,7 @@ from oclaw.platform.persistence.sqlite_store import OclawTask, SqliteStore
 
 
 def _load_oclaw_config() -> dict[str, Any]:
-    cfg_path = (Path(PROJECT_ROOT) / "oclaw" / "oclaw.json").resolve()
+    cfg_path = (Path(PROJECT_ROOT) / "oclaw.json").resolve()
     if not cfg_path.exists():
         return {}
     try:
@@ -39,7 +40,7 @@ def _is_worker_enabled(entry: dict[str, Any]) -> bool:
 
 
 def _resolve_wiki_root(plugin_cfg: dict[str, Any]) -> Path:
-    root_cfg = str(plugin_cfg.get("wiki_root") or "oclaw/docs/memory-system/wiki").strip()
+    root_cfg = str(plugin_cfg.get("wiki_root") or "docs/memory-system/wiki").strip()
     root = Path(root_cfg)
     if not root.is_absolute():
         root = (Path(PROJECT_ROOT) / root).resolve()
@@ -76,11 +77,16 @@ def _resolve_topic_rules(plugin_cfg: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def _tool_handlers(plugin_cfg: dict[str, Any]) -> dict[str, Any]:
-    api_path = (Path(PROJECT_ROOT) / "oclaw" / "extensions" / "memory-wiki" / "api.py").resolve()
+    candidates = [
+        (Path(PROJECT_ROOT) / "runtime" / "extensions" / "memory-wiki" / "api.py").resolve(),
+        (Path(PROJECT_ROOT) / "extensions" / "memory-wiki" / "api.py").resolve(),
+    ]
+    api_path = next((p for p in candidates if p.exists()), candidates[0])
     spec = importlib.util.spec_from_file_location("oclaw_memory_wiki_api_worker", str(api_path))
     if spec is None or spec.loader is None:
         return {}
     mod = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = mod
     spec.loader.exec_module(mod)  # type: ignore[assignment]
     build_wiki_tool_specs = getattr(mod, "build_wiki_tool_specs", None)
     if not callable(build_wiki_tool_specs):

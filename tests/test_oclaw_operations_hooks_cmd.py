@@ -90,3 +90,24 @@ def test_main_hooks_list_invocation(tmp_path, monkeypatch) -> None:
     assert code == 0
     obj = json.loads(buf.getvalue())
     assert "hooks" in obj
+
+
+def test_resolve_cli_workspace_uses_env_over_cwd(tmp_path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    expected = tmp_path / "repo-root"
+    expected.mkdir(parents=True)
+    monkeypatch.setenv("OCLAW_WORKSPACE", str(expected))
+    from oclaw.runtime.operations.hooks_cmd import _resolve_cli_workspace
+
+    ns = argparse.Namespace(workspace="")
+    assert _resolve_cli_workspace(ns) == str(expected)
+
+
+def test_resolve_cli_workspace_falls_back_to_workspace_root(tmp_path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("OCLAW_WORKSPACE", raising=False)
+    monkeypatch.setenv("OPS_WORKSPACE_ROOT", str(tmp_path))
+    from oclaw.runtime.operations.hooks_cmd import _resolve_cli_workspace
+
+    ns = argparse.Namespace(workspace="")
+    assert _resolve_cli_workspace(ns) == str(tmp_path.resolve())

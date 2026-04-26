@@ -13,7 +13,7 @@ from oclaw.platform.persistence.sqlite_store import SqliteStore
 from oclaw.runtime.tools.mcp.registry import McpRegistry
 
 _EXPORT_FILENAME = "mcp_registry_migrated.json"
-_LOCAL_DIR = (PROJECT_ROOT / "oclaw" / "_local").resolve()
+_LOCAL_DIR = (PROJECT_ROOT / "_local").resolve()
 _EXPORT_PATH = (_LOCAL_DIR / _EXPORT_FILENAME).resolve()
 
 

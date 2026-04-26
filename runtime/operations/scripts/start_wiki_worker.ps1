@@ -6,10 +6,11 @@ $ErrorActionPreference = "Stop"
 
 function Resolve-RepoRoot {
   $here = Split-Path -Parent $PSCommandPath
-  return (Resolve-Path (Join-Path $here "..")).Path
+  return (Resolve-Path (Join-Path $here "..\\..\\..")).Path
 }
 
 $repoRoot = Resolve-RepoRoot
+$repoParent = Split-Path -Parent $repoRoot
 $runDir = Join-Path $PSScriptRoot ".run"
 $null = New-Item -ItemType Directory -Force -Path $runDir -ErrorAction SilentlyContinue
 $pidFile = Join-Path $runDir "wiki_worker.pid"
@@ -25,6 +26,16 @@ function Test-AlivePid([int]$procId) {
   }
 }
 
+function Test-IsWikiWorkerPid([int]$procId) {
+  try {
+    $wmi = Get-CimInstance Win32_Process -Filter "ProcessId = $procId" -ErrorAction Stop
+    $cmd = [string]($wmi.CommandLine)
+    return $cmd -like "*oclaw.runtime.workers.wiki.main*"
+  } catch {
+    return $false
+  }
+}
+
 $venvPython = Join-Path $repoRoot ".venv/Scripts/python.exe"
 if (Test-Path $venvPython) {
   $pythonExe = $venvPython
@@ -35,6 +46,11 @@ if (Test-Path $venvPython) {
   }
   $pythonExe = "python"
 }
+$env:PYTHONPATH = $repoParent
+$env:PYTHONSAFEPATH = "1"
+$env:AIA_WORKSPACE_ROOT = $repoRoot
+$env:OPS_WORKSPACE_ROOT = $repoRoot
+$env:OCLAW_WORKSPACE = $repoRoot
 
 if (-not $Background) {
   & $pythonExe -m oclaw.runtime.workers.wiki.main
@@ -45,7 +61,7 @@ if (Test-Path $pidFile) {
   $raw = (Get-Content $pidFile -ErrorAction SilentlyContinue | Select-Object -First 1)
   $existing = 0
   [void][int]::TryParse([string]$raw, [ref]$existing)
-  if ($existing -gt 0 -and (Test-AlivePid $existing)) {
+  if ($existing -gt 0 -and (Test-AlivePid $existing) -and (Test-IsWikiWorkerPid $existing)) {
     Write-Host "[ok] wiki worker already running pid=$existing"
     exit 0
   }

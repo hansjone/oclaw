@@ -1,11 +1,20 @@
 # Oclaw Migration Guide
 
-This repository is migrating from legacy `oclaw/` runtime wiring to the new `oclaw/` architecture root.
+This repository now uses **repo-root relative** runtime wiring.
 
 ## Current status
-- `oclaw/` is the target root for new code.
+- The repository root is the only runtime base path.
 - `oclaw/app_server/*` compatibility modules have been removed.
 - Gateway dispatch now routes through shared `server_methods` handlers for both WS and HTTP method endpoints.
+
+## Path baseline (important for open-source portability)
+- Do not hardcode `PROJECT_ROOT / "oclaw" / ...`.
+- Use repo-root relative paths such as:
+  - config: `oclaw.json`
+  - data: `data/ai_ops.sqlite`
+  - workspaces: `runtime/workspaces/*`
+  - wiki root default: `docs/memory-system/wiki`
+- Startup scripts should run from repo root and explicitly set workspace env vars; avoid relying on parent-directory cwd.
 
 ## Developer rules
 - Add new business logic under `oclaw/` (interfaces/application/domain/infrastructure/shared).

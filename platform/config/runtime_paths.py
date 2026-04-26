@@ -6,7 +6,7 @@ from oclaw.platform.config.paths import PROJECT_ROOT
 
 
 def oclaw_root() -> Path:
-    return (PROJECT_ROOT / "oclaw").resolve()
+    return Path(PROJECT_ROOT).resolve()
 
 
 def runtime_root() -> Path:

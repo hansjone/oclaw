@@ -19,7 +19,7 @@ _SPECIALIST_IDS_CACHE: dict[tuple[Any, ...], tuple[str, ...]] = {}
 
 
 def workspaces_root() -> Path:
-    return (PROJECT_ROOT / "oclaw" / "runtime" / "workspaces").resolve()
+    return (PROJECT_ROOT / "runtime" / "workspaces").resolve()
 
 
 def normalize_expert_id(raw: Any) -> str:
