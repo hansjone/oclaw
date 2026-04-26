@@ -74,7 +74,10 @@ def create_hook_event(
     session_key: str,
     context: Optional[Dict[str, Any]] = None,
 ) -> HookEvent:
-    return HookEvent(type=event_type, action=action, sessionKey=session_key, context=context or {})
+    # Must not use `context or {}` — a caller-supplied empty dict is falsy and would be replaced.
+    return HookEvent(
+        type=event_type, action=action, sessionKey=session_key, context={} if context is None else context
+    )
 
 
 async def trigger_hook(event: HookEvent) -> None:

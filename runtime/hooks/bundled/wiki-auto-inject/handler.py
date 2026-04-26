@@ -283,6 +283,22 @@ def handle(event: Any) -> None:
             "skip_reason": "memory_mode_store_only",
         }
         return
+    manager_gate = ctx.get("need_wiki_inject")
+    if isinstance(manager_gate, bool) and not manager_gate:
+        ctx["wiki_inject_meta"] = {
+            "enabled": False,
+            "memory_mode": memory_mode,
+            "skip_reason": "manager_gate_off",
+        }
+        return
+    manager_query = str(ctx.get("wiki_query") or "").strip()
+    if isinstance(manager_gate, bool) and manager_gate and not manager_query:
+        ctx["wiki_inject_meta"] = {
+            "enabled": False,
+            "memory_mode": memory_mode,
+            "skip_reason": "manager_wiki_query_missing",
+        }
+        return
     cfg = _load_config()
     entry = _resolve_wiki_entry(cfg)
     if not _enabled(entry):
@@ -295,7 +311,7 @@ def handle(event: Any) -> None:
     wiki_root, max_chars, top_k, ultra_saver_enabled, min_query_chars, require_topic_hint = _resolve_runtime(entry)
     topic_rules = _resolve_topic_rules(entry)
     query = str(ctx.get("userText") or "").strip()
-    if ultra_saver_enabled and len(query) < min_query_chars:
+    if ultra_saver_enabled and not isinstance(manager_gate, bool) and len(query) < min_query_chars:
         ctx["wiki_inject_meta"] = {
             "enabled": False,
             "memory_mode": memory_mode,
@@ -305,7 +321,7 @@ def handle(event: Any) -> None:
             "query_len": int(len(query)),
         }
         return
-    if ultra_saver_enabled and require_topic_hint and not _query_topic_hints(query, topic_rules):
+    if ultra_saver_enabled and not isinstance(manager_gate, bool) and require_topic_hint and not _query_topic_hints(query, topic_rules):
         ctx["wiki_inject_meta"] = {
             "enabled": False,
             "memory_mode": memory_mode,

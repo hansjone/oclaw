@@ -62,7 +62,7 @@ This repository is migrating from legacy `oclaw/` runtime wiring to the new `ocl
 - Legacy root `extensions/` has been merged into `oclaw/extensions/` and removed.
 
 ## Prompt and skills policy
-- Role context is loaded from `oclaw/runtime/assets/agent_workspaces/*`.
+- Role context is loaded from `oclaw/runtime/workspaces/*`.
 - Skills root priority:
   1. `AIA_SKILLS_ROOT`
   2. `oclaw/runtime/skills`

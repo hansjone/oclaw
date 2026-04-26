@@ -163,8 +163,9 @@ def after_turn_memory(
         raw_flags = str(store.get_setting(_SPECIALIST_FLAGS_SETTING_KEY) or "").strip() if hasattr(store, "get_setting") else ""
         if raw_flags:
             obj = json.loads(raw_flags)
-            if isinstance(obj, dict) and not bool(obj.get("memory_curator", True)):
-                return
+            if isinstance(obj, dict):
+                if not bool(obj.get("memory", True)):
+                    return
     except Exception:
         pass
     try:

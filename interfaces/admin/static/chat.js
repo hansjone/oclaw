@@ -66,7 +66,7 @@ const I18N = {
     "chat.specialistGeneralist": "通用",
     "chat.specialistOps": "运维",
     "chat.specialistImage": "图像",
-    "chat.specialistMemoryCurator": "记忆整理",
+    "chat.specialistMemory": "记忆",
     "chat.memoryModeLabel": "记忆模式",
     "chat.memoryModeDefault": "默认（可注入）",
     "chat.memoryModeStoreOnly": "仅记录不注入",
@@ -80,8 +80,8 @@ const I18N = {
     "chat.wikiPreviewTitle": "Wiki 预览：{path}",
     "chat.wikiPreviewClose": "关闭",
     "chat.specialistManage": "专家开关",
-    "chat.specialistManagePromptOn": "是否启用 memory_curator 专家？",
-    "chat.specialistManagePromptOff": "是否关闭 memory_curator 专家？",
+    "chat.specialistManagePromptOn": "是否启用 memory 专家？",
+    "chat.specialistManagePromptOff": "是否关闭 memory 专家？",
     "chat.specialistManageDenied": "无权限修改专家开关",
     "chat.attachmentLimits": "附件阈值",
     "chat.attachmentLimitsPrompt": "编辑附件阈值 JSON（留空恢复默认）",
@@ -127,16 +127,17 @@ const I18N = {
     "chat.reason.manager_no_specialist_fallback": "无可用专家，回退通用",
     "chat.reason.dynamic_agent_build_failed": "动态专家构建失败",
     "chat.reason.manager_factory_failed": "专家执行器创建失败",
-    "chat.reason.manager_route_missing": "总控路由缺失",
-    "chat.reason.manager_select_failed": "总控决策失败",
-    "chat.reason.manager_model_missing": "总控模型不可用",
+    "chat.reason.manager_route_missing": "全能者路由缺失",
+    "chat.reason.manager_select_failed": "全能者决策失败",
+    "chat.reason.manager_model_missing": "全能者模型不可用",
     "chat.reason.dynamic_agent_selected": "动态专家命中",
     "chat.modeComprehensiveShort": "综合",
     "chat.modeExpertShort": "专家",
     "chat.specialistGeneralistShort": "通用",
     "chat.specialistOpsShort": "运维",
     "chat.specialistImageShort": "图像",
-    "chat.specialistMemoryCuratorShort": "记忆整理",
+    "chat.specialistMemoryShort": "记忆",
+    "chat.specialistManagerSelfShort": "全能者",
   },
   en: {
     "chat.pageTitle": "oliver",
@@ -201,7 +202,7 @@ const I18N = {
     "chat.specialistGeneralist": "Generalist",
     "chat.specialistOps": "Ops",
     "chat.specialistImage": "Image",
-    "chat.specialistMemoryCurator": "Memory Curator",
+    "chat.specialistMemory": "Memory",
     "chat.memoryModeLabel": "Memory Mode",
     "chat.memoryModeDefault": "Default (inject allowed)",
     "chat.memoryModeStoreOnly": "Store only (no inject)",
@@ -215,8 +216,8 @@ const I18N = {
     "chat.wikiPreviewTitle": "Wiki preview: {path}",
     "chat.wikiPreviewClose": "Close",
     "chat.specialistManage": "Specialist Toggle",
-    "chat.specialistManagePromptOn": "Enable memory_curator specialist?",
-    "chat.specialistManagePromptOff": "Disable memory_curator specialist?",
+    "chat.specialistManagePromptOn": "Enable memory specialist?",
+    "chat.specialistManagePromptOff": "Disable memory specialist?",
     "chat.specialistManageDenied": "Not authorized to change specialist flags",
     "chat.attachmentLimits": "Attachment limits",
     "chat.attachmentLimitsPrompt": "Edit attachment limits JSON (empty to restore defaults)",
@@ -271,7 +272,8 @@ const I18N = {
     "chat.specialistGeneralistShort": "Generalist",
     "chat.specialistOpsShort": "Ops",
     "chat.specialistImageShort": "Image",
-    "chat.specialistMemoryCuratorShort": "Memory Curator",
+    "chat.specialistMemoryShort": "Memory",
+    "chat.specialistManagerSelfShort": "Manager",
   },
 };
 
@@ -388,6 +390,12 @@ function _buildAggregatedAssistantBubble(tsIso, items) {
     }
     inner.insertBefore(det, inner.firstChild);
   }
+  const hasVisible =
+    !!inner.querySelector(".chat-msg__md, .chat-msg__reasoning, .chat-msg__wiki") ||
+    String(inner.textContent || "").trim().length > 0;
+  if (!hasVisible) {
+    inner.appendChild(el("div", { class: "muted", text: t("chat.tools.hidden") }));
+  }
   return wrapAssistantMessage(inner, tsIso);
 }
 
@@ -480,9 +488,11 @@ function interactionModeLabel(mode) {
 
 function specialistLabel(specialist) {
   const s = String(specialist || "").toLowerCase();
+  if (s === "manager") return currentLang === "zh" ? "主控" : "Manager";
+  if (s === "manager_self") return t("chat.specialistManagerSelfShort");
   if (s === "ops") return t("chat.specialistOpsShort");
   if (s === "image") return t("chat.specialistImageShort");
-  if (s === "memory_curator") return t("chat.specialistMemoryCuratorShort");
+  if (s === "memory") return t("chat.specialistMemoryShort");
   return t("chat.specialistGeneralistShort");
 }
 
@@ -1197,6 +1207,12 @@ function createStreamStitcher() {
 }
 
 function formatToolPanelText(name, payload) {
+  const truncateToolPanel = (s) => {
+    const raw = String(s || "").trim();
+    const maxChars = 50;
+    if (raw.length <= maxChars) return raw;
+    return `${raw.slice(0, maxChars)}…（详情请重新阅读）`;
+  };
   const n = String(name || "").trim() || "tool";
   const p = payload && typeof payload === "object" ? payload : {};
   const r = p.result && typeof p.result === "object" ? p.result : p;
@@ -1219,7 +1235,7 @@ function formatToolPanelText(name, payload) {
       `engine=${String(r.engine || "")}`,
       `rows_returned=${String(r.rows_returned != null ? r.rows_returned : "")}`,
     ];
-    return lines.join("\n").trim();
+    return truncateToolPanel(lines.join("\n").trim());
   }
   let body = "";
   // Prefer human-readable text from tool content blocks when available.
@@ -1237,7 +1253,7 @@ function formatToolPanelText(name, payload) {
     }
   }
   body = normalizeStreamText(body).replace(/\\n/g, "").replace(/\n/g, "");
-  return `${n}\n${body}`.trim();
+  return `${n}\n${truncateToolPanel(body)}`.trim();
 }
 
 function extractSqlAuditPayload(payload) {
@@ -1463,6 +1479,12 @@ async function buildMessageBubble(role, content, tsIso) {
       }
       inner.insertBefore(det, inner.firstChild);
     }
+  }
+  const hasVisible =
+    !!inner.querySelector(".chat-msg__md, .chat-msg__reasoning, .chat-msg__wiki") ||
+    String(inner.textContent || "").trim().length > 0;
+  if (!hasVisible) {
+    inner.appendChild(el("div", { class: "muted", text: t("chat.tools.hidden") }));
   }
   return wrapAssistantMessage(inner, tsIso);
 }
@@ -1772,6 +1794,31 @@ async function renderChatUi() {
   const loadMoreWrap = el("div", { class: "chat-load-more" });
   const messagesEl = el("div", { class: "chat-messages" });
   bindChatImageViewer(messagesEl);
+  const AUTO_SCROLL_BOTTOM_GAP_PX = 56;
+  let shouldFollowMessages = true;
+  const isNearBottom = () => {
+    const remaining = messagesEl.scrollHeight - (messagesEl.scrollTop + messagesEl.clientHeight);
+    return remaining <= AUTO_SCROLL_BOTTOM_GAP_PX;
+  };
+  const scrollMessagesToBottom = (force = false) => {
+    if (!force && !shouldFollowMessages) return;
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+    requestAnimationFrame(() => {
+      if (force || shouldFollowMessages) messagesEl.scrollTop = messagesEl.scrollHeight;
+    });
+  };
+  messagesEl.addEventListener("scroll", () => {
+    shouldFollowMessages = isNearBottom();
+  });
+  messagesEl.addEventListener(
+    "load",
+    (ev) => {
+      const target = ev && ev.target;
+      if (!target || target.tagName !== "IMG") return;
+      scrollMessagesToBottom();
+    },
+    true,
+  );
   const textarea = el("textarea", {
     class: "chat-composer__field",
     rows: "1",
@@ -1815,7 +1862,7 @@ async function renderChatUi() {
     generalist: true,
     ops: true,
     image: true,
-    memory_curator: true,
+    memory: true,
   };
   const modeSelect = el("select", {
     class: "input",
@@ -1837,7 +1884,7 @@ async function renderChatUi() {
       { value: "generalist", text: t("chat.specialistGeneralist"), enabled: true },
       { value: "ops", text: t("chat.specialistOps"), enabled: !!specialistFlags.ops },
       { value: "image", text: t("chat.specialistImage"), enabled: !!specialistFlags.image },
-      { value: "memory_curator", text: t("chat.specialistMemoryCurator"), enabled: !!specialistFlags.memory_curator },
+      { value: "memory", text: t("chat.specialistMemory"), enabled: !!specialistFlags.memory },
     ];
     for (const op of opts) {
       if (!op.enabled) continue;
@@ -1865,7 +1912,7 @@ async function renderChatUi() {
     applySpecialistOptions();
   };
   const _sp = String(localStorage.getItem(CHAT_SPECIALIST_PREF_KEY) || "generalist").toLowerCase();
-  specialistSelect.value = ["generalist", "ops", "image", "memory_curator"].includes(_sp) ? _sp : "generalist";
+  specialistSelect.value = ["generalist", "ops", "image", "memory"].includes(_sp) ? _sp : "generalist";
   await loadSpecialistFlags();
   specialistSelect.addEventListener("change", () => {
     localStorage.setItem(CHAT_SPECIALIST_PREF_KEY, String(specialistSelect.value || "generalist"));
@@ -1892,7 +1939,7 @@ async function renderChatUi() {
       const s = String((resp && resp.specialist) || "").toLowerCase();
       const mm = String((resp && resp.memory_mode) || "").toLowerCase();
       if (["comprehensive", "expert"].includes(m)) modeSelect.value = m;
-      if (["generalist", "ops", "image", "memory_curator"].includes(s)) specialistSelect.value = s;
+      if (["generalist", "ops", "image", "memory"].includes(s)) specialistSelect.value = s;
       if (["default", "store_only"].includes(mm)) localStorage.setItem(CHAT_MEMORY_MODE_KEY, mm);
       if (String(modeSelect.value || "").toLowerCase() !== "expert") {
         specialistSelect.value = "generalist";
@@ -2125,6 +2172,14 @@ async function renderChatUi() {
     showToolOutput = !showToolOutput;
     adminChatShowToolOutput = showToolOutput;
     syncToolToggleBtn();
+    const isStreaming = composerShell.classList.contains("chat-composer-shell--busy");
+    if (isStreaming) {
+      // Avoid clearing active stream bubble mid-turn (loadMessagesForActive() resets messagesEl).
+      statusBar.textContent = `${showToolOutput ? t("chat.tools.visible") : t("chat.tools.hidden")} · ${
+        currentLang === "zh" ? "本轮结束后应用到历史消息" : "applies to history after current turn"
+      }`;
+      return;
+    }
     statusBar.textContent = showToolOutput ? t("chat.tools.visible") : t("chat.tools.hidden");
     loadMessagesForActive().catch(() => {});
   });
@@ -2315,8 +2370,11 @@ async function renderChatUi() {
   }
 
   const loadMessagesForActive = async () => {
-    messagesEl.innerHTML = "";
+    loadMessagesForActive._rid = (loadMessagesForActive._rid || 0) + 1;
+    const rid = loadMessagesForActive._rid;
+    shouldFollowMessages = true;
     if (!activeId) {
+      messagesEl.innerHTML = "";
       statusBar.textContent = sessions.length ? "" : t("chat.noSessions");
       if (!sessions.length) messagesEl.appendChild(el("div", { class: "muted", text: t("chat.empty") }));
       return;
@@ -2324,9 +2382,11 @@ async function renderChatUi() {
     statusBar.textContent = t("chat.loading");
     try {
       const resp = await apiGet(`/admin/api/chat/sessions/${encodeURIComponent(activeId)}/messages`);
+      if (rid !== loadMessagesForActive._rid) return;
       const msgs = Array.isArray(resp.messages) ? resp.messages : [];
       const renderRows = _buildRenderRows(msgs);
       const total = intOr(resp.message_count, msgs.length);
+      messagesEl.innerHTML = "";
       if (total > msgs.length) {
         messagesEl.appendChild(
           el("div", {
@@ -2343,8 +2403,10 @@ async function renderChatUi() {
         }
       }
       statusBar.textContent = "";
-      messagesEl.scrollTop = messagesEl.scrollHeight;
+      scrollMessagesToBottom(true);
     } catch (e) {
+      // Keep existing message list on reload failure (e.g. toggle reload races),
+      // so users don't perceive "messages disappeared".
       statusBar.textContent = `${t("chat.error")}: ${String(e)}`;
     }
   };
@@ -2539,7 +2601,7 @@ async function renderChatUi() {
         this.ws = null;
       }
     }
-    async sendSessionSend({ sessionId, text, attachments, interactionMode, specialist, memoryMode, signal, onEvent }) {
+    async sendSessionSend({ sessionId, text, attachments, interactionMode, specialist, memoryMode, idempotencyKey, signal, onEvent }) {
       await this._openAndHandshake();
       const reqId = this._nextReqId();
       const req = {
@@ -2550,7 +2612,7 @@ async function renderChatUi() {
           sessionKey: String(sessionId || ""),
           message: String(text || ""),
           attachments: Array.isArray(attachments) ? attachments : [],
-          idempotencyKey: `idem_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+          idempotencyKey: String(idempotencyKey || `idem_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`),
           thinking: "default",
           interaction_mode: String(interactionMode || "comprehensive"),
           specialist: String(specialist || "generalist"),
@@ -2569,7 +2631,8 @@ async function renderChatUi() {
             msg.event === "session.message" ||
             msg.event === "agent.event" ||
             msg.event === "session.tool" ||
-            msg.event === "session.marker") &&
+            msg.event === "session.marker" ||
+            msg.event === "session.turn_started") &&
           typeof onEvent === "function"
         ) {
           const payload = msg.payload || {};
@@ -2602,6 +2665,7 @@ async function renderChatUi() {
             relay_ttl_turn_count: Number(p.relayTtlTurnCount || 0) || 0,
             relay_ttl_session_count: Number(p.relayTtlSessionCount || 0) || 0,
             relay_ttl_keep_count: Number(p.relayTtlKeepCount || 0) || 0,
+            ttft: p.ttft && typeof p.ttft === "object" ? p.ttft : null,
             reply: String(p.reply || ""),
           };
           if (String(p.status || "") === "started") {
@@ -2646,6 +2710,7 @@ async function renderChatUi() {
   let currentStreamAbortController = null;
   let currentWsTransport = null;
   let currentAbortMeta = { sessionId: "", runId: "" };
+  const WS_CHAT_SEND_TIMEOUT_MS = 60000;
   const isAbortError = (err) => {
     const name = String(err && err.name ? err.name : "");
     const msg = String(err && err.message ? err.message : err || "");
@@ -2664,8 +2729,9 @@ async function renderChatUi() {
     return m;
   };
 
-  const sendMessageStream = async (userText, attachmentPayload) => {
+  const sendMessageStream = async (userText, attachmentPayload, turnId) => {
     const token = localStorage.getItem(AUTH_TOKEN_KEY) || "";
+    const turnStartedAtMs = Date.now();
     let streamBubble = null;
     let streamRow = null;
     let doneMeta = null;
@@ -2674,6 +2740,7 @@ async function renderChatUi() {
     let chatStreamSegments = [];
     let renderRafId = null;
     let renderPending = false;
+    let transportUsed = "ws";
     let typingRafId = null;
     let typingTimerId = null;
     let streamStatusTimerId = null;
@@ -2682,7 +2749,41 @@ async function renderChatUi() {
     let streamDisplayShown = "";
     let toolSeq = 0;
     let hasRealStreamText = false;
+    let sawWsChatEvent = false;
+    let sawWsTerminalEvent = false;
     let markerState = { p: 0, e: false, ep: 0, t: 0, s: 0, k: 0, reclaimed: 0 };
+    let turnAcceptedAtMs = null;
+    let phaseRunningAtMs = null;
+    let firstDeltaAtMs = null;
+    const _numOrNull = (v) => {
+      if (v === null || v === undefined) return null;
+      const n = Number(v);
+      return Number.isFinite(n) ? n : null;
+    };
+    const _sleep = (ms) =>
+      new Promise((resolve) => {
+        setTimeout(resolve, Math.max(0, Number(ms) || 0));
+      });
+    const _recoverLatestAssistantFromHistory = async () => {
+      const resp = await apiGet(`/admin/api/chat/sessions/${encodeURIComponent(activeId)}/messages`);
+      const msgs = Array.isArray(resp && resp.messages) ? resp.messages : [];
+      if (!msgs.length) return false;
+      let last = null;
+      for (let i = msgs.length - 1; i >= 0; i--) {
+        const m = msgs[i];
+        if (String((m && m.role) || "").toLowerCase() === "assistant") {
+          last = m;
+          break;
+        }
+      }
+      if (!last) return false;
+      const tsRaw = String((last && last.timestamp) || "");
+      const tsMs = tsRaw ? Date.parse(tsRaw) : NaN;
+      const fresh = Number.isFinite(tsMs) ? tsMs >= turnStartedAtMs - 1500 : true;
+      if (!fresh) return false;
+      await loadMessagesForActive();
+      return true;
+    };
     const ensureStreamBubble = () => {
       if (streamBubble) return streamBubble;
       const inner = el("div", { class: "chat-msg chat-msg--assistant" });
@@ -2726,7 +2827,10 @@ async function renderChatUi() {
       const statusEl = bubble.querySelector(".chat-msg__stream-status");
       if (!statusEl) return;
       const dots = ".".repeat((Math.floor(Date.now() / 400) % 3) + 1);
-      statusEl.textContent = `${_statusLabel(streamStatusBase)}${dots}`;
+      const baseLabel = _statusLabel(streamStatusBase);
+      const elapsedMs = turnAcceptedAtMs ? Math.max(0, Date.now() - Number(turnAcceptedAtMs || 0)) : 0;
+      const elapsedText = elapsedMs > 0 ? ` ${Math.round(elapsedMs / 100) / 10}s` : "";
+      statusEl.textContent = `${baseLabel}${elapsedText}${dots}`;
     };
     const _startDynamicStreamStatus = () => {
       _setDynamicStreamStatus();
@@ -2839,7 +2943,7 @@ ${autoLimit ? `<div style="margin-top:8px;"><span class="muted">auto-added claus
         }
         md.innerHTML = blocks.join("");
       }
-      messagesEl.scrollTop = messagesEl.scrollHeight;
+      scrollMessagesToBottom();
     };
     const renderStreamComposite = () => {
       if (renderPending) return;
@@ -2913,7 +3017,7 @@ ${autoLimit ? `<div style="margin-top:8px;"><span class="muted">auto-added claus
         if (last) {
           if (streamRow && streamRow.parentNode) streamRow.remove();
           await appendMessageRow(messagesEl, last);
-          messagesEl.scrollTop = messagesEl.scrollHeight;
+          scrollMessagesToBottom(true);
           return true;
         }
       }
@@ -2925,7 +3029,7 @@ ${autoLimit ? `<div style="margin-top:8px;"><span class="muted">auto-added claus
           content: decodeEscapedNewlines(t0),
           timestamp: new Date().toISOString(),
         });
-        messagesEl.scrollTop = messagesEl.scrollHeight;
+        scrollMessagesToBottom(true);
         return true;
       }
       return false;
@@ -2945,11 +3049,12 @@ ${autoLimit ? `<div style="margin-top:8px;"><span class="muted">auto-added claus
         // Immediate assistant placeholder bubble with dynamic status.
         ensureStreamBubble();
         _startDynamicStreamStatus();
-        doneMeta = await transport.sendSessionSend({
+        const wsSendPromise = transport.sendSessionSend({
           sessionId: activeId,
           text: userText,
           attachments: attachmentPayload,
           interactionMode: String(modeSelect.value || "comprehensive"),
+          idempotencyKey: String(turnId || ""),
           specialist:
             String(modeSelect.value || "comprehensive").toLowerCase() === "expert"
               ? String(specialistSelect.value || "generalist")
@@ -2960,6 +3065,19 @@ ${autoLimit ? `<div style="margin-top:8px;"><span class="muted">auto-added claus
             const eventName = String((frame && frame.event) || "");
             const payload = (frame && frame.payload) || {};
             if (eventName === "agent.event") {
+              try {
+                const stream = String((payload && payload.stream) || "");
+                const data = (payload && payload.data) || {};
+                const phase = String((data && data.phase) || "").toLowerCase();
+                if (stream === "lifecycle") {
+                  if (phase === "start" && !turnAcceptedAtMs) {
+                    turnAcceptedAtMs = Date.now();
+                  }
+                  if (phase === "running" && !phaseRunningAtMs) {
+                    phaseRunningAtMs = Date.now();
+                  }
+                }
+              } catch (_) {}
               _setStreamStatusBase((payload && (payload.stream || payload.event || payload.type)) || "agent");
               return;
             }
@@ -2980,6 +3098,11 @@ ${autoLimit ? `<div style="margin-top:8px;"><span class="muted">auto-added claus
               renderStreamComposite();
               return;
             }
+            if (eventName === "session.turn_started") {
+              turnAcceptedAtMs = Number(payload.acceptedAt || Date.now()) || Date.now();
+              _setStreamStatusBase("start");
+              return;
+            }
             if (eventName === "session.tool") {
               _setStreamStatusBase("tool");
               // Keep strict order: tool card appears exactly where tool event arrives.
@@ -2989,12 +3112,14 @@ ${autoLimit ? `<div style="margin-top:8px;"><span class="muted">auto-added claus
               return;
             }
             if (eventName !== "chat") return;
+            sawWsChatEvent = true;
             const state = String(payload.state || "");
             if (state) _setStreamStatusBase(state);
             if (payload.runId && !chatRunId) chatRunId = String(payload.runId);
             if (chatRunId) currentAbortMeta = { sessionId: String(activeId || ""), runId: String(chatRunId || "") };
             if (chatRunId && payload.runId && String(payload.runId) !== chatRunId && state !== "final") return;
             if (state === "delta") {
+              if (!firstDeltaAtMs) firstDeltaAtMs = Date.now();
               const next = extractWsAssistantText(payload.message);
               const d = String(payload.delta || "");
               if (d && !_isSilentReplyStream(d)) {
@@ -3011,6 +3136,7 @@ ${autoLimit ? `<div style="margin-top:8px;"><span class="muted">auto-added claus
               return;
             }
             if (state === "final") {
+              sawWsTerminalEvent = true;
               _stopDynamicStreamStatus();
               streamDisplayShown = streamDisplayTarget;
               const ok = await appendFinalAssistant(payload.message, chatStream || extractWsAssistantText(payload.message || {}));
@@ -3022,6 +3148,7 @@ ${autoLimit ? `<div style="margin-top:8px;"><span class="muted">auto-added claus
               return;
             }
             if (state === "aborted") {
+              sawWsTerminalEvent = true;
               _stopDynamicStreamStatus();
               streamDisplayShown = streamDisplayTarget;
               const ok = await appendFinalAssistant(payload.message, chatStream);
@@ -3032,6 +3159,7 @@ ${autoLimit ? `<div style="margin-top:8px;"><span class="muted">auto-added claus
               return;
             }
             if (state === "error") {
+              sawWsTerminalEvent = true;
               _stopDynamicStreamStatus();
               _markStreamTerminal("error", String(payload.errorMessage || "chat error"));
               chatStream = "";
@@ -3041,6 +3169,21 @@ ${autoLimit ? `<div style="margin-top:8px;"><span class="muted">auto-added claus
             }
           },
         });
+        doneMeta = await Promise.race([
+          wsSendPromise,
+          new Promise((_, reject) => {
+            setTimeout(() => reject(new Error(`ws_send_timeout:${WS_CHAT_SEND_TIMEOUT_MS}`)), WS_CHAT_SEND_TIMEOUT_MS);
+          }),
+        ]);
+        if (doneMeta && typeof doneMeta === "object") doneMeta.__transport = "ws";
+        if (doneMeta && typeof doneMeta === "object") {
+          const startToRunning =
+            turnAcceptedAtMs && phaseRunningAtMs ? Math.max(0, Number(phaseRunningAtMs) - Number(turnAcceptedAtMs)) : null;
+          const runningToFirst =
+            phaseRunningAtMs && firstDeltaAtMs ? Math.max(0, Number(firstDeltaAtMs) - Number(phaseRunningAtMs)) : null;
+          doneMeta.__phase_start_to_running_ms = Number.isFinite(Number(startToRunning)) ? Number(startToRunning) : null;
+          doneMeta.__phase_running_to_first_ms = Number.isFinite(Number(runningToFirst)) ? Number(runningToFirst) : null;
+        }
       } finally {
         transport.close();
         if (currentWsTransport === transport) currentWsTransport = null;
@@ -3051,6 +3194,38 @@ ${autoLimit ? `<div style="margin-top:8px;"><span class="muted">auto-added claus
       return doneMeta;
     } catch (e) {
       if (isAbortError(e)) return doneMeta;
+      const emsg = String(e && e.message ? e.message : e || "").toLowerCase();
+      const wsLikeFailure =
+        emsg.includes("ws_") ||
+        emsg.includes("websocket") ||
+        emsg.includes("receive_failed") ||
+        emsg.includes("closed") ||
+        emsg.includes("timeout");
+      if (wsLikeFailure) {
+        const wsLikelyAlreadyProducedReply = sawWsTerminalEvent || hasRealStreamText || sawWsChatEvent;
+        if (wsLikelyAlreadyProducedReply) {
+          setTimeout(() => {
+            loadMessagesForActive().catch(() => {});
+          }, 350);
+          return doneMeta;
+        }
+        // WS may time out/close while backend persists final message slightly later.
+        // Poll history briefly before surfacing hard failure.
+        try {
+          for (let i = 0; i < 6; i++) {
+            if (await _recoverLatestAssistantFromHistory()) {
+              statusBar.textContent =
+                currentLang === "zh"
+                  ? "WS流式中断，已从历史补齐本轮结果。"
+                  : "WS stream interrupted; recovered this turn from history.";
+              return doneMeta || { __transport: "ws_history_recovered" };
+            }
+            await _sleep(500 + i * 350);
+          }
+        } catch (_) {
+          // fall through to original error
+        }
+      }
       throw e;
     } finally {
       if (typingRafId != null) {
@@ -3120,10 +3295,8 @@ ${autoLimit ? `<div style="margin-top:8px;"><span class="muted">auto-added claus
     statusBar.textContent = t("chat.sending");
     let attPayload = null;
     if (filesSnapshot.length) {
-      attPayload = [];
-      for (const f of filesSnapshot) {
-        attPayload.push(await fileToPayloadEntry(f));
-      }
+      statusBar.textContent = currentLang === "zh" ? "准备附件中…" : "Preparing attachments…";
+      attPayload = await Promise.all(filesSnapshot.map((f) => fileToPayloadEntry(f)));
       pendingFiles = [];
       syncPendingUi();
     }
@@ -3154,15 +3327,18 @@ ${autoLimit ? `<div style="margin-top:8px;"><span class="muted">auto-added claus
       }
       const userWrap = wrapUserMessage(innerUser, new Date().toISOString());
       messagesEl.appendChild(userWrap);
-      messagesEl.scrollTop = messagesEl.scrollHeight;
+      scrollMessagesToBottom(true);
       fitComposerTextarea();
-      const doneMeta = await sendMessageStream(userText, attPayload);
+      const turnId = `idem_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+      statusBar.textContent = currentLang === "zh" ? "连接中…" : "Connecting…";
+      const doneMeta = await sendMessageStream(userText, attPayload, turnId);
+      const transportTag = (doneMeta && doneMeta.__transport) || "";
       const mRaw = String((doneMeta && doneMeta.interaction_mode) || "").toLowerCase();
       const m = interactionModeLabel(mRaw);
       const s = specialistLabel(
         mRaw === "expert"
           ? (doneMeta && doneMeta.selected_specialist)
-          : (doneMeta && doneMeta.requested_specialist),
+          : (doneMeta && (doneMeta.manager_selected_specialist || doneMeta.selected_specialist || doneMeta.requested_specialist)),
       );
       const baseText = t("chat.execApplied", { mode: m, specialist: s });
       const memoryModeNow = String(localStorage.getItem(CHAT_MEMORY_MODE_KEY) || "default").toLowerCase();
@@ -3181,6 +3357,49 @@ ${autoLimit ? `<div style="margin-top:8px;"><span class="muted">auto-added claus
               s: String(Number(doneMeta.relay_ttl_session_count || 0) || 0),
               k: String(Number(doneMeta.relay_ttl_keep_count || 0) || 0),
             })}`
+          : "";
+      const ttftObj = doneMeta && doneMeta.ttft && typeof doneMeta.ttft === "object" ? doneMeta.ttft : null;
+      const localStartToRunningRaw = doneMeta && doneMeta.__phase_start_to_running_ms;
+      const localRunningToFirstRaw = doneMeta && doneMeta.__phase_running_to_first_ms;
+      const localStartToRunning =
+        typeof localStartToRunningRaw === "number"
+          ? localStartToRunningRaw
+          : (() => {
+              const n = Number(localStartToRunningRaw);
+              return Number.isFinite(n) ? n : null;
+            })();
+      const localRunningToFirst =
+        typeof localRunningToFirstRaw === "number"
+          ? localRunningToFirstRaw
+          : (() => {
+              const n = Number(localRunningToFirstRaw);
+              return Number.isFinite(n) ? n : null;
+            })();
+      const segA2G = ttftObj && ttftObj.accepted_to_gateway_ms != null ? Number(ttftObj.accepted_to_gateway_ms) : null;
+      const segG2M =
+        ttftObj && ttftObj.gateway_to_model_start_ms != null
+          ? Number(ttftObj.gateway_to_model_start_ms)
+          : (Number.isFinite(localStartToRunning) ? localStartToRunning : null);
+      const segM2F =
+        ttftObj && ttftObj.model_start_to_first_token_ms != null
+          ? Number(ttftObj.model_start_to_first_token_ms)
+          : (Number.isFinite(localRunningToFirst) ? localRunningToFirst : null);
+      const ttftTotal =
+        ttftObj && ttftObj.accepted_to_first_token_ms != null
+          ? Number(ttftObj.accepted_to_first_token_ms)
+          : (Number.isFinite(segG2M) && Number.isFinite(segM2F) ? Number(segG2M) + Number(segM2F) : null);
+      const ttftText =
+        Number.isFinite(ttftTotal) || Number.isFinite(segA2G) || Number.isFinite(segG2M) || Number.isFinite(segM2F)
+          ? ` · 阶段(A→G:${Number.isFinite(segA2G) ? `${segA2G}ms` : "-"} / G→M:${Number.isFinite(segG2M) ? `${segG2M}ms` : "-"} / M→F:${Number.isFinite(segM2F) ? `${segM2F}ms` : "-"})` +
+            `${Number.isFinite(ttftTotal) ? ` · TTFT=${ttftTotal}ms` : ""}`
+          : "";
+      const phaseText =
+        Number.isFinite(localStartToRunning)
+          ? (() => {
+              return Number.isFinite(localRunningToFirst)
+                ? ` · 阶段耗时(启动→执行)=${localStartToRunning}ms (执行→首字)=${localRunningToFirst}ms`
+                : ` · 阶段耗时(启动→执行)=${localStartToRunning}ms`;
+            })()
           : "";
       const stats = await fetchDynamicExpertStats();
       if (stats) {
@@ -3205,10 +3424,10 @@ ${autoLimit ? `<div style="margin-top:8px;"><span class="muted">auto-added claus
         const topReasonLabel = String((stats.reasonLabels && stats.reasonLabels[topReason]) || reasonLabel(topReason));
         const topReasonText = t("chat.dynamicStatsDetail", { rate: ratePct, reason: topReasonLabel });
         const topMixText = t("chat.dynamicTopReasons", { items: top5 || "-" });
-        statusBar.textContent = `${baseText}${memoryText}${routeText}${markerText} · ${t("chat.dynamicStats", { dynamic: stats.dynamic, fallback: stats.fallback })} · ${topReasonText} · ${topMixText} · ${t("chat.dynamicAllReasons")}`;
+        statusBar.textContent = `${baseText}${memoryText}${routeText}${markerText}${ttftText}${phaseText} · ${t("chat.dynamicStats", { dynamic: stats.dynamic, fallback: stats.fallback })} · ${topReasonText} · ${topMixText} · ${t("chat.dynamicAllReasons")}${transportTag ? ` · transport=${transportTag}` : ""}`;
       } else {
         _statusReasonPairs = [];
-        statusBar.textContent = `${baseText}${memoryText}${routeText}${markerText}`;
+      statusBar.textContent = `${baseText}${memoryText}${routeText}${markerText}${ttftText}${phaseText}${transportTag ? ` · transport=${transportTag}` : ""}`;
       }
     } catch (e) {
       statusBar.textContent = `${t("chat.error")}: ${String(e)}`;

@@ -1,12 +1,14 @@
-param(
+﻿param(
     [switch]$SkipInstall = $false,
     [switch]$Background = $false,
-    [switch]$KeepExistingGateway = $false
+    [switch]$KeepExistingGateway = $false,
+    [bool]$WithWikiWorker = $true
 )
 
 $ErrorActionPreference = "Stop"
-$repoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
-$desktopDir = Join-Path $repoRoot "oclaw\\desktop"
+$repoRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))
+$repoParent = Split-Path -Parent $repoRoot
+$desktopDir = Join-Path $repoRoot "desktop"
 $runDir = Join-Path $PSScriptRoot ".run"
 New-Item -ItemType Directory -Force -Path $runDir | Out-Null
 $pidFile = Join-Path $runDir "desktop.pid"
@@ -19,6 +21,7 @@ if (-not (Test-Path $desktopDir)) {
 }
 
 Set-Location $desktopDir
+$env:PYTHONPATH = $repoParent
 
 if (-not $KeepExistingGateway) {
     Write-Host "==> Cleaning previous gateway listener" -ForegroundColor Cyan
@@ -34,6 +37,11 @@ if (-not $SkipInstall) {
     npm install
 }
 
+if ($WithWikiWorker) {
+    Write-Host "==> Ensuring wiki worker is running" -ForegroundColor Cyan
+    & "$PSScriptRoot/start_wiki_worker.ps1" -Background
+}
+
 Write-Host "==> Launching desktop app" -ForegroundColor Cyan
 if ($Background) {
     # Avoid launching npm.ps1 directly (can be file-associated and open in Notepad on some setups).
@@ -47,3 +55,5 @@ if ($Background) {
     exit 0
 }
 & "npm.cmd" "run" "dev"
+
+

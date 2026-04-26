@@ -15,12 +15,16 @@ function Fail([string]$msg) {
     exit 1
 }
 
-$repoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
-Set-Location $repoRoot
+$repoRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))
+$repoParent = Split-Path -Parent $repoRoot
+Set-Location $repoParent
 
 Write-Step "Project root: $repoRoot"
+Write-Step "Working directory: $repoParent"
 
-$venvPython = Join-Path $repoRoot "oclaw/.venv/Scripts/python.exe"
+$env:PYTHONPATH = $repoParent
+
+$venvPython = Join-Path $repoRoot ".venv/Scripts/python.exe"
 if (Test-Path $venvPython) {
     Write-Step "Using venv python: $venvPython"
     $pythonExe = $venvPython
@@ -35,7 +39,7 @@ if (Test-Path $venvPython) {
 
 if (-not $SkipInstall) {
     Write-Step "Installing dependencies (pip install -r requirements.txt)"
-    & $pythonExe -m pip install -r "requirements.txt"
+    & $pythonExe -m pip install -r (Join-Path $repoRoot "requirements.txt")
 } else {
     Write-Step "Skip dependency install"
 }
@@ -43,7 +47,7 @@ if (-not $SkipInstall) {
 if (-not $SkipConfigHint) {
     Write-Step "Current WeCom status"
     try {
-        python -m oclaw.runtime.operations channel wecom status
+        & $pythonExe -m oclaw.runtime.operations channel wecom status
     } catch {
         Write-Host "[WARN] Unable to read WeCom status yet." -ForegroundColor Yellow
     }
@@ -67,4 +71,6 @@ Write-Host ""
 Write-Host "Useful commands:"
 Write-Host "  python -m oclaw.runtime.operations stack status"
 Write-Host "  python -m oclaw.runtime.operations stack down"
+
+
 

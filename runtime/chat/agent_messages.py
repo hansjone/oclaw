@@ -21,6 +21,7 @@ from oclaw.runtime.relay_pointer import parse_pointer_uri
 
 logger = logging.getLogger(__name__)
 _THINK_BLOCK_RE = re.compile(r"<think>\s*(.*?)\s*</think>\s*", flags=re.IGNORECASE | re.DOTALL)
+_TOOL_CONTEXT_RESULT_MAX_CHARS = 50
 
 
 def _replay_recent_tool_rounds() -> int:
@@ -175,12 +176,23 @@ def _summarize_unpaired_tool_content(raw: str, *, cap: int) -> str:
     return s
 
 
+def _truncate_tool_context(text: str, *, lang: str) -> str:
+    s = str(text or "").strip()
+    if not s:
+        return s
+    if len(s) <= _TOOL_CONTEXT_RESULT_MAX_CHARS:
+        return s
+    tip = "…（详情请重新阅读）" if not str(lang or "").startswith("en") else "... (details truncated, please re-read)"
+    return s[:_TOOL_CONTEXT_RESULT_MAX_CHARS] + tip
+
+
 def build_llm_messages(
     *,
     store_messages: list[Any],
     system_prompt: str,
     model: ChatModel,
     lang: str,
+    tool_context_truncate_enabled: bool = True,
 ) -> list[dict[str, Any]]:
     """把 DB 中的消息序列转换为 LLM messages。"""
     out: list[dict[str, Any]] = [{"role": "system", "content": (system_prompt or "").strip()}]
@@ -427,6 +439,8 @@ def build_llm_messages(
                     r0 = getattr(m, "content", "") or ""
                     cap0 = tool_llm_message_max_chars()
                     pretty = _summarize_unpaired_tool_content(r0, cap=cap0)
+                    if tool_context_truncate_enabled:
+                        pretty = _truncate_tool_context(pretty, lang=lang)
                     out.append(
                         {
                             "role": "assistant",
@@ -457,6 +471,10 @@ def build_llm_messages(
                             tool_content_out = raw_tc_content[: max(1, cap - 80)] + "\n...<truncated>"
                     except Exception:
                         tool_content_out = raw_tc_content[: max(1, cap - 80)] + "\n...<truncated>"
+                if tool_context_truncate_enabled:
+                    # Preserve explicit guard markers from upstream context guards.
+                    if "_tool_result_guarded" not in str(tool_content_out or ""):
+                        tool_content_out = _truncate_tool_context(tool_content_out, lang=lang)
                 tool_row: dict[str, Any] = {
                     "role": "tool",
                     "tool_call_id": tool_call_id,
@@ -476,6 +494,8 @@ def build_llm_messages(
                 r = getattr(m, "content", "") or ""
                 cap2 = tool_llm_message_max_chars()
                 pretty2 = _summarize_unpaired_tool_content(r, cap=cap2)
+                if tool_context_truncate_enabled:
+                    pretty2 = _truncate_tool_context(pretty2, lang=lang)
                 out.append(
                     {
                         "role": "assistant",

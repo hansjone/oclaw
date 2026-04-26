@@ -3,11 +3,16 @@ from __future__ import annotations
 from typing import Any
 
 from oclaw.runtime.chat.agent import Agent
+from oclaw.runtime.agent_context import build_role_system_context
 from oclaw.platform.persistence.sqlite_store import SqliteStore
-from oclaw.prompts.loader import render_runtime_prompt
+from oclaw.prompts.loader import render_prompt
 from oclaw.runtime.tools import default_registry
 
-NETWORK_SYSTEM_PROMPT_ZH = render_runtime_prompt("roles/specialists/ops/system.md", strict=True)
+NETWORK_SYSTEM_PROMPT_ZH = render_prompt(
+    "agents/network_ops_system.zh.md",
+    variables={"ROLE_SYSTEM_CONTEXT": build_role_system_context("ops")},
+    strict=True,
+)
 
 
 class NetworkOpsAgent(Agent):
@@ -36,7 +41,7 @@ class NetworkOpsAgent(Agent):
             store=store,
             tools=tools,
             model=model,
-            system_prompt=(system_prompt or render_runtime_prompt("roles/specialists/ops/system.md", strict=True)),
+            system_prompt=(system_prompt or NETWORK_SYSTEM_PROMPT_ZH),
             lang=lang,
             llm_profile_mode=llm_profile_mode,
         )

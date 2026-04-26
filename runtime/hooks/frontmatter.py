@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Optional
 
 import yaml
+from .hook_manifest_core import parse_hook_manifest
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,15 +54,14 @@ def parse_frontmatter(markdown: str) -> ParsedHookFrontmatter:
 
 
 def resolve_oclaw_metadata(frontmatter: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    """
-    Oclaw embeds metadata as a JSON-like object under key 'metadata' -> 'oclaw'
-    (or sometimes as already-parsed dict). We normalize to a dict if present.
-    """
-    meta = frontmatter.get("metadata")
-    if not isinstance(meta, dict):
-        return None
-    oc = meta.get("oclaw")
-    return oc if isinstance(oc, dict) else None
+    parsed = parse_hook_manifest(frontmatter=frontmatter, default_name="hook")
+    out = parsed.metadata.as_dict()
+    return out if out else None
+
+
+def resolve_hook_invocation_policy(frontmatter: Dict[str, Any]) -> Dict[str, bool]:
+    parsed = parse_hook_manifest(frontmatter=frontmatter, default_name="hook")
+    return {"enabled": bool(parsed.invocation_enabled)}
 
 
 def resolve_hook_key(name: str, entry: Dict[str, Any]) -> str:

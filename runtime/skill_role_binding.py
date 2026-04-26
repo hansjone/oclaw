@@ -4,10 +4,11 @@ import json
 import os
 from typing import Any
 
-from oclaw.runtime.agents.specialists import SPECIALISTS
+from oclaw.runtime.agents.specialists import discover_specialist_ids
 
 SKILL_ROLE_BINDING_KEY = "skill_role_binding"
 SKILL_ROLE_BINDING_ENABLED_SETTING = "AIA_SKILL_ROLE_BINDING_ENABLED"
+SKILL_ROLE_BINDING_MANAGER_INHERIT_SETTING = "AIA_SKILL_ROLE_BINDING_MANAGER_INHERIT"
 
 
 def _truthy(v: str | None) -> bool:
@@ -15,7 +16,7 @@ def _truthy(v: str | None) -> bool:
 
 
 def ordered_specialist_ids() -> list[str]:
-    base = [str(k).strip().lower() for k in SPECIALISTS.keys() if str(k).strip()]
+    base = [str(k).strip().lower() for k in discover_specialist_ids() if str(k).strip()]
     preferred = [x for x in ("generalist", "ops", "image") if x in set(base)]
     return preferred + [x for x in base if x not in set(preferred)]
 
@@ -89,7 +90,16 @@ def allowed_workspace_skill_names_for_role(*, store: Any, role: str) -> set[str]
         mapping_raw=load_skill_role_binding_dict(store),
         valid_skill_names=_all_installed_skill_names(store),
     )
-    mgr = {str(x).strip() for x in (mapping.get("manager") or []) if str(x).strip()}
+    try:
+        raw_env = str(os.getenv(SKILL_ROLE_BINDING_MANAGER_INHERIT_SETTING) or "").strip()
+        if raw_env:
+            inherit_mgr = _truthy(raw_env)
+        else:
+            raw = str(store.get_setting(SKILL_ROLE_BINDING_MANAGER_INHERIT_SETTING) or "").strip()
+            inherit_mgr = _truthy(raw) if raw else True
+    except Exception:
+        inherit_mgr = True
+    mgr = {str(x).strip() for x in (mapping.get("manager") or []) if str(x).strip()} if inherit_mgr else set()
     sp = {str(x).strip() for x in (mapping.get(r) or []) if str(x).strip()}
     return mgr | sp
 
@@ -118,6 +128,7 @@ def should_apply_workspace_role_filter(*, store: Any, skill_binding_role: str | 
 __all__ = [
     "SKILL_ROLE_BINDING_KEY",
     "SKILL_ROLE_BINDING_ENABLED_SETTING",
+    "SKILL_ROLE_BINDING_MANAGER_INHERIT_SETTING",
     "allowed_workspace_skill_names_for_role",
     "load_skill_role_binding_dict",
     "mapping_has_any_skill_names",

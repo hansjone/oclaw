@@ -3,6 +3,33 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from starlette.websockets import WebSocketState
+
+
+def _ws_is_disconnected(conn: Any) -> bool:
+    ws = getattr(conn, "ws", None)
+    if ws is None:
+        return True
+    state = getattr(ws, "application_state", None)
+    if state == WebSocketState.DISCONNECTED:
+        return True
+    state = getattr(ws, "client_state", None)
+    if state == WebSocketState.DISCONNECTED:
+        return True
+    return False
+
+
+async def _safe_send_text(conn: Any, text: str) -> None:
+    if _ws_is_disconnected(conn):
+        return
+    try:
+        await conn.ws.send_text(text)
+    except Exception as e:
+        msg = str(e or "")
+        if "Unexpected ASGI message 'websocket.send'" in msg or "response already completed" in msg:
+            return
+        raise
+
 
 async def send_res(conn: Any, req_id: str, *, ok: bool, payload: Any | None = None, error: Any | None = None) -> None:
     frame: dict[str, Any] = {"type": "res", "id": str(req_id or "invalid"), "ok": bool(ok)}
@@ -10,15 +37,17 @@ async def send_res(conn: Any, req_id: str, *, ok: bool, payload: Any | None = No
         frame["payload"] = payload
     if error is not None:
         frame["error"] = error
-    await conn.ws.send_text(json.dumps(frame, ensure_ascii=False))
+    await _safe_send_text(conn, json.dumps(frame, ensure_ascii=False))
 
 
 async def send_event(conn: Any, event: str, payload: Any | None = None) -> None:
+    if _ws_is_disconnected(conn):
+        return
     conn.seq += 1
     frame: dict[str, Any] = {"type": "event", "event": str(event or "event"), "seq": int(conn.seq)}
     if payload is not None:
         frame["payload"] = payload
-    await conn.ws.send_text(json.dumps(frame, ensure_ascii=False))
+    await _safe_send_text(conn, json.dumps(frame, ensure_ascii=False))
 
 
 async def emit_agent_event(conn: Any, *, run_id: str, stream: str, data: dict[str, Any], now_ms: int) -> None:

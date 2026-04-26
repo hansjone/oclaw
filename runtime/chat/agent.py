@@ -211,14 +211,6 @@ class Agent:
                 tenant_id = tenant_id or str(owner.get("tenant_id") or "")
                 user_id = user_id or str(owner.get("user_id") or "")
 
-        session = self.store.get_session(session_id)
-        if session and session.title in ("新会话", "New Chat"):
-            title = user_text.strip().replace("\n", " ")
-            if not title and attachments:
-                title = str(attachments[0].get("name") or "New Chat")
-            if title:
-                self.store.rename_session(session_id, title[:SESSION_TITLE_MAX_LEN])
-
         self._emit_progress(
             on_progress,
             "Received. Working on your request…",
@@ -267,11 +259,14 @@ class Agent:
         from oclaw.runtime.chat.agent_messages import build_llm_messages
 
         msgs = self.store.get_messages(session_id=session_id, limit=self.config.max_messages)
+        trunc_raw = str(self.store.get_setting("AIA_TOOL_CONTEXT_TRUNCATE_ENABLED") or "").strip().lower()
+        tool_context_truncate_enabled = trunc_raw not in ("0", "false", "no", "off")
         return build_llm_messages(
             store_messages=msgs,
             system_prompt=self._compose_system_prompt(),
             model=self.model,
             lang=self.lang,
+            tool_context_truncate_enabled=tool_context_truncate_enabled,
         )
 
 

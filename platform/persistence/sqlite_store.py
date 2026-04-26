@@ -328,6 +328,9 @@ class SqliteStore:
                 """
             )
             conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_chat_session_activity ON chat_session(COALESCE(last_message_at, created_at) DESC, created_at DESC)"
+            )
+            conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS tenant (
                     id TEXT PRIMARY KEY,
@@ -527,6 +530,12 @@ class SqliteStore:
             )
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_ui_session_owner_tenant_user ON ui_session_owner(tenant_id, user_id, created_at DESC)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_ui_session_owner_tenant_user_session ON ui_session_owner(tenant_id, user_id, session_id)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_ui_session_owner_tenant_session ON ui_session_owner(tenant_id, session_id)"
             )
             conn.execute(
                 """
@@ -3740,6 +3749,44 @@ class SqliteStore:
                     json.dumps(payload or {}, ensure_ascii=False, default=str),
                     ts,
                 ),
+            )
+
+    def add_trace_events_batch(self, events: list[dict[str, Any]]) -> None:
+        rows: list[tuple[str, str, str, str | None, str, str, str]] = []
+        ts = utc_now_iso()
+        for e in events or []:
+            try:
+                session_id = str(e.get("session_id") or "").strip()
+                trace_id = str(e.get("trace_id") or "").strip()
+                span_id = str(e.get("span_id") or "").strip()
+                if (not session_id) or (not trace_id) or (not span_id):
+                    continue
+                parent_span_id = str(e.get("parent_span_id") or "").strip() or None
+                event_type = str(e.get("event_type") or "").strip()
+                payload = e.get("payload") if isinstance(e.get("payload"), dict) else {}
+                rows.append(
+                    (
+                        session_id,
+                        trace_id,
+                        span_id,
+                        parent_span_id,
+                        event_type,
+                        json.dumps(payload or {}, ensure_ascii=False, default=str),
+                        ts,
+                    )
+                )
+            except Exception:
+                continue
+        if not rows:
+            return
+        with self._connect() as conn:
+            conn.executemany(
+                """
+                INSERT INTO trace_event
+                    (session_id, trace_id, span_id, parent_span_id, event_type, payload, timestamp)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                rows,
             )
 
     def list_trace_events(self, *, session_id: str, limit: int = 300) -> list[dict[str, Any]]:

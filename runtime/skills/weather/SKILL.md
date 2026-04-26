@@ -2,21 +2,7 @@
 name: weather
 description: Get current weather and forecasts (no API key required).
 homepage: https://wttr.in/:help
-metadata:
-  clawdbot:
-    emoji: "🌤️"
-    requires:
-      bins: ["curl"]
-  oclaw:
-    runtime:
-      type: python
-      entry: scripts/run.py
-      schema:
-        type: object
-        properties:
-          location: { type: string, description: "City name (e.g. Shanghai, London)" }
-          format: { type: string, description: "wttr.in format (default: 3)" }
-        additionalProperties: false
+metadata: {"clawdbot":{"emoji":"🌤️","requires":{"bins":["curl"]}}}
 ---
 
 # Weather

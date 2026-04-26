@@ -4,6 +4,7 @@ import argparse
 import os
 import sys
 
+from oclaw.runtime.operations.hooks_cmd import register_hooks_parser
 from oclaw.runtime.operations.memory import register_memory_parser
 from oclaw.runtime.operations.providers.registry import build_channel_registry
 from oclaw.runtime.operations.stack import register_stack_parser
@@ -43,6 +44,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
     register_memory_parser(root_sub)
     register_stack_parser(root_sub)
+    register_hooks_parser(root_sub)
     return p
 
 

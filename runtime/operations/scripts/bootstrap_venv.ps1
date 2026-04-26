@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string]$Python = "python",
     [switch]$Recreate = $false
 )
@@ -14,10 +14,10 @@ function Fail([string]$msg) {
     exit 1
 }
 
-$repoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+$repoRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))
 Set-Location $repoRoot
 
-$venvDir = Join-Path $repoRoot "oclaw/.venv"
+$venvDir = Join-Path $repoRoot ".venv"
 $venvPython = Join-Path $venvDir "Scripts/python.exe"
 
 $py = Get-Command $Python -ErrorAction SilentlyContinue
@@ -49,3 +49,5 @@ Write-Host ""
 Write-Host "OK. Next:" -ForegroundColor Green
 Write-Host "  powershell -ExecutionPolicy Bypass -File .\\oclaw\\scripts\\start_gateway.ps1"
 Write-Host ""
+
+

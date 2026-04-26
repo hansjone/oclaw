@@ -9,6 +9,7 @@ _PS1_FORWARDERS: dict[str, str] = {
     "bootstrap_venv.ps1": "& $real @args",
     "start_web.ps1": "& $real @args",
     "status_all.ps1": "& $real @args",
+    "status_desktop.ps1": "& $real @args",
     "status_ops.ps1": "& $real @args",
     "status_wiki_worker.ps1": "& $real @args",
     "stop_all.ps1": "& $real @args",

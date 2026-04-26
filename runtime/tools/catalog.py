@@ -22,9 +22,23 @@ logger = logging.getLogger(__name__)
 # restricted to a single safe builtin (`system_time`), so this is left empty.
 TOOL_FACTORIES: tuple[object, ...] = ()
 
-
 def _is_truthy(v: str | None) -> bool:
     return str(v or "").strip().lower() in ("1", "true", "yes", "on")
+
+
+def _skill_toolcall_enabled(store: SqliteStore | None) -> bool:
+    try:
+        raw_env = str(os.getenv("AIA_SKILL_TOOLCALL_ENABLED") or "").strip()
+        if raw_env:
+            return _is_truthy(raw_env)
+        if store is not None:
+            raw = str(store.get_setting("AIA_SKILL_TOOLCALL_ENABLED") or "").strip()
+            if raw:
+                return _is_truthy(raw)
+    except Exception:
+        pass
+    # Default off: skill uses prompt-injection path, not toolcall path.
+    return False
 
 
 def _apply_declared_tool_policy(
@@ -168,16 +182,17 @@ def materialize_tool_specs(
     except Exception as exc:
         logger.warning("expert tool load skipped: %s", exc)
 
-    # Load executable skills (declared via SKILL.md metadata.oclaw.runtime).
-    try:
-        for spec in materialize_executable_skill_tools(store=store):
-            if not isinstance(spec, ToolSpec):
-                continue
-            if any(str(t.name or "") == str(spec.name or "") for t in tools):
-                continue
-            tools.append(spec)
-    except Exception as exc:
-        logger.warning("skill runtime tool load skipped: %s", exc)
+    # Load executable skills only when toolcall mode is explicitly enabled.
+    if _skill_toolcall_enabled(store):
+        try:
+            for spec in materialize_executable_skill_tools(store=store):
+                if not isinstance(spec, ToolSpec):
+                    continue
+                if any(str(t.name or "") == str(spec.name or "") for t in tools):
+                    continue
+                tools.append(spec)
+        except Exception as exc:
+            logger.warning("skill runtime tool load skipped: %s", exc)
 
     # MCP tools are role-bound and should be materialized before model injection.
     # Fine-grained penalty/visibility is still applied by wire policy in direct_loop.

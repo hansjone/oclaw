@@ -55,6 +55,7 @@ class AttemptRunnerInput:
     workspace_dir: str | None = None
     skill_binding_role: str | None = None
     wire_policy_role: str | None = None
+    prompt_build_context: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -123,6 +124,7 @@ def run_attempt(*, store: Any, data: AttemptRunnerInput) -> AttemptRunnerOutput:
             persist_user_message=bool(data.persist_user_message),
             skill_binding_role=data.skill_binding_role,
             wire_policy_role=data.wire_policy_role,
+            prompt_build_context=data.prompt_build_context,
         )
         after_turn_memory(
             store=store,

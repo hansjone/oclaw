@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import time
 import uuid
+import copy
+import threading
 from dataclasses import dataclass
 from types import SimpleNamespace
 from typing import Any, Callable, Optional
@@ -18,6 +21,7 @@ from oclaw.runtime.system_prompt import build_oclaw_executor_system_prompt
 from oclaw.runtime.types import OclawMemoryContext
 from oclaw.runtime.orchestration.trace import new_span_id
 from oclaw.runtime.tools.base import ToolRegistry
+from oclaw.runtime.hooks_runtime import trigger_hook_event
 
 _OCLAW_TOOL_RESULT_HARD_CAP_CHARS = 24_000
 
@@ -26,6 +30,113 @@ _DIRECT_LOOP_OC_STAGE: dict[str, str] = {
     "tool_result_context_guard": "tool_context_guard",
 }
 _THINK_BLOCK_RE = re.compile(r"<(think|redacted_thinking)>\s*(.*?)\s*</\1>\s*", flags=re.IGNORECASE | re.DOTALL)
+_TOOL_WIRE_CACHE_LOCK = threading.Lock()
+_TOOL_WIRE_CACHE: dict[str, tuple[float, list[dict[str, Any]]]] = {}
+_TOOL_WIRE_CACHE_TTL_SEC = 300.0
+_TOOL_WIRE_FROZEN_SIGNATURE: str | None = None
+_TOOL_WIRE_LAST_WARM_TS_MS: int = 0
+_TOOL_WIRE_LAST_WARM_ROLES: tuple[str, ...] = ()
+_TOOL_WIRE_LAST_WARM_COUNT: int = 0
+
+
+def _tool_wire_freeze_enabled(store: Any) -> bool:
+    raw = ""
+    try:
+        raw = str(store.get_setting("AIA_TOOL_WIRE_FROZEN_ON_STARTUP") or "").strip().lower()
+    except Exception:
+        raw = ""
+    if not raw:
+        raw = str(os.getenv("AIA_TOOL_WIRE_FROZEN_ON_STARTUP") or "").strip().lower()
+    if not raw:
+        return True
+    return raw in {"1", "true", "yes", "on"}
+
+
+def _tool_wire_settings_signature(store: Any) -> tuple[bool, str]:
+    runtime_enabled = True
+    try:
+        raw_flag = str(store.get_setting("AIA_SKILL_RUNTIME_ENABLED") or "").strip().lower()
+        if raw_flag:
+            runtime_enabled = raw_flag in {"1", "true", "yes", "on"}
+    except Exception:
+        runtime_enabled = True
+    sig = "|".join(
+        [
+            f"rt={int(bool(runtime_enabled))}",
+            f"mcp={str(store.get_setting('AIA_ENABLE_MCP_TOOLS') or '')}",
+            f"plugin={str(store.get_setting('AIA_ENABLE_PLUGIN_TOOLS') or '')}",
+            f"skill_rt={str(store.get_setting('AIA_SKILL_RUNTIME_ENABLED') or '')}",
+            f"skill_disabled={str(store.get_setting('AIA_SKILL_DISABLED_NAMES') or '')}",
+            f"bind_en={str(store.get_setting('AIA_SKILL_ROLE_BINDING_ENABLED') or '')}",
+            f"bind_inherit={str(store.get_setting('AIA_SKILL_ROLE_BINDING_MANAGER_INHERIT') or '')}",
+        ]
+    )
+    return runtime_enabled, sig
+
+
+def _tool_wire_cache_key(
+    *,
+    store: Any,
+    base_url: str,
+    wire_policy_role: str | None,
+    runtime_enabled: bool,
+    settings_sig: str | None = None,
+) -> str:
+    _, sig = _tool_wire_settings_signature(store)
+    effective_sig = str(settings_sig or sig)
+    return (
+        f"base={base_url}|role={str(wire_policy_role or '').strip().lower()}|"
+        f"rt={int(bool(runtime_enabled))}|{effective_sig}"
+    )
+
+
+def warm_tool_wire_cache(
+    *,
+    store: Any,
+    tools: ToolRegistry,
+    base_url: str,
+    roles: list[str] | tuple[str, ...],
+) -> dict[str, int]:
+    global _TOOL_WIRE_FROZEN_SIGNATURE, _TOOL_WIRE_LAST_WARM_TS_MS, _TOOL_WIRE_LAST_WARM_ROLES, _TOOL_WIRE_LAST_WARM_COUNT
+    freeze_enabled = _tool_wire_freeze_enabled(store)
+    runtime_enabled, sig = _tool_wire_settings_signature(store)
+    warmed = 0
+    for role in roles or []:
+        _ = _prepare_llm_tools(
+            store=store,
+            tools=tools,
+            base_url=base_url,
+            session_id="startup-prewarm",
+            trace_id=None,
+            parent_span_id=None,
+            run_id="startup-prewarm",
+            attempt_no=0,
+            lang="",
+            wire_policy_role=str(role or "").strip().lower() or None,
+        )
+        warmed += 1
+    with _TOOL_WIRE_CACHE_LOCK:
+        _TOOL_WIRE_FROZEN_SIGNATURE = f"rt={int(bool(runtime_enabled))}|{sig}" if freeze_enabled else None
+        _TOOL_WIRE_LAST_WARM_TS_MS = int(time.time() * 1000)
+        _TOOL_WIRE_LAST_WARM_ROLES = tuple(str(x or "").strip().lower() for x in roles or [])
+        _TOOL_WIRE_LAST_WARM_COUNT = int(warmed)
+    return {"roles_warmed": int(warmed), "frozen": int(bool(freeze_enabled))}
+
+
+def tool_wire_freeze_status(*, store: Any | None = None) -> dict[str, Any]:
+    enabled = True
+    if store is not None:
+        enabled = _tool_wire_freeze_enabled(store)
+    with _TOOL_WIRE_CACHE_LOCK:
+        return {
+            "enabled": bool(enabled),
+            "frozen": bool(isinstance(_TOOL_WIRE_FROZEN_SIGNATURE, str) and _TOOL_WIRE_FROZEN_SIGNATURE.strip()),
+            "frozen_signature": str(_TOOL_WIRE_FROZEN_SIGNATURE or ""),
+            "last_warm_ts_ms": int(_TOOL_WIRE_LAST_WARM_TS_MS),
+            "last_warm_roles": list(_TOOL_WIRE_LAST_WARM_ROLES),
+            "last_warm_count": int(_TOOL_WIRE_LAST_WARM_COUNT),
+            "cache_entries": int(len(_TOOL_WIRE_CACHE)),
+        }
 
 
 def _emit_direct_loop_trace(
@@ -205,6 +316,8 @@ def _build_model_context(
     attempt_no: int | None = None,
     workspace_dir: str | None = None,
     skill_binding_role: str | None = None,
+    user_text: str = "",
+    prompt_build_context: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     rows = store.get_messages(session_id=session_id, limit=int(max_messages))
     rows = _guard_tool_results_for_llm_context(
@@ -228,7 +341,39 @@ def _build_model_context(
         workspace_dir=workspace_dir,
         skill_binding_role=skill_binding_role,
     )
-    return build_llm_messages(store_messages=rows, system_prompt=final_system, model=model, lang=lang)
+    # Hook integration: wiki-auto-inject can prepend retrieval snippets
+    # before prompt build when query/topic hints indicate supplemental lookup.
+    try:
+        pb_ctx = prompt_build_context if isinstance(prompt_build_context, dict) else {}
+        user_text_final = str(user_text or "").strip()
+        wiki_query = str(pb_ctx.get("wiki_query") or "").strip()
+        hook_ctx = {
+            "userText": (wiki_query or user_text_final),
+            "prepend_system_context": "",
+            "need_wiki_inject": pb_ctx.get("need_wiki_inject"),
+            "memory_mode": str(pb_ctx.get("memory_mode") or ""),
+            "wiki_query": wiki_query,
+        }
+        hook_out = trigger_hook_event(
+            event_type="llm",
+            action="before_prompt_build",
+            session_key=str(session_id or "system"),
+            context=hook_ctx,
+        )
+        prepend = str((hook_out or {}).get("prepend_system_context") or "").strip()
+        if prepend:
+            final_system = f"{prepend}\n\n{final_system}".strip()
+    except Exception:
+        pass
+    trunc_raw = str(store.get_setting("AIA_TOOL_CONTEXT_TRUNCATE_ENABLED") or "").strip().lower()
+    tool_context_truncate_enabled = trunc_raw not in ("0", "false", "no", "off")
+    return build_llm_messages(
+        store_messages=rows,
+        system_prompt=final_system,
+        model=model,
+        lang=lang,
+        tool_context_truncate_enabled=tool_context_truncate_enabled,
+    )
 
 
 def _prepare_llm_tools(
@@ -244,13 +389,35 @@ def _prepare_llm_tools(
     lang: str = "",
     wire_policy_role: str | None = None,
 ) -> list[dict[str, Any]]:
-    runtime_enabled = True
-    try:
-        raw_flag = str(store.get_setting("AIA_SKILL_RUNTIME_ENABLED") or "").strip().lower()
-        if raw_flag:
-            runtime_enabled = raw_flag in {"1", "true", "yes", "on"}
-    except Exception:
-        runtime_enabled = True
+    global _TOOL_WIRE_FROZEN_SIGNATURE
+    now = time.time()
+    runtime_enabled, sig = _tool_wire_settings_signature(store)
+    freeze_enabled = _tool_wire_freeze_enabled(store)
+    frozen_sig = _TOOL_WIRE_FROZEN_SIGNATURE if freeze_enabled else None
+    if isinstance(frozen_sig, str) and frozen_sig.strip():
+        # Startup-prewarmed frozen mode: execution path reuses precomputed tool wiring
+        # and does not perform per-turn policy revalidation.
+        sig = frozen_sig
+        try:
+            rt_head = str(frozen_sig).split("|", 1)[0].strip().lower()
+            runtime_enabled = rt_head == "rt=1"
+        except Exception:
+            pass
+    cache_key = _tool_wire_cache_key(
+        store=store,
+        base_url=base_url,
+        wire_policy_role=wire_policy_role,
+        runtime_enabled=runtime_enabled,
+        settings_sig=sig,
+    )
+    with _TOOL_WIRE_CACHE_LOCK:
+        cached = _TOOL_WIRE_CACHE.get(cache_key)
+        if cached and (
+            (isinstance(frozen_sig, str) and frozen_sig.strip())
+            or (now - float(cached[0])) <= _TOOL_WIRE_CACHE_TTL_SEC
+        ):
+            return copy.deepcopy(cached[1])
+
     if runtime_enabled:
         skill_specs, _ = build_skill_manifest(registry=tools, store=store, base_url=base_url)
         raw_llm_tools = [s.as_openai_tool() for s in skill_specs]
@@ -352,6 +519,11 @@ def _prepare_llm_tools(
                 )
         except Exception:
             pass
+    with _TOOL_WIRE_CACHE_LOCK:
+        _TOOL_WIRE_CACHE[cache_key] = (now, copy.deepcopy(llm_tools))
+        if len(_TOOL_WIRE_CACHE) > 256:
+            oldest_key = sorted(_TOOL_WIRE_CACHE.items(), key=lambda kv: kv[1][0])[0][0]
+            _TOOL_WIRE_CACHE.pop(oldest_key, None)
     return llm_tools
 
 
@@ -427,6 +599,7 @@ def _execute_tool_step(
     user_text: str,
     trace_id: str | None,
     parent_span_id: str | None,
+    workspace_dir: str | None,
     workspace_owner_session_id: str | None,
     path_policy_tenant_id: str | None,
     path_policy_user_id: str | None,
@@ -450,6 +623,7 @@ def _execute_tool_step(
             specialist="oclaw",
             trace_id=trace_id,
             parent_span_id=parent_span_id,
+            workspace_dir=workspace_dir,
             workspace_owner_session_id=workspace_owner_session_id,
             path_policy_tenant_id=path_policy_tenant_id,
             path_policy_user_id=path_policy_user_id,
@@ -497,6 +671,7 @@ def run_oclaw_direct_loop(
     tool_signature_budget: int = 2,
     skill_binding_role: str | None = None,
     wire_policy_role: str | None = None,
+    prompt_build_context: dict[str, Any] | None = None,
 ) -> TurnRunOutcome:
     """A minimal oclaw-style loop: model -> tool_uses -> execute -> tool_results -> continue."""
     _check_stop(should_stop)
@@ -538,6 +713,8 @@ def run_oclaw_direct_loop(
             attempt_no=attempt_no,
             workspace_dir=workspace_dir,
             skill_binding_role=skill_binding_role,
+            user_text=str(user_text or ""),
+            prompt_build_context=prompt_build_context,
         )
         llm_tools = _prepare_llm_tools(
             store=store,
@@ -577,6 +754,7 @@ def run_oclaw_direct_loop(
             user_text=str(user_text or ""),
             trace_id=trace_id,
             parent_span_id=parent_span_id,
+            workspace_dir=workspace_dir,
             workspace_owner_session_id=workspace_owner_session_id,
             path_policy_tenant_id=path_policy_tenant_id,
             path_policy_user_id=path_policy_user_id,
@@ -617,5 +795,5 @@ def run_direct_loop(**kwargs: Any) -> TurnRunOutcome:
     return run_oclaw_direct_loop(**kwargs)
 
 
-__all__ = ["run_oclaw_direct_loop", "run_direct_loop"]
+__all__ = ["run_oclaw_direct_loop", "run_direct_loop", "warm_tool_wire_cache", "tool_wire_freeze_status"]
 

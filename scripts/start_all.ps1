@@ -4,7 +4,7 @@ param(
     [switch]$SkipInstall = $false,
     [switch]$Background = $false,
     [switch]$WithWeixin = $false,
-    [switch]$WithWikiWorker = $false,
+    [bool]$WithWikiWorker = $true,
     [string]$WeixinChannelId = "oclaw-weixin",
     [string]$WeixinGatewayBaseUrl = ""
 )

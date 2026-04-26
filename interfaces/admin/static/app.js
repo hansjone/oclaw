@@ -14,7 +14,7 @@ const I18N = {
     "nav.plugins": "插件",
     "nav.skills": "技能",
     "nav.attachments": "附件",
-    "nav.profile": "设置",
+    "nav.profile": "用户信息",
     "notice.noLogin": "v2 已启用登录鉴权：请仅在内网访问",
     "action.refresh": "刷新",
     "title.stack": "运行时",
@@ -32,7 +32,7 @@ const I18N = {
     "skills.docsTitle": "oclaw 文档快捷入口：",
     "skills.docsTroubleshooting": "- oclaw/docs/oclaw-skill-troubleshooting.md（安装与运行排障）",
     "skills.docsTraceTaxonomy": "- oclaw/docs/oclaw-trace-taxonomy.md（trace 字段与阶段）",
-    "title.profile": "设置",
+    "title.profile": "用户信息",
     "attachments.title": "附件",
     "attachments.excelPolicy": "Excel 策略",
     "attachments.excelPolicyHint": "针对 Excel/表格附件的解析与 SQL 查询保护策略。该配置写入 oclaw.json（优先级低于环境变量）。",
@@ -316,7 +316,7 @@ const I18N = {
     "models.role.ops": "网络运维",
     "models.role.generalist": "通用",
     "models.role.image": "图像",
-    "models.role.memory_curator": "记忆整理",
+    "models.role.memory": "记忆整理",
     "models.profileName": "配置名称",
     "models.mode": "模式",
     "models.mode.openai": "OpenAI 兼容",
@@ -421,7 +421,7 @@ const I18N = {
     "nav.plugins": "Plugins",
     "nav.skills": "Skills",
     "nav.attachments": "Attachments",
-    "nav.profile": "Settings",
+    "nav.profile": "User Info",
     "notice.noLogin": "v2 login enabled: internal network only",
     "action.refresh": "Refresh",
     "title.stack": "Runtime",
@@ -439,7 +439,7 @@ const I18N = {
     "skills.docsTitle": "oclaw docs quick links:",
     "skills.docsTroubleshooting": "- oclaw/docs/oclaw-skill-troubleshooting.md (install/runtime troubleshooting)",
     "skills.docsTraceTaxonomy": "- oclaw/docs/oclaw-trace-taxonomy.md (trace fields and stages)",
-    "title.profile": "Settings",
+    "title.profile": "User Info",
     "attachments.title": "Attachments",
     "attachments.excelPolicy": "Excel policy",
     "attachments.excelPolicyHint": "Policy for Excel/tabular attachments parsing and SQL query safeguards. Saved into oclaw.json (lower priority than env vars).",
@@ -723,7 +723,7 @@ const I18N = {
     "models.role.ops": "Network ops",
     "models.role.generalist": "Generalist",
     "models.role.image": "Image",
-    "models.role.memory_curator": "Memory Curator",
+    "models.role.memory": "Memory Curator",
     "models.profileName": "Name",
     "models.mode": "Mode",
     "models.mode.openai": "OpenAI-compatible",
@@ -1326,10 +1326,20 @@ function yesNo(v) {
   return v ? "yes" : "no";
 }
 
+let runtimePrewarmReminder = "";
+function markPrewarmReminder(reason) {
+  const why = String(reason || "").trim();
+  const base = currentLang === "zh" ? "配置已变更，请立即预热（或重启）" : "Config changed. Please run prewarm now (or restart).";
+  runtimePrewarmReminder = why ? `${base} [${why}]` : base;
+}
+
 async function renderStack() {
-  const [st, anomaliesResp] = await Promise.all([
+  const [st, anomaliesResp, scanResp, prewarmStatusResp, prewarmPromptsResp] = await Promise.all([
     apiGet("/admin/api/stack/status"),
     apiGet("/admin/api/runtime/anomalies"),
+    apiGet("/admin/api/runtime/scan-artifacts"),
+    apiGet("/admin/api/runtime/prewarm/status"),
+    apiGet("/admin/api/runtime/prewarm/prompts?role=manager"),
   ]);
   const requiredServices = ["gateway", "channel:wecom"];
   const runningNames = new Set(
@@ -1338,13 +1348,31 @@ async function renderStack() {
       .map((x) => String(x.name || "")),
   );
   const missingRequired = requiredServices.filter((n) => !runningNames.has(n));
-  const items = (st.items || []).map((x) => el("tr", {}, [
-    el("td", { text: String(x.name || "") }),
-    el("td", { text: String(x.pid || "") }),
-    el("td", {}, [
-      el("span", { class: "badge " + (x.running ? "badge--ok" : "badge--bad"), text: x.running ? t("status.running") : t("status.stopped") }),
-    ]),
-  ]));
+  const items = (st.items || []).flatMap((x) => {
+    const name = String((x && x.name) || "");
+    const running = Boolean(x && x.running);
+    const allPids = Array.isArray(x && x.all_pids) ? x.all_pids.map((v) => String(v || "").trim()).filter(Boolean) : [];
+    const primary = String((x && x.pid) || "").trim();
+    const pidPorts = (x && x.pid_ports && typeof x.pid_ports === "object") ? x.pid_ports : {};
+    const pidRunning = (x && x.pid_running && typeof x.pid_running === "object") ? x.pid_running : {};
+    const rows = allPids.length ? allPids : (primary ? [primary] : []);
+    return rows.map((pid) => {
+      const ports = Array.isArray(pidPorts[pid]) ? pidPorts[pid].map((v) => String(v || "").trim()).filter(Boolean) : [];
+      const isPrimary = primary && pid === primary;
+      const isRunning = Boolean(pidRunning[pid]);
+      return el("tr", {}, [
+        el("td", {}, [
+          el("div", { text: pid || "-" }),
+          isPrimary ? el("div", { class: "muted", text: "primary" }) : el("span"),
+        ]),
+        el("td", { text: name }),
+        el("td", { text: ports.length ? ports.join(", ") : "-" }),
+        el("td", {}, [
+          el("span", { class: "badge " + (isRunning ? "badge--ok" : "badge--bad"), text: isRunning ? t("status.running") : t("status.stopped") }),
+        ]),
+      ]);
+    });
+  });
   const btnUp = el("button", { class: "btn btn--primary", text: t("stack.up"), onclick: async () => {
     await apiPost("/admin/api/stack/up", { channel: "wecom" });
     router();
@@ -1363,7 +1391,12 @@ async function renderStack() {
   }});
   const alerts = Array.isArray(anomaliesResp.items) ? anomaliesResp.items : [];
   const mustCleanup = Boolean(anomaliesResp.must_cleanup);
-  const mergedAlerts = alerts.slice();
+  const mergedAlerts = missingRequired.length
+    ? []
+    : alerts.filter((a) => {
+        const typ = String((a && a.type) || "");
+        return typ !== "duplicate_process_ambiguous";
+      });
   if (missingRequired.length) {
     mergedAlerts.unshift({
       severity: "critical",
@@ -1375,6 +1408,129 @@ async function renderStack() {
         text: `[${String(a.severity || "info").toUpperCase()}] ${String(a.message || "")}`,
       }))
     : [el("li", { text: t("stack.noAlerts") })];
+  const scanItems = Array.isArray(scanResp && scanResp.items) ? scanResp.items : [];
+  const scanDir = String((scanResp && scanResp.dir) || "");
+  const scanStatus = el("div", { class: "muted", text: "" });
+  const keepLatestInput = el("input", { class: "input", type: "number", value: "20", min: "0", max: "500" });
+  const maxAgeDaysInput = el("input", { class: "input", type: "number", value: "7", min: "0", max: "3650" });
+  const btnCleanScan = el("button", {
+    class: "btn btn--danger",
+    text: "清理扫描缓存",
+    onclick: async () => {
+      const resp = await apiPost("/admin/api/runtime/scan-artifacts/cleanup", {});
+      scanStatus.textContent = `removed=${Number((resp && resp.removed) || 0)}`;
+      router();
+    },
+  });
+  const btnPruneScan = el("button", {
+    class: "btn",
+    text: "按策略清理",
+    onclick: async () => {
+      const keepLatest = Number(keepLatestInput.value || 20);
+      const maxAgeDays = Number(maxAgeDaysInput.value || 7);
+      const resp = await apiPost("/admin/api/runtime/scan-artifacts/prune", {
+        keep_latest: Number.isFinite(keepLatest) ? keepLatest : 20,
+        max_age_days: Number.isFinite(maxAgeDays) ? maxAgeDays : 7,
+      });
+      scanStatus.textContent = `removed=${Number((resp && resp.removed) || 0)} keep_latest=${Number((resp && resp.keep_latest) || 0)} max_age_days=${Number((resp && resp.max_age_days) || 0)}`;
+      router();
+    },
+  });
+  const scanRows = scanItems.length
+    ? scanItems.map((x) => el("tr", {}, [
+        tdCell(String(x.name || ""), 26),
+        tdCell(String(x.bytes || 0), 12),
+        tdCell(String(x.modified_at || ""), 28),
+      ]))
+    : [el("tr", {}, [el("td", { class: "muted", text: "—", colspan: "3" })])];
+  const prewarmInfo = prewarmStatusResp && typeof prewarmStatusResp === "object" ? prewarmStatusResp : {};
+  const prewarmLast = prewarmInfo.last && typeof prewarmInfo.last === "object" ? prewarmInfo.last : {};
+  const prewarmHistory = Array.isArray(prewarmInfo.history) ? prewarmInfo.history : [];
+  const freeze = prewarmInfo.freeze && typeof prewarmInfo.freeze === "object" ? prewarmInfo.freeze : {};
+  const prewarmStatus = el("div", { class: "muted", text: "" });
+  const btnPrewarm = el("button", {
+    class: "btn btn--primary",
+    text: currentLang === "zh" ? "立即预热" : "Run prewarm now",
+    onclick: async () => {
+      const resp = await apiPost("/admin/api/runtime/prewarm", { mode: "async", reason: "admin_manual" });
+      prewarmStatus.textContent = `[prewarm] accepted=${Boolean(resp && resp.accepted)}`;
+      runtimePrewarmReminder = "";
+      router();
+    },
+  });
+  const prewarmSummary = [
+    `running=${Boolean(prewarmInfo.running)}`,
+    `last_ok=${Boolean(prewarmLast.ok)}`,
+    `elapsed_ms=${Number(prewarmLast.elapsed_ms || 0)}`,
+    `freeze_enabled=${Boolean(freeze.enabled)}`,
+    `frozen=${Boolean(freeze.frozen)}`,
+    `last_warm=${
+      Number(freeze.last_warm_ts_ms || 0) > 0
+        ? formatSystemLocalDateTime(new Date(Number(freeze.last_warm_ts_ms || 0)).toISOString())
+        : "-"
+    }`,
+  ].join(" | ");
+  const historyRows = prewarmHistory.length
+    ? prewarmHistory.slice(0, 20).map((x) =>
+        el("tr", {}, [
+          tdCell(formatSystemLocalDateTime(new Date(Number(x.finished_at_ms || 0)).toISOString()), 24),
+          tdCell(String(x.reason || "-"), 20),
+          tdCell(String(Boolean(x.ok)), 8),
+          tdCell(String(Number(x.elapsed_ms || 0)), 10),
+          tdCell(String(x.error || "-"), 38),
+        ]))
+    : [el("tr", {}, [el("td", { class: "muted", text: "—", colspan: "5" })])];
+  const promptsSectionBody = el("div");
+  const promptsRoleSelect = el("select", { class: "input" }, [
+    el("option", { value: "manager", text: "manager (default)" }),
+    el("option", { value: "", text: currentLang === "zh" ? "全部角色" : "all roles" }),
+  ]);
+  const renderPromptCards = (resp) => {
+    const promptsObj = resp && typeof resp === "object" ? resp : {};
+    const promptsMap = promptsObj.prompts && typeof promptsObj.prompts === "object" ? promptsObj.prompts : {};
+    const promptRoleCards = Object.keys(promptsMap)
+    .sort((a, b) => String(a).localeCompare(String(b)))
+    .map((rid) => {
+      const item = promptsMap[rid] && typeof promptsMap[rid] === "object" ? promptsMap[rid] : {};
+      const finalSystem = String(item.system_prompt || "");
+      return el("div", { class: "card", style: "margin-top:10px;" }, [
+        el("div", { class: "card__title", text: `role: ${rid}` }),
+        el("div", {}, [
+          el("div", { class: "muted", text: "system_prompt" }),
+          el("textarea", {
+            class: "input",
+            rows: "12",
+            readonly: "readonly",
+            text: finalSystem,
+            style: "width:100%;box-sizing:border-box;",
+          }),
+        ]),
+      ]);
+      });
+    promptsSectionBody.innerHTML = "";
+    if (promptRoleCards.length) {
+      promptRoleCards.forEach((n) => promptsSectionBody.appendChild(n));
+    } else {
+      promptsSectionBody.appendChild(el("div", { class: "muted", text: "-" }));
+    }
+  };
+  const btnReloadPrompts = el("button", {
+    class: "btn",
+    text: currentLang === "zh" ? "刷新提示词" : "Reload prompts",
+    onclick: async () => {
+      const role = String(promptsRoleSelect.value || "").trim();
+      const q = role ? `?role=${encodeURIComponent(role)}` : "";
+      const resp = await apiGet(`/admin/api/runtime/prewarm/prompts${q}`);
+      renderPromptCards(resp);
+    },
+  });
+  promptsRoleSelect.addEventListener("change", async () => {
+    const role = String(promptsRoleSelect.value || "").trim();
+    const q = role ? `?role=${encodeURIComponent(role)}` : "";
+    const resp = await apiGet(`/admin/api/runtime/prewarm/prompts${q}`);
+    renderPromptCards(resp);
+  });
+  renderPromptCards(prewarmPromptsResp);
   return el("div", {}, [
     el("div", { class: "card" }, [
       el("div", { class: "card__title", text: t("stack.alerts") }),
@@ -1385,7 +1541,7 @@ async function renderStack() {
           })
         : el("div", { class: "muted", text: t("stack.noAlerts") }),
       el("ul", { class: "alert-list" }, alertRows),
-      el("div", { class: "row" }, [btnCleanup]),
+      missingRequired.length ? el("div", { class: "muted", text: t("stack.missingRequired") }) : el("div", { class: "row" }, [btnCleanup]),
       cleanupStatus,
     ]),
     el("div", { class: "card" }, [
@@ -1393,8 +1549,66 @@ async function renderStack() {
       el("div", { class: "row" }, [btnUp, btnDown]),
       el("div", { style: "height:10px" }),
       el("table", { class: "table" }, [
-        el("thead", {}, [el("tr", {}, [el("th", { text: t("table.service") }), el("th", { text: t("table.pid") }), el("th", { text: t("table.status") })])]),
+        el("thead", {}, [el("tr", {}, [el("th", { text: t("table.pid") }), el("th", { text: t("table.service") }), el("th", { text: "端口" }), el("th", { text: t("table.status") })])]),
         el("tbody", {}, items),
+      ]),
+    ]),
+    el("div", { class: "card" }, [
+      el("div", { class: "card__title", text: currentLang === "zh" ? "提示词/工具预热" : "Prompt/Tool Prewarm" }),
+      el("div", { class: "muted", text: prewarmSummary }),
+      runtimePrewarmReminder ? el("div", { class: "alert alert--warning", text: runtimePrewarmReminder }) : el("span"),
+      el(
+        "div",
+        {
+          class: "muted",
+          text:
+            currentLang === "zh"
+              ? "任何 skill/tool/角色/提示词变更后，请立即预热；复杂变更可直接重启。综合模式下：全能者会产出 dispatch.instruction_text，并只把该指令传给专家执行。系统每10分钟自动异步预热一次。"
+              : "After any skill/tool/role/prompt change, run prewarm immediately; restart for complex changes. In comprehensive mode, manager produces dispatch.instruction_text and only this instruction is sent to specialists. System also auto-prewarms every 10 minutes.",
+        },
+      ),
+      el("div", { class: "row" }, [btnPrewarm]),
+      prewarmStatus,
+    ]),
+    el("div", { class: "card" }, [
+      el("div", { class: "card__title", text: currentLang === "zh" ? "预热历史（最近20次）" : "Prewarm History (latest 20)" }),
+      el("table", { class: "table" }, [
+        el("thead", {}, [el("tr", {}, [
+          el("th", { text: "finished_at" }),
+          el("th", { text: "reason" }),
+          el("th", { text: "ok" }),
+          el("th", { text: "elapsed_ms" }),
+          el("th", { text: "error" }),
+        ])]),
+        el("tbody", {}, historyRows),
+      ]),
+    ]),
+    el("div", { class: "card" }, [
+      el("div", { class: "card__title", text: currentLang === "zh" ? "预热后提示词（按专家）" : "Prewarmed Prompts by Role" }),
+      el("div", { class: "muted", text: currentLang === "zh" ? "展示 manager + 各专家预热后的提示词内容。" : "Shows prewarmed prompt content for manager and specialists." }),
+      el("div", { class: "row" }, [
+        el("label", { text: currentLang === "zh" ? "角色筛选" : "Role filter" }),
+        promptsRoleSelect,
+        btnReloadPrompts,
+      ]),
+      promptsSectionBody,
+    ]),
+    el("div", { class: "card" }, [
+      el("div", { class: "card__title", text: "扫描缓存文件" }),
+      el("div", { class: "muted", text: scanDir || "-" }),
+      el("div", { class: "muted", text: "仅清理 history_entries_*.json 与 state_scan_*.json" }),
+      el("div", { class: "row" }, [
+        el("label", { text: "keep_latest" }),
+        keepLatestInput,
+        el("label", { text: "max_age_days" }),
+        maxAgeDaysInput,
+        btnPruneScan,
+        btnCleanScan,
+      ]),
+      scanStatus,
+      el("table", { class: "table" }, [
+        el("thead", {}, [el("tr", {}, [el("th", { text: "name" }), el("th", { text: "bytes" }), el("th", { text: "modified_at" })])]),
+        el("tbody", {}, scanRows),
       ]),
     ]),
   ]);
@@ -2518,7 +2732,7 @@ async function renderMemory() {
     await apiPost("/admin/api/chat/settings/specialist-flags", {
       flags: {
         generalist: true,
-        memory_curator: String(memoryCuratorSelect.value || "1") !== "0",
+        memory: String(memoryCuratorSelect.value || "1") !== "0",
       },
     });
     status.textContent = JSON.stringify(saved.config || {});
@@ -2554,7 +2768,7 @@ async function renderMemory() {
     try {
       const sf = await apiGet("/admin/api/chat/settings/specialist-flags");
       const flags = sf && sf.flags && typeof sf.flags === "object" ? sf.flags : {};
-      memoryCuratorSelect.value = flags.memory_curator === false ? "0" : "1";
+      memoryCuratorSelect.value = flags.memory === false ? "0" : "1";
     } catch (_) {
       memoryCuratorSelect.value = "1";
     }
@@ -2991,6 +3205,11 @@ async function renderModels() {
   const evalDetails = el("details", { class: "details" });
   const evalSummary = el("summary", { text: t("models.evalToggle") });
   const evalInner = el("div", {});
+  const expertsStatus = el("div", { class: "muted", text: "" });
+  const expertsSelect = el("select", { class: "input" });
+  const expertNewId = el("input", { class: "input", placeholder: "new expert id, e.g. qa" });
+  const expertSoul = el("textarea", { class: "input", rows: "5", placeholder: "SOUL.md (required)" });
+  const expertRoleSystem = el("textarea", { class: "input", rows: "5", placeholder: "ROLE_SYSTEM.md (required for runtime rules)" });
 
   async function downloadEvalExport(format) {
     const fmt = format === "json" ? "json" : "csv";
@@ -3048,6 +3267,7 @@ async function renderModels() {
   let state = null;
   let evalPack = null;
   let secretsStatus = null;
+  let expertsState = { items: [] };
 
   const secretsStatusMsg = el("div", { class: "muted", text: "" });
   const secretsMigrateBtn = el("button", { class: "btn", text: t("secrets.migrateBtn") });
@@ -3159,12 +3379,46 @@ async function renderModels() {
         paintEval();
         status.textContent = [status.textContent, `${t("models.sectionEval")}: ${String(ee.message || ee)}`].filter(Boolean).join(" | ");
       }
+      try {
+        expertsState = await apiGet("/admin/api/experts");
+      } catch (_) {
+        expertsState = { ok: false, items: [] };
+      }
+      paintExperts();
     } catch (e) {
       state = null;
       evalPack = null;
       secretsStatus = null;
+      expertsState = { ok: false, items: [] };
       status.textContent = String(e.message || e);
     }
+  }
+
+  function currentExpertItem() {
+    const items = Array.isArray(expertsState && expertsState.items) ? expertsState.items : [];
+    const id = String(expertsSelect.value || "");
+    return items.find((x) => String(x.id || "") === id) || null;
+  }
+
+  function fillExpertFields(item) {
+    const files = (item && item.files && typeof item.files === "object") ? item.files : {};
+    expertSoul.value = String(files["SOUL.md"] || "");
+    expertRoleSystem.value = String(files["ROLE_SYSTEM.md"] || "");
+  }
+
+  function paintExperts() {
+    const items = Array.isArray(expertsState && expertsState.items) ? expertsState.items : [];
+    const prev = String(expertsSelect.value || "");
+    expertsSelect.innerHTML = "";
+    items.forEach((x) => {
+      const id = String(x.id || "");
+      if (!id) return;
+      const tail = x.builtin ? " (builtin)" : "";
+      expertsSelect.appendChild(el("option", { value: id, text: `${id}${tail}` }));
+    });
+    if (items.some((x) => String(x.id || "") === prev)) expertsSelect.value = prev;
+    else if (items.length) expertsSelect.value = String(items[0].id || "");
+    fillExpertFields(currentExpertItem());
   }
 
   secretsMigrateBtn.addEventListener("click", async () => {
@@ -3421,6 +3675,101 @@ async function renderModels() {
     }
   }});
 
+  const btnExpertCreate = el("button", {
+    class: "btn btn--primary",
+    text: "Create expert",
+    onclick: async () => {
+      if (!hasPermission("admin:tenant:write")) return;
+      const eid = String(expertNewId.value || "").trim();
+      if (!eid) {
+        expertsStatus.textContent = "expert id required";
+        return;
+      }
+      if (!String(expertSoul.value || "").trim()) {
+        expertsStatus.textContent = "SOUL.md is required";
+        return;
+      }
+      try {
+        const res = await apiPost("/admin/api/experts", {
+          id: eid,
+          files: {
+            "SOUL.md": expertSoul.value,
+            "ROLE_SYSTEM.md": expertRoleSystem.value,
+          },
+        });
+        if (!res || res.ok !== true) throw new Error(String((res && res.error) || "create_failed"));
+        expertNewId.value = "";
+        expertsStatus.textContent = "expert created";
+        markPrewarmReminder("expert_created");
+        await refresh();
+        expertsSelect.value = String(res.created || "");
+        fillExpertFields(currentExpertItem());
+      } catch (e) {
+        expertsStatus.textContent = String((e && e.message) || e);
+      }
+    },
+  });
+
+  const btnExpertSave = el("button", {
+    class: "btn btn--primary",
+    text: "Save expert files",
+    onclick: async () => {
+      if (!hasPermission("admin:tenant:write")) return;
+      const item = currentExpertItem();
+      if (!item) return;
+      if (!String(expertSoul.value || "").trim()) {
+        expertsStatus.textContent = "SOUL.md is required";
+        return;
+      }
+      try {
+        const eid = String(item.id || "");
+        const res = await apiRequest("PATCH", "/admin/api/experts/" + encodeURIComponent(eid), {
+          files: {
+            "SOUL.md": expertSoul.value,
+            "ROLE_SYSTEM.md": expertRoleSystem.value,
+          },
+        });
+        if (!res || res.ok !== true) throw new Error(String((res && res.error) || "update_failed"));
+        expertsStatus.textContent = "expert saved";
+        markPrewarmReminder("expert_updated");
+        await refresh();
+        expertsSelect.value = eid;
+        fillExpertFields(currentExpertItem());
+      } catch (e) {
+        expertsStatus.textContent = String((e && e.message) || e);
+      }
+    },
+  });
+
+  const btnExpertDelete = el("button", {
+    class: "btn btn--danger",
+    text: "Delete expert",
+    onclick: async () => {
+      if (!hasPermission("admin:tenant:write")) return;
+      const item = currentExpertItem();
+      if (!item) return;
+      if (item.builtin) {
+        expertsStatus.textContent = "builtin expert cannot be deleted";
+        return;
+      }
+      const eid = String(item.id || "");
+      if (!globalThis.confirm(`Delete expert ${eid}?`)) return;
+      try {
+        const res = await apiRequest("DELETE", "/admin/api/experts/" + encodeURIComponent(eid), {});
+        if (!res || res.ok !== true) throw new Error(String((res && res.error) || "delete_failed"));
+        expertsStatus.textContent = "expert deleted";
+        markPrewarmReminder("expert_deleted");
+        await refresh();
+      } catch (e) {
+        expertsStatus.textContent = String((e && e.message) || e);
+      }
+    },
+  });
+
+  expertsSelect.addEventListener("change", () => {
+    fillExpertFields(currentExpertItem());
+  });
+
   await refresh();
 
   if (!state) {
@@ -3494,6 +3843,16 @@ async function renderModels() {
       el("div", { class: "row" }, [el("label", { text: t("models.apiKey") }), keyInp]),
       el("div", { class: "row" }, [el("label", { text: t("models.rememberKey") }), rememberCb]),
       el("div", { class: "row" }, [btnSave, btnDelete]),
+    ]),
+    el("div", { class: "card" }, [
+      el("div", { class: "card__title", text: "Experts (runtime/workspaces)" }),
+      el("div", { class: "muted", text: "Only SOUL.md and ROLE_SYSTEM.md are maintained in Admin. SOUL.md is required." }),
+      el("div", { class: "row" }, [el("label", { text: "Existing" }), expertsSelect, btnExpertDelete]),
+      el("div", { class: "row" }, [el("label", { text: "Create" }), expertNewId, btnExpertCreate]),
+      el("div", { class: "row" }, [el("label", { text: "SOUL.md" }), expertSoul]),
+      el("div", { class: "row" }, [el("label", { text: "ROLE_SYSTEM.md" }), expertRoleSystem]),
+      el("div", { class: "row" }, [btnExpertSave]),
+      expertsStatus,
     ]),
     el("div", { class: "card" }, [evalDetails]),
   ]);
@@ -3586,6 +3945,9 @@ async function renderPlugins() {
     tool_log_max_chars: 200000,
     enable_mcp_tools: true,
     enable_plugin_tools: false,
+    enable_run_command: true,
+    tool_context_truncate_enabled: true,
+    chat_show_ttft_debug: false,
     tool_llm_message_max_chars: 0,
     mcp_filesystem_extra_roots: "",
     mcp_env_allowlist: "",
@@ -3800,6 +4162,12 @@ async function renderPlugins() {
   enableMcpToolsCb.checked = !!toolPolicy.enable_mcp_tools;
   const enablePluginToolsCb = el("input", { type: "checkbox" });
   enablePluginToolsCb.checked = !!toolPolicy.enable_plugin_tools;
+  const enableRunCommandCb = el("input", { type: "checkbox" });
+  enableRunCommandCb.checked = !!toolPolicy.enable_run_command;
+  const toolContextTruncateCb = el("input", { type: "checkbox" });
+  toolContextTruncateCb.checked = !!toolPolicy.tool_context_truncate_enabled;
+  const chatShowTtftDebugCb = el("input", { type: "checkbox" });
+  chatShowTtftDebugCb.checked = !!toolPolicy.chat_show_ttft_debug;
   const toolLlmMessageMaxCharsInput = el("input", {
     class: "input",
     type: "number",
@@ -3854,6 +4222,9 @@ async function renderPlugins() {
         tool_log_max_chars: Number(toolLogMaxCharsInput.value || 200000),
         enable_mcp_tools: !!enableMcpToolsCb.checked,
         enable_plugin_tools: !!enablePluginToolsCb.checked,
+        enable_run_command: !!enableRunCommandCb.checked,
+        tool_context_truncate_enabled: !!toolContextTruncateCb.checked,
+        chat_show_ttft_debug: !!chatShowTtftDebugCb.checked,
         tool_llm_message_max_chars: Number(toolLlmMessageMaxCharsInput.value || 0),
         mcp_filesystem_extra_roots: String(mcpFilesystemExtraRootsInput.value || ""),
         mcp_env_allowlist: String(mcpEnvAllowlistInput.value || ""),
@@ -3868,6 +4239,7 @@ async function renderPlugins() {
       } else {
         toolPolicyStatus.textContent = `[tool-policy] ` + JSON.stringify(r);
       }
+      toolPolicyStatus.textContent += " | restart gateway/desktop to apply run_command toggle";
     },
   });
   const availableSpecialists = Array.isArray(mcpBinding.available_specialists) && mcpBinding.available_specialists.length
@@ -4023,6 +4395,7 @@ async function renderPlugins() {
     onclick: async () => {
       const r = await apiPost("/admin/api/mcp/binding", { mapping: bindingDraft });
       bindingStatus.textContent = `[binding] ` + JSON.stringify(r);
+      markPrewarmReminder("mcp_binding_changed");
       router();
     },
   });
@@ -4085,6 +4458,7 @@ async function renderPlugins() {
       }
       const res = await apiPost("/admin/api/mcp/install", payload);
       installStatus.textContent = JSON.stringify(res);
+      markPrewarmReminder("mcp_installed");
       router();
     },
   });
@@ -4158,6 +4532,7 @@ async function renderPlugins() {
         });
       }
       installStatus.textContent = JSON.stringify(results);
+      markPrewarmReminder("mcp_batch_installed");
       router();
     },
   });
@@ -4198,6 +4573,7 @@ async function renderPlugins() {
       onclick: async () => {
         closeMcpActionMenu();
         await apiPost("/admin/api/mcp/toggle", { server_id: sid, enabled: !x.enabled });
+        markPrewarmReminder("mcp_toggled");
         router();
       },
     });
@@ -4228,6 +4604,7 @@ async function renderPlugins() {
         closeMcpActionMenu();
         const r = await apiPost("/admin/api/mcp/reinstall", { server_id: sid });
         installStatus.textContent = `[reinstall:${sid}] ` + JSON.stringify(r);
+        markPrewarmReminder("mcp_reinstalled");
         router();
       },
     });
@@ -4239,6 +4616,7 @@ async function renderPlugins() {
         if (!window.confirm(`Uninstall ${sid} and remove from MCP registry?`)) return;
         const r = await apiPost("/admin/api/mcp/uninstall", { server_id: sid, remove_record: true });
         installStatus.textContent = `[uninstall:${sid}] ` + JSON.stringify(r);
+        markPrewarmReminder("mcp_uninstalled");
         router();
       },
     });
@@ -4250,6 +4628,7 @@ async function renderPlugins() {
         if (!window.confirm(`Delete ${sid} from MCP registry only?`)) return;
         const r = await apiPost("/admin/api/mcp/delete", { server_id: sid });
         installStatus.textContent = `[delete:${sid}] ` + JSON.stringify(r);
+        markPrewarmReminder("mcp_deleted");
         router();
       },
     });
@@ -4508,7 +4887,7 @@ async function renderPlugins() {
   const wireRoleMode = String(toolWire.role_mode || "restricted");
   const wireRoleSelect = el("select", { class: "input" }, [
     el("option", { value: "", text: "global（默认）" }),
-    el("option", { value: "manager", text: "manager（总控）" }),
+    el("option", { value: "manager", text: "manager（全能者）" }),
     ...availableSpecialists
       .filter((x) => String(x) !== "manager")
       .map((sp) => el("option", { value: String(sp), text: String(sp) })),
@@ -4536,6 +4915,7 @@ async function renderPlugins() {
         mode: String(wireRoleModeSelect.value || "restricted"),
       });
       wireCfgStatus.textContent = `[role-mode] ` + JSON.stringify(r);
+      markPrewarmReminder("tool_wire_role_mode_changed");
       router();
     },
   });
@@ -4578,6 +4958,7 @@ async function renderPlugins() {
         penalty_disable: !Boolean(inpPenaltyEnabled.checked),
       });
       wireCfgStatus.textContent = JSON.stringify(r);
+      markPrewarmReminder("tool_wire_config_changed");
       router();
     },
   });
@@ -4589,6 +4970,7 @@ async function renderPlugins() {
       const qs = wireRoleSelect.value ? ("?role=" + encodeURIComponent(wireRoleSelect.value)) : "";
       const r = await apiPost("/admin/api/mcp/tool-wire/penalty/reset" + qs, {});
       wireCfgStatus.textContent = JSON.stringify(r);
+      markPrewarmReminder("tool_wire_penalty_reset");
       router();
     },
   });
@@ -4860,6 +5242,7 @@ async function renderPlugins() {
               wire_names: selectedWireNames,
             });
           }
+          markPrewarmReminder("tool_wire_policies_batch_changed");
         } catch (err) {
           wirePolStatus.textContent = `[批量] 后端批量写入失败: ${String((err && err.message) || err)}`;
           return;
@@ -4894,6 +5277,7 @@ async function renderPlugins() {
         clears,
       });
       wirePolStatus.textContent = JSON.stringify(r);
+      markPrewarmReminder("tool_wire_policies_changed");
       router();
     },
   });
@@ -4933,6 +5317,9 @@ async function renderPlugins() {
     ]),
     el("label", { class: "kv" }, [enableMcpToolsCb, document.createTextNode(" Enable MCP tools")]),
     el("label", { class: "kv" }, [enablePluginToolsCb, document.createTextNode(" Enable plugin tools")]),
+    el("label", { class: "kv" }, [enableRunCommandCb, document.createTextNode(" Enable run_command (high-risk)")]),
+    el("label", { class: "kv" }, [toolContextTruncateCb, document.createTextNode(" Compress tool result in agent context (50 chars + hint)")]),
+    el("label", { class: "kv" }, [chatShowTtftDebugCb, document.createTextNode(" Show TTFT debug timings in chat status")]),
     el("div", { class: "row" }, [
       el("label", { text: "Tool message max chars to LLM (0=unlimited, 4096-500000 recommended)" }),
       toolLlmMessageMaxCharsInput,
@@ -6318,11 +6705,39 @@ async function renderSkills() {
   const regInp = el("input", { class: "input", placeholder: "registry archive URL (zip/tar)" });
   const localDirInp = el("input", { class: "input", placeholder: "local skill dir (contains SKILL.md)" });
   const marketStatus = el("div", { class: "muted", text: "" });
+  const skillModeStatus = el("div", { class: "muted", text: "" });
+  const skillPromptModeCb = el("input", { type: "checkbox" });
+  const skillToolcallModeCb = el("input", { type: "checkbox" });
   const marketQ = el("input", { class: "input", placeholder: "search ClawHub skills" });
   const marketLimitInp = el("input", { class: "input", placeholder: "limit", value: "40", style: "max-width:120px;" });
   const marketTbody = el("tbody");
   const marketDetailPre = el("pre", { class: "muted pre", text: "" });
   let marketItems = [];
+
+  const loadSkillMode = async () => {
+    try {
+      const r = await apiGet("/admin/api/skills/mode");
+      skillPromptModeCb.checked = !!r.prompt_in_system;
+      skillToolcallModeCb.checked = !!r.toolcall_enabled;
+      skillModeStatus.textContent = "";
+    } catch (e) {
+      skillModeStatus.textContent = `mode: ${String(e && e.message ? e.message : e)}`;
+    }
+  };
+  const saveSkillMode = async () => {
+    skillModeStatus.textContent = `${t("chat.loading")}...`;
+    try {
+      const r = await apiPost("/admin/api/skills/mode", {
+        prompt_in_system: !!skillPromptModeCb.checked,
+        toolcall_enabled: !!skillToolcallModeCb.checked,
+      });
+      skillPromptModeCb.checked = !!r.prompt_in_system;
+      skillToolcallModeCb.checked = !!r.toolcall_enabled;
+      skillModeStatus.textContent = `saved: prompt=${String(!!r.prompt_in_system)} toolcall=${String(!!r.toolcall_enabled)}`;
+    } catch (e) {
+      skillModeStatus.textContent = `mode: ${String(e && e.message ? e.message : e)}`;
+    }
+  };
 
   const loadMarket = async (q) => {
     const qq = String(q || "").trim();
@@ -6355,14 +6770,18 @@ async function renderSkills() {
   const installFromMarket = async (slug, version) => {
     const s = String(slug || "").trim();
     if (!s) return;
+    marketStatus.textContent = `installing: ${s}...`;
+    openSkillInstallModal(`Installing ${s}...`);
     try {
       const r = await apiPost("/admin/api/skills/market/install", { slug: s, version: version ? String(version) : undefined, overwrite: false });
-      status.textContent = `install-clawhub: ${JSON.stringify(r.result || {})}`;
-      await loadRows();
-      await loadAudits();
-      repaint();
+      status.textContent = `install-clawhub success: ${JSON.stringify(r.result || {})}`;
+      marketStatus.textContent = `installed: ${s}`;
+      await refreshSkillsState();
+      finishSkillInstallModal(true, `${s} installed successfully.`);
     } catch (e) {
       status.textContent = String(e && e.message ? e.message : e);
+      marketStatus.textContent = `install failed: ${s}`;
+      finishSkillInstallModal(false, `Install failed: ${String(e && e.message ? e.message : e)}`);
     }
   };
 
@@ -6404,10 +6823,11 @@ async function renderSkills() {
     marketDetailPre,
   ]);
 
-  const skillBindingState = { roles: [], names: [], mapping: {}, enabled: false };
+  const skillBindingState = { roles: [], names: [], mapping: {}, enabled: false, managerInherit: true };
   const skillBindingStatus = el("div", { class: "muted", text: "" });
   const skillEffectiveState = { items: [] };
   const skillBindingEnabledCb = el("input", { type: "checkbox" });
+  const skillBindingManagerInheritCb = el("input", { type: "checkbox" });
   const skillRoleSelect = el("select", { class: "input" }, []);
   const skillBindingListWrap = el("div");
   const skillBindingDashTbody = el("tbody");
@@ -6417,9 +6837,10 @@ async function renderSkills() {
     const roles = Array.isArray(skillBindingState.roles) ? skillBindingState.roles : [];
     const mapping = skillBindingState.mapping && typeof skillBindingState.mapping === "object" ? skillBindingState.mapping : {};
     const managerBound = new Set(Array.isArray(mapping.manager) ? mapping.manager.map((x) => String(x)) : []);
+    const inheritManager = !!skillBindingState.managerInherit;
     roles.forEach((role) => {
       const direct = new Set(Array.isArray(mapping[role]) ? mapping[role].map((x) => String(x)) : []);
-      const effective = new Set([...(role === "manager" ? [] : Array.from(managerBound)), ...Array.from(direct)]);
+      const effective = new Set([...(role === "manager" || !inheritManager ? [] : Array.from(managerBound)), ...Array.from(direct)]);
       skillBindingDashTbody.appendChild(
         el("tr", {}, [
           el("td", { text: role }),
@@ -6519,7 +6940,9 @@ async function renderSkills() {
         .filter(Boolean);
       skillBindingState.mapping = r.mapping && typeof r.mapping === "object" ? { ...r.mapping } : {};
       skillBindingState.enabled = !!r.enabled;
+      skillBindingState.managerInherit = Object.prototype.hasOwnProperty.call(r, "manager_inherit") ? !!r.manager_inherit : true;
       skillBindingEnabledCb.checked = skillBindingState.enabled;
+      skillBindingManagerInheritCb.checked = skillBindingState.managerInherit;
       skillRoleSelect.innerHTML = "";
       skillBindingState.roles.forEach((role) => {
         skillRoleSelect.appendChild(el("option", { value: role, text: role }));
@@ -6544,12 +6967,15 @@ async function renderSkills() {
       try {
         const r = await apiPost("/admin/api/skills/binding", {
           enabled: !!skillBindingEnabledCb.checked,
+          manager_inherit: !!skillBindingManagerInheritCb.checked,
           mapping: skillBindingState.mapping,
         });
         skillBindingState.mapping = r.mapping && typeof r.mapping === "object" ? { ...r.mapping } : {};
         skillBindingState.enabled = !!r.enabled;
+        skillBindingState.managerInherit = Object.prototype.hasOwnProperty.call(r, "manager_inherit") ? !!r.manager_inherit : true;
         skillBindingEnabledCb.checked = skillBindingState.enabled;
-        skillBindingStatus.textContent = `saved: enabled=${String(r.enabled)}`;
+        skillBindingManagerInheritCb.checked = skillBindingState.managerInherit;
+        skillBindingStatus.textContent = `saved: enabled=${String(r.enabled)} manager_inherit=${String(skillBindingState.managerInherit)}`;
         renderSkillBindingList();
         renderSkillBindingDashboard();
         await loadSkillEffective();
@@ -6564,12 +6990,16 @@ async function renderSkills() {
       class: "muted",
       style: "margin:8px 0;line-height:1.5;",
       text:
-        "When enabled, installed workspace skills only appear in the model skills catalog for the selected role, merged with skills bound to manager.",
+        "When enabled, installed workspace skills only appear in the model skills catalog for the selected role. You can optionally inherit manager-bound skills to other roles.",
     }),
     skillBindingStatus,
     el("label", { class: "row", style: "gap:8px;align-items:center;margin-top:6px;" }, [
       skillBindingEnabledCb,
       el("span", { text: "Enable role binding (AIA_SKILL_ROLE_BINDING_ENABLED)" }),
+    ]),
+    el("label", { class: "row", style: "gap:8px;align-items:center;margin-top:6px;" }, [
+      skillBindingManagerInheritCb,
+      el("span", { text: "Inherit manager skills to other roles (AIA_SKILL_ROLE_BINDING_MANAGER_INHERIT)" }),
     ]),
     el("div", { class: "row", style: "gap:8px;flex-wrap:wrap;margin-top:8px;align-items:center;" }, [
       el("label", { text: "Role" }),
@@ -6579,7 +7009,7 @@ async function renderSkills() {
     el("div", { class: "muted", style: "margin:8px 0 4px 0;", text: "Role binding dashboard" }),
     el("div", { class: "table-wrap" }, [
       el("table", { class: "table table--compact" }, [
-        el("thead", {}, [el("tr", {}, [el("th", { text: "role" }), el("th", { text: "direct skills" }), el("th", { text: "effective (+manager)" })])]),
+        el("thead", {}, [el("tr", {}, [el("th", { text: "role" }), el("th", { text: "direct skills" }), el("th", { text: "effective" })])]),
         skillBindingDashTbody,
       ]),
     ]),
@@ -6606,7 +7036,7 @@ async function renderSkills() {
   ]);
 
   const internalToolsState = { role: "", available_roles: [], tools: [], skipped_public: [], skipped_expert: [] };
-  const lazyLoadState = { internalLoaded: false, llmLoaded: false, selfCheckLoaded: false };
+  const lazyLoadState = { internalLoaded: false, llmLoaded: false, selfCheckLoaded: false, skillHealthLoaded: false };
   const internalToolsStatus = el("div", { class: "muted", text: "" });
   const internalRoleSelect = el("select", { class: "input" }, []);
   const internalToolsTbody = el("tbody");
@@ -6819,6 +7249,132 @@ async function renderSkills() {
           el("th", { text: "perm ban(9999)" }),
         ])]),
         selfCheckTbody,
+      ]),
+    ]),
+  ]);
+  const skillHealthStatus = el("div", { class: "muted", text: "" });
+  const skillHealthSummary = el("div", { class: "muted", text: "" });
+  const skillHealthClassifyTbody = el("tbody");
+  const skillHealthExecTbody = el("tbody");
+  const skillHealthFailedOnlyCb = el("input", { type: "checkbox" });
+  const skillHealthState = { data: null };
+  const renderSkillHealthExecRows = () => {
+    const body = skillHealthState.data && typeof skillHealthState.data === "object" ? skillHealthState.data : {};
+    const checks = Array.isArray(body.execution_checks) ? body.execution_checks : [];
+    const failedOnly = !!skillHealthFailedOnlyCb.checked;
+    skillHealthExecTbody.innerHTML = "";
+    checks
+      .filter((x) => (failedOnly ? !x.ok : true))
+      .slice(0, 30)
+      .forEach((x) => {
+        const ok = !!x.ok;
+        const code = String(x.error_code || "");
+        const truncated = !!x.output_truncated;
+        skillHealthExecTbody.appendChild(
+          el("tr", {}, [
+            el("td", { text: String(x.name || "") }),
+            el("td", {}, [ok ? el("span", { class: "badge badge--ok", text: "ok" }) : el("span", { class: "badge badge--bad", text: "fail" })]),
+            el("td", { text: code || "-" }),
+            el("td", { text: truncated ? "1" : "0" }),
+            el("td", {}, [
+              el("button", {
+                class: "btn",
+                text: "Test-run with args...",
+                disabled: !String(x.name || "").trim(),
+                onclick: () => {
+                  const nm = String(x.name || "").trim();
+                  if (!nm) return;
+                  openSkillTestRunModal(nm);
+                },
+              }),
+            ]),
+          ]),
+        );
+      });
+    if (!skillHealthExecTbody.children.length) {
+      skillHealthExecTbody.appendChild(el("tr", {}, [el("td", { text: "-", colspan: "5" })]));
+    }
+  };
+  const renderSkillHealthCheck = (data) => {
+    const body = data && typeof data === "object" ? data : {};
+    skillHealthState.data = body;
+    const counts = body.classification_counts && typeof body.classification_counts === "object" ? body.classification_counts : {};
+    const checks = Array.isArray(body.execution_checks) ? body.execution_checks : [];
+    const skillsTotal = Number(body.skills_total || 0);
+    const execTotal = Number(body.executable_total || 0);
+    const checked = Number(body.execution_checked_total || 0);
+    skillHealthSummary.textContent = `skills=${skillsTotal} executable=${execTotal} checked=${checked}`;
+    skillHealthClassifyTbody.innerHTML = "";
+    const countRows = Object.entries(counts).sort((a, b) => Number(b[1] || 0) - Number(a[1] || 0));
+    countRows.forEach(([k, v]) => {
+      skillHealthClassifyTbody.appendChild(el("tr", {}, [el("td", { text: String(k || "") }), el("td", { text: String(Number(v || 0)) })]));
+    });
+    if (!countRows.length) {
+      skillHealthClassifyTbody.appendChild(el("tr", {}, [el("td", { text: "-", colspan: "2" })]));
+    }
+    renderSkillHealthExecRows();
+  };
+  skillHealthFailedOnlyCb.addEventListener("change", () => renderSkillHealthExecRows());
+  const runSkillHealthCheck = async () => {
+    skillHealthStatus.textContent = `${t("chat.loading")}...`;
+    try {
+      const resp = await apiGet("/admin/api/skills/self-check?include_execution=true");
+      renderSkillHealthCheck(resp);
+      skillHealthStatus.textContent = "skill self-check complete";
+    } catch (e) {
+      skillHealthStatus.textContent = `skill self-check: ${String(e && e.message ? e.message : e)}`;
+      renderSkillHealthCheck({});
+    }
+  };
+  const exportSkillHealthJson = () => {
+    const data = skillHealthState.data;
+    if (!data || typeof data !== "object") {
+      skillHealthStatus.textContent = "no skills self-check data to export";
+      return;
+    }
+    try {
+      const blob = new Blob([`${JSON.stringify(data, null, 2)}\n`], { type: "application/json;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const ts = new Date().toISOString().replace(/[:.]/g, "-");
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `skills-self-check-${ts}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      skillHealthStatus.textContent = "skills self-check exported";
+    } catch (e) {
+      skillHealthStatus.textContent = `export failed: ${String(e && e.message ? e.message : e)}`;
+    }
+  };
+  const skillHealthBox = el("details", { style: "margin:10px 0 14px 0;" }, [
+    el("summary", { text: "Skills health self-check", style: "cursor:pointer;user-select:none;" }),
+    el("div", { class: "muted", style: "margin:8px 0;line-height:1.5;", text: "Run executable skill diagnostics and show failure code distribution." }),
+    skillHealthStatus,
+    el("div", { class: "row", style: "gap:8px;align-items:center;margin-top:8px;" }, [
+      el("button", { class: "btn btn--primary", text: "Run skills self-check", onclick: runSkillHealthCheck }),
+      el("button", { class: "btn", text: "Export skills self-check JSON", onclick: exportSkillHealthJson }),
+      el("label", { class: "row", style: "gap:6px;align-items:center;" }, [
+        skillHealthFailedOnlyCb,
+        el("span", { class: "muted", text: "Only failed items" }),
+      ]),
+      skillHealthSummary,
+    ]),
+    el("div", { class: "row", style: "gap:12px;align-items:flex-start;flex-wrap:wrap;margin-top:8px;" }, [
+      el("div", { class: "table-wrap", style: "min-width:280px;flex:1;" }, [
+        el("div", { class: "muted", style: "margin:0 0 6px 0;", text: "classification_counts" }),
+        el("table", { class: "table table--compact" }, [
+          el("thead", {}, [el("tr", {}, [el("th", { text: "code" }), el("th", { text: "count" })])]),
+          skillHealthClassifyTbody,
+        ]),
+      ]),
+      el("div", { class: "table-wrap", style: "min-width:360px;flex:2;" }, [
+        el("div", { class: "muted", style: "margin:0 0 6px 0;", text: "execution_checks (top 30)" }),
+        el("table", { class: "table table--compact" }, [
+          el("thead", {}, [el("tr", {}, [el("th", { text: "skill" }), el("th", { text: "status" }), el("th", { text: "error_code" }), el("th", { text: "output_truncated" }), el("th", { text: "action" })])]),
+          skillHealthExecTbody,
+        ]),
       ]),
     ]),
   ]);
@@ -7049,6 +7605,35 @@ async function renderSkills() {
   const skillTestRunModal = el("div", { class: "session-monitor-modal", style: "display:none;" });
   const skillTestRunTitle = el("div", { class: "card__title", text: "Skill test run" });
   const skillTestRunArgs = el("textarea", { class: "input", rows: "8", style: "width:100%;min-width:0;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;", placeholder: "{}" });
+  const skillInstallModal = el("div", { class: "session-monitor-modal", style: "display:none;" });
+  const skillInstallTitle = el("div", { class: "card__title", text: "Skill installation" });
+  const skillInstallMsg = el("div", { class: "muted", style: "line-height:1.5;" });
+  const closeSkillInstallModal = () => {
+    skillInstallModal.style.display = "none";
+  };
+  const openSkillInstallModal = (msg) => {
+    skillInstallTitle.textContent = "Skill installation";
+    skillInstallMsg.textContent = String(msg || "");
+    skillInstallModal.style.display = "flex";
+  };
+  const finishSkillInstallModal = (ok, msg) => {
+    skillInstallTitle.textContent = ok ? "Skill installation success" : "Skill installation failed";
+    skillInstallMsg.textContent = String(msg || "");
+    setTimeout(() => {
+      closeSkillInstallModal();
+    }, 1200);
+  };
+  skillInstallModal.addEventListener("click", (e) => {
+    if (e.target === skillInstallModal) closeSkillInstallModal();
+  });
+  const skillInstallCard = el("div", { class: "card session-monitor-modal__card", style: "width:min(560px,96vw);" }, [
+    skillInstallTitle,
+    skillInstallMsg,
+    el("div", { class: "row", style: "justify-content:flex-end;margin-top:10px;" }, [
+      el("button", { class: "btn", text: "Close", onclick: closeSkillInstallModal }),
+    ]),
+  ]);
+  skillInstallModal.appendChild(skillInstallCard);
   const closeSkillTestRunModal = () => {
     skillTestRunModal.style.display = "none";
     skillTestRunName = "";
@@ -7160,6 +7745,24 @@ async function renderSkills() {
           openSkillTestRunModal(name);
         },
       });
+      const uninstallBtn = el("button", {
+        class: "chat-sess-menu-item",
+        text: "Uninstall",
+        onclick: async () => {
+          closeSkillActionMenu();
+          if (!confirm(`Uninstall skill "${name}"?`)) return;
+          try {
+            status.textContent = `uninstalling: ${name}...`;
+            const r = await apiPost("/admin/api/skills/uninstall", { name });
+            status.textContent = `uninstall success: ${JSON.stringify((r && r.result) || {}, null, 0)}`;
+            await loadRows();
+            await loadAudits();
+            repaint();
+          } catch (e) {
+            status.textContent = `uninstall failed: ${String(e && e.message ? e.message : e)}`;
+          }
+        },
+      });
       const actionMenuBtn = el("button", {
         class: "chat-sess-more",
         text: "⋯",
@@ -7170,6 +7773,7 @@ async function renderSkills() {
           const menu = el("div", { class: "chat-sess-menu-pop", style: "position:fixed;z-index:250;" }, [
             toggleBtn,
             testRunBtn,
+            uninstallBtn,
           ]);
           const rect = ev.currentTarget.getBoundingClientRect();
           document.body.appendChild(menu);
@@ -7245,10 +7849,18 @@ async function renderSkills() {
       );
     }
   };
+  const refreshSkillsState = async () => {
+    await loadRows();
+    await loadAudits();
+    await loadSkillBinding();
+    repaint();
+    renderSkillBindingList();
+  };
   try {
     await loadRows();
     await loadAudits();
     await loadSkillBinding();
+    await loadSkillMode();
     const rolesForPreview = (Array.isArray(skillBindingState.roles) && skillBindingState.roles.length ? skillBindingState.roles : ["generalist", "ops", "image", "manager"]).map((x) => String(x));
     internalRoleSelect.innerHTML = "";
     rolesForPreview.forEach((role) => internalRoleSelect.appendChild(el("option", { value: role, text: role })));
@@ -7290,16 +7902,24 @@ async function renderSkills() {
     class: "btn",
     text: "Install From Registry",
     onclick: async () => {
+      const prev = btnInstallRegistry.textContent;
+      btnInstallRegistry.disabled = true;
+      btnInstallRegistry.textContent = "Installing...";
+      status.textContent = "installing from registry...";
+      openSkillInstallModal("Installing skill from registry...");
       try {
         const r = await apiPost("/admin/api/skills/install-registry", {
           archive_url: String(regInp.value || "").trim(),
         });
-        status.textContent = `install-registry: ${JSON.stringify(r.result || {})}`;
-        await loadRows();
-        await loadAudits();
-        repaint();
+        status.textContent = `install-registry success: ${JSON.stringify(r.result || {})}`;
+        await refreshSkillsState();
+        finishSkillInstallModal(true, "Registry skill installed successfully.");
       } catch (e) {
         status.textContent = String(e && e.message ? e.message : e);
+        finishSkillInstallModal(false, `Install failed: ${String(e && e.message ? e.message : e)}`);
+      } finally {
+        btnInstallRegistry.disabled = false;
+        btnInstallRegistry.textContent = prev;
       }
     },
   });
@@ -7307,16 +7927,24 @@ async function renderSkills() {
     class: "btn",
     text: "Install Local Dir",
     onclick: async () => {
+      const prev = btnInstallLocal.textContent;
+      btnInstallLocal.disabled = true;
+      btnInstallLocal.textContent = "Installing...";
+      status.textContent = "installing from local dir...";
+      openSkillInstallModal("Installing skill from local directory...");
       try {
         const r = await apiPost("/admin/api/skills/install", {
           source_dir: String(localDirInp.value || "").trim(),
         });
-        status.textContent = `install-local: ${JSON.stringify(r.result || {})}`;
-        await loadRows();
-        await loadAudits();
-        repaint();
+        status.textContent = `install-local success: ${JSON.stringify(r.result || {})}`;
+        await refreshSkillsState();
+        finishSkillInstallModal(true, "Local skill installed successfully.");
       } catch (e) {
         status.textContent = String(e && e.message ? e.message : e);
+        finishSkillInstallModal(false, `Install failed: ${String(e && e.message ? e.message : e)}`);
+      } finally {
+        btnInstallLocal.disabled = false;
+        btnInstallLocal.textContent = prev;
       }
     },
   });
@@ -7325,11 +7953,7 @@ async function renderSkills() {
     text: t("action.refresh"),
     onclick: async () => {
       try {
-        await loadRows();
-        await loadAudits();
-        await loadSkillBinding();
-        repaint();
-        renderSkillBindingList();
+        await refreshSkillsState();
         status.textContent = "refreshed";
       } catch (e) {
         status.textContent = String(e && e.message ? e.message : e);
@@ -7361,12 +7985,24 @@ async function renderSkills() {
     lazyLoadState.selfCheckLoaded = true;
     await runSelfCheck();
   });
+  skillHealthBox.addEventListener("toggle", async () => {
+    if (!skillHealthBox.open || lazyLoadState.skillHealthLoaded) return;
+    lazyLoadState.skillHealthLoaded = true;
+    await runSkillHealthCheck();
+  });
   return el("div", { class: "card" }, [
     el("div", { class: "card__title", text: t("title.skills") }),
+    el("div", { class: "row", style: "gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px;" }, [
+      el("label", { class: "row", style: "gap:6px;align-items:center;" }, [skillPromptModeCb, el("span", { text: "Prompt mode (inject SKILL.md)" })]),
+      el("label", { class: "row", style: "gap:6px;align-items:center;" }, [skillToolcallModeCb, el("span", { text: "Toolcall mode (runtime as tools)" })]),
+      el("button", { class: "btn", text: "Save skill mode", onclick: saveSkillMode }),
+      skillModeStatus,
+    ]),
     docsHint,
     marketBox,
     skillBindingBox,
     selfCheckBox,
+    skillHealthBox,
     internalToolsBox,
     llmToolsBox,
     el("div", { class: "row", style: "gap:8px;flex-wrap:wrap;margin-bottom:8px;" }, [nameInp, descInp]),
@@ -7403,6 +8039,7 @@ async function renderSkills() {
       ]),
     ]),
     skillTestRunModal,
+    skillInstallModal,
     status,
   ]);
 }

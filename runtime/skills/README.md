@@ -14,3 +14,42 @@
 - 运行时优先读取 `oclaw/runtime/skills`。
 - 若设置了环境变量 `AIA_SKILLS_ROOT`，以该变量为准。
 - 为兼容旧工程，仍可回退读取旧路径 `oclaw/runtime/skills/`（如存在）。
+
+## 推荐实用 Skills（workspace）
+
+以下为当前已落地并可直接在 Admin `Test run` 使用的实用技能：
+
+### 1) `incident_triage`
+- **用途**：对报错/日志做故障归因（timeout、permission、network 等）并给出行动建议。
+- **输入参数示例**：
+```json
+{
+  "error": "TimeoutError: connection refused to upstream service"
+}
+```
+- **典型输出**：`category`、`severity`、`summary`、`action_items`、`confidence`。
+
+### 2) `release_checklist`
+- **用途**：发版前门禁检查，输出是否可发版和阻塞项。
+- **输入参数示例**：
+```json
+{
+  "tests_passed": true,
+  "lint_passed": true,
+  "migration_reviewed": true,
+  "rollback_plan_ready": true,
+  "monitoring_ready": true
+}
+```
+- **典型输出**：`release_ready`、`failed_checks`、`missing_required_inputs`、`action_items`。
+
+### 3) `data_extract_summary`
+- **用途**：从文本/日志中抽取重点、统计级别并生成摘要建议。
+- **输入参数示例**：
+```json
+{
+  "text": "INFO boot complete\nWARN cache miss\nERROR timeout connecting service",
+  "max_lines": 8
+}
+```
+- **典型输出**：`summary`、`line_count`、`level_counts`、`top_keywords`、`action_items`。

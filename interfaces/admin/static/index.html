@@ -4,14 +4,47 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>oliver</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Outfit:wght@500;600&display=swap"
-      rel="stylesheet"
-    />
+    <!-- Avoid render-blocking external fonts (can stall first paint ~30s on blocked networks). -->
     <link rel="stylesheet" href="/admin/assets/styles.css" />
     <link rel="stylesheet" href="/admin/assets/theme-deepseek.css" />
+    <style>
+      /* First paint before app.js runs: keep admin from showing a blank dark screen. */
+      .admin-boot-splash {
+        padding: 16px;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 14px;
+        background: rgba(255, 255, 255, 0.04);
+        color: var(--ds-text, #e8e8e8);
+        line-height: 1.5;
+        max-width: 520px;
+      }
+      .admin-boot-splash__title {
+        font-weight: 650;
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        margin-bottom: 8px;
+      }
+      .admin-boot-splash__spinner {
+        width: 18px;
+        height: 18px;
+        border: 2px solid rgba(255, 255, 255, 0.15);
+        border-top-color: rgba(255, 255, 255, 0.75);
+        border-radius: 999px;
+        animation: admin-boot-spin 1s linear infinite;
+        flex: 0 0 auto;
+      }
+      @keyframes admin-boot-spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+      .admin-boot-splash__muted {
+        opacity: 0.78;
+        font-size: 13px;
+        white-space: pre-wrap;
+      }
+    </style>
   </head>
   <body class="theme-ds-body">
     <div class="layout">
@@ -51,9 +84,21 @@
             <button id="btnRefresh" class="btn" data-i18n="action.refresh">刷新</button>
           </div>
         </header>
-        <section id="content" class="content"></section>
+        <section id="content" class="content">
+          <div id="admin-boot-splash" class="admin-boot-splash" role="status" aria-live="polite">
+            <div class="admin-boot-splash__title">
+              <span class="admin-boot-splash__spinner" aria-hidden="true"></span>
+              <span>正在加载管理台…</span>
+            </div>
+            <div class="admin-boot-splash__muted">若长时间停留在此，请检查网络/代理是否拦截外部资源。</div>
+          </div>
+        </section>
       </main>
     </div>
-    <script src="/admin/assets/app.js"></script>
+    <script
+      defer
+      src="/admin/assets/app.js?v=20260425-1"
+      onerror="(function(){var s=document.getElementById('admin-boot-splash');if(s){s.querySelector('.admin-boot-splash__title span:last-child').textContent='无法加载 app.js';s.querySelector('.admin-boot-splash__muted').textContent='请确认 /admin/assets/app.js 可访问。';}})()"
+    ></script>
   </body>
 </html>

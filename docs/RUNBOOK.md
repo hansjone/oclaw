@@ -148,7 +148,7 @@ Admin Chat 依赖表 **`ui_session_owner`**（`session_id` → `tenant_id` + `us
 
 **工作区 ``extra_roots``（与编排临时会话）**
 
-管理台为用户配置的 ``user_workspace_path_allowlist.extra_roots`` 通过 ``ui_session_owner`` 解析到租户+用户。总控编排里专家步往往在**无 owner 的临时** ``chat_session`` 上落库中间消息：内置路径类工具会携带 **用户 UI 会话 id 作为 fallback**，仍按该用户策略合并 ``extra_roots``；MCP filesystem 启动参数本就按用户聊天 ``session_id``（policy）合并，二者现已对齐。
+管理台为用户配置的 ``user_workspace_path_allowlist.extra_roots`` 通过 ``ui_session_owner`` 解析到租户+用户。全能者编排里专家步往往在**无 owner 的临时** ``chat_session`` 上落库中间消息：内置路径类工具会携带 **用户 UI 会话 id 作为 fallback**，仍按该用户策略合并 ``extra_roots``；MCP filesystem 启动参数本就按用户聊天 ``session_id``（policy）合并，二者现已对齐。
 
 ### 6.5 主库路径与「删掉的会话又回来了 / 新建用户不见了」
 

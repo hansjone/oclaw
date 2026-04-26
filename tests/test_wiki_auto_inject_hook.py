@@ -185,6 +185,68 @@ def test_handle_store_only_mode_skips_injection(monkeypatch, tmp_path: Path) -> 
     assert str(meta.get("skip_reason") or "") == "memory_mode_store_only"
 
 
+def test_handle_respects_manager_gate_off(monkeypatch, tmp_path: Path) -> None:
+    mod = _load_handler_module()
+    wiki = tmp_path / "wiki"
+    wiki.mkdir(parents=True, exist_ok=True)
+    (wiki / "ops.md").write_text("router vlan baseline\n", encoding="utf-8")
+    monkeypatch.setattr(
+        mod,
+        "_load_config",
+        lambda: {
+            "plugins": {
+                "entries": {
+                    "memory-wiki": {
+                        "wiki_root": str(wiki),
+                        "auto": {"enabled": True, "inject": {"max_chars": 800, "top_k": 3}},
+                    }
+                }
+            }
+        },
+    )
+    event = types.SimpleNamespace(
+        type="llm",
+        action="before_prompt_build",
+        context={"userText": "router vlan", "need_wiki_inject": False, "prepend_system_context": ""},
+    )
+    mod.handle(event)
+    assert str(event.context.get("prepend_system_context") or "") == ""
+    meta = event.context.get("wiki_inject_meta") or {}
+    assert bool(meta.get("enabled")) is False
+    assert str(meta.get("skip_reason") or "") == "manager_gate_off"
+
+
+def test_handle_requires_wiki_query_when_manager_gate_on(monkeypatch, tmp_path: Path) -> None:
+    mod = _load_handler_module()
+    wiki = tmp_path / "wiki"
+    wiki.mkdir(parents=True, exist_ok=True)
+    (wiki / "ops.md").write_text("router vlan baseline\n", encoding="utf-8")
+    monkeypatch.setattr(
+        mod,
+        "_load_config",
+        lambda: {
+            "plugins": {
+                "entries": {
+                    "memory-wiki": {
+                        "wiki_root": str(wiki),
+                        "auto": {"enabled": True, "inject": {"max_chars": 800, "top_k": 3}},
+                    }
+                }
+            }
+        },
+    )
+    event = types.SimpleNamespace(
+        type="llm",
+        action="before_prompt_build",
+        context={"userText": "router vlan", "need_wiki_inject": True, "prepend_system_context": ""},
+    )
+    mod.handle(event)
+    assert str(event.context.get("prepend_system_context") or "") == ""
+    meta = event.context.get("wiki_inject_meta") or {}
+    assert bool(meta.get("enabled")) is False
+    assert str(meta.get("skip_reason") or "") == "manager_wiki_query_missing"
+
+
 def test_collect_snippets_prioritizes_merged_turns(tmp_path: Path) -> None:
     mod = _load_handler_module()
     wiki = tmp_path / "wiki"

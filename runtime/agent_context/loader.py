@@ -1,9 +1,16 @@
 from __future__ import annotations
 
+import re
+import threading
 from pathlib import Path
+from typing import Any
 
 from oclaw.platform.config.paths import PROJECT_ROOT
-from oclaw.prompts.loader import render_runtime_prompt
+
+_ROLE_CONTEXT_CACHE_LOCK = threading.Lock()
+_ROLE_CONTEXT_CACHE: dict[tuple[str, tuple[Any, ...], tuple[tuple[str, str], ...]], str] = {}
+_ROLE_DOCS: tuple[str, ...] = ("SOUL.md", "ROLE_SYSTEM.md")
+_TEMPLATE_VAR_RE = re.compile(r"\{\{\s*([A-Za-z0-9_]+)\s*\}\}")
 
 
 def _read_text(path: Path) -> str:
@@ -17,33 +24,96 @@ def _read_text(path: Path) -> str:
 
 def _workspace_for_role(role: str) -> str:
     r = str(role or "").strip().lower()
-    if r in {"ops", "coding"}:
-        return "workspace-coding"
-    if r in {"social"}:
-        return "workspace-social"
-    return "workspace-main"
+    if r == "manager":
+        return "main"
+    return r or "generalist"
 
 
-def build_role_system_context(role: str) -> str:
-    """Build role context from runtime asset workspaces with prompt fallback."""
-    workspace = _workspace_for_role(role)
-    agent_root = (PROJECT_ROOT / "oclaw" / "runtime" / "assets" / "agent_workspaces" / workspace).resolve()
+def _role_workspace_signature(role_id: str) -> tuple[Any, ...]:
+    base = (PROJECT_ROOT / "oclaw" / "runtime" / "workspaces").resolve()
+    role_root = (base / role_id).resolve()
+    if not role_root.exists() or not role_root.is_dir():
+        return ("missing", role_id, str(base))
+    rows: list[tuple[str, int, int]] = []
+    for name in _ROLE_DOCS:
+        p = role_root / name
+        if not p.exists() or not p.is_file():
+            rows.append((name, 0, 0))
+            continue
+        try:
+            st = p.stat()
+            rows.append((name, int(getattr(st, "st_mtime_ns", 0)), int(st.st_size)))
+        except Exception:
+            rows.append((name, 0, 0))
+    return (str(role_root), *tuple(rows))
+
+
+def _normalize_template_vars(template_vars: dict[str, Any] | None) -> tuple[tuple[str, str], ...]:
+    if not isinstance(template_vars, dict):
+        return tuple()
+    pairs: list[tuple[str, str]] = []
+    for k, v in template_vars.items():
+        key = str(k or "").strip()
+        if not key:
+            continue
+        pairs.append((key, str(v or "").strip()))
+    pairs.sort(key=lambda x: x[0])
+    return tuple(pairs)
+
+
+def _render_template_vars(text: str, vars_tuple: tuple[tuple[str, str], ...]) -> str:
+    if not text:
+        return ""
+    if not vars_tuple:
+        return text
+    vars_map = {k: v for k, v in vars_tuple}
+
+    def _replace(m: re.Match[str]) -> str:
+        name = str(m.group(1) or "").strip()
+        return vars_map.get(name, m.group(0))
+
+    return _TEMPLATE_VAR_RE.sub(_replace, text)
+
+
+def build_role_system_context(role: str, template_vars: dict[str, Any] | None = None) -> str:
+    """Build role context from runtime/workspaces/<role>."""
+    role_id = _workspace_for_role(role)
+    sig = _role_workspace_signature(role_id)
+    vars_tuple = _normalize_template_vars(template_vars)
+    cache_key = (role_id, sig, vars_tuple)
+    with _ROLE_CONTEXT_CACHE_LOCK:
+        cached = _ROLE_CONTEXT_CACHE.get(cache_key)
+    if isinstance(cached, str) and cached.strip():
+        return cached
+    base = (PROJECT_ROOT / "oclaw" / "runtime" / "workspaces").resolve()
+    roots: list[Path] = []
+    role_root = (base / role_id).resolve()
+    if role_root.exists() and role_root.is_dir():
+        roots.append(role_root)
     parts: list[str] = []
-    for name in ("AGENTS.md", "IDENTITY.md", "SOUL.md", "USER.md"):
-        t = _read_text(agent_root / name)
+    for name in ("SOUL.md",):
+        t = ""
+        for root in roots:
+            t = _render_template_vars(_read_text(root / name), vars_tuple)
+            if t:
+                break
         if t:
-            parts.append(f"# {name}\n{t}")
-    role_id = str(role or "").strip().lower()
-    if role_id == "ops":
-        fallback = render_runtime_prompt("roles/specialists/ops/system.md", strict=True)
-    elif role_id == "image":
-        fallback = render_runtime_prompt("roles/specialists/image/system.md", strict=True)
-    elif role_id == "memory_curator":
-        fallback = render_runtime_prompt("roles/specialists/memory_curator/system.md", strict=True)
-    else:
-        fallback = render_runtime_prompt("roles/specialists/generalist/system.md", strict=True)
-    parts.append(f"# FALLBACK_ROLE_SYSTEM\n{fallback}")
-    return "\n\n".join([p for p in parts if p.strip()]).strip()
+            parts.append(f"# SOUL\n{t}")
+    role_system = ""
+    for root in roots:
+        role_system = _render_template_vars(_read_text(root / "ROLE_SYSTEM.md"), vars_tuple)
+        if role_system:
+            break
+    if not role_system:
+        role_system = "你是专业助手。先给可验证结论，再给依据与下一步。"
+    parts.append(f"# ROLE_SYSTEM\n{role_system}")
+    out = "\n\n".join([p for p in parts if p.strip()]).strip()
+    with _ROLE_CONTEXT_CACHE_LOCK:
+        _ROLE_CONTEXT_CACHE[cache_key] = out
+        if len(_ROLE_CONTEXT_CACHE) > 64:
+            _ROLE_CONTEXT_CACHE.clear()
+            _ROLE_CONTEXT_CACHE[cache_key] = out
+    return out
 
 
 __all__ = ["build_role_system_context"]

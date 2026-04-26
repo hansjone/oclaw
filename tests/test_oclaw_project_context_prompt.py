@@ -14,15 +14,13 @@ class _Store:
 
 
 def test_build_project_context_block_reads_workspace_bootstrap(monkeypatch, tmp_path: Path) -> None:
-    ws = tmp_path / "oclaw" / "runtime" / "assets" / "agent_workspaces" / "workspace-main"
+    ws = tmp_path / "oclaw" / "runtime" / "workspaces" / "main"
     ws.mkdir(parents=True, exist_ok=True)
-    (ws / "AGENTS.md").write_text("agents rules", encoding="utf-8")
-    (ws / "SOUL.md").write_text("soul voice", encoding="utf-8")
+    (ws / "TOOLS.md").write_text("tooling note", encoding="utf-8")
     monkeypatch.setattr("oclaw.runtime.project_context_prompt.PROJECT_ROOT", tmp_path)
     out = build_project_context_block(store=_Store())
     assert "[project_context]" in out
-    assert "[AGENTS.md]" in out
-    assert "[SOUL.md]" in out
+    assert "[TOOLS.md]" in out
 
 
 def test_build_project_context_block_empty_when_no_files(monkeypatch, tmp_path: Path) -> None:
@@ -32,40 +30,17 @@ def test_build_project_context_block_empty_when_no_files(monkeypatch, tmp_path: 
 
 
 def test_build_project_context_block_fallback_to_project_root(monkeypatch, tmp_path: Path) -> None:
-    (tmp_path / "AGENTS.md").write_text("legacy root agents", encoding="utf-8")
+    (tmp_path / "TOOLS.md").write_text("legacy root tools", encoding="utf-8")
     monkeypatch.setattr("oclaw.runtime.project_context_prompt.PROJECT_ROOT", tmp_path)
     out = build_project_context_block(store=_Store())
-    assert "[AGENTS.md]" in out
-    assert "legacy root agents" in out
-
-
-def test_build_project_context_block_legacy_workspace_fallback(monkeypatch, tmp_path: Path) -> None:
-    ws = tmp_path / "oclaw" / "workspace"
-    ws.mkdir(parents=True, exist_ok=True)
-    (ws / "AGENTS.md").write_text("legacy workspace agents", encoding="utf-8")
-    monkeypatch.setattr("oclaw.runtime.project_context_prompt.PROJECT_ROOT", tmp_path)
-    out = build_project_context_block(store=_Store())
-    assert "[AGENTS.md]" in out
-    assert "legacy workspace agents" in out
-
-
-def test_build_project_context_block_workspace_main_fallback(monkeypatch, tmp_path: Path) -> None:
-    ws = tmp_path / "oclaw" / "workspace-main"
-    ws.mkdir(parents=True, exist_ok=True)
-    (ws / "AGENTS.md").write_text("legacy workspace-main agents", encoding="utf-8")
-    monkeypatch.setattr("oclaw.runtime.project_context_prompt.PROJECT_ROOT", tmp_path)
-    out = build_project_context_block(store=_Store())
-    assert "[AGENTS.md]" in out
-    assert "legacy workspace-main agents" in out
+    assert "[TOOLS.md]" in out
+    assert "legacy root tools" in out
 
 
 def test_build_project_context_block_triggers_bootstrap_for_each_root(monkeypatch, tmp_path: Path) -> None:
-    ws_agent = tmp_path / "oclaw" / "runtime" / "assets" / "agent_workspaces" / "workspace-main"
-    ws_main = tmp_path / "oclaw" / "workspace-main"
+    ws_agent = tmp_path / "oclaw" / "runtime" / "workspaces" / "main"
     ws_agent.mkdir(parents=True, exist_ok=True)
-    ws_main.mkdir(parents=True, exist_ok=True)
-    (ws_agent / "AGENTS.md").write_text("agent root", encoding="utf-8")
-    (ws_main / "AGENTS.md").write_text("main root", encoding="utf-8")
+    (ws_agent / "TOOLS.md").write_text("agent root", encoding="utf-8")
     monkeypatch.setattr("oclaw.runtime.project_context_prompt.PROJECT_ROOT", tmp_path)
 
     calls: list[dict] = []
@@ -83,16 +58,16 @@ def test_build_project_context_block_triggers_bootstrap_for_each_root(monkeypatc
     workspaces = [str((c.get("context") or {}).get("workspaceDir") or "") for c in calls]
     norm = {w.replace("\\", "/") for w in workspaces}
     assert str(ws_agent).replace("\\", "/") in norm
-    assert str(ws_main).replace("\\", "/") in norm
+    assert str(tmp_path).replace("\\", "/") in norm
 
 
 def test_project_context_bootstrap_includes_agent_id_when_config_matches(monkeypatch, tmp_path: Path) -> None:
-    ws_agent = tmp_path / "oclaw" / "runtime" / "assets" / "agent_workspaces" / "workspace-main"
+    ws_agent = tmp_path / "oclaw" / "runtime" / "workspaces" / "main"
     ws_social = tmp_path / "oclaw" / "workspace-social"
     ws_agent.mkdir(parents=True, exist_ok=True)
     ws_social.mkdir(parents=True, exist_ok=True)
-    (ws_agent / "AGENTS.md").write_text("agent root", encoding="utf-8")
-    (ws_social / "AGENTS.md").write_text("social root", encoding="utf-8")
+    (ws_agent / "TOOLS.md").write_text("agent root", encoding="utf-8")
+    (ws_social / "TOOLS.md").write_text("social root", encoding="utf-8")
     monkeypatch.setattr("oclaw.runtime.project_context_prompt.PROJECT_ROOT", tmp_path)
 
     calls: list[dict] = []

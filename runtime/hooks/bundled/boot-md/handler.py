@@ -29,9 +29,7 @@ def _candidate_roots(event: Any) -> list[Path]:
     repo = Path(__file__).resolve().parents[4]
     roots.extend(
         [
-            repo / "oclaw" / "runtime" / "assets" / "agent_workspaces" / "workspace-main",
-            repo / "oclaw" / "workspace-main",
-            repo / "oclaw" / "workspace",
+            repo / "oclaw" / "runtime" / "workspaces" / "main",
             repo,
         ]
     )

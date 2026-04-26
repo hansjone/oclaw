@@ -1,4 +1,4 @@
-param(
+﻿param(
   [switch]$Background = $true
 )
 
@@ -16,7 +16,16 @@ $pidFile = Join-Path $runDir "wiki_worker.pid"
 $outLog = Join-Path $runDir "wiki_worker.out.log"
 $errLog = Join-Path $runDir "wiki_worker.err.log"
 
-$venvPython = Join-Path $repoRoot "oclaw/.venv/Scripts/python.exe"
+function Test-AlivePid([int]$procId) {
+  try {
+    $p = Get-Process -Id $procId -ErrorAction Stop
+    return $null -ne $p
+  } catch {
+    return $false
+  }
+}
+
+$venvPython = Join-Path $repoRoot ".venv/Scripts/python.exe"
 if (Test-Path $venvPython) {
   $pythonExe = $venvPython
 } else {
@@ -32,6 +41,17 @@ if (-not $Background) {
   exit 0
 }
 
+if (Test-Path $pidFile) {
+  $raw = (Get-Content $pidFile -ErrorAction SilentlyContinue | Select-Object -First 1)
+  $existing = 0
+  [void][int]::TryParse([string]$raw, [ref]$existing)
+  if ($existing -gt 0 -and (Test-AlivePid $existing)) {
+    Write-Host "[ok] wiki worker already running pid=$existing"
+    exit 0
+  }
+}
+
 $p = Start-Process -FilePath $pythonExe -ArgumentList @("-m", "oclaw.runtime.workers.wiki.main") -WorkingDirectory $repoRoot -PassThru -WindowStyle Hidden -RedirectStandardOutput $outLog -RedirectStandardError $errLog
 Set-Content -Path $pidFile -Value $p.Id -Encoding ascii
 Write-Host "[ok] started wiki worker pid=$($p.Id) out=$outLog err=$errLog"
+

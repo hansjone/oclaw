@@ -2,13 +2,15 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from oclaw.runtime.skills import discover_workspace_skill_manifests
+from oclaw.runtime.hooks.hook_types import HookEligibilityContext
+from oclaw.runtime.hooks.merge_skill_hook_dirs import merge_skill_hook_extra_dirs_into_config
 from oclaw.platform.config.paths import PROJECT_ROOT
 from oclaw.platform.config.runtime_paths import runtime_hooks_bundled_root
 
@@ -23,6 +25,36 @@ class _HooksState:
 
 
 _STATE = _HooksState()
+_log_gmail = logging.getLogger("oclaw.hooks.gmail")
+
+
+class _GmailWatcherLogAdapter:
+    def info(self, msg: str) -> None:
+        _log_gmail.info("%s", msg)
+
+    def warn(self, msg: str) -> None:
+        _log_gmail.warning("%s", msg)
+
+    def error(self, msg: str) -> None:
+        _log_gmail.error("%s", msg)
+
+
+def _maybe_start_gmail_watcher_with_logs(resolved_cfg: dict[str, Any]) -> None:
+    """After hooks load: parity hook for OpenClaw gateway post-attach Gmail lifecycle."""
+    try:
+        from oclaw.runtime.hooks.gmail_watcher_lifecycle import start_gmail_watcher_with_logs
+
+        start_gmail_watcher_with_logs(cfg=resolved_cfg, log=_GmailWatcherLogAdapter())
+    except Exception:
+        _log_gmail.exception("gmail watcher lifecycle failed")
+
+
+def _reset_hooks_runtime_state_for_test() -> None:
+    _STATE.initialized = False
+    _STATE.loaded_count = 0
+    _STATE.last_error = ""
+    _STATE.hooks_mod = None
+    _STATE.resolved_config = None
 
 
 def _ensure_oclaw_path() -> Path:
@@ -86,7 +118,12 @@ def resolve_runtime_config() -> dict[str, Any]:
     return cfg
 
 
-def initialize_hooks_runtime(*, cfg: dict[str, Any] | None, workspace_dir: str) -> int:
+def initialize_hooks_runtime(
+    *,
+    cfg: dict[str, Any] | None,
+    workspace_dir: str,
+    eligibility: HookEligibilityContext | None = None,
+) -> int:
     if _STATE.initialized:
         return int(_STATE.loaded_count or 0)
     try:
@@ -94,33 +131,13 @@ def initialize_hooks_runtime(*, cfg: dict[str, Any] | None, workspace_dir: str) 
         from oclaw.runtime import hooks as hooks_mod  # type: ignore
 
         bundled_dir = runtime_hooks_bundled_root()
-        resolved_cfg = dict(cfg or resolve_runtime_config() or {})
-        extra_dirs: list[str] = []
-        try:
-            for m in discover_workspace_skill_manifests():
-                d = (Path(str(m.skill_dir or "")) / "hooks").resolve()
-                if d.exists() and d.is_dir():
-                    extra_dirs.append(str(d))
-        except Exception:
-            extra_dirs = []
-        if extra_dirs:
-            hooks_cfg = dict((resolved_cfg.get("hooks") or {})) if isinstance(resolved_cfg.get("hooks"), dict) else {}
-            internal = dict((hooks_cfg.get("internal") or {})) if isinstance(hooks_cfg.get("internal"), dict) else {}
-            load = dict((internal.get("load") or {})) if isinstance(internal.get("load"), dict) else {}
-            prev = load.get("extraDirs")
-            merged = []
-            if isinstance(prev, list):
-                merged.extend([str(x) for x in prev if str(x).strip()])
-            merged.extend([x for x in extra_dirs if x and x not in set(merged)])
-            load["extraDirs"] = merged
-            internal["load"] = load
-            hooks_cfg["internal"] = internal
-            resolved_cfg["hooks"] = hooks_cfg
+        resolved_cfg = merge_skill_hook_extra_dirs_into_config(dict(cfg or resolve_runtime_config() or {}))
         loaded = int(
             hooks_mod.load_internal_hooks(
                 resolved_cfg,
                 workspace_dir=str(workspace_dir or "."),
                 bundled_hooks_dir=str(bundled_dir),
+                eligibility=eligibility,
             )
             or 0
         )
@@ -129,6 +146,7 @@ def initialize_hooks_runtime(*, cfg: dict[str, Any] | None, workspace_dir: str) 
         _STATE.hooks_mod = hooks_mod
         _STATE.resolved_config = resolved_cfg
         _STATE.last_error = ""
+        _maybe_start_gmail_watcher_with_logs(resolved_cfg)
         return loaded
     except Exception as exc:
         _STATE.initialized = True
@@ -172,7 +190,7 @@ def trigger_hook_event(
     if hooks_mod is None:
         return {}
     try:
-        mutable_context = dict(context or {})
+        mutable_context: dict[str, Any] = {} if context is None else context
         ev = hooks_mod.create_hook_event(
             str(event_type or ""),
             str(action or ""),
@@ -184,7 +202,7 @@ def trigger_hook_event(
             return dict(getattr(ev, "context"))
         return mutable_context
     except Exception:
-        return dict(context or {})
+        return dict(context) if context is not None else {}
 
 
 def get_active_hooks_config() -> dict[str, Any]:

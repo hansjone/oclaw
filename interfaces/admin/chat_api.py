@@ -15,6 +15,7 @@ from fastapi import APIRouter, Body, File, Header, HTTPException, Query, UploadF
 from fastapi.responses import Response, StreamingResponse
 
 from oclaw.runtime.operations.mcp_env import apply_gateway_mcp_env_to_os
+from oclaw.runtime.agents.specialists import SPECIALIST_IDS
 from oclaw.runtime.agents.factory import build_gateway_executor
 from oclaw.runtime.chat.agent import GenerationInterrupted
 from oclaw.platform.config.paths import db_path
@@ -82,15 +83,15 @@ _DISPATCH_REASON_LABELS: dict[str, dict[str, str]] = {
         "en": "Specialist executor factory failed",
     },
     "manager_route_missing": {
-        "zh": "总控路由缺失",
+        "zh": "全能者路由缺失",
         "en": "Manager route missing",
     },
     "manager_select_failed": {
-        "zh": "总控决策失败",
+        "zh": "全能者决策失败",
         "en": "Manager selection failed",
     },
     "manager_model_missing": {
-        "zh": "总控模型不可用",
+        "zh": "全能者模型不可用",
         "en": "Manager model missing",
     },
     "dynamic_agent_selected": {
@@ -100,7 +101,7 @@ _DISPATCH_REASON_LABELS: dict[str, dict[str, str]] = {
 }
 _DISPATCH_REASON_LABELS_SETTING_KEY = "AIA_DISPATCH_REASON_LABELS_JSON"
 _SPECIALIST_FLAGS_SETTING_KEY = "AIA_CHAT_SPECIALIST_FLAGS_JSON"
-_CHAT_SPECIALIST_IDS: tuple[str, ...] = ("generalist", "ops", "image", "memory_curator")
+_CHAT_SPECIALIST_IDS: tuple[str, ...] = tuple(str(x) for x in SPECIALIST_IDS if str(x).strip())
 DEFAULT_TABULAR_SQL_TIMEOUT_MS = 8_000
 
 
@@ -1247,6 +1248,7 @@ def include_chat_routes(router: APIRouter, *, resolve_auth: Callable[[SqliteStor
         if not sess:
             raise HTTPException(status_code=404, detail="session_not_found")
         text_raw = str(payload.get("text") or "").strip()
+        idempotency_key = str(payload.get("idempotency_key") or payload.get("idempotencyKey") or "").strip()
         attachments = _parse_attachments_payload(payload.get("attachments"))
         interaction_mode, selected_specialist = _normalize_chat_mode(payload)
         memory_mode = _normalize_memory_mode(payload)
@@ -1311,6 +1313,7 @@ def include_chat_routes(router: APIRouter, *, resolve_auth: Callable[[SqliteStor
                 msg=msg,
                 lang=lang,
                 executor=manager_agent,
+                run_id=(idempotency_key or None),
                 specialist_executor_factory=specialist_factory,
             )
             reply = gw_result.reply_text

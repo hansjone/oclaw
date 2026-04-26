@@ -8,11 +8,7 @@ from oclaw.runtime.skill_role_binding import (
     allowed_workspace_skill_names_for_role,
     should_apply_workspace_role_filter,
 )
-from oclaw.runtime.skills import (
-    _allowed_tool_names_after_wire_policy,
-    build_skill_manifest,
-    discover_workspace_skill_manifests,
-)
+from oclaw.runtime.skills import discover_workspace_skill_manifests
 from oclaw.runtime.tools.base import ToolRegistry
 
 
@@ -76,11 +72,10 @@ def collect_skill_catalog_entries(
     base_url: str,
     skill_binding_role: str | None = None,
 ) -> list[tuple[str, str, str]]:
-    """Return (name, description, location) for model-visible skills (wire + disable filtered)."""
-    allowed, _hidden = _allowed_tool_names_after_wire_policy(registry=registry, store=store, base_url=base_url)
+    """Return (name, description, location) for model-visible prompt skills."""
+    _ = registry
+    _ = base_url
     disabled = _disabled_skill_names(store)
-    skill_specs, _stats = build_skill_manifest(registry=registry, store=store, base_url=base_url)
-    seen: set[str] = set()
     out: list[tuple[str, str, str]] = []
 
     role_filter = should_apply_workspace_role_filter(store=store, skill_binding_role=skill_binding_role)
@@ -94,41 +89,24 @@ def collect_skill_catalog_entries(
         if role_filter:
             if m.name not in role_allow:
                 continue
-        elif m.name not in allowed:
-            continue
         out.append((m.name, (m.description or "").strip() or m.name, m.skill_file))
-        seen.add(m.name)
-
-    for s in sorted(skill_specs, key=lambda x: x.name.lower()):
-        if s.name in seen or s.name in disabled:
-            continue
-        out.append((s.name, (s.description or "").strip() or s.name, str(s.location or f"tool:{s.name}")))
-        seen.add(s.name)
 
     return sorted(out, key=lambda x: x[0].lower())
 
 
 def format_skills_for_prompt(entries: list[tuple[str, str, str]], *, max_chars: int) -> str:
-    """oclaw-aligned `<available_skills>` XML block with a hard character budget."""
+    """Natural-language skill catalog block with a hard character budget."""
     if not entries or max_chars <= 0:
         return ""
-    header = (
-        "\n\nThe following skills describe callable capabilities and optional workspace packages.\n"
-        "When you need full instructions for a workspace skill, use `read_file` (or equivalent) on the path in `<location>`.\n"
-        "For execution, use native tool/function calls provided by the host.\n"
-        "When a skill references a relative path, resolve it against that skill's directory (parent of SKILL.md).\n"
-    )
-    tail = "\n</available_skills>"
 
     def _render(subset: list[tuple[str, str, str]]) -> str:
-        lines = [header.rstrip(), "", "<available_skills>"]
+        lines: list[str] = ['']
+        lines.append("\n## 技能（skills）：")
         for name, desc, loc in subset:
-            lines.append("  <skill>")
-            lines.append(f"    <name>{escape_xml(name)}</name>")
-            lines.append(f"    <description>{escape_xml(desc)}</description>")
-            lines.append(f"    <location>{escape_xml(loc)}</location>")
-            lines.append("  </skill>")
-        lines.append("</available_skills>")
+            safe_name = str(name).replace('"', '\\"')
+            safe_desc = str(desc).replace('"', '\\"')
+            safe_loc = str(loc).replace('"', '\\"')
+            lines.append(f'- name:"{safe_name}", description:"{safe_desc}", path:"{safe_loc}"')
         return "\n".join(lines)
 
     # Drop from the end until under budget (keep workspace-first order).

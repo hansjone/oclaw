@@ -10,6 +10,7 @@ from oclaw.runtime.agents.network_ops_agent import NetworkOpsAgent
 from oclaw.runtime.agents.specialist_agent import SpecialistProfile
 from oclaw.runtime.agents.specialists import (
     AGENT_PROFILE_BINDINGS_KEY,
+    normalize_specialist_id,
     AGENT_ROLE_IDS,
     MANAGER_AGENT_ID,
     SPECIALIST_IDS,
@@ -213,26 +214,12 @@ def _build_executor_components(
     except Exception:
         pass
     specialist_profiles = {
-        "ops": SpecialistProfile(
-            name="ops",
-            system_prefix=default_system_prefix_for_specialist("ops", lang),
-            tool_tags=default_tool_tags_for_specialist("ops"),
-        ),
-        "generalist": SpecialistProfile(
-            name="generalist",
-            system_prefix=default_system_prefix_for_specialist("generalist", lang),
-            tool_tags=default_tool_tags_for_specialist("generalist"),
-        ),
-        "image": SpecialistProfile(
-            name="image",
-            system_prefix=default_system_prefix_for_specialist("image", lang),
-            tool_tags=default_tool_tags_for_specialist("image"),
-        ),
-        "memory_curator": SpecialistProfile(
-            name="memory_curator",
-            system_prefix=default_system_prefix_for_specialist("memory_curator", lang),
-            tool_tags=default_tool_tags_for_specialist("memory_curator"),
-        ),
+        sid: SpecialistProfile(
+            name=sid,
+            system_prefix=default_system_prefix_for_specialist(sid, lang),
+            tool_tags=default_tool_tags_for_specialist(sid),
+        )
+        for sid in SPECIALIST_IDS
     }
     return (
         base_agent,
@@ -299,7 +286,7 @@ def build_gateway_executor(
         viewer_username=viewer_username,
         viewer_tenant_id=viewer_tenant_id,
     )
-    sid = str(specialist or "").strip().lower() or "generalist"
+    sid = normalize_specialist_id(specialist)
     if sid not in specialist_profiles:
         sid = "generalist"
     prof = specialist_profiles.get(sid) or specialist_profiles["generalist"]

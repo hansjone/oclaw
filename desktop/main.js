@@ -26,15 +26,49 @@ let backendCrashDialogOpen = false;
 let quitAfterCleanup = false;
 let channelStartWarningShown = false;
 
+// Improve first-paint reliability on Windows: avoid renderer backgrounding/timer throttling
+// that can delay UI updates until the first user interaction (e.g. click/focus).
+try {
+  app.commandLine.appendSwitch("disable-renderer-backgrounding");
+  app.commandLine.appendSwitch("disable-background-timer-throttling");
+} catch (_) {}
+
 function ensureDir(dirPath) {
   fs.mkdirSync(dirPath, { recursive: true });
+}
+
+function nowIso() {
+  return new Date().toISOString();
+}
+
+function logDesktop(msg) {
+  try {
+    ensureDir(LOG_ROOT);
+    fs.appendFileSync(path.join(LOG_ROOT, "desktop.log"), `[${nowIso()}] ${String(msg || "")}\n`, "utf8");
+  } catch (_) {}
 }
 
 function resolvePythonBin() {
   const fromEnv = String(process.env.PYTHON_EXECUTABLE || "").trim();
   if (fromEnv) return fromEnv;
+  const venvPy =
+    process.platform === "win32"
+      ? path.join(APP_ROOT, "oclaw", ".venv", "Scripts", "python.exe")
+      : path.join(APP_ROOT, "oclaw", ".venv", "bin", "python");
+  try {
+    if (fs.existsSync(venvPy)) return venvPy;
+  } catch (_) {}
   if (process.platform === "win32") return "python";
   return "python3";
+}
+
+function buildPythonEnv(extra = {}) {
+  return {
+    ...process.env,
+    PYTHONPATH: APP_ROOT,
+    PYTHONUTF8: "1",
+    ...extra,
+  };
 }
 
 function checkPythonAvailable(pythonBin) {
@@ -92,6 +126,35 @@ function waitForBackend(url, deadlineAtMs) {
   });
 }
 
+function loadingHtml(text) {
+  const safe = String(text || "").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  return `<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>${APP_DISPLAY_NAME}</title>
+    <style>
+      html, body { height: 100%; margin: 0; background: #0d0d0d; color: #e6e6e6; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; }
+      .wrap { height: 100%; display: flex; align-items: center; justify-content: center; }
+      .card { width: min(720px, 92vw); padding: 22px 22px 18px; border: 1px solid rgba(255,255,255,.08); border-radius: 14px; background: rgba(255,255,255,.03); }
+      .title { font-size: 16px; font-weight: 700; margin-bottom: 10px; }
+      .muted { opacity: .78; line-height: 1.5; white-space: pre-wrap; }
+      .spinner { width: 18px; height: 18px; border: 2px solid rgba(255,255,255,.18); border-top-color: rgba(255,255,255,.72); border-radius: 999px; animation: spin 1s linear infinite; display: inline-block; vertical-align: -3px; margin-right: 8px; }
+      @keyframes spin { to { transform: rotate(360deg); } }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <div class="card">
+        <div class="title"><span class="spinner"></span>${APP_DISPLAY_NAME}</div>
+        <div class="muted">${safe}</div>
+      </div>
+    </div>
+  </body>
+</html>`;
+}
+
 async function startBackendProcess() {
   if (backendProc) return runtimeState;
   backendStopping = false;
@@ -113,14 +176,12 @@ async function startBackendProcess() {
       `Python not found: ${pythonBin}. 请先安装 Python 3.10+，或设置环境变量 PYTHON_EXECUTABLE 指向可用解释器。`
     );
   }
-  const env = {
-    ...process.env,
-    PYTHONUTF8: "1",
+  const env = buildPythonEnv({
     AIA_ASSISTANT_GATEWAY_HOST: host,
     AIA_ASSISTANT_GATEWAY_PORT: String(port),
     AIA_DATA_DIR: DATA_ROOT,
     AIA_DESKTOP_MODE: "1",
-  };
+  });
 
   const args = ["-m", "oclaw.runtime.operations", "gateway", "start", "--host", host, "--port", String(port)];
   backendProc = spawn(pythonBin, args, {
@@ -178,7 +239,7 @@ function runPythonInline(pythonBin, code, extraEnv = {}) {
   return new Promise((resolve) => {
     const proc = spawn(pythonBin, ["-c", code], {
       cwd: APP_ROOT,
-      env: { ...process.env, ...extraEnv },
+      env: buildPythonEnv(extraEnv),
       windowsHide: true,
       stdio: ["ignore", "pipe", "pipe"],
     });
@@ -222,14 +283,12 @@ async function startChannelProcess() {
       if (line) logStream.write(`[channel-cleanup] ${line}\n`);
     }
   } catch (_) {}
-  const env = {
-    ...process.env,
-    PYTHONUTF8: "1",
+  const env = buildPythonEnv({
     AIA_ASSISTANT_GATEWAY_HOST: String(runtimeState.host),
     AIA_ASSISTANT_GATEWAY_PORT: String(runtimeState.port),
     AIA_DATA_DIR: DATA_ROOT,
     AIA_DESKTOP_MODE: "1",
-  };
+  });
   const args = ["-m", "oclaw.runtime.operations", "channel", "wecom", "start", "--mode", "ws", "--interval", "3.0", "--deliver-outbound"];
   channelStopping = false;
   channelProc = spawn(pythonBin, args, {
@@ -397,6 +456,7 @@ function createMainWindow() {
       sandbox: true,
       webSecurity: true,
       devTools: true,
+      backgroundThrottling: false,
     },
   });
 
@@ -418,6 +478,24 @@ function createMainWindow() {
   mainWindow.on("closed", () => {
     mainWindow = null;
   });
+
+  mainWindow.webContents.on("did-fail-load", (event, code, desc, url, isMainFrame) => {
+    if (!isMainFrame) return;
+    logDesktop(`did-fail-load: code=${code} url=${url} desc=${desc}`);
+  });
+  mainWindow.webContents.on("did-start-navigation", (event, url, isInPlace, isMainFrame) => {
+    if (!isMainFrame) return;
+    logDesktop(`did-start-navigation: url=${url} inPlace=${Boolean(isInPlace)}`);
+  });
+  mainWindow.webContents.on("dom-ready", () => {
+    logDesktop("dom-ready");
+  });
+  mainWindow.webContents.on("did-finish-load", () => {
+    logDesktop("did-finish-load");
+  });
+  mainWindow.webContents.on("did-stop-loading", () => {
+    logDesktop("did-stop-loading");
+  });
 }
 
 async function showStartupError(error) {
@@ -433,8 +511,52 @@ async function showStartupError(error) {
 async function boot() {
   try {
     app.setName(APP_DISPLAY_NAME);
+    createMainWindow();
+    // Show window immediately to avoid "black screen" during backend startup.
+    try {
+      await mainWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(loadingHtml("Starting local gateway…"))}`);
+    } catch (_) {}
+    mainWindow.show();
+    try {
+      mainWindow.focus();
+    } catch (_) {}
+
+    const t0 = Date.now();
+    logDesktop("boot:start");
+
+    // Desktop policy: every restart requires explicit login.
+    // Clear persisted web storage before first page load. Do not block window display.
+    const clearStoragePromise = (async () => {
+      try {
+        await mainWindow.webContents.session.clearStorageData();
+        logDesktop(`boot:clearStorage:ok:${Date.now() - t0}ms`);
+      } catch (e) {
+        logDesktop(`boot:clearStorage:err:${Date.now() - t0}ms:${String(e && e.message ? e.message : e)}`);
+      }
+    })();
+    const clearCachePromise = (async () => {
+      try {
+        await mainWindow.webContents.session.clearCache();
+        if (typeof mainWindow.webContents.session.clearHostResolverCache === "function") {
+          mainWindow.webContents.session.clearHostResolverCache();
+        }
+        logDesktop(`boot:clearCache:ok:${Date.now() - t0}ms`);
+      } catch (e) {
+        logDesktop(`boot:clearCache:err:${Date.now() - t0}ms:${String(e && e.message ? e.message : e)}`);
+      }
+    })();
+
     await startBackendProcess();
+    logDesktop(`boot:backendReady:${Date.now() - t0}ms`);
+
+    try {
+      await mainWindow.loadURL(
+        `data:text/html;charset=utf-8,${encodeURIComponent(loadingHtml(`Backend ready at ${runtimeState.baseUrl}\nStarting channel…`))}`,
+      );
+    } catch (_) {}
+
     const channelOk = await startChannelProcess();
+    logDesktop(`boot:channel:${channelOk ? "ok" : "fail"}:${Date.now() - t0}ms`);
     if (!channelOk && !channelStartWarningShown) {
       channelStartWarningShown = true;
       await dialog.showMessageBox({
@@ -444,15 +566,16 @@ async function boot() {
         detail: "你可以在 Admin -> 运行时中查看并重试服务。",
       });
     }
-    createMainWindow();
-    try {
-      // Desktop policy: every restart requires explicit login.
-      // Clear persisted web storage before first page load.
-      await mainWindow.webContents.session.clearStorageData();
-    } catch (_) {}
+    await clearStoragePromise;
+    await clearCachePromise;
     // Desktop policy: always require fresh login on every app restart.
-    await mainWindow.loadURL(`${runtimeState.baseUrl}/chat?force_relogin=1`);
-    mainWindow.show();
+    logDesktop(`boot:loadChat:start:${Date.now() - t0}ms`);
+    await mainWindow.loadURL(`${runtimeState.baseUrl}/chat?v=${Date.now()}`);
+    logDesktop(`boot:loadChat:done:${Date.now() - t0}ms`);
+    try {
+      mainWindow.show();
+      mainWindow.focus();
+    } catch (_) {}
   } catch (error) {
     await showStartupError(error);
     app.quit();
@@ -470,12 +593,30 @@ ipcMain.handle("desktop:getRuntimeInfo", async () => {
 });
 
 ipcMain.handle("desktop:restartBackend", async () => {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    try {
+      await mainWindow.loadURL(
+        `data:text/html;charset=utf-8,${encodeURIComponent(loadingHtml("Restarting local gateway…"))}`,
+      );
+      mainWindow.show();
+      try {
+        mainWindow.focus();
+      } catch (_) {}
+    } catch (_) {}
+  }
   await stopChannelProcess();
   await stopBackendProcess();
   await startBackendProcess();
   await startChannelProcess();
   if (mainWindow && !mainWindow.isDestroyed()) {
-    await mainWindow.loadURL(`${runtimeState.baseUrl}/chat?force_relogin=1`);
+    try {
+      await mainWindow.webContents.session.clearCache();
+    } catch (_) {}
+    await mainWindow.loadURL(`${runtimeState.baseUrl}/chat?v=${Date.now()}`);
+    try {
+      mainWindow.show();
+      mainWindow.focus();
+    } catch (_) {}
   }
   return true;
 });

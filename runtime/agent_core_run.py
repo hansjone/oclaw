@@ -214,6 +214,7 @@ def run_agent_core(*, store: Any, data: AgentCoreRunInput) -> AgentCoreRunOutput
                 ),
                 skill_binding_role=data.skill_binding_role,
                 wire_policy_role=data.wire_policy_role,
+                prompt_build_context=(dict(data.msg.metadata or {}) if isinstance(data.msg.metadata, dict) else None),
             ),
         )
         attempts.append(out.state)

@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import asyncio
 import os
+import shutil
 from contextlib import asynccontextmanager
 from typing import Any
+import threading
 
 from fastapi import FastAPI, WebSocket
 from fastapi import Request
@@ -22,9 +24,11 @@ from oclaw.runtime.hooks_runtime import (
     trigger_hook_event,
 )
 from oclaw.runtime.skills import skill_runtime_diagnostics
+from oclaw.runtime.prompt_prebuild import run_runtime_prewarm
 from oclaw.platform.config.paths import PROJECT_ROOT, db_path
 from oclaw.platform.persistence.sqlite_store import SqliteStore
 from oclaw.interfaces.http.weixin_ilink_api import router as weixin_ilink_router
+from oclaw.runtime.workspaces.experts import warm_expert_workspace_cache
 
 
 def _resolve_startup_workspace_dir(cfg: dict[str, Any]) -> str:
@@ -36,7 +40,7 @@ def _resolve_startup_workspace_dir(cfg: dict[str, Any]) -> str:
             return ws_text
     except Exception:
         pass
-    return str((PROJECT_ROOT / "oclaw" / "runtime" / "assets" / "agent_workspaces" / "workspace-main").resolve())
+    return str((PROJECT_ROOT / "oclaw" / "runtime" / "workspaces" / "main").resolve())
 
 
 def _resolve_startup_workspace_dirs(cfg: dict[str, Any]) -> list[tuple[str, str]]:
@@ -65,6 +69,76 @@ def _resolve_startup_workspace_dirs(cfg: dict[str, Any]) -> list[tuple[str, str]
     if out:
         return out
     return [("default", _resolve_startup_workspace_dir(cfg))]
+
+
+def _relocate_root_scan_artifacts() -> None:
+    """Keep generated scan artifacts out of repo root.
+
+    Some helper scripts write scan snapshots to the current working directory.
+    Normalize them into runtime/data/scan on gateway startup.
+    """
+    root = PROJECT_ROOT.resolve()
+    target_dir = (PROJECT_ROOT / "oclaw" / "runtime" / "data" / "scan").resolve()
+    target_dir.mkdir(parents=True, exist_ok=True)
+    patterns = ("history_entries_*.json", "state_scan_*.json")
+    for pat in patterns:
+        for src in root.glob(pat):
+            try:
+                if not src.is_file():
+                    continue
+                dst = target_dir / src.name
+                if dst.exists():
+                    # Keep newest artifact when both paths exist.
+                    src_mtime = src.stat().st_mtime
+                    dst_mtime = dst.stat().st_mtime
+                    if src_mtime <= dst_mtime:
+                        src.unlink(missing_ok=True)
+                        continue
+                    dst.unlink(missing_ok=True)
+                shutil.move(str(src), str(dst))
+            except Exception:
+                continue
+
+
+_PREWARM_SCHEDULER_LOCK = threading.Lock()
+_PREWARM_SCHEDULER_RUNNING = False
+
+
+def _prewarm_interval_seconds() -> int:
+    raw = str(os.getenv("AIA_PREWARM_INTERVAL_SECONDS") or "").strip()
+    if raw.isdigit():
+        return max(60, min(int(raw), 86_400))
+    return 600
+
+
+def _spawn_periodic_prewarm_loop() -> None:
+    global _PREWARM_SCHEDULER_RUNNING
+    with _PREWARM_SCHEDULER_LOCK:
+        if _PREWARM_SCHEDULER_RUNNING:
+            return
+        _PREWARM_SCHEDULER_RUNNING = True
+
+    def _runner() -> None:
+        global _PREWARM_SCHEDULER_RUNNING
+        interval = _prewarm_interval_seconds()
+        while True:
+            try:
+                out = run_runtime_prewarm(reason="scheduler")
+                _ = out
+            except Exception:
+                pass
+            time_to_sleep = max(30, interval)
+            try:
+                import time
+
+                time.sleep(time_to_sleep)
+            except Exception:
+                break
+        with _PREWARM_SCHEDULER_LOCK:
+            _PREWARM_SCHEDULER_RUNNING = False
+
+    th = threading.Thread(target=_runner, name="oclaw-prewarm-scheduler", daemon=True)
+    th.start()
 
 
 def _run_startup_hooks(app: FastAPI) -> None:
@@ -113,6 +187,26 @@ def _run_startup_hooks(app: FastAPI) -> None:
         _log_info(f"[skills] root={diag.get('skills_root')} total={diag.get('skills_total')}")
     except Exception:
         pass
+    try:
+        warm_expert_workspace_cache()
+    except Exception:
+        pass
+    try:
+        prewarm = run_runtime_prewarm(reason="startup")
+        _log_info(
+            "[startup-prebuild] "
+            f"ok={bool(prewarm.get('ok'))} "
+            f"elapsed_ms={int(prewarm.get('elapsed_ms') or 0)} "
+            f"freeze={bool(((prewarm.get('freeze') or {}).get('frozen')))}"
+        )
+    except Exception as exc:
+        _log_warn(f"[startup-prebuild] failed: {exc}")
+    try:
+        _spawn_periodic_prewarm_loop()
+        _log_info(f"[startup-prebuild] scheduler_started interval_s={_prewarm_interval_seconds()}")
+    except Exception as exc:
+        _log_warn(f"[startup-prebuild] scheduler_start_failed: {exc}")
+    _relocate_root_scan_artifacts()
     startup_targets = _resolve_startup_workspace_dirs(cfg)
     initialize_hooks_runtime(cfg=cfg, workspace_dir=startup_targets[0][1])
     for agent_id, ws_dir in startup_targets:

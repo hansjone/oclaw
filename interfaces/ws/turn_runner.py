@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import threading
 import uuid
+from datetime import datetime
 from typing import Any, Callable
 
 from oclaw.runtime.agents.factory import build_gateway_executor
@@ -24,6 +25,68 @@ async def run_agent_turn_via_bridge(
     now_ms: Callable[[], int],
     error_shape: Callable[[str, str], dict[str, Any]],
 ) -> None:
+    def _to_ms(v: Any) -> int | None:
+        s = str(v or "").strip()
+        if not s:
+            return None
+        try:
+            if s.endswith("Z"):
+                s = s[:-1] + "+00:00"
+            return int(datetime.fromisoformat(s).timestamp() * 1000)
+        except Exception:
+            return None
+
+    def _delta(a: int | None, b: int | None) -> int | None:
+        if a is None or b is None:
+            return None
+        d = int(b - a)
+        return d if d >= 0 else None
+
+    def _compute_ttft(trace_rows: list[dict[str, Any]], *, accepted_ms: int | None) -> dict[str, Any]:
+        ws_accepted_ms = accepted_ms
+        gateway_received_ms = None
+        model_chat_start_ms = None
+        ws_first_token_ms = None
+        for row in trace_rows or []:
+            if not isinstance(row, dict):
+                continue
+            et = str(row.get("event_type") or "").strip()
+            payload = row.get("payload") if isinstance(row.get("payload"), dict) else {}
+            rts = _to_ms(row.get("timestamp"))
+            if et == "gateway_received":
+                gateway_received_ms = rts if rts is not None else gateway_received_ms
+                if ws_accepted_ms is None:
+                    try:
+                        vv = payload.get("ws_client_send_ms")
+                        if vv is not None:
+                            ws_accepted_ms = int(vv)
+                    except Exception:
+                        pass
+            elif et == "model_chat_start":
+                model_chat_start_ms = rts if rts is not None else model_chat_start_ms
+            elif et == "ws_first_token":
+                if ws_first_token_ms is None:
+                    try:
+                        vf = payload.get("ws_first_token_ms")
+                        if vf is not None:
+                            ws_first_token_ms = int(vf)
+                    except Exception:
+                        pass
+                if ws_first_token_ms is None:
+                    ws_first_token_ms = rts if rts is not None else ws_first_token_ms
+        return {
+            "ws_accepted_ms": ws_accepted_ms,
+            "gateway_received_ms": gateway_received_ms,
+            "model_chat_start_ms": model_chat_start_ms,
+            "ws_first_token_ms": ws_first_token_ms,
+            "accepted_to_gateway_ms": _delta(ws_accepted_ms, gateway_received_ms),
+            "gateway_to_model_start_ms": _delta(gateway_received_ms, model_chat_start_ms),
+            "model_start_to_first_token_ms": _delta(model_chat_start_ms, ws_first_token_ms),
+            "gateway_to_first_token_ms": _delta(gateway_received_ms, ws_first_token_ms),
+            "accepted_to_first_token_ms": _delta(ws_accepted_ms, ws_first_token_ms),
+        }
+
+    accepted_ms = now_ms()
     msg_text = str(p.get("message") or "").strip()
     attachments = list(p.get("attachments") or [])
     store = SqliteStore(db_path())
@@ -66,6 +129,7 @@ async def run_agent_turn_via_bridge(
 
     buf_lock = threading.Lock()
     token_chunks: list[str] = []
+    first_token_ms_holder: dict[str, int | None] = {"ms": None}
     marker_turn_count = 0
     marker_session_count = 0
     marker_keep_count = 0
@@ -79,6 +143,8 @@ async def run_agent_turn_via_bridge(
     def on_token(tok: str) -> None:
         token_text = str(tok)
         rid = run_id_holder.get("run_id") or ""
+        if first_token_ms_holder["ms"] is None and token_text:
+            first_token_ms_holder["ms"] = now_ms()
         if rid:
             with conn._abort_lock:
                 if rid in conn._aborted_run_ids:
@@ -129,49 +195,58 @@ async def run_agent_turn_via_bridge(
             else {},
             "acp_parent_run_id": str(p.get("acp_parent_run_id") or ""),
             "acp_child_run_id": str(p.get("acp_child_run_id") or ""),
+            "ws_accepted_ms": int(accepted_ms),
         },
     )
 
     await conn.emit_agent_event(run_id=run_id_holder["run_id"], stream="lifecycle", data={"phase": "start", "status": "accepted"})
-    try:
-        relay_env = p.get("relay_share_envelope") if isinstance(p.get("relay_share_envelope"), dict) else {}
-        relay_pointers = 0
-        relay_turn = 0
-        relay_session = 0
-        relay_keep = 0
-        if isinstance(relay_env, dict):
-            ad = relay_env.get("attachments") if isinstance(relay_env.get("attachments"), dict) else {}
-            ps = ad.get("pointers") if isinstance(ad.get("pointers"), list) else []
-            relay_pointers = len(ps)
-            for item in ps:
-                if not isinstance(item, dict):
-                    continue
-                ttl = str(item.get("ttl_policy") or "").strip().lower()
-                if ttl == "turn":
-                    relay_turn += 1
-                elif ttl == "session":
-                    relay_session += 1
-                elif ttl == "keep":
-                    relay_keep += 1
-        marker_turn_count = int(relay_turn)
-        marker_session_count = int(relay_session)
-        marker_keep_count = int(relay_keep)
-        await conn.send_event(
-            "session.marker",
-            {
-                "runId": run_id_holder["run_id"],
-                "sessionKey": str(session_id),
-                "action": "ingress",
-                "relayPointerCount": int(relay_pointers),
-                "relayEnvelopePresent": bool(isinstance(relay_env, dict) and bool(relay_env)),
-                "relayEnvelopePointerCount": int(relay_pointers),
-                "relayTtlTurnCount": int(relay_turn),
-                "relayTtlSessionCount": int(relay_session),
-                "relayTtlKeepCount": int(relay_keep),
-            },
-        )
-    except Exception:
-        pass
+    if send_response:
+        try:
+            await conn.send_event(
+                "session.turn_started",
+                {"runId": run_id_holder["run_id"], "sessionKey": str(session_id), "acceptedAt": int(accepted_ms)},
+            )
+        except Exception:
+            pass
+        try:
+            relay_env = p.get("relay_share_envelope") if isinstance(p.get("relay_share_envelope"), dict) else {}
+            relay_pointers = 0
+            relay_turn = 0
+            relay_session = 0
+            relay_keep = 0
+            if isinstance(relay_env, dict):
+                ad = relay_env.get("attachments") if isinstance(relay_env.get("attachments"), dict) else {}
+                ps = ad.get("pointers") if isinstance(ad.get("pointers"), list) else []
+                relay_pointers = len(ps)
+                for item in ps:
+                    if not isinstance(item, dict):
+                        continue
+                    ttl = str(item.get("ttl_policy") or "").strip().lower()
+                    if ttl == "turn":
+                        relay_turn += 1
+                    elif ttl == "session":
+                        relay_session += 1
+                    elif ttl == "keep":
+                        relay_keep += 1
+            marker_turn_count = int(relay_turn)
+            marker_session_count = int(relay_session)
+            marker_keep_count = int(relay_keep)
+            await conn.send_event(
+                "session.marker",
+                {
+                    "runId": run_id_holder["run_id"],
+                    "sessionKey": str(session_id),
+                    "action": "ingress",
+                    "relayPointerCount": int(relay_pointers),
+                    "relayEnvelopePresent": bool(isinstance(relay_env, dict) and bool(relay_env)),
+                    "relayEnvelopePointerCount": int(relay_pointers),
+                    "relayTtlTurnCount": int(relay_turn),
+                    "relayTtlSessionCount": int(relay_session),
+                    "relayTtlKeepCount": int(relay_keep),
+                },
+            )
+        except Exception:
+            pass
 
     def _run_turn_sync() -> Any:
         return gw.handle_turn(
@@ -193,7 +268,8 @@ async def run_agent_turn_via_bridge(
         await conn.emit_agent_event(
             run_id=run_id_holder.get("run_id") or "",
             stream="lifecycle",
-            data={"phase": "error", "status": "error", "error": str(exc or "agent_failed")},
+            # Always emit a terminal lifecycle event even on failure.
+            data={"phase": "end", "status": "error", "error": str(exc or "agent_failed")},
         )
         await conn.emit_chat_event(run_id=run_id_holder.get("run_id") or "", state="error", error=str(exc or "agent_failed"))
         try:
@@ -220,6 +296,29 @@ async def run_agent_turn_via_bridge(
                 conn._aborted_run_ids.discard(_rid0)
 
     rid = str(getattr(result, "run_id", "") or run_id_holder.get("run_id") or "")
+    ttft_payload: dict[str, Any] | None = None
+    try:
+        ft = first_token_ms_holder.get("ms")
+        tid = str(getattr(result, "trace_id", "") or "")
+        if ft is not None and tid:
+            store.add_trace_event(
+                session_id=str(session_id),
+                trace_id=tid,
+                span_id=uuid.uuid4().hex,
+                parent_span_id=None,
+                event_type="ws_first_token",
+                payload={"run_id": str(rid), "ws_first_token_ms": int(ft), "ws_accepted_ms": int(accepted_ms)},
+            )
+    except Exception:
+        pass
+    try:
+        show_ttft = str(store.get_setting("AIA_CHAT_SHOW_TTFT_DEBUG") or "").strip().lower() in {"1", "true", "yes", "on"}
+        tid = str(getattr(result, "trace_id", "") or "")
+        if show_ttft and tid:
+            rows = store.list_trace_events_for_trace(session_id=str(session_id), trace_id=tid, limit=400)
+            ttft_payload = _compute_ttft(rows, accepted_ms=int(accepted_ms))
+    except Exception:
+        ttft_payload = None
     with conn._abort_lock:
         if rid and rid in conn._aborted_run_ids:
             try:
@@ -262,6 +361,7 @@ async def run_agent_turn_via_bridge(
                 "relayTtlTurnCount": int(getattr(result, "relay_ttl_turn_count", 0) or 0),
                 "relayTtlSessionCount": int(getattr(result, "relay_ttl_session_count", 0) or 0),
                 "relayTtlKeepCount": int(getattr(result, "relay_ttl_keep_count", 0) or 0),
+                "ttft": ttft_payload if isinstance(ttft_payload, dict) else None,
             },
         )
     await conn.emit_agent_event(

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Body, Header, HTTPException
@@ -10,14 +11,17 @@ from oclaw.runtime.agents.factory import build_gateway_executor
 from oclaw.runtime.skill_installer import (
     auto_install_skill_from_payload,
     create_skill_from_template,
+    create_workspace_skill,
     install_skill_from_local_dir,
     install_skill_from_registry_archive,
     list_skills_with_status,
     set_skill_enabled,
+    uninstall_skill,
 )
 from oclaw.runtime.skill_role_binding import (
     SKILL_ROLE_BINDING_ENABLED_SETTING,
     SKILL_ROLE_BINDING_KEY,
+    SKILL_ROLE_BINDING_MANAGER_INHERIT_SETTING,
     load_skill_role_binding_dict,
     normalize_skill_role_binding,
     ordered_binding_roles,
@@ -25,10 +29,10 @@ from oclaw.runtime.skill_role_binding import (
 )
 from oclaw.runtime.skills_prompt import collect_skill_catalog_entries
 from oclaw.runtime.skills import _allowed_tool_names_after_wire_policy, discover_workspace_skill_manifests
+from oclaw.runtime.skills_market import get_market_adapter
+from oclaw.runtime.tools.skills_runtime.subprocess_exec import run_skill_runtime_entry
 from oclaw.platform.config.paths import db_path
 from oclaw.platform.persistence.sqlite_store import SqliteStore
-from oclaw.runtime.tools.skills.clawhub_client import get_skill_detail as clawhub_get_skill_detail
-from oclaw.runtime.tools.skills.clawhub_client import search_skills as clawhub_search_skills
 
 
 def include_skill_routes(
@@ -81,6 +85,44 @@ def include_skill_routes(
         _require_admin(ctx)
         items = list_skills_with_status(store=store)
         return {"ok": True, "items": items}
+
+    @sk.get("/mode")
+    def api_skills_mode_get(authorization: str | None = Header(default=None)) -> dict[str, Any]:
+        store = SqliteStore(db_path())
+        ctx = resolve_auth(store, authorization)
+        _require_admin(ctx)
+        raw_prompt = str(store.get_setting("AIA_SKILLS_PROMPT_IN_SYSTEM") or "").strip().lower()
+        raw_toolcall = str(store.get_setting("AIA_SKILL_TOOLCALL_ENABLED") or "").strip().lower()
+        prompt_in_system = raw_prompt not in {"0", "false", "no", "off"}
+        toolcall_enabled = raw_toolcall in {"1", "true", "yes", "on"}
+        return {"ok": True, "prompt_in_system": bool(prompt_in_system), "toolcall_enabled": bool(toolcall_enabled)}
+
+    @sk.post("/mode")
+    def api_skills_mode_save(
+        payload: dict[str, Any] | None = Body(default=None),
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        payload = payload or {}
+        store = SqliteStore(db_path())
+        ctx = resolve_auth(store, authorization)
+        _require_admin(ctx)
+        if "prompt_in_system" in payload:
+            store.set_setting("AIA_SKILLS_PROMPT_IN_SYSTEM", "1" if bool(payload.get("prompt_in_system")) else "0")
+        if "toolcall_enabled" in payload:
+            store.set_setting("AIA_SKILL_TOOLCALL_ENABLED", "1" if bool(payload.get("toolcall_enabled")) else "0")
+        raw_prompt = str(store.get_setting("AIA_SKILLS_PROMPT_IN_SYSTEM") or "").strip().lower()
+        raw_toolcall = str(store.get_setting("AIA_SKILL_TOOLCALL_ENABLED") or "").strip().lower()
+        prompt_in_system = raw_prompt not in {"0", "false", "no", "off"}
+        toolcall_enabled = raw_toolcall in {"1", "true", "yes", "on"}
+        _audit(
+            store,
+            ctx,
+            action="skill_mode_update",
+            target_id="skill_mode",
+            status="ok",
+            detail={"prompt_in_system": bool(prompt_in_system), "toolcall_enabled": bool(toolcall_enabled)},
+        )
+        return {"ok": True, "prompt_in_system": bool(prompt_in_system), "toolcall_enabled": bool(toolcall_enabled)}
 
     @sk.post("/install")
     def api_skills_install(
@@ -162,7 +204,8 @@ def include_skill_routes(
         query = str(q or "").strip()
         lim = int(limit) if isinstance(limit, int) and limit > 0 else 20
         lim = max(1, min(lim, 200))
-        items = clawhub_search_skills(query, limit=lim)
+        provider = str(store.get_setting("AIA_SKILL_MARKET_PROVIDER") or "clawhub").strip()
+        items = get_market_adapter(provider).search(query, limit=lim)
         return {"ok": True, "items": items}
 
     @sk.get("/market/detail")
@@ -176,7 +219,8 @@ def include_skill_routes(
         s = str(slug or "").strip()
         if not s:
             raise HTTPException(status_code=400, detail="slug_required")
-        detail = clawhub_get_skill_detail(s)
+        provider = str(store.get_setting("AIA_SKILL_MARKET_PROVIDER") or "clawhub").strip()
+        detail = get_market_adapter(provider).detail(s)
         return {"ok": True, "detail": detail}
 
     @sk.post("/market/install")
@@ -194,18 +238,9 @@ def include_skill_routes(
         requested_version = str(payload.get("version") or "").strip()
         overwrite = bool(payload.get("overwrite"))
 
-        detail = clawhub_get_skill_detail(s)
-        archive_url = str(detail.get("archiveUrl") or "").strip()
-        chosen_version = str(detail.get("latestVersion") or "").strip()
-        if requested_version:
-            chosen_version = requested_version
-            archive_url = ""
-            for v in (detail.get("versions") or []):
-                if not isinstance(v, dict):
-                    continue
-                if str(v.get("version") or "").strip() == requested_version:
-                    archive_url = str(v.get("archiveUrl") or "").strip()
-                    break
+        provider = str(store.get_setting("AIA_SKILL_MARKET_PROVIDER") or "clawhub").strip()
+        adapter = get_market_adapter(provider)
+        archive_url, chosen_version = adapter.resolve_archive_url(slug=s, version=requested_version or None)
 
         if not archive_url:
             raise HTTPException(status_code=400, detail="archive_url_unavailable")
@@ -216,7 +251,7 @@ def include_skill_routes(
             action="skill_install_started",
             target_id=archive_url,
             status="start",
-            detail={"source": "clawhub", "slug": s, "version": chosen_version, "input_target": s},
+            detail={"source": provider, "slug": s, "version": chosen_version, "input_target": s},
         )
         out = install_skill_from_registry_archive(store=store, archive_url=archive_url, overwrite=overwrite)
         _audit(
@@ -228,7 +263,7 @@ def include_skill_routes(
             detail={
                 "detail": out.detail,
                 "target_dir": out.target_dir,
-                "source": "clawhub",
+                "source": provider,
                 "slug": s,
                 "version": chosen_version,
                 "input_target": archive_url,
@@ -245,6 +280,36 @@ def include_skill_routes(
             },
         }
 
+    @sk.post("/create-workspace")
+    def api_skills_create_workspace(
+        payload: dict[str, Any] | None = Body(default=None),
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        payload = payload or {}
+        store = SqliteStore(db_path())
+        ctx = resolve_auth(store, authorization)
+        _require_admin(ctx)
+        name = str(payload.get("name") or "").strip()
+        desc = str(payload.get("description") or "").strip() or f"{name} workspace skill"
+        runtime_type = str(payload.get("runtime_type") or "python").strip().lower()
+        overwrite = bool(payload.get("overwrite"))
+        out = create_workspace_skill(
+            store=store,
+            name=name,
+            description=desc,
+            runtime_type=runtime_type,
+            overwrite=overwrite,
+        )
+        _audit(
+            store,
+            ctx,
+            action="skill_create_workspace",
+            target_id=out.name or name,
+            status="ok" if out.ok else "fail",
+            detail={"runtime_type": runtime_type, "detail": out.detail, "target_dir": out.target_dir},
+        )
+        return {"ok": bool(out.ok), "result": {"name": out.name, "target_dir": out.target_dir, "detail": out.detail, "error_code": out.error_code, "retryable": bool(out.retryable)}}
+
     @sk.get("/binding")
     def api_skills_binding_get(authorization: str | None = Header(default=None)) -> dict[str, Any]:
         store = SqliteStore(db_path())
@@ -255,6 +320,7 @@ def include_skill_routes(
         return {
             "ok": True,
             "enabled": bool(skill_role_binding_enabled(store=store)),
+            "manager_inherit": str(store.get_setting(SKILL_ROLE_BINDING_MANAGER_INHERIT_SETTING) or "").strip() not in {"0", "false", "False"},
             "available_roles": roles,
             "installed_skills": items,
             "mapping": mapping,
@@ -271,6 +337,8 @@ def include_skill_routes(
         _require_tenant_write(ctx)
         if "enabled" in payload:
             store.set_setting(SKILL_ROLE_BINDING_ENABLED_SETTING, "1" if bool(payload.get("enabled")) else "0")
+        if "manager_inherit" in payload:
+            store.set_setting(SKILL_ROLE_BINDING_MANAGER_INHERIT_SETTING, "1" if bool(payload.get("manager_inherit")) else "0")
         roles, _prev_mapping, valid = _normalized_skill_binding(store)
         mapping_raw = payload.get("mapping") if isinstance(payload.get("mapping"), dict) else {}
         mapping = normalize_skill_role_binding(
@@ -290,6 +358,7 @@ def include_skill_routes(
         return {
             "ok": True,
             "enabled": bool(skill_role_binding_enabled(store=store)),
+            "manager_inherit": str(store.get_setting(SKILL_ROLE_BINDING_MANAGER_INHERIT_SETTING) or "").strip() not in {"0", "false", "False"},
             "available_roles": roles,
             "mapping": mapping,
         }
@@ -455,6 +524,38 @@ def include_skill_routes(
         _audit(store, ctx, action="skill_disable", target_id=name, status="ok")
         return {"ok": True}
 
+    @sk.post("/uninstall")
+    def api_skills_uninstall(
+        payload: dict[str, Any] | None = Body(default=None),
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        payload = payload or {}
+        store = SqliteStore(db_path())
+        ctx = resolve_auth(store, authorization)
+        _require_admin(ctx)
+        name = str(payload.get("name") or "").strip()
+        if not name:
+            raise HTTPException(status_code=400, detail="name_required")
+        out = uninstall_skill(store=store, skill_name=name)
+        _audit(
+            store,
+            ctx,
+            action="skill_uninstall_finished" if out.ok else "skill_uninstall_failed",
+            target_id=out.name or name,
+            status="ok" if out.ok else "fail",
+            detail={"detail": out.detail, "target_dir": out.target_dir},
+        )
+        return {
+            "ok": bool(out.ok),
+            "result": {
+                "name": out.name,
+                "target_dir": out.target_dir,
+                "detail": out.detail,
+                "error_code": out.error_code,
+                "retryable": bool(out.retryable),
+            },
+        }
+
     @sk.post("/auto-install")
     def api_skills_auto_install(
         payload: dict[str, Any] | None = Body(default=None),
@@ -581,11 +682,24 @@ def include_skill_routes(
             raise HTTPException(status_code=500, detail="tool_registry_unavailable")
         spec = tools.get(name)
         if spec is None:
-            raise HTTPException(status_code=404, detail="tool_not_found")
-        try:
-            result = spec.handler(dict(args))
-        except Exception as exc:
-            result = {"ok": False, "error_code": "exception", "error": f"{type(exc).__name__}:{exc}"}
+            # Skill prompt mode: toolcall may be disabled, fallback to direct runtime execution from manifest.
+            mf = next((m for m in discover_workspace_skill_manifests() if str(m.name or "").strip() == name), None)
+            if mf is None:
+                raise HTTPException(status_code=404, detail="tool_not_found")
+            runtime = dict(mf.runtime or {}) if isinstance(mf.runtime, dict) else {}
+            if not runtime:
+                raise HTTPException(status_code=400, detail="skill_not_executable")
+            result = run_skill_runtime_entry(
+                skill_name=str(mf.name or ""),
+                skill_dir=str(mf.skill_dir or ""),
+                runtime=runtime,
+                args=dict(args),
+            )
+        else:
+            try:
+                result = spec.handler(dict(args))
+            except Exception as exc:
+                result = {"ok": False, "error_code": "exception", "error": f"{type(exc).__name__}:{exc}"}
 
         _audit(
             store,
@@ -596,6 +710,61 @@ def include_skill_routes(
             detail={"args_keys": list(args.keys()), "result_ok": bool((result or {}).get("ok"))},
         )
         return {"ok": True, "name": name, "result": result}
+
+    @sk.get("/self-check")
+    def api_skills_self_check(
+        include_execution: bool = False,
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        store = SqliteStore(db_path())
+        ctx = resolve_auth(store, authorization)
+        _require_admin(ctx)
+        manifests = discover_workspace_skill_manifests()
+        executable = [m for m in manifests if isinstance(m.runtime, dict) and bool(m.runtime)]
+        invalid_entries = []
+        execution_checks = []
+        classification_counts: dict[str, int] = {}
+
+        def _bump(code: str) -> None:
+            k = str(code or "unknown").strip() or "unknown"
+            classification_counts[k] = int(classification_counts.get(k) or 0) + 1
+
+        for m in executable:
+            entry = str((m.runtime or {}).get("entry") or "").strip().replace("\\", "/")
+            if not entry:
+                invalid_entries.append({"name": m.name, "error": "runtime_entry_missing"})
+                _bump("runtime_entry_missing")
+                continue
+            p = (Path(m.skill_dir) / entry).resolve()
+            if not p.exists():
+                invalid_entries.append({"name": m.name, "error": f"runtime_entry_not_found:{entry}"})
+                _bump("runtime_entry_not_found")
+                continue
+            if include_execution:
+                rr = run_skill_runtime_entry(
+                    skill_name=str(m.name or ""),
+                    skill_dir=str(m.skill_dir or ""),
+                    runtime=dict(m.runtime or {}),
+                    args={},
+                )
+                row = {"name": m.name, "ok": bool(rr.get("ok")), "error_code": str(rr.get("error_code") or "")}
+                if bool(rr.get("stdout_truncated")) or bool(rr.get("stderr_truncated")):
+                    row["output_truncated"] = True
+                    _bump("output_truncated")
+                if not bool(rr.get("ok")):
+                    _bump(str(rr.get("error_code") or "runtime_error"))
+                execution_checks.append(row)
+        return {
+            "ok": True,
+            "skills_total": len(manifests),
+            "executable_total": len(executable),
+            "invalid_runtime_entries": invalid_entries,
+            "execution_checked": bool(include_execution),
+            "execution_checked_total": len(execution_checks),
+            "execution_checks": execution_checks,
+            "classification_counts": classification_counts,
+            "market_provider": str(store.get_setting("AIA_SKILL_MARKET_PROVIDER") or "clawhub"),
+        }
 
     router.include_router(sk)
 

@@ -16,6 +16,7 @@ from oclaw.runtime.tools.base import ToolSpec
 from oclaw.runtime.tools.catalog import _is_truthy
 from oclaw.runtime.tools.expert_registry import materialize_tools_for_expert, preview_expert_tools
 from oclaw.runtime.tools.mcp.adapter import materialize_mcp_tools_for_specialist
+from oclaw.runtime.tools.plugin_loader import materialize_plugin_tools
 from oclaw.runtime.tools.public_registry import materialize_public_tools, preview_public_tools
 
 
@@ -118,6 +119,18 @@ def build_internal_tool_specs(
         "skipped_expert": list(exp_diag.get("skipped") or []),
         "source_by_name": source_by_name,
     }
+    plugin_rows = materialize_plugin_tools()
+    for row in plugin_rows:
+        spec = getattr(row, "tool", None)
+        if not isinstance(spec, ToolSpec):
+            continue
+        nm = str(spec.name or "").strip()
+        if not nm or nm in seen:
+            continue
+        seen.add(nm)
+        merged.append(spec)
+        source_by_name[nm] = "plugin"
+    diag["plugin_count"] = len(plugin_rows)
     return merged, diag
 
 

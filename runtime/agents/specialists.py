@@ -5,6 +5,7 @@ import json
 from typing import Any
 
 from oclaw.runtime.agent_context import build_role_system_context
+from oclaw.runtime.workspaces.experts import discover_specialist_ids_from_workspaces
 
 
 SpecialistId = str
@@ -38,36 +39,51 @@ SPECIALISTS: dict[SpecialistId, SpecialistConfig] = {
         expert_name="generalist",
         default_tool_tags=None,
     ),
-    "memory_curator": SpecialistConfig(
-        specialist_id="memory_curator",
-        expert_name="memory_curator",
+    "memory": SpecialistConfig(
+        specialist_id="memory",
+        expert_name="memory",
         default_tool_tags=None,
     ),
 }
-SPECIALIST_IDS: tuple[SpecialistId, ...] = tuple(SPECIALISTS.keys())
+
+def discover_specialist_ids() -> tuple[SpecialistId, ...]:
+    return discover_specialist_ids_from_workspaces(base_order=("generalist", "ops", "image", "memory"))
+
+
+SPECIALIST_IDS: tuple[SpecialistId, ...] = discover_specialist_ids()
 AGENT_ROLE_IDS: tuple[AgentRoleId, ...] = (MANAGER_AGENT_ID, *SPECIALIST_IDS)
 
 
 def expert_name_for_specialist(specialist_id: SpecialistId) -> str:
-    cfg = SPECIALISTS.get(specialist_id) or SPECIALISTS["generalist"]
+    sid = normalize_specialist_id(specialist_id)
+    cfg = SPECIALISTS.get(sid) or SPECIALISTS["generalist"]
     return cfg.expert_name
 
 
 def default_tool_tags_for_specialist(specialist_id: SpecialistId) -> frozenset[str] | None:
-    cfg = SPECIALISTS.get(specialist_id) or SPECIALISTS["generalist"]
+    sid = normalize_specialist_id(specialist_id)
+    cfg = SPECIALISTS.get(sid) or SPECIALISTS["generalist"]
     return cfg.default_tool_tags
 
 
 def default_system_prefix_for_specialist(specialist_id: SpecialistId, lang: str = "zh") -> str:
-    sid = (specialist_id or "").strip().lower() or "generalist"
-    cfg = SPECIALISTS.get(sid) or SPECIALISTS["generalist"]
+    sid = normalize_specialist_id(specialist_id)
     _ = (lang or "zh").strip().lower()
-    return build_role_system_context(cfg.specialist_id)
+    return build_role_system_context(sid)
 
 
 def model_role_for_specialist(specialist_id: SpecialistId) -> AgentRoleId:
+    sid = normalize_specialist_id(specialist_id)
+    if sid in SPECIALIST_IDS:
+        return sid
+    return "generalist"
+
+
+def normalize_specialist_id(specialist_id: SpecialistId | None) -> SpecialistId:
     sid = (specialist_id or "").strip().lower()
     if sid in SPECIALISTS:
+        return sid
+    if sid in discover_specialist_ids():
         return sid
     return "generalist"
 
@@ -117,7 +133,9 @@ __all__ = [
     "SPECIALIST_IDS",
     "default_system_prefix_for_specialist",
     "default_tool_tags_for_specialist",
+    "discover_specialist_ids",
     "expert_name_for_specialist",
     "model_role_for_specialist",
+    "normalize_specialist_id",
     "parse_agent_profile_bindings",
 ]

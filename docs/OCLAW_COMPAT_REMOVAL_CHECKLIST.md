@@ -17,7 +17,7 @@ Use this checklist to verify readiness and post-delete safety for `oclaw/app_ser
 - [x] Plugin bootstrap still loads expected extension set.
 
 ## Prompt/skill checks
-- [x] Runtime role context still loads from `oclaw/runtime/assets/agent_workspaces/*`.
+- [x] Runtime role context now loads from `oclaw/runtime/workspaces/*`.
 - [x] Skill root priority still effective:
   - [x] `AIA_SKILLS_ROOT`
   - [x] `oclaw/runtime/skills`

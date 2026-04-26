@@ -29,10 +29,19 @@ def materialize_executable_skill_tools(*, store: Any | None = None) -> list[Tool
         def _handler(args: dict[str, Any], *, _manifest=m, _rt=rt) -> dict[str, Any]:
             from oclaw.runtime.tools.skills_runtime.subprocess_exec import run_skill_runtime_entry
 
+            source_meta = {}
+            if isinstance(getattr(_manifest, "metadata_oclaw", None), dict):
+                source_raw = _manifest.metadata_oclaw.get("source")
+                if isinstance(source_raw, dict):
+                    source_meta = {
+                        "provider": str(source_raw.get("provider") or ""),
+                        "version": str(source_raw.get("version") or ""),
+                        "kind": str(source_raw.get("kind") or ""),
+                    }
             return run_skill_runtime_entry(
                 skill_name=str(_manifest.name or ""),
                 skill_dir=str(_manifest.skill_dir or ""),
-                runtime=dict(_rt),
+                runtime={**dict(_rt), "__source_meta": source_meta},
                 args=dict(args or {}),
             )
 

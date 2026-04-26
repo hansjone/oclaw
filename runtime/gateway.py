@@ -4,12 +4,13 @@ import json
 import os
 import time
 import uuid
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Optional
 
 from oclaw.runtime.agents.factory import build_ephemeral_executor
-from oclaw.runtime.agent_context import build_role_system_context
+from oclaw.runtime.hooks.eligibility_from_metadata import hook_eligibility_from_message_metadata
 from oclaw.runtime.hooks_runtime import (
     get_active_hooks_config,
     initialize_hooks_runtime,
@@ -17,6 +18,7 @@ from oclaw.runtime.hooks_runtime import (
 )
 from oclaw.runtime.relay_pointer import summarize_relay_ttl
 from oclaw.runtime.skills import build_skill_manifest
+from oclaw.runtime.prompt_prebuild import get_manager_prompt_prebuild
 from oclaw.runtime.types import (
     OclawSessionContext,
     StandardMessage,
@@ -25,10 +27,10 @@ from oclaw.runtime.types import (
 )
 from oclaw.platform.config.paths import PROJECT_ROOT
 from oclaw.prompts import render_prompt
-from oclaw.prompts.loader import render_runtime_prompt
 
 from oclaw.runtime.command_parser import parse_internal_command
 from oclaw.runtime.core.agent_execution import AgentCoreRunInput, build_memory_context, run_agent_core
+from oclaw.runtime.memory_stage import after_turn_memory
 from oclaw.runtime.router import decide_route
 from oclaw.runtime.worker import ensure_worker_started
 from oclaw.runtime.orchestration.trace import new_span_id, new_trace_id
@@ -47,6 +49,13 @@ _OC_STAGE_BY_EVENT: dict[str, str] = {
 _SPECIALIST_FLAGS_SETTING_KEY = "AIA_CHAT_SPECIALIST_FLAGS_JSON"
 _DEFAULT_TABULAR_PREVIEW_ROWS = 20
 _DEFAULT_TABULAR_ROWS_READ = 5000
+_SESSION_TITLE_MAX_LEN = 120
+_TITLE_TRIGGER_ROUND = 3
+_TITLE_BODIES_MAX_CHARS = 4000
+_AUTO_TITLE_STAGE_KEY_PREFIX = "AIA_SESSION_AUTO_TITLE_STAGE:"
+_SKILL_MANIFEST_CACHE_LOCK = threading.Lock()
+_SKILL_MANIFEST_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
+_SKILL_MANIFEST_CACHE_TTL_SEC = 5.0
 
 
 @dataclass(frozen=True)
@@ -120,72 +129,272 @@ class OclawGateway:
             "reason": reason or "dynamic_agent_selected",
         }
 
+    def _maybe_generate_title_on_third_round(self, *, msg: StandardMessage, model: Any | None) -> None:
+        """Generate title once on round-3 using user text only (no tools/reasoning context)."""
+        if model is None or not callable(getattr(model, "chat", None)):
+            return
+        sid = str(msg.session_id or "").strip()
+        if not sid:
+            return
+        try:
+            stage_raw = str(self.store.get_setting(f"{_AUTO_TITLE_STAGE_KEY_PREFIX}{sid}") or "").strip()
+        except Exception:
+            stage_raw = ""
+        try:
+            sess = self.store.get_session(sid)
+        except Exception:
+            sess = None
+        if not sess:
+            return
+        cur_title = str(getattr(sess, "title", "") or "").strip()
+        # Two-stage naming:
+        # - stage "1": renamed from first user message
+        # - stage "3": renamed on third user message (final)
+        if stage_raw == "3":
+            return
+        if (cur_title not in ("新会话", "New Chat")) and (stage_raw != "1"):
+            return
+        try:
+            rows = self.store.get_messages(session_id=sid, limit=200)
+        except Exception:
+            rows = []
+        bodies: list[str] = []
+        for r in rows or []:
+            role = str(getattr(r, "role", "") or "").strip().lower()
+            if role != "user":
+                continue
+            txt = str(getattr(r, "content", "") or "").strip()
+            if txt:
+                bodies.append(txt)
+        cur_txt = str(msg.text or "").strip()
+        if cur_txt:
+            bodies.append(cur_txt)
+        if len(bodies) != _TITLE_TRIGGER_ROUND:
+            return
+        body = "\n".join(f"{i+1}. {t}" for i, t in enumerate(bodies))
+        body = body[:_TITLE_BODIES_MAX_CHARS]
+        try:
+            lang_is_en = str(msg.metadata.get("lang") if isinstance(msg.metadata, dict) else "").lower().startswith("en")
+            sys = (
+                "Generate a concise chat title from these user messages only. "
+                "Use the dominant language used by the user content body. "
+                "Return title text only, no quotes, no markdown, max 18 chars."
+                if lang_is_en
+                else "仅基于以下用户正文生成简短会话标题。请使用对话内容主体语言命名。"
+                "只返回标题文本，不要引号，不要markdown，最多18个字。"
+            )
+            resp = model.chat(
+                [{"role": "system", "content": sys}, {"role": "user", "content": body}],
+                [],
+                on_token=None,
+            )
+            title = str(getattr(resp, "content", "") or "").strip().replace("\n", " ")
+            title = title.strip("\"'` ").strip()
+            if not title:
+                return
+            self.store.rename_session(sid, title[:_SESSION_TITLE_MAX_LEN])
+            try:
+                self.store.set_setting(f"{_AUTO_TITLE_STAGE_KEY_PREFIX}{sid}", "3")
+            except Exception:
+                pass
+        except Exception:
+            return
+
+    def _maybe_rename_from_first_user_message(
+        self,
+        *,
+        session_id: str,
+        user_text: str,
+        attachments: list[dict[str, Any]] | None,
+    ) -> None:
+        sid = str(session_id or "").strip()
+        if not sid:
+            return
+        try:
+            stage_raw = str(self.store.get_setting(f"{_AUTO_TITLE_STAGE_KEY_PREFIX}{sid}") or "").strip()
+        except Exception:
+            stage_raw = ""
+        if stage_raw in ("1", "3"):
+            return
+        try:
+            sess = self.store.get_session(sid)
+        except Exception:
+            sess = None
+        if not sess:
+            return
+        cur_title = str(getattr(sess, "title", "") or "").strip()
+        if cur_title not in ("新会话", "New Chat"):
+            return
+        try:
+            rows = self.store.get_messages(session_id=sid, limit=20)
+        except Exception:
+            rows = []
+        user_count = 0
+        for r in rows or []:
+            if str(getattr(r, "role", "") or "").strip().lower() == "user":
+                user_count += 1
+        # First user turn only.
+        if user_count > 1:
+            return
+        title = str(user_text or "").strip().replace("\n", " ")
+        if not title:
+            atts = attachments if isinstance(attachments, list) else []
+            if atts and isinstance(atts[0], dict):
+                title = str(atts[0].get("name") or "").strip()
+        if not title:
+            return
+        try:
+            self.store.rename_session(sid, title[:_SESSION_TITLE_MAX_LEN])
+            try:
+                self.store.set_setting(f"{_AUTO_TITLE_STAGE_KEY_PREFIX}{sid}", "1")
+            except Exception:
+                pass
+        except Exception:
+            pass
+
     def _manager_select_specialist(
         self,
         *,
         msg: StandardMessage,
         lang: str,
         executor: Any,
-        memory_curator_enabled: bool,
-        skill_names_preview: list[str] | None = None,
-    ) -> tuple[str, str, dict[str, Any] | None]:
+        memory_enabled: bool,
+    ) -> tuple[str, str, dict[str, Any] | None, str, bool, bool | None, str, str, str]:
         model = getattr(executor, "model", None)
         if model is None or not callable(getattr(model, "chat", None)):
-            return ("generalist", "manager_model_missing", None)
+            return ("generalist", "manager_model_missing", None, "", False, None, "", "", "")
         try:
-            manager_context = build_role_system_context("generalist")
-            allowed_fixed = ["ops", "generalist", "image"]
-            if memory_curator_enabled:
-                allowed_fixed.append("memory_curator")
-            allowed_fixed_csv = ",".join(allowed_fixed)
-            allowed_fixed_quoted = ", ".join([f'"{x}"' for x in allowed_fixed])
-            user_block = render_runtime_prompt(
-                "manager/decision.md",
-                variables={"agent_registry": f"specialists: {allowed_fixed_csv}"},
-                strict=True,
+            registry = getattr(executor, "tools", None)
+            base_url = str(getattr(model, "base_url", "") or "")
+            if registry is None:
+                return ("generalist", "manager_tools_missing", None, "", False, None, "", "", "")
+            pack = get_manager_prompt_prebuild(
+                store=self.store,
+                registry=registry,
+                base_url=base_url,
+                memory_enabled=memory_enabled,
             )
+            manager_context = str(pack.get("manager_context") or "")
+            allowed_fixed = [str(x).strip().lower() for x in (pack.get("allowed_fixed") or []) if str(x).strip()]
+            allowed_fixed_quoted = str(pack.get("allowed_fixed_quoted") or "")
             messages = [
                 {
                     "role": "system",
                     "content": (
                         f"{manager_context}\n\n"
-                        "Return exactly one compact JSON object with route.specialist and route.reason. "
+                        "Return exactly one compact JSON object with route.specialist, route.reason, and "
+                        "dispatch.instruction_text. "
                         f"Allowed fixed specialists: {allowed_fixed_quoted}. "
-                        "If none fits, you may set route.specialist to a custom id and include dynamic_agent with "
+                        "If route.specialist is NOT a fixed specialist, you MUST include dynamic_agent with "
                         "name/system_prompt/tool_policy(allow_tags/allow_tools)/reason."
                     ),
                 },
                 {
                     "role": "user",
                     "content": (
-                        f"{user_block}\n\n"
-                        f"Visible skills preview: {', '.join(skill_names_preview or [])}\n\n"
-                        f"User request:\n{str(msg.text or '').strip()}"
+                        f"User request:\n{str(msg.text or '').strip()}\n\n"
+                        "Return JSON only."
                     ),
                 },
             ]
             resp = model.chat(messages, [], on_token=None)
             obj = self._parse_json_object(str(getattr(resp, "content", "") or ""))
+            if not isinstance(obj, dict):
+                return ("generalist", "manager_json_missing", None, "", False, None, "", "", "")
             route = obj.get("route") if isinstance(obj, dict) else None
             if not isinstance(route, dict):
-                return ("generalist", "manager_route_missing", None)
+                return ("generalist", "manager_route_missing", None, "", False, None, "", "", "")
+            route_kind = str(route.get("kind") or "").strip().lower()
             raw_specialist = str(route.get("specialist") or "").strip().lower()
-            fixed_set = {"ops", "generalist", "image"}
-            if memory_curator_enabled:
-                fixed_set.add("memory_curator")
+            fixed_set = set([str(x).strip().lower() for x in allowed_fixed if str(x).strip()])
             fixed = raw_specialist in fixed_set
             specialist = normalize_requested_specialist(raw_specialist) if fixed else raw_specialist
             reason = str(route.get("reason") or "").strip() or "manager_selected"
+            dispatch = obj.get("dispatch") if isinstance(obj, dict) else None
+            instruction_text = ""
+            if isinstance(dispatch, dict):
+                instruction_text = str(dispatch.get("instruction_text") or "").strip()
+            if not instruction_text:
+                return ("generalist", "manager_instruction_missing", None, "", False, None, "", "")
+            need_wiki_inject: bool | None = None
+            wiki_query = ""
+            memory_write_text = ""
+            post_reply_memory_write_text = ""
+            route_need = route.get("need_wiki_inject") if isinstance(route, dict) else None
+            if isinstance(route_need, bool):
+                need_wiki_inject = bool(route_need)
+            elif isinstance(dispatch, dict) and isinstance(dispatch.get("need_wiki_inject"), bool):
+                need_wiki_inject = bool(dispatch.get("need_wiki_inject"))
+            route_wq = route.get("wiki_query") if isinstance(route, dict) else None
+            if isinstance(route_wq, str):
+                wiki_query = str(route_wq).strip()
+            elif isinstance(dispatch, dict) and isinstance(dispatch.get("wiki_query"), str):
+                wiki_query = str(dispatch.get("wiki_query") or "").strip()
+            wiki_query = wiki_query[:300]
+            if isinstance(dispatch, dict) and isinstance(dispatch.get("memory_write_text"), str):
+                memory_write_text = str(dispatch.get("memory_write_text") or "").strip()[:4000]
+            if isinstance(dispatch, dict) and isinstance(dispatch.get("post_reply_memory_write_text"), str):
+                post_reply_memory_write_text = str(dispatch.get("post_reply_memory_write_text") or "").strip()[:4000]
+            if bool(need_wiki_inject) and not str(wiki_query or "").strip():
+                return ("generalist", "manager_wiki_query_missing", None, instruction_text, False, False, "", "", "")
+            # Allow manager to directly execute wiki/memory tasks.
+            if route_kind == "manager_memory":
+                if not memory_write_text:
+                    return ("generalist", "manager_memory_write_missing", None, instruction_text, False, need_wiki_inject, wiki_query, "", post_reply_memory_write_text)
+                return ("manager", reason or "manager_memory", None, instruction_text, True, need_wiki_inject, wiki_query, memory_write_text, post_reply_memory_write_text)
             dynamic_agent = self._parse_dynamic_agent(obj.get("dynamic_agent") if isinstance(obj, dict) else None)
-            if specialist == "memory_curator" and not memory_curator_enabled:
-                return ("generalist", "memory_curator_disabled_fallback", None)
+            if specialist == "memory" and not memory_enabled:
+                return ("generalist", "memory_disabled_fallback", None, instruction_text, False, need_wiki_inject, wiki_query, memory_write_text, post_reply_memory_write_text)
             if not fixed and dynamic_agent is None:
-                return ("generalist", "dynamic_agent_invalid_fallback", None)
-            return (specialist, reason, dynamic_agent)
+                return ("generalist", "dynamic_agent_invalid_fallback", None, instruction_text, False, need_wiki_inject, wiki_query, memory_write_text, post_reply_memory_write_text)
+            return (specialist, reason, dynamic_agent, instruction_text, False, need_wiki_inject, wiki_query, memory_write_text, post_reply_memory_write_text)
         except Exception:
-            return ("generalist", "manager_select_failed", None)
+            return ("generalist", "manager_select_failed", None, "", False, None, "", "", "")
 
-    def _memory_curator_enabled(self) -> bool:
+    def _manager_finalize_output(
+        self,
+        *,
+        msg: StandardMessage,
+        lang: str,
+        executor: Any,
+        specialist: str,
+        specialist_reply: str,
+        memory_enabled: bool,
+        on_token: Optional[Callable[[str], None]] = None,
+    ) -> str:
+        model = getattr(executor, "model", None)
+        if model is None or not callable(getattr(model, "chat", None)):
+            return str(specialist_reply or "")
+        try:
+            registry = getattr(executor, "tools", None)
+            base_url = str(getattr(model, "base_url", "") or "")
+            if registry is None:
+                return str(specialist_reply or "")
+            pack = get_manager_prompt_prebuild(
+                store=self.store,
+                registry=registry,
+                base_url=base_url,
+                memory_enabled=memory_enabled,
+            )
+            manager_context = str(pack.get("manager_context") or "")
+            user_text = (
+                "请基于以下信息输出最终答复。\n\n"
+                f"原始用户问题:\n{str(msg.text or '').strip()}\n\n"
+                f"已调用专家: {str(specialist or '').strip()}\n\n"
+                f"专家结果:\n{str(specialist_reply or '').strip()}\n\n"
+                "要求：保持简洁、准确，不要暴露内部流程。"
+            )
+            resp = model.chat(
+                [{"role": "system", "content": manager_context}, {"role": "user", "content": user_text}],
+                [],
+                on_token=on_token,
+            )
+            final_text = str(getattr(resp, "content", "") or "").strip()
+            return final_text or str(specialist_reply or "")
+        except Exception:
+            return str(specialist_reply or "")
+
+    def _memory_enabled(self) -> bool:
         raw = str(self.store.get_setting(_SPECIALIST_FLAGS_SETTING_KEY) or "").strip()
         if not raw:
             return True
@@ -195,7 +404,7 @@ class OclawGateway:
             return True
         if not isinstance(obj, dict):
             return True
-        return bool(obj.get("memory_curator", True))
+        return bool(obj.get("memory", True))
 
     @staticmethod
     def _has_tabular_ref_attachments(msg: StandardMessage) -> bool:
@@ -317,6 +526,7 @@ class OclawGateway:
         event_type: str,
         payload: dict[str, Any],
         started_at: float | None = None,
+        trace_sink: list[dict[str, Any]] | None = None,
     ) -> None:
         merged: dict[str, Any] = dict(payload or {})
         merged.setdefault("pipeline", "oclaw_gateway")
@@ -325,15 +535,19 @@ class OclawGateway:
         merged["oc_stage"] = _OC_STAGE_BY_EVENT.get(event_type, event_type)
         if started_at is not None:
             merged["elapsed_ms_since_gateway_start"] = int((time.perf_counter() - started_at) * 1000)
+        row = {
+            "session_id": ctx.session_id,
+            "trace_id": ctx.trace_id,
+            "span_id": new_span_id(),
+            "parent_span_id": ctx.parent_span_id,
+            "event_type": event_type,
+            "payload": merged,
+        }
+        if trace_sink is not None:
+            trace_sink.append(row)
+            return
         try:
-            self.store.add_trace_event(
-                session_id=ctx.session_id,
-                trace_id=ctx.trace_id,
-                span_id=new_span_id(),
-                parent_span_id=ctx.parent_span_id,
-                event_type=event_type,
-                payload=merged,
-            )
+            self.store.add_trace_event(**row)
         except Exception:
             pass
 
@@ -351,6 +565,18 @@ class OclawGateway:
         specialist_executor_factory: Optional[Callable[[str], Any]] = None,
     ) -> OclawGatewayResult:
         t0 = time.perf_counter()
+        ws_received_ms = None
+        try:
+            if isinstance(msg.metadata, dict):
+                v = (
+                    msg.metadata.get("ws_client_send_ms")
+                    or msg.metadata.get("client_send_ms")
+                    or msg.metadata.get("ws_accepted_ms")
+                )
+                if v is not None:
+                    ws_received_ms = int(v)
+        except Exception:
+            ws_received_ms = None
         trace_id = new_trace_id()
         rid = str(run_id or "").strip() or str(uuid.uuid4())
         ctx = OclawSessionContext(
@@ -363,11 +589,34 @@ class OclawGateway:
             trace_id=trace_id,
             parent_span_id=None,
         )
+        trace_rows: list[dict[str, Any]] = []
+
+        def _trace_local(*, event_type: str, payload: dict[str, Any], started_at: float | None = None) -> None:
+            self._trace(ctx=ctx, event_type=event_type, payload=payload, started_at=started_at, trace_sink=trace_rows)
+
+        def _flush_trace_rows() -> None:
+            if not trace_rows:
+                return
+            try:
+                self.store.add_trace_events_batch(trace_rows)
+                trace_rows.clear()
+            except Exception:
+                # Fallback: stores used by unit tests may not implement batch insert.
+                try:
+                    for row in list(trace_rows):
+                        try:
+                            self.store.add_trace_event(**row)
+                        except Exception:
+                            continue
+                    trace_rows.clear()
+                except Exception:
+                    pass
         relay_stats = self._relay_pointer_stats(msg)
         ttl_stats = summarize_relay_ttl(msg.metadata.get("relay_share_envelope") if isinstance(msg.metadata, dict) else None)
         workspace_dir = self._resolve_workspace_dir(msg)
         if workspace_dir:
-            initialize_hooks_runtime(cfg=None, workspace_dir=workspace_dir)
+            elig = hook_eligibility_from_message_metadata(msg.metadata if isinstance(msg.metadata, dict) else None)
+            initialize_hooks_runtime(cfg=None, workspace_dir=workspace_dir, eligibility=elig)
             try:
                 if isinstance(msg.metadata, dict) and "workspaceDir" not in msg.metadata and "workspace_dir" not in msg.metadata:
                     msg.metadata["workspaceDir"] = workspace_dir
@@ -375,6 +624,12 @@ class OclawGateway:
                 pass
 
         parsed_cmd = parse_internal_command(str(msg.text or ""))
+        self._maybe_rename_from_first_user_message(
+            session_id=str(msg.session_id or ""),
+            user_text=str(msg.text or ""),
+            attachments=list(msg.attachments or []),
+        )
+        self._maybe_generate_title_on_third_round(msg=msg, model=getattr(executor, "model", None))
         if parsed_cmd and parsed_cmd.action == "new":
             trigger_hook_event(
                 event_type="command",
@@ -390,14 +645,19 @@ class OclawGateway:
                 context=self._build_command_hook_context(msg=msg, workspace_dir=workspace_dir),
             )
 
-        self._trace(
-            ctx=ctx,
+        _trace_local(
             event_type="gateway_received",
-            payload={"channel": msg.channel, "has_attachments": bool(msg.attachments), **relay_stats, **ttl_stats},
+            payload={
+                "channel": msg.channel,
+                "has_attachments": bool(msg.attachments),
+                "run_id": rid,
+                "ws_client_send_ms": ws_received_ms,
+                **relay_stats,
+                **ttl_stats,
+            },
             started_at=t0,
         )
-        self._trace(
-            ctx=ctx,
+        _trace_local(
             event_type="gateway_normalized",
             payload={"text_chars": len(msg.text or ""), "metadata_keys": sorted(list(msg.metadata.keys()))[:20]},
             started_at=t0,
@@ -408,13 +668,29 @@ class OclawGateway:
             reg = getattr(executor, "tools", None)
             base_url = str(getattr(getattr(executor, "model", None), "base_url", "") or "")
             if reg is not None:
-                _, stats = build_skill_manifest(registry=reg, store=self.store, base_url=base_url)
-                skill_stats = dict(stats or {})
-                self._trace(ctx=ctx, event_type="skill_manifest", payload={"base_url": base_url, **skill_stats}, started_at=t0)
+                cache_key = (
+                    f"base={base_url}|skill_rt={str(self.store.get_setting('AIA_SKILL_RUNTIME_ENABLED') or '')}|"
+                    f"skill_disabled={str(self.store.get_setting('AIA_SKILL_DISABLED_NAMES') or '')}|"
+                    f"bind_en={str(self.store.get_setting('AIA_SKILL_ROLE_BINDING_ENABLED') or '')}|"
+                    f"bind_inherit={str(self.store.get_setting('AIA_SKILL_ROLE_BINDING_MANAGER_INHERIT') or '')}"
+                )
+                now = time.time()
+                with _SKILL_MANIFEST_CACHE_LOCK:
+                    cached = _SKILL_MANIFEST_CACHE.get(cache_key)
+                    if cached and (now - float(cached[0])) <= _SKILL_MANIFEST_CACHE_TTL_SEC:
+                        skill_stats = dict(cached[1] or {})
+                    else:
+                        _, stats = build_skill_manifest(registry=reg, store=self.store, base_url=base_url)
+                        skill_stats = dict(stats or {})
+                        _SKILL_MANIFEST_CACHE[cache_key] = (now, dict(skill_stats))
+                        if len(_SKILL_MANIFEST_CACHE) > 128:
+                            oldest_key = sorted(_SKILL_MANIFEST_CACHE.items(), key=lambda kv: kv[1][0])[0][0]
+                            _SKILL_MANIFEST_CACHE.pop(oldest_key, None)
+                _trace_local(event_type="skill_manifest", payload={"base_url": base_url, **skill_stats}, started_at=t0)
         except Exception:
             pass
 
-        self._trace(ctx=ctx, event_type="memory_retrieval_started", payload={"session_id": msg.session_id}, started_at=t0)
+        _trace_local(event_type="memory_retrieval_started", payload={"session_id": msg.session_id}, started_at=t0)
         memory_context = build_memory_context(
             store=self.store,
             session_id=msg.session_id,
@@ -422,8 +698,7 @@ class OclawGateway:
             user_id=msg.user_id,
             query_text=msg.text,
         )
-        self._trace(
-            ctx=ctx,
+        _trace_local(
             event_type="memory_retrieval_finished",
             payload={
                 "short_term_count": len(memory_context.short_term),
@@ -434,15 +709,23 @@ class OclawGateway:
         )
 
         base_metadata = dict(msg.metadata or {})
-        memory_curator_enabled = self._memory_curator_enabled()
+        memory_enabled = self._memory_enabled()
         interaction_mode = normalize_interaction_mode(base_metadata.get("interaction_mode"))
         requested_specialist = normalize_requested_specialist(base_metadata.get("selected_specialist"))
-        if requested_specialist == "memory_curator" and not memory_curator_enabled:
+        if requested_specialist == "memory" and not memory_enabled:
             requested_specialist = "generalist"
         manager_specialist = requested_specialist
         dispatch_reason = "expert_direct"
         selected_executor = executor
         dynamic_agent: dict[str, Any] | None = None
+        specialist_input_msg: StandardMessage | None = None
+        manager_exec_msg: StandardMessage | None = None
+        manager_instruction_text = ""
+        manager_memory_mode = False
+        manager_need_wiki_inject: bool | None = None
+        manager_wiki_query = ""
+        manager_memory_write_text = ""
+        manager_post_reply_memory_write_text = ""
 
         if interaction_mode == "expert" and callable(specialist_executor_factory):
             try:
@@ -452,14 +735,92 @@ class OclawGateway:
                 dispatch_reason = "expert_factory_failed"
 
         if interaction_mode == "comprehensive":
-            manager_specialist, dispatch_reason, dynamic_agent = self._manager_select_specialist(
+            (
+                manager_specialist,
+                dispatch_reason,
+                dynamic_agent,
+                instruction_text,
+                manager_memory_mode,
+                manager_need_wiki_inject,
+                manager_wiki_query,
+                manager_memory_write_text,
+                manager_post_reply_memory_write_text,
+            ) = self._manager_select_specialist(
                 msg=msg,
                 lang=lang,
                 executor=executor,
-                memory_curator_enabled=memory_curator_enabled,
-                skill_names_preview=list(skill_stats.get("visible_names_preview") or []),
+                memory_enabled=memory_enabled,
             )
-            if manager_specialist in {"ops", "generalist", "image", "memory_curator"}:
+            manager_instruction_text = str(instruction_text or "").strip()
+            _trace_local(
+                event_type="manager_decision",
+                payload={
+                    "interaction_mode": interaction_mode,
+                    "manager_selected_specialist": str(manager_specialist or ""),
+                    "manager_memory_mode": bool(manager_memory_mode),
+                    "dispatch_reason": str(dispatch_reason or ""),
+                    "instruction_chars": int(len(manager_instruction_text or "")),
+                    "dynamic_agent_used": bool(dynamic_agent is not None),
+                    "dynamic_agent_name": str((dynamic_agent or {}).get("name") or "") if isinstance(dynamic_agent, dict) else "",
+                    "memory_write_chars": int(len(manager_memory_write_text or "")),
+                    "post_reply_memory_write_chars": int(len(manager_post_reply_memory_write_text or "")),
+                },
+                started_at=t0,
+            )
+            # Build specialist/dynamic executor and dispatch only manager instruction to it.
+            specialist_input_msg = StandardMessage(
+                session_id=msg.session_id,
+                tenant_id=msg.tenant_id,
+                user_id=msg.user_id,
+                role=msg.role,
+                channel=msg.channel,
+                text=str(instruction_text or "").strip(),
+                attachments=list(msg.attachments or []),
+                metadata=(
+                    {
+                        **dict(base_metadata),
+                        **(
+                            {"need_wiki_inject": bool(manager_need_wiki_inject)}
+                            if isinstance(manager_need_wiki_inject, bool)
+                            else {}
+                        ),
+                        **(
+                            {"wiki_query": str(manager_wiki_query or "")}
+                            if str(manager_wiki_query or "").strip()
+                            else {}
+                        ),
+                    }
+                ),
+            )
+            manager_exec_msg = StandardMessage(
+                session_id=msg.session_id,
+                tenant_id=msg.tenant_id,
+                user_id=msg.user_id,
+                role=msg.role,
+                channel=msg.channel,
+                text=msg.text,
+                attachments=list(msg.attachments or []),
+                metadata=(
+                    {
+                        **dict(base_metadata),
+                        **(
+                            {"need_wiki_inject": bool(manager_need_wiki_inject)}
+                            if isinstance(manager_need_wiki_inject, bool)
+                            else {}
+                        ),
+                        **(
+                            {"wiki_query": str(manager_wiki_query or "")}
+                            if str(manager_wiki_query or "").strip()
+                            else {}
+                        ),
+                    }
+                ),
+            )
+            if manager_memory_mode:
+                manager_specialist = "manager"
+                selected_executor = executor
+                dispatch_reason = dispatch_reason or "manager_memory"
+            elif manager_specialist in {"ops", "generalist", "image", "memory"}:
                 if callable(specialist_executor_factory):
                     try:
                         selected_executor = specialist_executor_factory(manager_specialist)
@@ -484,40 +845,61 @@ class OclawGateway:
                 except Exception:
                     manager_specialist = "generalist"
                     dispatch_reason = "dynamic_agent_build_failed"
+                    if callable(specialist_executor_factory):
+                        try:
+                            selected_executor = specialist_executor_factory("generalist")
+                        except Exception:
+                            selected_executor = executor
 
-        route_msg = StandardMessage(
-            session_id=msg.session_id,
-            tenant_id=msg.tenant_id,
-            user_id=msg.user_id,
-            role=msg.role,
-            channel=msg.channel,
-            text=msg.text,
-            attachments=list(msg.attachments or []),
-            metadata={
-                **base_metadata,
-                "skills_total": int(skill_stats.get("skills_total") or 0),
-                "interaction_mode": interaction_mode,
-                "requested_specialist": requested_specialist,
-                "manager_selected_specialist": manager_specialist,
-            },
-        )
-        route = decide_route(route_msg, store=self.store, model=getattr(selected_executor, "model", None))
-        self._trace(
-            ctx=ctx,
-            event_type="router_decision",
-            payload={
-                "mode": route.mode,
-                "reason": route.reason,
-                "interaction_mode": interaction_mode,
-                "requested_specialist": requested_specialist,
-                "manager_selected_specialist": manager_specialist,
-                "dispatch_reason": dispatch_reason,
-            },
-            started_at=t0,
-        )
+        route_mode = "sync_direct"
+        if manager_memory_mode:
+            _trace_local(
+                event_type="router_decision",
+                payload={
+                    "mode": route_mode,
+                    "reason": "manager_memory_direct",
+                    "interaction_mode": interaction_mode,
+                    "requested_specialist": requested_specialist,
+                    "manager_selected_specialist": manager_specialist,
+                    "dispatch_reason": dispatch_reason,
+                },
+                started_at=t0,
+            )
+        else:
+            route_msg = StandardMessage(
+                session_id=msg.session_id,
+                tenant_id=msg.tenant_id,
+                user_id=msg.user_id,
+                role=msg.role,
+                channel=msg.channel,
+                text=msg.text,
+                attachments=list(msg.attachments or []),
+                metadata={
+                    **base_metadata,
+                    "skills_total": int(skill_stats.get("skills_total") or 0),
+                    "interaction_mode": interaction_mode,
+                    "requested_specialist": requested_specialist,
+                    "manager_selected_specialist": manager_specialist,
+                },
+            )
+            route = decide_route(route_msg, store=self.store, model=getattr(selected_executor, "model", None))
+            route_mode = str(route.mode or "sync_direct")
+            route_reason = str(route.reason or "")
+            _trace_local(
+                event_type="router_decision",
+                payload={
+                    "mode": route_mode,
+                    "reason": route_reason,
+                    "interaction_mode": interaction_mode,
+                    "requested_specialist": requested_specialist,
+                    "manager_selected_specialist": manager_specialist,
+                    "dispatch_reason": dispatch_reason,
+                },
+                started_at=t0,
+            )
         if on_progress:
             on_progress("oclaw: running…")
-        if route.mode == "async_task":
+        if route_mode == "async_task":
             worker_id = ensure_worker_started(store=self.store)
             task = self.store.oclaw_task_create(
                 tenant_id=msg.tenant_id,
@@ -559,6 +941,7 @@ class OclawGateway:
                 event_type="task_enqueued",
                 payload={"task_id": task.id, "task_type": task.task_type, "worker_id": worker_id, "status": task.status},
                 started_at=t0,
+                trace_sink=trace_rows,
             )
             elapsed_ms = int((time.perf_counter() - t0) * 1000)
             reply = render_prompt(
@@ -566,12 +949,12 @@ class OclawGateway:
                 variables={"task_id": str(task.id)},
                 strict=True,
             )
-            self._trace(
-                ctx=ctx,
+            _trace_local(
                 event_type="response_sent",
                 payload={"ok": True, "elapsed_ms": elapsed_ms, "mode": "async_task", "task_id": str(task.id)},
                 started_at=t0,
             )
+            _flush_trace_rows()
             return OclawGatewayResult(
                 run_id=rid,
                 reply_text=reply,
@@ -611,10 +994,33 @@ class OclawGateway:
                     pass
                 return max(lo, min(int(default), hi))
 
+            _trace_local(
+                event_type="model_chat_start",
+                payload={"run_id": rid, "trace_id": trace_id},
+                started_at=t0,
+            )
+            exec_msg = (
+                (
+                    StandardMessage(
+                        session_id=msg.session_id,
+                        tenant_id=msg.tenant_id,
+                        user_id=msg.user_id,
+                        role=msg.role,
+                        channel=msg.channel,
+                        text=str(manager_memory_write_text or manager_instruction_text or msg.text or ""),
+                        attachments=list(msg.attachments or []),
+                        metadata=(manager_exec_msg.metadata if manager_exec_msg is not None else dict(base_metadata)),
+                    )
+                    if manager_memory_mode
+                    else (manager_exec_msg if manager_exec_msg is not None else msg)
+                )
+                if manager_memory_mode
+                else (specialist_input_msg if (interaction_mode == "comprehensive" and specialist_input_msg is not None) else msg)
+            )
             core_out = run_agent_core(
                 store=self.store,
                 data=AgentCoreRunInput(
-                    msg=msg,
+                    msg=exec_msg,
                     lang=lang,
                     system_prompt=sys_prompt,
                     model=model,
@@ -627,7 +1033,8 @@ class OclawGateway:
                     max_tool_workers=_get_int_setting("AIA_TURN_MAX_TOOL_WORKERS", 8, 1, 32),
                     max_attempts=_get_int_setting("AIA_OCLAW_MAX_ATTEMPTS", 2, 1, 5),
                     memory_context=memory_context,
-                    on_token=on_token,
+                    # manager_memory writes to wiki/memory store; do not stream body to frontend.
+                    on_token=(None if manager_memory_mode else (None if interaction_mode == "comprehensive" else on_token)),
                     on_progress=on_progress,
                     on_tool_ui=on_tool_ui,
                     should_stop=should_stop,
@@ -635,7 +1042,29 @@ class OclawGateway:
                     wire_policy_role="manager" if interaction_mode == "comprehensive" else str(requested_specialist),
                 ),
             )
-            reply = core_out.outcome.final_text
+            specialist_reply = str(core_out.outcome.final_text or "")
+            if manager_memory_mode:
+                # manager_memory: write memory silently, but keep dialog output independent.
+                # User-facing reply comes from manager dispatch instruction_text.
+                reply = str(manager_instruction_text or "").strip()
+                if not reply:
+                    reply = (
+                        "已执行记忆写入。"
+                        if not str(lang or "").startswith("en")
+                        else "Memory write executed."
+                    )
+            elif interaction_mode == "comprehensive":
+                reply = self._manager_finalize_output(
+                    msg=msg,
+                    lang=lang,
+                    executor=executor,
+                    specialist=manager_specialist,
+                    specialist_reply=specialist_reply,
+                    memory_enabled=memory_enabled,
+                    on_token=on_token,
+                )
+            else:
+                reply = specialist_reply
         except Exception as exc:
             base = render_prompt(
                 "fallback/runtime_error.en.md" if str(lang or "").startswith("en") else "fallback/runtime_error.zh.md",
@@ -645,12 +1074,33 @@ class OclawGateway:
             reply = f"{base}\n(detail: {detail})" if detail else base
 
         elapsed_ms = int((time.perf_counter() - t0) * 1000)
-        self._trace(
-            ctx=ctx,
+        if interaction_mode == "comprehensive" and str(manager_post_reply_memory_write_text or "").strip():
+            try:
+                after_turn_memory(
+                    store=self.store,
+                    session_id=msg.session_id,
+                    tenant_id=msg.tenant_id,
+                    user_id=msg.user_id,
+                    user_text=str(msg.text or ""),
+                    assistant_text=str(manager_post_reply_memory_write_text or ""),
+                    turn_uuid="",
+                )
+                _trace_local(
+                    event_type="after_turn_memory",
+                    payload={
+                        "source": "manager_post_reply",
+                        "post_reply_memory_write_chars": int(len(manager_post_reply_memory_write_text or "")),
+                    },
+                    started_at=t0,
+                )
+            except Exception:
+                pass
+        _trace_local(
             event_type="response_sent",
             payload={"ok": bool(str(reply or "").strip()), "elapsed_ms": elapsed_ms, "mode": "sync_direct"},
             started_at=t0,
         )
+        _flush_trace_rows()
         return OclawGatewayResult(
             run_id=rid,
             reply_text=str(reply or ""),

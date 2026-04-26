@@ -271,9 +271,9 @@ def test_skills_status_requires_store_then_lists_skills() -> None:
     assert ok["ok"] is True
     payload = ok["payload"] or {}
     assert isinstance(payload.get("skills"), list)
-    # Repo ships oclaw/runtime/skills/{main,coding,social}
+    # Skill names come from SKILL.md frontmatter (not directory names).
     names = {str(x.get("name")) for x in payload["skills"] if isinstance(x, dict)}
-    assert "main" in names
+    assert "weather" in names
 
 
 def test_system_set_heartbeats_requires_boolean() -> None:

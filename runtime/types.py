@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from typing import Any, Literal
 
 InteractionMode = Literal["comprehensive", "expert"]
-SpecialistId = Literal["generalist", "ops", "image", "memory_curator"]
+SpecialistId = str
 
 ChannelId = Literal[
     "admin_chat",
@@ -46,8 +46,8 @@ def normalize_requested_specialist(raw: Any) -> SpecialistId:
         return "ops"
     if specialist == "image":
         return "image"
-    if specialist in {"memory_curator", "memory-curator", "memory curator"}:
-        return "memory_curator"
+    if specialist == "memory":
+        return "memory"
     return "generalist"
 
 

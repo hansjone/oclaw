@@ -7,11 +7,9 @@ from .validation import error_shape
 
 DEFAULT_AGENT_ID = "main"
 ALLOWED_FILE_NAMES = {
-    "AGENTS.md",
     "SOUL.md",
     "TOOLS.md",
-    "IDENTITY.md",
-    "USER.md",
+    "ROLE_SYSTEM.md",
     "HEARTBEAT.md",
     "BOOTSTRAP.md",
     "memory/README.md",

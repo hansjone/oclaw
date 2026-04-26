@@ -68,7 +68,7 @@ def test_collect_unfiltered_when_binding_disabled(tmp_path: Path, monkeypatch) -
         skill_binding_role="generalist",
     )
     names = {e[0] for e in entries}
-    assert "solo-skill" not in names
+    assert "solo-skill" in names
 
 
 def test_normalize_drops_unknown_skills(tmp_path: Path) -> None:

@@ -40,6 +40,12 @@ def build_gateway_context(
         if not sid or not txt:
             return False
         rid = str(run_id or "").strip() or uuid.uuid4().hex
+        try:
+            existing = store.oclaw_run_get(run_id=rid)
+            if existing is not None:
+                return True
+        except Exception:
+            pass
         with abort_lock:
             active_run_session[rid] = sid
         p = dict(params or {})
@@ -61,7 +67,11 @@ def build_gateway_context(
             "acp_child_run_id": str(p.get("acp_child_run_id") or ""),
             "runId": rid,
         }
-        asyncio.create_task(run_agent_turn("server_methods.chat.send", agent_params, session_id=sid, send_response=False))
+        async def _delayed() -> None:
+            await asyncio.sleep(0.05)
+            await run_agent_turn("server_methods.chat.send", agent_params, session_id=sid, send_response=False)
+
+        asyncio.create_task(_delayed())
         return True
 
     def _run_agent(params: dict[str, Any]) -> dict[str, Any]:
@@ -89,7 +99,11 @@ def build_gateway_context(
         }
         with abort_lock:
             active_run_session[str(run_id)] = str(session_id)
-        asyncio.create_task(run_agent_turn("server_methods.agent", agent_params, session_id=session_id, send_response=False))
+        async def _delayed() -> None:
+            await asyncio.sleep(0.05)
+            await run_agent_turn("server_methods.agent", agent_params, session_id=session_id, send_response=False)
+
+        asyncio.create_task(_delayed())
         return {"runId": run_id, "status": "started"}
 
     def _enqueue_session_send(session_key: str, message: str, params: dict[str, Any]) -> dict[str, Any]:

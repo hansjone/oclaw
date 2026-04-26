@@ -1,6 +1,7 @@
 param(
     [switch]$SkipInstall = $false,
-    [switch]$Background = $false
+    [switch]$Background = $false,
+    [bool]$WithWikiWorker = $true
 )
 
 $ErrorActionPreference = "Stop"
@@ -10,5 +11,5 @@ if (-not (Test-Path $real)) {
     throw "Forward script target not found: $real"
 }
 
-& $real -SkipInstall:$SkipInstall -Background:$Background
+& $real -SkipInstall:$SkipInstall -Background:$Background -WithWikiWorker:$WithWikiWorker
 

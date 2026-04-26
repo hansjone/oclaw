@@ -131,6 +131,35 @@ class AdminToolPolicyOclawRetryCodesTests(unittest.TestCase):
         self.assertEqual(str(detail.get("code") or ""), "invalid_retryable_error_codes")
         self.assertEqual(list(detail.get("unknown_retryable_error_codes") or []), ["typo_code_x"])
 
+    def test_tool_policy_save_syncs_run_command_env_gate(self) -> None:
+        token = self._login()
+        headers = {"authorization": f"Bearer {token}"}
+        payload = {
+            "turn_max_tool_workers": 8,
+            "turn_max_tool_rounds": 8,
+            "turn_max_context_messages": 80,
+            "sse_queue_maxsize": 2000,
+            "tool_log_max_chars": 200000,
+            "enable_mcp_tools": True,
+            "enable_plugin_tools": False,
+            "enable_run_command": True,
+            "tool_llm_message_max_chars": 0,
+            "mcp_filesystem_extra_roots": "",
+            "mcp_env_allowlist": "",
+            "oclaw_retryable_error_codes": "provider_timeout, context_overflow",
+            "oclaw_retry_codes_strict_mode": False,
+            "wecom_longconn_workers": 2,
+            "wecom_longconn_inbound_queue_maxsize": 200,
+        }
+        r = self.client.post("/admin/api/tool-policy", json=payload, headers=headers)
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(os.environ.get("AIA_ENABLE_RUN_COMMAND"), "1")
+
+        payload["enable_run_command"] = False
+        r2 = self.client.post("/admin/api/tool-policy", json=payload, headers=headers)
+        self.assertEqual(r2.status_code, 200)
+        self.assertEqual(os.environ.get("AIA_ENABLE_RUN_COMMAND"), "0")
+
 
 if __name__ == "__main__":
     unittest.main()

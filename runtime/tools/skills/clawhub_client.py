@@ -45,6 +45,8 @@ def _safe_get_json_list(url: str, *, params: dict[str, Any] | None = None, heade
             return [x for x in obj if isinstance(x, dict)]
         if isinstance(obj, dict) and isinstance(obj.get("items"), list):
             return [x for x in obj.get("items") if isinstance(x, dict)]
+        if isinstance(obj, dict) and isinstance(obj.get("results"), list):
+            return [x for x in obj.get("results") if isinstance(x, dict)]
         return []
     except Exception:
         return []
@@ -118,21 +120,42 @@ def get_skill_detail(slug: str, *, cfg: ClawHubConfig | None = None) -> dict[str
     blob = _safe_get_json(_join_url(registry, f"{api}/skills/{s}"), headers=_auth_headers(cfg))
     if not blob:
         return {"slug": s}
+    core = blob.get("skill") if isinstance(blob.get("skill"), dict) else blob
+    core = core if isinstance(core, dict) else {}
+    stats = core.get("stats") if isinstance(core.get("stats"), dict) else {}
     versions: list[dict[str, Any]] = []
     versions_raw = blob.get("versions")
+    if not isinstance(versions_raw, list):
+        versions_raw = core.get("versions")
     if isinstance(versions_raw, list):
         for v in versions_raw:
             if not isinstance(v, dict):
                 continue
-            ver = str(v.get("version") or "").strip()
+            ver = str(v.get("version") or v.get("tag") or "").strip()
             if not ver:
                 continue
             versions.append({"version": ver, "changelog": str(v.get("changelog") or ""), "createdAt": str(v.get("createdAt") or ""), "archiveUrl": build_download_url(registry_base_url=registry, api_base_path=api, slug=s, version=ver), "raw": v})
     latest_version_raw = blob.get("latestVersion")
+    if latest_version_raw is None:
+        latest_version_raw = core.get("latestVersion") or (core.get("tags") if isinstance(core.get("tags"), dict) else {}).get("latest")
     latest_version = str(latest_version_raw.get("version") or "").strip() if isinstance(latest_version_raw, dict) else str(latest_version_raw or blob.get("latest") or "").strip()
     if not latest_version and versions:
         latest_version = str(versions[0].get("version") or "")
-    return {"source": "clawhub", "slug": str(blob.get("slug") or s), "name": str(blob.get("displayName") or blob.get("name") or s), "description": str(blob.get("summary") or blob.get("description") or ""), "owner": str(blob.get("ownerHandle") or (blob.get("owner") or {}).get("handle") or "") if isinstance(blob.get("owner"), dict) else str(blob.get("ownerHandle") or ""), "updatedAt": str(blob.get("updatedAt") or ""), "homepage": str(blob.get("homepage") or blob.get("url") or ""), "latestVersion": latest_version, "archiveUrl": build_download_url(registry_base_url=registry, api_base_path=api, slug=s, version=latest_version) if latest_version else "", "versions": versions, "raw": blob}
+    return {
+        "source": "clawhub",
+        "slug": str(core.get("slug") or s),
+        "name": str(core.get("displayName") or core.get("name") or s),
+        "description": str(core.get("summary") or core.get("description") or ""),
+        "owner": str(core.get("ownerHandle") or (core.get("owner") or {}).get("handle") or "") if isinstance(core.get("owner"), dict) else str(core.get("ownerHandle") or ""),
+        "updatedAt": str(core.get("updatedAt") or ""),
+        "homepage": str(core.get("homepage") or core.get("url") or ""),
+        "latestVersion": latest_version,
+        "archiveUrl": build_download_url(registry_base_url=registry, api_base_path=api, slug=s, version=latest_version) if latest_version else "",
+        "downloads": int(core.get("downloads") or stats.get("downloads") or 0),
+        "stars": int(core.get("stars") or stats.get("stars") or 0),
+        "versions": versions,
+        "raw": blob,
+    }
 
 
 __all__ = ["ClawHubConfig", "load_clawhub_config", "discover_registry_base_url", "build_download_url", "search_skills", "get_skill_detail"]

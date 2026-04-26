@@ -4,6 +4,7 @@ from pathlib import Path
 import hashlib
 import hmac
 import json
+import os
 import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -14,13 +15,20 @@ from fastapi.responses import HTMLResponse
 
 from oclaw.runtime.operations.mcp_env import apply_gateway_mcp_env_to_os
 from oclaw.runtime.operations.providers.registry import build_channel_registry
-from oclaw.runtime.operations.runtime import cleanup_orphan_service_processes, detect_orphan_service_processes, status_services
+from oclaw.runtime.operations.runtime import (
+    cleanup_service_processes_by_pid,
+    detect_orphan_service_processes,
+    is_pid_running,
+    list_listen_ports_for_pid,
+    list_service_process_pids,
+    status_services,
+)
 from oclaw.runtime.operations.stack import cmd_stack_down, cmd_stack_status, cmd_stack_up
 from oclaw.runtime.orchestration.vector_store import read_vector_memory_runtime
 from oclaw.platform.config.paths import PROJECT_ROOT, db_path
 from oclaw.platform.config.passwords import load_expected_password
 from oclaw.platform.persistence.sqlite_store import SqliteStore
-from oclaw.runtime.agents.specialists import SPECIALISTS
+from oclaw.runtime.agents.specialists import discover_specialist_ids
 from oclaw.runtime.tools.mcp.installer import (
     _safe_server_id,
     detect_local_dependencies,
@@ -44,6 +52,8 @@ from oclaw.runtime.chat.tool_runtime import ToolExecutionContext, ToolExecutor
 from oclaw.platform.llm.chat_models import LLMToolCall
 from oclaw.runtime.agent_core_attempt import ALL_ATTEMPT_ERROR_CODES
 from oclaw.runtime.agent_core_run import DEFAULT_RETRYABLE_ERROR_CODES, resolve_retryable_error_codes
+from oclaw.runtime.prompt_prebuild import run_runtime_prewarm, runtime_prewarm_prompts_snapshot, runtime_prewarm_status
+from oclaw.runtime.workspaces.experts import create_expert, delete_expert, list_experts, normalize_expert_id, update_expert_files
 
 _WECOM_CLEAR_KEYS = [
     "wecom_mode",
@@ -230,7 +240,7 @@ def build_admin_router() -> APIRouter:
         raise HTTPException(status_code=403, detail="cross_tenant_forbidden")
 
     def _ordered_specialists() -> list[str]:
-        base = [str(k).strip().lower() for k in SPECIALISTS.keys() if str(k).strip()]
+        base = [str(k).strip().lower() for k in discover_specialist_ids() if str(k).strip()]
         preferred = [x for x in ("generalist", "ops", "image") if x in set(base)]
         return preferred + [x for x in base if x not in set(preferred)]
 
@@ -242,6 +252,30 @@ def build_admin_router() -> APIRouter:
         """Canonical role list used by Admin preview APIs."""
         specs = _ordered_specialists()
         return ["manager", *[x for x in specs if x != "manager"]]
+
+    _EXPERT_ALLOWED_FILES = {"SOUL.md", "ROLE_SYSTEM.md"}
+
+    def _serialize_expert_row(row: dict[str, Any]) -> dict[str, Any]:
+        files = row.get("files") if isinstance(row, dict) else {}
+        obj = files if isinstance(files, dict) else {}
+        return {
+            "id": str(row.get("id") or ""),
+            "builtin": bool(row.get("builtin")),
+            "has_required_soul": bool(row.get("has_required_soul")),
+            "path": str(row.get("path") or ""),
+            "files": {
+                "SOUL.md": str(obj.get("SOUL.md") or ""),
+                "ROLE_SYSTEM.md": str(obj.get("ROLE_SYSTEM.md") or ""),
+            },
+        }
+
+    def _sanitize_expert_files_payload(raw: Any) -> dict[str, str]:
+        files_raw = raw if isinstance(raw, dict) else {}
+        files = {str(k): str(v or "") for k, v in files_raw.items()}
+        bad = [k for k in files.keys() if k not in _EXPERT_ALLOWED_FILES]
+        if bad:
+            raise ValueError("unsupported_file_name")
+        return files
 
     @router.post("/admin/api/tools/internal/reload")
     def api_internal_tools_reload(
@@ -543,7 +577,50 @@ def build_admin_router() -> APIRouter:
         _require_permission(ctx, "admin:read")
         items = []
         for s in status_services():
-            items.append({"name": s.name, "pid": s.pid, "running": bool(s.running)})
+            all_pids = list_service_process_pids(str(s.name))
+            pid_ports: dict[str, list[int]] = {}
+            pid_running: dict[str, bool] = {}
+            ports_set: set[int] = set()
+            for p in all_pids:
+                pp = list_listen_ports_for_pid(int(p))
+                pid_ports[str(int(p))] = [int(x) for x in pp]
+                pid_running[str(int(p))] = bool(is_pid_running(int(p)))
+                for x in pp:
+                    ports_set.add(int(x))
+            running_any = any(bool(v) for v in pid_running.values()) if pid_running else bool(s.running)
+            # Choose primary pid from the current snapshot (do not "stick" to state pid).
+            live = sorted([int(k) for k, v in pid_running.items() if v])
+            primary_pid = 0
+            if live:
+                name = str(getattr(s, "name", "") or "")
+                # Prefer gateway PID that actually binds the gateway port.
+                if name == "gateway":
+                    prefer_port = 8787
+                    candidates = [p for p in live if int(prefer_port) in set(pid_ports.get(str(p), []) or [])]
+                    if candidates:
+                        primary_pid = int(candidates[0])
+                if not primary_pid:
+                    # Prefer PID(s) with any listening ports.
+                    with_ports = [p for p in live if (pid_ports.get(str(p), []) or [])]
+                    if with_ports:
+                        # Choose the one with most ports, tie-breaker: smallest pid
+                        with_ports.sort(key=lambda p: (-len(pid_ports.get(str(p), []) or []), int(p)))
+                        primary_pid = int(with_ports[0])
+                if not primary_pid:
+                    # Fall back to smallest live pid for stability.
+                    primary_pid = int(live[0])
+            items.append(
+                {
+                    "name": s.name,
+                    "pid": int(primary_pid or 0),
+                    "running": bool(running_any),
+                    "all_pids": sorted(int(x) for x in all_pids if int(x) > 0),
+                    "ports": sorted(ports_set),
+                    "pid_ports": pid_ports,
+                    "pid_running": pid_running,
+                    "duplicate_count": max(0, len(set(int(x) for x in all_pids if int(x) > 0)) - 1),
+                }
+            )
         return {"ok": True, "items": items}
 
     @router.post("/admin/api/stack/up")
@@ -577,15 +654,35 @@ def build_admin_router() -> APIRouter:
         cmd_stack_down(ns)
         return api_stack_status()
 
-    @router.get("/admin/api/runtime/anomalies")
-    def api_runtime_anomalies(authorization: str | None = Header(default=None)) -> dict[str, Any]:
-        store = SqliteStore(db_path())
-        ctx = _resolve_auth(store, authorization)
-        _require_permission(ctx, "admin:read")
+    def _collect_runtime_anomalies(store: SqliteStore) -> dict[str, Any]:
         items = []
         running = status_services()
         for s in running:
+            if not bool(getattr(s, "running", False)):
+                # Duplicate worker checks only make sense when a primary service
+                # is currently running. Otherwise this creates noisy conflicts
+                # with "missing service" alerts.
+                continue
             keep = {int(s.pid)} if s.running and int(s.pid or 0) > 0 else set()
+            all_pids = list_service_process_pids(s.name)
+            if (not keep) and len(all_pids) > 1:
+                # Ambiguous primary process: do not guess and do not auto-clean.
+                # Require explicit stack restart to re-elect primary PID safely.
+                items.append(
+                    {
+                        "type": "duplicate_process_ambiguous",
+                        "service": s.name,
+                        "expected_pid": 0,
+                        "orphan_pids": sorted(int(x) for x in all_pids),
+                        "severity": "critical",
+                        "message": (
+                            f"{s.name} has multiple workers but no stable primary pid in runtime state: "
+                            f"{', '.join(str(x) for x in sorted(all_pids))}. "
+                            "Please restart stack (down/up)."
+                        ),
+                    }
+                )
+                continue
             orphans = detect_orphan_service_processes(s.name, keep_pids=keep)
             if orphans:
                 items.append(
@@ -624,18 +721,186 @@ def build_admin_router() -> APIRouter:
         must_cleanup = any(str(x.get("type") or "") == "duplicate_process" for x in items)
         return {"ok": True, "must_cleanup": must_cleanup, "items": items}
 
+    @router.get("/admin/api/runtime/anomalies")
+    def api_runtime_anomalies(authorization: str | None = Header(default=None)) -> dict[str, Any]:
+        store = SqliteStore(db_path())
+        ctx = _resolve_auth(store, authorization)
+        _require_permission(ctx, "admin:read")
+        return _collect_runtime_anomalies(store)
+
     @router.post("/admin/api/runtime/cleanup")
     def api_runtime_cleanup(authorization: str | None = Header(default=None)) -> dict[str, Any]:
-        ctx = _resolve_auth(SqliteStore(db_path()), authorization)
+        store = SqliteStore(db_path())
+        ctx = _resolve_auth(store, authorization)
         _require_permission(ctx, "admin:runtime:write")
         killed: list[dict[str, Any]] = []
+        # Cleanup rule:
+        # - show all PIDs to user; cleanup should be conservative.
+        # - for a service with multiple workers, kill those with NO listening ports.
+        # - never delete the last remaining worker for a service.
         for s in status_services():
-            keep = {int(s.pid)} if s.running and int(s.pid or 0) > 0 else set()
-            dead = cleanup_orphan_service_processes(s.name, keep_pids=keep)
+            service = str(getattr(s, "name", "") or "").strip()
+            if not service:
+                continue
+            all_pids = [int(x) for x in list_service_process_pids(service) if int(x) > 0]
+            if len(all_pids) <= 1:
+                continue
+            pid_ports: dict[int, list[int]] = {int(p): list_listen_ports_for_pid(int(p)) for p in all_pids}
+            with_ports = [p for p in all_pids if pid_ports.get(int(p))]
+            without_ports = [p for p in all_pids if not pid_ports.get(int(p))]
+            victims: list[int] = []
+            if with_ports:
+                victims = list(without_ports)
+            else:
+                # If none are listening (e.g. long-polling channel workers),
+                # keep the recorded primary pid when possible, otherwise keep the first.
+                primary = int(getattr(s, "pid", 0) or 0)
+                keep = primary if primary in all_pids else int(all_pids[0])
+                victims = [p for p in all_pids if int(p) != int(keep)]
+            if victims and len(victims) >= len(all_pids):
+                victims = victims[: max(0, len(all_pids) - 1)]
+            dead = cleanup_service_processes_by_pid(service, victims)
             if dead:
-                killed.append({"service": s.name, "killed_pids": sorted(int(x) for x in dead)})
-        anomalies = api_runtime_anomalies()
+                killed.append({"service": service, "killed_pids": sorted(int(x) for x in dead)})
+        anomalies = _collect_runtime_anomalies(store)
         return {"ok": True, "killed": killed, "anomalies": anomalies}
+
+    @router.get("/admin/api/runtime/prewarm/status")
+    def api_runtime_prewarm_status(authorization: str | None = Header(default=None)) -> dict[str, Any]:
+        store = SqliteStore(db_path())
+        ctx = _resolve_auth(store, authorization)
+        _require_permission(ctx, "admin:read")
+        return runtime_prewarm_status(store=store)
+
+    @router.post("/admin/api/runtime/prewarm")
+    def api_runtime_prewarm(
+        payload: dict[str, Any] | None = Body(default=None),
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        store = SqliteStore(db_path())
+        ctx = _resolve_auth(store, authorization)
+        _require_permission(ctx, "admin:runtime:write")
+        body = payload or {}
+        mode = str(body.get("mode") or "async").strip().lower()
+        reason = str(body.get("reason") or "admin_manual").strip() or "admin_manual"
+        if mode == "sync":
+            return run_runtime_prewarm(reason=reason, store=store)
+        import threading
+
+        def _run() -> None:
+            try:
+                _ = run_runtime_prewarm(reason=reason, store=SqliteStore(db_path()))
+            except Exception:
+                pass
+
+        th = threading.Thread(target=_run, name="oclaw-admin-prewarm", daemon=True)
+        th.start()
+        return {"ok": True, "accepted": True, "mode": "async", "status": runtime_prewarm_status(store=store)}
+
+    @router.get("/admin/api/runtime/prewarm/prompts")
+    def api_runtime_prewarm_prompts(
+        role: str | None = Query(default=None),
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        store = SqliteStore(db_path())
+        ctx = _resolve_auth(store, authorization)
+        _require_permission(ctx, "admin:read")
+        return runtime_prewarm_prompts_snapshot(store=store, role=str(role or "").strip().lower() or None)
+
+    @router.get("/admin/api/runtime/scan-artifacts")
+    def api_runtime_scan_artifacts(authorization: str | None = Header(default=None)) -> dict[str, Any]:
+        ctx = _resolve_auth(SqliteStore(db_path()), authorization)
+        _require_permission(ctx, "admin:read")
+        root = (PROJECT_ROOT / "oclaw" / "runtime" / "data" / "scan").resolve()
+        allowed_prefixes = ("history_entries_", "state_scan_")
+        items: list[dict[str, Any]] = []
+        if root.exists() and root.is_dir():
+            for p in sorted(root.glob("*.json"), key=lambda x: x.name.lower()):
+                if not p.name.startswith(allowed_prefixes):
+                    continue
+                try:
+                    st = p.stat()
+                    items.append(
+                        {
+                            "name": p.name,
+                            "path": str(p),
+                            "bytes": int(st.st_size),
+                            "modified_at": datetime.fromtimestamp(st.st_mtime, tz=timezone.utc).isoformat(),
+                        }
+                    )
+                except Exception:
+                    continue
+        return {"ok": True, "dir": str(root), "count": len(items), "items": items}
+
+    @router.post("/admin/api/runtime/scan-artifacts/cleanup")
+    def api_runtime_scan_artifacts_cleanup(authorization: str | None = Header(default=None)) -> dict[str, Any]:
+        ctx = _resolve_auth(SqliteStore(db_path()), authorization)
+        _require_permission(ctx, "admin:runtime:write")
+        root = (PROJECT_ROOT / "oclaw" / "runtime" / "data" / "scan").resolve()
+        allowed_prefixes = ("history_entries_", "state_scan_")
+        removed = 0
+        if root.exists() and root.is_dir():
+            for p in root.glob("*.json"):
+                if not p.name.startswith(allowed_prefixes):
+                    continue
+                try:
+                    p.unlink(missing_ok=True)
+                    removed += 1
+                except Exception:
+                    continue
+        return {"ok": True, "dir": str(root), "removed": int(removed)}
+
+    @router.post("/admin/api/runtime/scan-artifacts/prune")
+    def api_runtime_scan_artifacts_prune(
+        payload: dict[str, Any] | None = Body(default=None),
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        body = payload or {}
+        ctx = _resolve_auth(SqliteStore(db_path()), authorization)
+        _require_permission(ctx, "admin:runtime:write")
+        root = (PROJECT_ROOT / "oclaw" / "runtime" / "data" / "scan").resolve()
+        try:
+            keep_latest = int(body.get("keep_latest", 20))
+        except Exception:
+            keep_latest = 20
+        try:
+            max_age_days = int(body.get("max_age_days", 7))
+        except Exception:
+            max_age_days = 7
+        keep_latest = max(0, min(keep_latest, 500))
+        max_age_days = max(0, min(max_age_days, 3650))
+        allowed_prefixes = ("history_entries_", "state_scan_")
+        rows: list[tuple[Path, float]] = []
+        if root.exists() and root.is_dir():
+            for p in root.glob("*.json"):
+                if not p.name.startswith(allowed_prefixes):
+                    continue
+                try:
+                    rows.append((p, float(p.stat().st_mtime)))
+                except Exception:
+                    continue
+        rows.sort(key=lambda x: x[1], reverse=True)
+        cutoff_ts = None
+        if max_age_days > 0:
+            cutoff_ts = (_now_utc() - timedelta(days=max_age_days)).timestamp()
+        removed = 0
+        for idx, (p, mtime) in enumerate(rows):
+            remove_by_rank = keep_latest >= 0 and idx >= keep_latest
+            remove_by_age = cutoff_ts is not None and mtime < cutoff_ts
+            if not remove_by_rank and not remove_by_age:
+                continue
+            try:
+                p.unlink(missing_ok=True)
+                removed += 1
+            except Exception:
+                continue
+        return {
+            "ok": True,
+            "dir": str(root),
+            "removed": int(removed),
+            "keep_latest": int(keep_latest),
+            "max_age_days": int(max_age_days),
+        }
 
     @router.get("/admin/api/tenants")
     def api_tenants(
@@ -1417,12 +1682,80 @@ def build_admin_router() -> APIRouter:
         trace_rows = store.list_trace_events_for_trace(session_id=sid, trace_id=tid, limit=800)
         start_ts, end_ts = store.get_turn_time_window(session_id=sid, trace_id=tid)
         msgs = store.list_messages_in_time_window(session_id=sid, start_ts=start_ts, end_ts=end_ts, limit=1200)
+        def _to_ms(v: Any) -> int | None:
+            s = str(v or "").strip()
+            if not s:
+                return None
+            try:
+                if s.endswith("Z"):
+                    s = s[:-1] + "+00:00"
+                return int(datetime.fromisoformat(s).timestamp() * 1000)
+            except Exception:
+                return None
+
+        ws_accepted_ms: int | None = None
+        gateway_received_ms: int | None = None
+        model_chat_start_ms: int | None = None
+        ws_first_token_ms: int | None = None
+        for row in trace_rows or []:
+            if not isinstance(row, dict):
+                continue
+            event_type = str(row.get("event_type") or "").strip()
+            payload = row.get("payload") if isinstance(row.get("payload"), dict) else {}
+            row_ts = _to_ms(row.get("timestamp"))
+            if event_type == "gateway_received":
+                gateway_received_ms = row_ts if row_ts is not None else gateway_received_ms
+                if ws_accepted_ms is None:
+                    try:
+                        v = payload.get("ws_client_send_ms")
+                        if v is not None:
+                            ws_accepted_ms = int(v)
+                    except Exception:
+                        pass
+            elif event_type == "model_chat_start":
+                model_chat_start_ms = row_ts if row_ts is not None else model_chat_start_ms
+            elif event_type == "ws_first_token":
+                if ws_first_token_ms is None:
+                    try:
+                        vft = payload.get("ws_first_token_ms")
+                        if vft is not None:
+                            ws_first_token_ms = int(vft)
+                    except Exception:
+                        pass
+                if ws_accepted_ms is None:
+                    try:
+                        va = payload.get("ws_accepted_ms")
+                        if va is not None:
+                            ws_accepted_ms = int(va)
+                    except Exception:
+                        pass
+                if ws_first_token_ms is None:
+                    ws_first_token_ms = row_ts if row_ts is not None else ws_first_token_ms
+
+        def _delta(a: int | None, b: int | None) -> int | None:
+            if a is None or b is None:
+                return None
+            d = int(b - a)
+            return d if d >= 0 else None
+
+        ttft = {
+            "ws_accepted_ms": ws_accepted_ms,
+            "gateway_received_ms": gateway_received_ms,
+            "model_chat_start_ms": model_chat_start_ms,
+            "ws_first_token_ms": ws_first_token_ms,
+            "accepted_to_gateway_ms": _delta(ws_accepted_ms, gateway_received_ms),
+            "gateway_to_model_start_ms": _delta(gateway_received_ms, model_chat_start_ms),
+            "model_start_to_first_token_ms": _delta(model_chat_start_ms, ws_first_token_ms),
+            "gateway_to_first_token_ms": _delta(gateway_received_ms, ws_first_token_ms),
+            "accepted_to_first_token_ms": _delta(ws_accepted_ms, ws_first_token_ms),
+        }
         return {
             "ok": True,
             "session_id": sid,
             "trace_id": tid,
             "start_ts": start_ts,
             "end_ts": end_ts,
+            "ttft": ttft,
             "trace": trace_rows,
             "messages": msgs,
         }
@@ -1463,6 +1796,13 @@ def build_admin_router() -> APIRouter:
         enable_mcp_tools = emcp_raw not in ("0", "false", "no", "off")
         epl_raw = str(store.get_setting("AIA_ENABLE_PLUGIN_TOOLS") or "").strip().lower()
         enable_plugin_tools = epl_raw in ("1", "true", "yes", "on")
+        erc_raw = str(store.get_setting("AIA_ENABLE_RUN_COMMAND") or "").strip().lower()
+        enable_run_command = erc_raw not in ("0", "false", "no", "off")
+        tctx_raw = str(store.get_setting("AIA_TOOL_CONTEXT_TRUNCATE_ENABLED") or "").strip().lower()
+        tool_context_truncate_enabled = tctx_raw not in ("0", "false", "no", "off")
+        ttft_raw = str(store.get_setting("AIA_CHAT_SHOW_TTFT_DEBUG") or "").strip().lower()
+        # default OFF (release-safe): only enabled when explicitly set truthy.
+        chat_show_ttft_debug = ttft_raw in ("1", "true", "yes", "on")
         skl_raw = str(store.get_setting("AIA_SKILL_RUNTIME_ENABLED") or "").strip().lower()
         skill_runtime_enabled = skl_raw not in ("0", "false", "no", "off")
         sai_raw = str(store.get_setting("AIA_SKILL_AUTO_INSTALL_ENABLED") or "").strip().lower()
@@ -1503,6 +1843,9 @@ def build_admin_router() -> APIRouter:
             "tool_log_max_chars": tool_log_max_chars,
             "enable_mcp_tools": enable_mcp_tools,
             "enable_plugin_tools": enable_plugin_tools,
+            "enable_run_command": enable_run_command,
+            "tool_context_truncate_enabled": tool_context_truncate_enabled,
+            "chat_show_ttft_debug": chat_show_ttft_debug,
             "skill_runtime_enabled": skill_runtime_enabled,
             "skill_auto_install_enabled": skill_auto_install_enabled,
             "tool_llm_message_max_chars": tool_llm_message_max_chars,
@@ -1557,6 +1900,9 @@ def build_admin_router() -> APIRouter:
             tl_cap_n = 200_000
         emcp = bool(payload.get("enable_mcp_tools", True))
         epl = bool(payload.get("enable_plugin_tools", False))
+        erc = bool(payload.get("enable_run_command", True))
+        tctx = bool(payload.get("tool_context_truncate_enabled", True))
+        ttft_debug = bool(payload.get("chat_show_ttft_debug", False))
         skl_rt = bool(payload.get("skill_runtime_enabled", True))
         skl_ai = bool(payload.get("skill_auto_install_enabled", True))
         tmsg = payload.get("tool_llm_message_max_chars", 0)
@@ -1626,6 +1972,11 @@ def build_admin_router() -> APIRouter:
         store.set_setting("AIA_TOOL_LOG_MAX_CHARS", str(tl_cap_n))
         store.set_setting("AIA_ENABLE_MCP_TOOLS", "1" if emcp else "0")
         store.set_setting("AIA_ENABLE_PLUGIN_TOOLS", "1" if epl else "0")
+        store.set_setting("AIA_ENABLE_RUN_COMMAND", "1" if erc else "0")
+        # Keep runtime gate aligned with Admin toggle immediately.
+        os.environ["AIA_ENABLE_RUN_COMMAND"] = "1" if erc else "0"
+        store.set_setting("AIA_TOOL_CONTEXT_TRUNCATE_ENABLED", "1" if tctx else "0")
+        store.set_setting("AIA_CHAT_SHOW_TTFT_DEBUG", "1" if ttft_debug else "0")
         store.set_setting("AIA_SKILL_RUNTIME_ENABLED", "1" if skl_rt else "0")
         store.set_setting("AIA_SKILL_AUTO_INSTALL_ENABLED", "1" if skl_ai else "0")
         store.set_setting("AIA_TOOL_LLM_MESSAGE_MAX_CHARS", str(tmsg_n))
@@ -1642,7 +1993,7 @@ def build_admin_router() -> APIRouter:
             actor_user_id=ctx["user_id"],
             action="tool_policy_update",
             target_type="tool_policy",
-            target_id="AIA_TURN_MAX_TOOL_WORKERS,AIA_TURN_MAX_TOOL_ROUNDS,AIA_TURN_MAX_CONTEXT_MESSAGES,AIA_SSE_QUEUE_MAXSIZE,AIA_TOOL_LOG_MAX_CHARS,AIA_ENABLE_MCP_TOOLS,AIA_ENABLE_PLUGIN_TOOLS,AIA_SKILL_RUNTIME_ENABLED,AIA_SKILL_AUTO_INSTALL_ENABLED,AIA_TOOL_LLM_MESSAGE_MAX_CHARS,AIA_MCP_FILESYSTEM_EXTRA_ROOTS,AIA_MCP_ENV_ALLOWLIST,AIA_OCLAW_RETRYABLE_ERROR_CODES,AIA_OCLAW_RETRY_CODES_STRICT_MODE,AIA_WECOM_LONGCONN_WORKERS,AIA_WECOM_LONGCONN_INBOUND_QUEUE_MAXSIZE",
+            target_id="AIA_TURN_MAX_TOOL_WORKERS,AIA_TURN_MAX_TOOL_ROUNDS,AIA_TURN_MAX_CONTEXT_MESSAGES,AIA_SSE_QUEUE_MAXSIZE,AIA_TOOL_LOG_MAX_CHARS,AIA_ENABLE_MCP_TOOLS,AIA_ENABLE_PLUGIN_TOOLS,AIA_ENABLE_RUN_COMMAND,AIA_TOOL_CONTEXT_TRUNCATE_ENABLED,AIA_CHAT_SHOW_TTFT_DEBUG,AIA_SKILL_RUNTIME_ENABLED,AIA_SKILL_AUTO_INSTALL_ENABLED,AIA_TOOL_LLM_MESSAGE_MAX_CHARS,AIA_MCP_FILESYSTEM_EXTRA_ROOTS,AIA_MCP_ENV_ALLOWLIST,AIA_OCLAW_RETRYABLE_ERROR_CODES,AIA_OCLAW_RETRY_CODES_STRICT_MODE,AIA_WECOM_LONGCONN_WORKERS,AIA_WECOM_LONGCONN_INBOUND_QUEUE_MAXSIZE",
             status="ok",
             detail={
                 "disable_tool_confirm": disable_confirm,
@@ -1658,6 +2009,9 @@ def build_admin_router() -> APIRouter:
                 "tool_log_max_chars": tl_cap_n,
                 "enable_mcp_tools": emcp,
                 "enable_plugin_tools": epl,
+                "enable_run_command": erc,
+                "tool_context_truncate_enabled": tctx,
+                "chat_show_ttft_debug": ttft_debug,
                 "skill_runtime_enabled": skl_rt,
                 "skill_auto_install_enabled": skl_ai,
                 "tool_llm_message_max_chars": tmsg_n,
@@ -1685,6 +2039,9 @@ def build_admin_router() -> APIRouter:
             "tool_log_max_chars": tl_cap_n,
             "enable_mcp_tools": emcp,
             "enable_plugin_tools": epl,
+            "enable_run_command": erc,
+            "tool_context_truncate_enabled": tctx,
+            "chat_show_ttft_debug": ttft_debug,
             "skill_runtime_enabled": skl_rt,
             "skill_auto_install_enabled": skl_ai,
             "tool_llm_message_max_chars": tmsg_n,
@@ -2161,6 +2518,93 @@ def build_admin_router() -> APIRouter:
             detail={"allowed_specialists": ordered},
         )
         return {"ok": True, "available_specialists": available, "allowed_specialists": ordered}
+
+    @router.get("/admin/api/experts")
+    def api_experts_list(authorization: str | None = Header(default=None)) -> dict[str, Any]:
+        store = SqliteStore(db_path())
+        ctx = _resolve_auth(store, authorization)
+        _require_permission(ctx, "admin:tenant:write")
+        items = [_serialize_expert_row(x) for x in list_experts()]
+        return {"ok": True, "items": items}
+
+    @router.post("/admin/api/experts")
+    def api_experts_create(
+        payload: dict[str, Any] | None = Body(default=None),
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        payload = payload or {}
+        store = SqliteStore(db_path())
+        ctx = _resolve_auth(store, authorization)
+        _require_permission(ctx, "admin:tenant:write")
+        expert_id = normalize_expert_id(payload.get("id"))
+        files_raw = payload.get("files") if isinstance(payload.get("files"), dict) else {}
+        try:
+            files = _sanitize_expert_files_payload(files_raw)
+            created = create_expert(expert_id=expert_id, files=files)
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc)}
+        store.add_admin_audit_log(
+            actor_tenant_id=ctx["tenant_id"],
+            actor_user_id=ctx["user_id"],
+            action="expert_create",
+            target_type="expert",
+            target_id=str(created.get("id") or ""),
+            status="ok",
+            detail={"id": str(created.get("id") or "")},
+        )
+        items = [_serialize_expert_row(x) for x in list_experts()]
+        return {"ok": True, "created": str(created.get("id") or ""), "items": items}
+
+    @router.patch("/admin/api/experts/{expert_id}")
+    def api_experts_update(
+        expert_id: str,
+        payload: dict[str, Any] | None = Body(default=None),
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        payload = payload or {}
+        store = SqliteStore(db_path())
+        ctx = _resolve_auth(store, authorization)
+        _require_permission(ctx, "admin:tenant:write")
+        files_raw = payload.get("files") if isinstance(payload.get("files"), dict) else {}
+        eid = normalize_expert_id(expert_id)
+        try:
+            files = _sanitize_expert_files_payload(files_raw)
+            update_expert_files(expert_id=eid, files=files)
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc)}
+        store.add_admin_audit_log(
+            actor_tenant_id=ctx["tenant_id"],
+            actor_user_id=ctx["user_id"],
+            action="expert_update",
+            target_type="expert",
+            target_id=eid,
+            status="ok",
+            detail={"id": eid, "updated_files": sorted(list(files.keys()))[:10]},
+        )
+        items = [_serialize_expert_row(x) for x in list_experts()]
+        return {"ok": True, "updated": eid, "items": items}
+
+    @router.delete("/admin/api/experts/{expert_id}")
+    def api_experts_delete(expert_id: str, authorization: str | None = Header(default=None)) -> dict[str, Any]:
+        store = SqliteStore(db_path())
+        ctx = _resolve_auth(store, authorization)
+        _require_permission(ctx, "admin:tenant:write")
+        eid = normalize_expert_id(expert_id)
+        try:
+            delete_expert(eid)
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc)}
+        store.add_admin_audit_log(
+            actor_tenant_id=ctx["tenant_id"],
+            actor_user_id=ctx["user_id"],
+            action="expert_delete",
+            target_type="expert",
+            target_id=eid,
+            status="ok",
+            detail={"id": eid},
+        )
+        items = [_serialize_expert_row(x) for x in list_experts()]
+        return {"ok": True, "deleted": eid, "items": items}
 
     @router.post("/admin/api/mcp/install")
     def api_mcp_install(

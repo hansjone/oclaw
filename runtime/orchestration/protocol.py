@@ -51,7 +51,7 @@ class ManagerPlan:
 
 @dataclass(frozen=True)
 class SpecialistToolTrace:
-    """单条工具调用摘要（专家会话内执行，用于交付给总控的可追溯信息）。"""
+    """单条工具调用摘要（专家会话内执行，用于交付给全能者的可追溯信息）。"""
 
     name: str
     ok: bool
@@ -61,10 +61,10 @@ class SpecialistToolTrace:
 @dataclass(frozen=True)
 class SpecialistDelivery:
     """
-    专家 → 总控（Core）的结构化交付。
+    专家 → 全能者（Core）的结构化交付。
 
     - answer_text：面向用户的专家结论（已结合工具结果，与 output_text 对齐）。
-    - tool_traces：本步内在专家侧实际执行的工具摘要（非总控直接执行）。
+    - tool_traces：本步内在专家侧实际执行的工具摘要（非全能者直接执行）。
     """
 
     version: int = 1
@@ -76,7 +76,7 @@ class SpecialistDelivery:
 
 
 def format_specialist_handoff_for_core(res: "SpecialistResult") -> str:
-    """将专家结果格式化为总控合并提示中的单步条目（可读 + 明示 handoff 边界）。"""
+    """将专家结果格式化为全能者合并提示中的单步条目（可读 + 明示 handoff 边界）。"""
     if res.delivery and res.delivery.answer_text.strip():
         d = res.delivery
         lines = [

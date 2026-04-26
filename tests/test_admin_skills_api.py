@@ -6,6 +6,7 @@ import tempfile
 import unittest
 import zipfile
 from pathlib import Path
+from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
@@ -87,6 +88,22 @@ class AdminSkillsApiTests(unittest.TestCase):
         self.assertEqual(r.status_code, 200, r.text)
         self.assertTrue((r.json() or {}).get("ok"))
 
+    def test_skills_uninstall(self) -> None:
+        c = self.client.post(
+            "/admin/api/skills/create",
+            json={"name": "to_remove_skill", "description": "remove me", "body_markdown": "# remove"},
+            headers=self._h(),
+        )
+        self.assertEqual(c.status_code, 200, c.text)
+        self.assertTrue((c.json() or {}).get("ok"))
+        u = self.client.post("/admin/api/skills/uninstall", json={"name": "to_remove_skill"}, headers=self._h())
+        self.assertEqual(u.status_code, 200, u.text)
+        self.assertTrue((u.json() or {}).get("ok"))
+        ls = self.client.get("/admin/api/skills", headers=self._h())
+        self.assertEqual(ls.status_code, 200, ls.text)
+        items = (ls.json() or {}).get("items") or []
+        self.assertFalse(any(str(x.get("name") or "") == "to_remove_skill" for x in items))
+
     def test_skills_binding_get_and_save(self) -> None:
         c = self.client.post(
             "/admin/api/skills/create",
@@ -118,6 +135,22 @@ class AdminSkillsApiTests(unittest.TestCase):
         self.assertTrue(sb.get("enabled"))
         self.assertIn("bind_demo_skill", (sb.get("mapping") or {}).get("generalist", []))
 
+    def test_skills_mode_get_and_save(self) -> None:
+        g = self.client.get("/admin/api/skills/mode", headers=self._h())
+        self.assertEqual(g.status_code, 200, g.text)
+        gb = g.json() or {}
+        self.assertTrue(gb.get("ok"))
+        s = self.client.post(
+            "/admin/api/skills/mode",
+            json={"prompt_in_system": True, "toolcall_enabled": False},
+            headers=self._h(),
+        )
+        self.assertEqual(s.status_code, 200, s.text)
+        sb = s.json() or {}
+        self.assertTrue(sb.get("ok"))
+        self.assertTrue(bool(sb.get("prompt_in_system")))
+        self.assertFalse(bool(sb.get("toolcall_enabled")))
+
     def test_skills_effective_dashboard(self) -> None:
         c = self.client.post(
             "/admin/api/skills/create",
@@ -134,7 +167,7 @@ class AdminSkillsApiTests(unittest.TestCase):
                     "generalist": [],
                     "ops": [],
                     "image": [],
-                    "memory_curator": [],
+                    "memory": [],
                 },
             },
             headers=self._h(),
@@ -167,6 +200,231 @@ class AdminSkillsApiTests(unittest.TestCase):
         )
         self.assertEqual(r.status_code, 200, r.text)
         self.assertTrue((r.json() or {}).get("ok"))
+
+    def test_workspace_skill_create_test_run_and_failure_feedback(self) -> None:
+        c = self.client.post(
+            "/admin/api/skills/create-workspace",
+            json={"name": "ws_demo_skill", "description": "workspace demo", "runtime_type": "python"},
+            headers=self._h(),
+        )
+        self.assertEqual(c.status_code, 200, c.text)
+        body = c.json() or {}
+        self.assertTrue(body.get("ok"))
+
+        r1 = self.client.post(
+            "/admin/api/skills/test-run",
+            json={"name": "ws_demo_skill", "args": {"hello": "world"}},
+            headers=self._h(),
+        )
+        self.assertEqual(r1.status_code, 200, r1.text)
+        result1 = ((r1.json() or {}).get("result") or {})
+        self.assertTrue(bool(result1.get("ok")))
+        self.assertIn("result", result1)
+
+        # fs_write is disabled by template; write-like arg should be rejected and return classified failure.
+        r2 = self.client.post(
+            "/admin/api/skills/test-run",
+            json={"name": "ws_demo_skill", "args": {"output_path": "../escape.txt"}},
+            headers=self._h(),
+        )
+        self.assertEqual(r2.status_code, 200, r2.text)
+        result2 = ((r2.json() or {}).get("result") or {})
+        self.assertFalse(bool(result2.get("ok")))
+        self.assertIn(str(result2.get("error_code") or ""), {"path_restricted", "runtime_error"})
+
+    def test_skills_self_check_endpoint(self) -> None:
+        c = self.client.post(
+            "/admin/api/skills/create-workspace",
+            json={"name": "ws_selfcheck_skill", "description": "workspace selfcheck", "runtime_type": "python"},
+            headers=self._h(),
+        )
+        self.assertEqual(c.status_code, 200, c.text)
+        self.assertTrue((c.json() or {}).get("ok"))
+        r = self.client.get("/admin/api/skills/self-check", headers=self._h())
+        self.assertEqual(r.status_code, 200, r.text)
+        body = r.json() or {}
+        self.assertTrue(body.get("ok"))
+        self.assertGreaterEqual(int(body.get("skills_total") or 0), 1)
+        self.assertGreaterEqual(int(body.get("executable_total") or 0), 1)
+        self.assertIn("invalid_runtime_entries", body)
+        self.assertIn("classification_counts", body)
+
+    def test_skills_self_check_with_execution_and_classification(self) -> None:
+        c = self.client.post(
+            "/admin/api/skills/create-workspace",
+            json={"name": "ws_selfcheck_exec_skill", "description": "workspace selfcheck exec", "runtime_type": "python"},
+            headers=self._h(),
+        )
+        self.assertEqual(c.status_code, 200, c.text)
+        self.assertTrue((c.json() or {}).get("ok"))
+        skill_dir = self.skills_root / "_workspace" / "ws_selfcheck_exec_skill"
+        run_py = skill_dir / "scripts" / "run.py"
+        run_py.write_text("print('x' * 5000)\n", encoding="utf-8")
+        skill_md = skill_dir / "SKILL.md"
+        content = skill_md.read_text(encoding="utf-8")
+        content = content.replace('"permissions": {"fs_write": false, "net": false, "process": true}', '"permissions": {"fs_write": false, "net": false, "process": true}, "max_output_bytes": 1024')
+        skill_md.write_text(content, encoding="utf-8")
+
+        r = self.client.get("/admin/api/skills/self-check?include_execution=true", headers=self._h())
+        self.assertEqual(r.status_code, 200, r.text)
+        body = r.json() or {}
+        self.assertTrue(body.get("ok"))
+        self.assertTrue(bool(body.get("execution_checked")))
+        self.assertGreaterEqual(int(body.get("execution_checked_total") or 0), 1)
+        counts = body.get("classification_counts") if isinstance(body.get("classification_counts"), dict) else {}
+        self.assertGreaterEqual(int(counts.get("output_truncated") or 0), 1)
+
+    def test_market_install_uses_adapter_and_installs(self) -> None:
+        pkg = Path(self._tmp.name) / "pkg3"
+        d = pkg / "demo3"
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "SKILL.md").write_text("name: market_adapter_skill\ndescription: demo\n", encoding="utf-8")
+        z = Path(self._tmp.name) / "demo3.zip"
+        with zipfile.ZipFile(z, "w") as zf:
+            zf.write(d / "SKILL.md", arcname="demo3/SKILL.md")
+
+        class _FakeAdapter:
+            provider = "clawhub"
+
+            def search(self, query: str, *, limit: int = 20):
+                _ = (query, limit)
+                return [{"slug": "owner/demo3", "name": "demo3"}]
+
+            def detail(self, slug: str):
+                _ = slug
+                return {"slug": "owner/demo3", "latestVersion": "1.0.0"}
+
+            def resolve_archive_url(self, *, slug: str, version: str | None = None):
+                _ = (slug, version)
+                return z.resolve().as_uri(), "1.0.0"
+
+        with patch("oclaw.interfaces.admin.skills_api.get_market_adapter", return_value=_FakeAdapter()):
+            r = self.client.post(
+                "/admin/api/skills/market/install",
+                json={"slug": "owner/demo3"},
+                headers=self._h(),
+            )
+            self.assertEqual(r.status_code, 200, r.text)
+            rb = r.json() or {}
+            self.assertTrue(rb.get("ok"))
+            installed_name = str(((rb.get("result") or {}).get("name") or "")).strip()
+            self.assertTrue(installed_name)
+
+            ls = self.client.get("/admin/api/skills", headers=self._h())
+            self.assertEqual(ls.status_code, 200, ls.text)
+            items = (ls.json() or {}).get("items") or []
+            self.assertTrue(any(str(x.get("name") or "") == installed_name for x in items))
+
+    def test_workspace_skill_real_task_style_roundtrip(self) -> None:
+        c = self.client.post(
+            "/admin/api/skills/create-workspace",
+            json={"name": "ws_task_skill", "description": "task style", "runtime_type": "python"},
+            headers=self._h(),
+        )
+        self.assertEqual(c.status_code, 200, c.text)
+        self.assertTrue((c.json() or {}).get("ok"))
+
+        # Replace template runtime script with a task-like implementation.
+        skill_script = self.skills_root / "_workspace" / "ws_task_skill" / "scripts" / "run.py"
+        skill_script.write_text(
+            "import json\n"
+            "import sys\n\n"
+            "def main():\n"
+            "    payload = json.loads(sys.stdin.read() or '{}')\n"
+            "    args = payload.get('args') or {}\n"
+            "    text = str(args.get('text') or '')\n"
+            "    words = [w for w in text.strip().split(' ') if w]\n"
+            "    out = {\n"
+            "        'ok': True,\n"
+            "        'word_count': len(words),\n"
+            "        'upper': text.upper(),\n"
+            "        'contains_number': any(ch.isdigit() for ch in text),\n"
+            "    }\n"
+            "    print(json.dumps(out, ensure_ascii=False))\n\n"
+            "if __name__ == '__main__':\n"
+            "    main()\n",
+            encoding="utf-8",
+        )
+
+        r = self.client.post(
+            "/admin/api/skills/test-run",
+            json={"name": "ws_task_skill", "args": {"text": "oclaw skill 2026"}},
+            headers=self._h(),
+        )
+        self.assertEqual(r.status_code, 200, r.text)
+        result = ((r.json() or {}).get("result") or {})
+        self.assertTrue(bool(result.get("ok")))
+        parsed = result.get("result") if isinstance(result.get("result"), dict) else {}
+        self.assertEqual(int(parsed.get("word_count") or 0), 3)
+        self.assertEqual(str(parsed.get("upper") or ""), "OCLAW SKILL 2026")
+        self.assertTrue(bool(parsed.get("contains_number")))
+
+    def test_workspace_skill_failure_classification_timeout(self) -> None:
+        c = self.client.post(
+            "/admin/api/skills/create-workspace",
+            json={"name": "ws_timeout_skill", "description": "timeout test", "runtime_type": "python"},
+            headers=self._h(),
+        )
+        self.assertEqual(c.status_code, 200, c.text)
+        self.assertTrue((c.json() or {}).get("ok"))
+        skill_dir = self.skills_root / "_workspace" / "ws_timeout_skill"
+        skill_md = skill_dir / "SKILL.md"
+        content = skill_md.read_text(encoding="utf-8")
+        content = content.replace('"permissions": {"fs_write": false, "net": false, "process": true}', '"permissions": {"fs_write": false, "net": false, "process": true}, "timeout_s": 1')
+        skill_md.write_text(content, encoding="utf-8")
+        run_py = skill_dir / "scripts" / "run.py"
+        run_py.write_text(
+            "import json\nimport sys\nimport time\n\n"
+            "def main():\n"
+            "    _ = json.loads(sys.stdin.read() or '{}')\n"
+            "    time.sleep(2)\n"
+            "    print(json.dumps({'ok': True}, ensure_ascii=False))\n\n"
+            "if __name__ == '__main__':\n"
+            "    main()\n",
+            encoding="utf-8",
+        )
+        r = self.client.post(
+            "/admin/api/skills/test-run",
+            json={"name": "ws_timeout_skill", "args": {}},
+            headers=self._h(),
+        )
+        self.assertEqual(r.status_code, 200, r.text)
+        result = ((r.json() or {}).get("result") or {})
+        self.assertFalse(bool(result.get("ok")))
+        self.assertEqual(str(result.get("error_code") or ""), "timeout")
+
+    def test_workspace_skill_failure_classification_output_limit(self) -> None:
+        c = self.client.post(
+            "/admin/api/skills/create-workspace",
+            json={"name": "ws_output_skill", "description": "output limit test", "runtime_type": "python"},
+            headers=self._h(),
+        )
+        self.assertEqual(c.status_code, 200, c.text)
+        self.assertTrue((c.json() or {}).get("ok"))
+        skill_dir = self.skills_root / "_workspace" / "ws_output_skill"
+        skill_md = skill_dir / "SKILL.md"
+        content = skill_md.read_text(encoding="utf-8")
+        content = content.replace('"permissions": {"fs_write": false, "net": false, "process": true}', '"permissions": {"fs_write": false, "net": false, "process": true}, "max_output_bytes": 128')
+        skill_md.write_text(content, encoding="utf-8")
+        run_py = skill_dir / "scripts" / "run.py"
+        run_py.write_text(
+            "import json\nimport sys\n\n"
+            "def main():\n"
+            "    _ = json.loads(sys.stdin.read() or '{}')\n"
+            "    print('x' * 4096)\n\n"
+            "if __name__ == '__main__':\n"
+            "    main()\n",
+            encoding="utf-8",
+        )
+        r = self.client.post(
+            "/admin/api/skills/test-run",
+            json={"name": "ws_output_skill", "args": {}},
+            headers=self._h(),
+        )
+        self.assertEqual(r.status_code, 200, r.text)
+        result = ((r.json() or {}).get("result") or {})
+        self.assertTrue("stdout" in result)
+        self.assertLessEqual(len(str(result.get("stdout") or "")), 1024)
 
 
 if __name__ == "__main__":

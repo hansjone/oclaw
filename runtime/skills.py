@@ -10,6 +10,11 @@ from typing import TYPE_CHECKING, Any
 from oclaw.platform.config.paths import PROJECT_ROOT
 from oclaw.platform.config.runtime_paths import runtime_skills_root
 from oclaw.prompts.frontmatter import parse_frontmatter_dict, split_markdown_frontmatter
+from oclaw.runtime.skill_manifest_core import (
+    SkillInstallSpec,
+    normalize_frontmatter,
+    parse_skill_frontmatter,
+)
 
 if TYPE_CHECKING:
     from oclaw.runtime.tools.base import ToolRegistry, ToolSpec
@@ -36,13 +41,6 @@ class SkillSpec:
                 "parameters": self.input_schema,
             },
         }
-
-
-@dataclass(frozen=True)
-class SkillInstallSpec:
-    id: str
-    kind: str
-    payload: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -98,76 +96,12 @@ def default_skills_root() -> Path:
     return preferred
 
 
-def _normalize_skill_manifest_frontmatter(fm: dict[str, Any]) -> dict[str, Any]:
-    out = dict(fm)
-    md = out.get("metadata")
-    if isinstance(md, str) and md.strip():
-        try:
-            out["metadata"] = json.loads(md)
-        except Exception:
-            out["metadata"] = {}
-    elif not isinstance(md, dict):
-        out["metadata"] = {}
-    u = out.get("user-invocable", True)
-    if isinstance(u, bool):
-        out["user-invocable"] = u
-    else:
-        uinv = str(u or "true").strip().lower()
-        out["user-invocable"] = uinv in {"1", "true", "yes", "on"}
-    d = out.get("disable-model-invocation", False)
-    if isinstance(d, bool):
-        out["disable-model-invocation"] = d
-    else:
-        dmi = str(d or "false").strip().lower()
-        out["disable-model-invocation"] = dmi in {"1", "true", "yes", "on"}
-    return out
-
-
 def _parse_skill_frontmatter_block(frontmatter_text: str) -> dict[str, Any]:
     raw_fm = str(frontmatter_text or "").strip()
     if not raw_fm:
         return {}
     fm = parse_frontmatter_dict(raw_fm, source="skill")
-    return _normalize_skill_manifest_frontmatter(fm)
-
-
-def _parse_install_specs(metadata_oclaw: dict[str, Any]) -> tuple[SkillInstallSpec, ...]:
-    raw = metadata_oclaw.get("install")
-    if not isinstance(raw, list):
-        return ()
-    out: list[SkillInstallSpec] = []
-    for idx, it in enumerate(raw):
-        if not isinstance(it, dict):
-            continue
-        sid = str(it.get("id") or f"install_{idx + 1}").strip() or f"install_{idx + 1}"
-        kind = str(it.get("kind") or "").strip().lower()
-        if not kind:
-            continue
-        payload = dict(it)
-        out.append(SkillInstallSpec(id=sid, kind=kind, payload=payload))
-    return tuple(out)
-
-
-def _parse_runtime_spec(metadata_oclaw: dict[str, Any]) -> dict[str, Any]:
-    raw = metadata_oclaw.get("runtime")
-    if not isinstance(raw, dict):
-        return {}
-    out: dict[str, Any] = {}
-    tp = str(raw.get("type") or "").strip().lower()
-    if tp not in {"shell", "python", "node", "hook"}:
-        return {}
-    entry = str(raw.get("entry") or "").strip().replace("\\", "/")
-    if not entry or entry.startswith("/") or ".." in entry.split("/"):
-        return {}
-    out["type"] = tp
-    out["entry"] = entry
-    schema = raw.get("schema")
-    if isinstance(schema, dict):
-        out["schema"] = schema
-    perms = raw.get("permissions")
-    if isinstance(perms, dict):
-        out["permissions"] = perms
-    return out
+    return normalize_frontmatter(fm)
 
 
 def load_skill_manifest(skill_dir: str | Path) -> SkillManifest | None:
@@ -178,22 +112,17 @@ def load_skill_manifest(skill_dir: str | Path) -> SkillManifest | None:
     raw = f.read_text(encoding="utf-8", errors="ignore")
     fm_text, body = split_markdown_frontmatter(raw)
     fm = _parse_skill_frontmatter_block(fm_text)
-    name = str(fm.get("name") or root.name).strip() or root.name
-    desc = str(fm.get("description") or "").strip() or f"{name} skill"
-    md = fm.get("metadata")
-    md = dict(md) if isinstance(md, dict) else {}
-    oc = md.get("oclaw")
-    oc = dict(oc) if isinstance(oc, dict) else {}
+    parsed = parse_skill_frontmatter(fm=fm, default_name=root.name)
     return SkillManifest(
-        name=name,
-        description=desc,
+        name=parsed.name,
+        description=parsed.description,
         skill_dir=str(root),
         skill_file=str(f),
-        user_invocable=bool(fm.get("user-invocable", True)),
-        disable_model_invocation=bool(fm.get("disable-model-invocation", False)),
-        metadata_oclaw=oc,
-        runtime=_parse_runtime_spec(oc),
-        install=_parse_install_specs(oc),
+        user_invocable=parsed.user_invocable,
+        disable_model_invocation=parsed.disable_model_invocation,
+        metadata_oclaw=parsed.metadata_oclaw,
+        runtime=parsed.runtime.as_dict() if parsed.runtime else {},
+        install=parsed.install,
         body=str(body or ""),
     )
 
@@ -203,15 +132,15 @@ def discover_workspace_skill_manifests(skills_root: str | Path | None = None) ->
     if not base.exists() or not base.is_dir():
         return ()
     out: list[SkillManifest] = []
-    if (base / "SKILL.md").exists():
-        one = load_skill_manifest(base)
-        if one:
-            out.append(one)
-    for d in sorted(base.iterdir(), key=lambda p: p.name.lower()):
-        if not d.is_dir():
-            continue
+    seen_files: set[str] = set()
+    for skill_md in sorted(base.rglob("SKILL.md"), key=lambda p: str(p).lower()):
+        d = skill_md.parent
         m = load_skill_manifest(d)
         if m:
+            k = str(Path(m.skill_file).resolve())
+            if k in seen_files:
+                continue
+            seen_files.add(k)
             out.append(m)
     return tuple(out)
 
@@ -280,7 +209,16 @@ def build_skill_manifest(
     except Exception:
         disabled_names = set()
 
-    manifest_by_name = {m.name: m for m in discover_workspace_skill_manifests()}
+    manifests = list(discover_workspace_skill_manifests())
+    manifest_by_name = {m.name: m for m in manifests}
+    workspace_skill_names = sorted(
+        {
+            str(m.name).strip()
+            for m in manifests
+            if str(getattr(m, "name", "") or "").strip()
+            and not bool(getattr(m, "disable_model_invocation", False))
+        }
+    )
     skills: list[SkillSpec] = []
     for t in sorted((registry.list() or []), key=lambda x: str(getattr(x, "name", "") or "").lower()):
         name = str(getattr(t, "name", "") or "").strip()
@@ -317,6 +255,7 @@ def build_skill_manifest(
         "hidden_mcp_preview": hidden_mcp[:20],
         "disabled_total": len(disabled_names),
         "visible_names_preview": [s.name for s in skills[:30]],
+        "workspace_skill_names_preview": workspace_skill_names[:60],
     }
     try:
         json.dumps(stats, ensure_ascii=False, default=str)

@@ -10,11 +10,7 @@ from oclaw.platform.config.paths import PROJECT_ROOT
 from oclaw.prompts.loader import render_runtime_prompt
 
 _PROJECT_CONTEXT_FILES: tuple[str, ...] = (
-    "AGENTS.md",
-    "SOUL.md",
     "TOOLS.md",
-    "IDENTITY.md",
-    "USER.md",
     "HEARTBEAT.md",
     "BOOTSTRAP.md",
 )
@@ -25,9 +21,7 @@ def _project_context_roots() -> tuple[Path, ...]:
     raw_ws = str(os.getenv("OCLAW_WORKSPACE") or "").strip()
     if raw_ws:
         roots.append(Path(raw_ws).expanduser())
-    roots.append(Path(PROJECT_ROOT) / "oclaw" / "runtime" / "assets" / "agent_workspaces" / "workspace-main")
-    roots.append(Path(PROJECT_ROOT) / "oclaw" / "workspace-main")
-    roots.append(Path(PROJECT_ROOT) / "oclaw" / "workspace")
+    roots.append(Path(PROJECT_ROOT) / "oclaw" / "runtime" / "workspaces" / "main")
     roots.append(Path(PROJECT_ROOT))
     out: list[Path] = []
     seen: set[str] = set()

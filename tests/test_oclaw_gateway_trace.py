@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
 import pytest
 
 from oclaw.platform.llm.chat_models import LLMResponse
@@ -223,18 +224,39 @@ def test_gateway_comprehensive_mode_manager_first_selects_specialist(monkeypatch
 
     class _ManagerModel:
         def chat(self, _messages, _tools, *, on_token=None):
-            return LLMResponse(content='{"route":{"specialist":"image","reason":"needs image edits"}}', tool_calls=[])
+            return LLMResponse(
+                content='{"route":{"specialist":"image","reason":"needs image edits"},"dispatch":{"instruction_text":"Please edit the image background."}}',
+                tool_calls=[],
+            )
 
     class _Exec:
         def __init__(self, model=None):
             self.model = model
-            self.tools = None
+            self.tools = object()
+            self.system_prompt = ""
+
+    monkeypatch.setattr(
+        "oclaw.runtime.gateway.get_manager_prompt_prebuild",
+        lambda **kwargs: {
+            "manager_context": "manager",
+            "allowed_fixed": ("generalist", "ops", "image", "memory"),
+            "allowed_fixed_quoted": '"generalist", "ops", "image", "memory"',
+        },
+    )
+    captured: dict = {}
+
+    def _run_agent_core(**kwargs):
+        data = kwargs.get("data")
+        captured["exec_text"] = getattr(getattr(data, "msg", None), "text", None)
+        return SimpleNamespace(outcome=SimpleNamespace(final_text="specialist_answer"))
+
+    monkeypatch.setattr("oclaw.runtime.gateway.run_agent_core", _run_agent_core)
 
     chosen: dict[str, str] = {}
 
     def _factory(sid: str) -> object:
         chosen["sid"] = sid
-        return _Exec()
+        return _Exec(model=object())
 
     gw = OclawGateway(store=Store())
     msg = StandardMessage(
@@ -251,9 +273,9 @@ def test_gateway_comprehensive_mode_manager_first_selects_specialist(monkeypatch
     assert out.interaction_mode == "comprehensive"
     assert out.selected_specialist == "image"
     assert chosen.get("sid") == "image"
+    assert captured.get("exec_text") == "Please edit the image background."
 
-
-def test_gateway_comprehensive_mode_dynamic_agent_fallback_success(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_gateway_comprehensive_mode_has_manager_final_pass(monkeypatch: pytest.MonkeyPatch) -> None:
     class Store:
         def get_setting(self, _k: str) -> str:
             return ""
@@ -262,23 +284,39 @@ def test_gateway_comprehensive_mode_dynamic_agent_fallback_success(monkeypatch: 
             return None
 
     class _ManagerModel:
+        def __init__(self) -> None:
+            self.calls = 0
+
         def chat(self, _messages, _tools, *, on_token=None):
-            return LLMResponse(
-                content=(
-                    '{"route":{"specialist":"finance","reason":"requires finance domain"},'
-                    '"dynamic_agent":{"name":"finance","system_prompt":"You are a finance specialist.","tool_policy":{"allow_tags":["read"],"allow_tools":["read_file"]},"reason":"dynamic_finance"}}'
-                ),
-                tool_calls=[],
-            )
+            self.calls += 1
+            if self.calls == 1:
+                return LLMResponse(
+                    content='{"route":{"specialist":"generalist","reason":"general"},"dispatch":{"instruction_text":"Analyze the finance report and provide key points."}}',
+                    tool_calls=[],
+                )
+            return LLMResponse(content="final_from_manager", tool_calls=[])
 
     class _Exec:
         def __init__(self, model=None):
             self.model = model
-            self.tools = None
+            self.tools = object()
+            self.system_prompt = ""
 
-    monkeypatch.setattr("oclaw.runtime.gateway.build_ephemeral_executor", lambda *args, **kwargs: _Exec())
+    monkeypatch.setattr(
+        "oclaw.runtime.gateway.get_manager_prompt_prebuild",
+        lambda **kwargs: {
+            "manager_context": "manager",
+            "allowed_fixed": ("generalist", "ops", "image", "memory"),
+            "allowed_fixed_quoted": '"generalist", "ops", "image", "memory"',
+        },
+    )
+    monkeypatch.setattr(
+        "oclaw.runtime.gateway.run_agent_core",
+        lambda **kwargs: SimpleNamespace(outcome=SimpleNamespace(final_text="specialist_answer")),
+    )
 
     gw = OclawGateway(store=Store())
+    model = _ManagerModel()
     msg = StandardMessage(
         session_id="sid-d1",
         tenant_id="t1",
@@ -289,12 +327,13 @@ def test_gateway_comprehensive_mode_dynamic_agent_fallback_success(monkeypatch: 
         attachments=[],
         metadata={"interaction_mode": "comprehensive", "selected_specialist": "ops"},
     )
-    out = gw.handle_turn(msg=msg, lang="en", executor=_Exec(model=_ManagerModel()))
+    out = gw.handle_turn(msg=msg, lang="en", executor=_Exec(model=model))
     assert out.interaction_mode == "comprehensive"
-    assert out.selected_specialist == "finance"
+    assert out.selected_specialist == "generalist"
+    assert out.reply_text == "final_from_manager"
 
 
-def test_gateway_comprehensive_mode_dynamic_agent_invalid_falls_back_generalist() -> None:
+def test_gateway_comprehensive_mode_dynamic_agent_dispatches_instruction_only(monkeypatch: pytest.MonkeyPatch) -> None:
     class Store:
         def get_setting(self, _k: str) -> str:
             return ""
@@ -306,8 +345,9 @@ def test_gateway_comprehensive_mode_dynamic_agent_invalid_falls_back_generalist(
         def chat(self, _messages, _tools, *, on_token=None):
             return LLMResponse(
                 content=(
-                    '{"route":{"specialist":"finance","reason":"requires finance domain"},'
-                    '"dynamic_agent":{"name":"finance","system_prompt":"<tool_call>bad</tool_call>","tool_policy":{"allow_tags":["read"]},"reason":"bad_prompt"}}'
+                    '{"route":{"specialist":"dyn:sql","reason":"needs ad-hoc expert"},'
+                    '"dispatch":{"instruction_text":"Write a SQL query to compute daily active users."},'
+                    '"dynamic_agent":{"name":"dyn:sql","system_prompt":"You are a SQL expert.","tool_policy":{"allow_tags":[],"allow_tools":[]},"reason":"dynamic"}}'
                 ),
                 tool_calls=[],
             )
@@ -315,29 +355,113 @@ def test_gateway_comprehensive_mode_dynamic_agent_invalid_falls_back_generalist(
     class _Exec:
         def __init__(self, model=None):
             self.model = model
-            self.tools = None
+            self.tools = object()
+            self.system_prompt = ""
 
-    picked: dict[str, str] = {}
+    monkeypatch.setattr(
+        "oclaw.runtime.gateway.get_manager_prompt_prebuild",
+        lambda **kwargs: {
+            "manager_context": "manager",
+            "allowed_fixed": ("generalist", "ops", "image", "memory"),
+            "allowed_fixed_quoted": '"generalist", "ops", "image", "memory"',
+        },
+    )
+    monkeypatch.setattr("oclaw.runtime.gateway.build_ephemeral_executor", lambda *args, **kwargs: _Exec(model=object()))
 
-    def _factory(sid: str) -> object:
-        picked["sid"] = sid
-        return _Exec()
+    captured: dict = {}
+
+    def _run_agent_core(**kwargs):
+        data = kwargs.get("data")
+        captured["exec_text"] = getattr(getattr(data, "msg", None), "text", None)
+        return SimpleNamespace(outcome=SimpleNamespace(final_text="dynamic_specialist_answer"))
+
+    monkeypatch.setattr("oclaw.runtime.gateway.run_agent_core", _run_agent_core)
 
     gw = OclawGateway(store=Store())
     msg = StandardMessage(
-        session_id="sid-d2",
+        session_id="sid-dyn-1",
         tenant_id="t1",
         user_id="u1",
         role="user",
         channel="admin_chat",
-        text="analyze finance report",
+        text="How do I compute DAU from events table?",
         attachments=[],
-        metadata={"interaction_mode": "comprehensive", "selected_specialist": "ops"},
+        metadata={"interaction_mode": "comprehensive"},
     )
-    out = gw.handle_turn(msg=msg, lang="en", executor=_Exec(model=_ManagerModel()), specialist_executor_factory=_factory)
+    out = gw.handle_turn(msg=msg, lang="en", executor=_Exec(model=_ManagerModel()))
+    assert out.interaction_mode == "comprehensive"
+    assert out.selected_specialist == "dyn:sql"
+    assert captured.get("exec_text") == "Write a SQL query to compute daily active users."
+
+
+def test_gateway_comprehensive_mode_ignores_manager_self_and_dispatches_specialist(monkeypatch: pytest.MonkeyPatch) -> None:
+    class Store:
+        def get_setting(self, _k: str) -> str:
+            return ""
+
+        def add_trace_event(self, **_kwargs: object) -> None:
+            return None
+
+    class _ManagerModel:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def chat(self, _messages, _tools, *, on_token=None):
+            self.calls += 1
+            if self.calls == 1:
+                return LLMResponse(
+                    content='{"route":{"kind":"manager_self","specialist":"generalist","reason":"can answer directly"},"dispatch":{"instruction_text":"请直接给用户简明答案。"}}',
+                    tool_calls=[],
+                )
+            return LLMResponse(content="manager_self_final", tool_calls=[])
+
+    class _Exec:
+        def __init__(self, model=None):
+            self.model = model
+            self.tools = object()
+            self.system_prompt = ""
+
+    monkeypatch.setattr(
+        "oclaw.runtime.gateway.get_manager_prompt_prebuild",
+        lambda **kwargs: {
+            "manager_context": "manager",
+            "allowed_fixed": ("generalist", "ops", "image", "memory"),
+            "allowed_fixed_quoted": '"generalist", "ops", "image", "memory"',
+        },
+    )
+
+    captured: dict[str, str] = {}
+
+    def _run_agent_core(**kwargs):
+        data = kwargs["data"]
+        captured["exec_text"] = str(getattr(data.msg, "text", ""))
+
+        class _Outcome:
+            final_text = "specialist_result"
+
+        class _Out:
+            outcome = _Outcome()
+
+        return _Out()
+
+    monkeypatch.setattr("oclaw.runtime.gateway.run_agent_core", _run_agent_core)
+
+    gw = OclawGateway(store=Store())
+    msg = StandardMessage(
+        session_id="sid-self-1",
+        tenant_id="t1",
+        user_id="u1",
+        role="user",
+        channel="admin_chat",
+        text="请直接回答这个简单问题",
+        attachments=[],
+        metadata={"interaction_mode": "comprehensive"},
+    )
+    out = gw.handle_turn(msg=msg, lang="zh", executor=_Exec(model=_ManagerModel()))
     assert out.interaction_mode == "comprehensive"
     assert out.selected_specialist == "generalist"
-    assert picked.get("sid") == "generalist"
+    assert captured.get("exec_text") == "请直接给用户简明答案。"
+    assert out.reply_text == "manager_self_final"
 
 
 def test_gateway_command_hook_uses_parsed_command_and_context(monkeypatch: pytest.MonkeyPatch) -> None:

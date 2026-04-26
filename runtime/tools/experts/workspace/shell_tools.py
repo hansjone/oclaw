@@ -3,19 +3,41 @@ from __future__ import annotations
 import subprocess
 from typing import Any
 
+from oclaw.platform.config.paths import db_path
+from oclaw.platform.persistence.sqlite_store import SqliteStore
 from oclaw.runtime.tools.base import ToolSpec
 from oclaw.runtime.tools.experts.workspace.workspace_base import resolve_workspace_path, truncate_text
 
 
 def run_command_tool() -> ToolSpec:
+    def _run_command_enabled() -> bool:
+        import os
+
+        try:
+            raw_setting = str(SqliteStore(db_path()).get_setting("AIA_ENABLE_RUN_COMMAND") or "").strip().lower()
+            if raw_setting in ("0", "false", "no", "off"):
+                return False
+            if raw_setting in ("1", "true", "yes", "on"):
+                return True
+        except Exception:
+            pass
+
+        raw_env = str(os.getenv("AIA_ENABLE_RUN_COMMAND") or "").strip().lower()
+        if raw_env in ("0", "false", "no", "off"):
+            return False
+        if raw_env in ("1", "true", "yes", "on"):
+            return True
+        # Default disabled when unset (explicit opt-in only).
+        return False
+
     def handler(args: dict[str, Any]) -> dict[str, Any]:
         import os
 
-        if str(os.getenv("AIA_ENABLE_RUN_COMMAND") or "").strip().lower() not in ("1", "true", "yes", "on"):
+        if not _run_command_enabled():
             return {
                 "ok": False,
                 "error": "disabled",
-                "hint": "Set AIA_ENABLE_RUN_COMMAND=1 to enable this high-risk tool.",
+                "hint": "Enable run_command in Admin -> Plugins -> Tool Policy.",
             }
         command = str(args.get("command") or "").strip()
         cwd = str(args.get("cwd") or "").strip()

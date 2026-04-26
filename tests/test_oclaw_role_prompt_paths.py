@@ -7,6 +7,6 @@ def test_specialist_prompts_loaded_from_oclaw_tree() -> None:
     ops = default_system_prefix_for_specialist("ops", "zh")
     gen = default_system_prefix_for_specialist("generalist", "zh")
     img = default_system_prefix_for_specialist("image", "zh")
-    assert "网络运维专家" in ops
-    assert "通识专家" in gen
-    assert "图像处理专家" in img
+    assert "运维专家（ops specialist）" in ops
+    assert "通识专家（generalist specialist）" in gen
+    assert "图像专家（image specialist）" in img

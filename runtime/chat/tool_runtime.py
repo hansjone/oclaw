@@ -23,6 +23,7 @@ from oclaw.runtime.tools.tool_validation import validate_tool_arguments
 from oclaw.runtime.tools.experts.workspace.workspace_base import workspace_path_access_scope
 
 logger = logging.getLogger(__name__)
+_tool_exec_log = logging.getLogger("oclaw.tool_exec")
 
 _TOOL_ERROR_MAP = {
     "tool_timeout_or_failed": "tool_timeout_or_failed",
@@ -275,13 +276,43 @@ class ToolExecutor:
                         ex.shutdown(wait=False)
             else:
                 result = _call()
-            return normalize_tool_result(result), int((time.perf_counter() - t0) * 1000)
+            out = normalize_tool_result(result)
+            dur_ms = int((time.perf_counter() - t0) * 1000)
+            try:
+                _tool_exec_log.info(
+                    "tool_exec name=%s ok=%s dur_ms=%s session=%s specialist=%s tool_call_id=%s error_code=%s",
+                    str(tc.name or ""),
+                    str(bool(out.get("ok"))),
+                    str(dur_ms),
+                    str(ctx.session_id or ""),
+                    str(ctx.specialist or ""),
+                    str(getattr(tc, "id", "") or ""),
+                    str(out.get("error_code") or ""),
+                )
+            except Exception:
+                pass
+            return out, dur_ms
         except Exception as e:
             if ctx.lang.startswith("en"):
                 err = {"ok": False, "error_code": "tool_execution_error", "error": f"Tool execution error: {type(e).__name__}: {e}"}
             else:
                 err = {"ok": False, "error_code": "tool_execution_error", "error": f"工具执行异常: {type(e).__name__}: {e}"}
-            return normalize_tool_result(err), int((time.perf_counter() - t0) * 1000)
+            out = normalize_tool_result(err)
+            dur_ms = int((time.perf_counter() - t0) * 1000)
+            try:
+                _tool_exec_log.info(
+                    "tool_exec name=%s ok=%s dur_ms=%s session=%s specialist=%s tool_call_id=%s error_code=%s",
+                    str(tc.name or ""),
+                    str(bool(out.get("ok"))),
+                    str(dur_ms),
+                    str(ctx.session_id or ""),
+                    str(ctx.specialist or ""),
+                    str(getattr(tc, "id", "") or ""),
+                    str(out.get("error_code") or ""),
+                )
+            except Exception:
+                pass
+            return out, dur_ms
 
     @staticmethod
     def _json_dumps_safe(obj: Any) -> str:

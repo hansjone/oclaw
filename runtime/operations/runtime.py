@@ -65,6 +65,10 @@ def _is_running(pid: int) -> bool:
         return False
 
 
+def is_pid_running(pid: int) -> bool:
+    return _is_running(int(pid or 0))
+
+
 def _python_bin() -> str:
     return sys.executable or "python"
 
@@ -176,8 +180,97 @@ def detect_orphan_service_processes(name: str, *, keep_pids: set[int] | None = N
     return out
 
 
+def list_service_process_pids(name: str) -> list[int]:
+    sig = _service_signature(name)
+    if not sig:
+        return []
+    return sorted(int(x) for x in _find_pids_by_signature(sig) if int(x) > 0)
+
+
+def list_listen_ports_for_pid(pid: int) -> list[int]:
+    p = int(pid or 0)
+    if p <= 0:
+        return []
+    ports: set[int] = set()
+    if os.name == "nt":
+        try:
+            raw = subprocess.check_output(
+                ["netstat", "-ano", "-p", "tcp"],
+                stderr=subprocess.DEVNULL,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+            )
+        except Exception:
+            return []
+        for line in (raw or "").splitlines():
+            txt = " ".join(str(line or "").strip().split())
+            if not txt or not txt.lower().startswith("tcp "):
+                continue
+            parts = txt.split(" ")
+            if len(parts) < 5:
+                continue
+            local_addr = parts[1]
+            state = parts[3].strip().upper()
+            pid_s = parts[4].strip()
+            if pid_s != str(p):
+                continue
+            if state != "LISTENING":
+                continue
+            sep = local_addr.rfind(":")
+            if sep < 0:
+                continue
+            port_s = local_addr[sep + 1 :].strip().strip("]")
+            if port_s.isdigit():
+                ports.add(int(port_s))
+        return sorted(ports)
+    try:
+        raw = subprocess.check_output(
+            ["ss", "-ltnp"],
+            stderr=subprocess.DEVNULL,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+        )
+    except Exception:
+        return []
+    for line in (raw or "").splitlines():
+        txt = " ".join(str(line or "").strip().split())
+        if not txt or "LISTEN" not in txt:
+            continue
+        if f"pid={p}," not in txt and f"pid={p})" not in txt:
+            continue
+        parts = txt.split(" ")
+        if len(parts) < 4:
+            continue
+        local_addr = parts[3]
+        sep = local_addr.rfind(":")
+        if sep < 0:
+            continue
+        port_s = local_addr[sep + 1 :].strip().strip("]")
+        if port_s.isdigit():
+            ports.add(int(port_s))
+    return sorted(ports)
+
+
 def cleanup_orphan_service_processes(name: str, *, keep_pids: set[int] | None = None) -> list[int]:
     return _cleanup_orphan_service_processes(name, keep_pids=keep_pids)
+
+
+def cleanup_service_processes_by_pid(name: str, pids: list[int] | tuple[int, ...] | set[int]) -> list[int]:
+    sig = _service_signature(name)
+    if not sig:
+        return []
+    target = {int(x) for x in (pids or []) if int(x) > 0}
+    if not target:
+        return []
+    live = set(_find_pids_by_signature(sig))
+    victims = sorted([x for x in target if x in live])
+    killed: list[int] = []
+    for pid in victims:
+        if _kill_pid_force(pid):
+            killed.append(int(pid))
+    return killed
 
 
 @dataclass(frozen=True)
@@ -191,12 +284,15 @@ class ServiceState:
 def start_service(*, name: str, command: list[str], env: dict[str, str] | None = None, cwd: str | None = None) -> int:
     state = _read_state()
     services = state.setdefault("services", {})
-    _cleanup_orphan_service_processes(name)
     existing = services.get(name)
     if isinstance(existing, dict):
         pid = int(existing.get("pid") or 0)
         if _is_running(pid):
+            # Keep recorded primary pid, kill only duplicate peers.
+            _cleanup_orphan_service_processes(name, keep_pids={pid})
             return pid
+    # No stable primary pid: kill all matching peers and restart cleanly.
+    _cleanup_orphan_service_processes(name)
     merged_env = os.environ.copy()
     if env:
         merged_env.update({str(k): str(v) for k, v in env.items()})
@@ -251,14 +347,47 @@ def status_services() -> list[ServiceState]:
     state = _read_state()
     services = state.get("services")
     if not isinstance(services, dict):
-        return []
+        services = {}
+        state["services"] = services
+    # Reconcile state-file PIDs with live processes by command signature.
+    # This prevents false "missing service" reports when cwd/env drift starts
+    # services successfully but runtime state was written from another context.
+    changed = False
+    known_names: list[str] = []
+    for n in services.keys():
+        nn = str(n or "").strip()
+        if nn and nn not in known_names:
+            known_names.append(nn)
+    for n in ("gateway", "channel:wecom"):
+        if n not in known_names:
+            known_names.append(n)
     out: list[ServiceState] = []
-    for name, meta in services.items():
+    for name in known_names:
+        meta = services.get(name)
         if not isinstance(meta, dict):
-            continue
+            meta = {}
         pid = int(meta.get("pid") or 0)
+        running = _is_running(pid)
         cmd = meta.get("command") if isinstance(meta.get("command"), list) else []
-        out.append(ServiceState(name=str(name), pid=pid, command=[str(x) for x in cmd], running=_is_running(pid)))
+        if not running:
+            sig = _service_signature(str(name))
+            pids = _find_pids_by_signature(sig) if sig else []
+            # Safe reconcile only when exactly one candidate exists.
+            # If multiple workers exist, avoid guessing a primary pid.
+            if len(pids) == 1:
+                pid = int(sorted(pids)[0])
+                running = _is_running(pid)
+                if running and int(meta.get("pid") or 0) != pid:
+                    services[str(name)] = {
+                        "pid": int(pid),
+                        "command": cmd,
+                        "stdout_log": str(meta.get("stdout_log") or ""),
+                        "stderr_log": str(meta.get("stderr_log") or ""),
+                    }
+                    changed = True
+        out.append(ServiceState(name=str(name), pid=pid, command=[str(x) for x in cmd], running=running))
+    if changed:
+        _write_state(state)
     return out
 
 

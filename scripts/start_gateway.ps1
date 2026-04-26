@@ -2,7 +2,8 @@ param(
     [string]$BindHost = "127.0.0.1",
     [int]$Port = 8787,
     [switch]$SkipInstall = $false,
-    [switch]$Background = $false
+    [switch]$Background = $false,
+    [bool]$WithWikiWorker = $true
 )
 
 $ErrorActionPreference = "Stop"
@@ -12,5 +13,5 @@ if (-not (Test-Path $real)) {
     throw "Forward script target not found: $real"
 }
 
-& $real -BindHost $BindHost -Port $Port -SkipInstall:$SkipInstall -Background:$Background
+& $real -BindHost $BindHost -Port $Port -SkipInstall:$SkipInstall -Background:$Background -WithWikiWorker:$WithWikiWorker
 

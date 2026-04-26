@@ -27,9 +27,9 @@ def test_render_prompt_success() -> None:
 
 
 def test_load_runtime_prompt_doc_with_frontmatter() -> None:
-    doc = load_runtime_prompt_doc("roles/specialists/ops/system.md")
-    assert doc.frontmatter.get("title") == "oclaw_role_specialist_ops_system"
-    assert "你是网络运维专家" in doc.body
+    doc = load_runtime_prompt_doc("runtime/default_system.zh.md")
+    assert doc.frontmatter.get("title") == "default_runtime_system_zh"
+    assert "你是一个通用 AI 助手" in doc.body
 
 
 def test_render_runtime_prompt_success() -> None:

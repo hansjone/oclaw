@@ -211,7 +211,12 @@ def run_skill_runtime_entry(
 
     roots = _resolve_allowed_roots(root)
     perms = runtime.get("permissions") if isinstance(runtime.get("permissions"), dict) else {}
+    source_meta = runtime.get("__source_meta") if isinstance(runtime.get("__source_meta"), dict) else {}
     fs_write = bool(perms.get("fs_write")) if isinstance(perms, dict) and "fs_write" in perms else False
+    allow_net = bool(perms.get("net")) if isinstance(perms, dict) and "net" in perms else False
+    allow_process = bool(perms.get("process")) if isinstance(perms, dict) and "process" in perms else True
+    if not allow_process:
+        return {"ok": False, "error_code": "process_disabled", "error": "process_execution_disabled_by_policy"}
     try:
         if not fs_write:
             _deny_writes_when_disabled(args)
@@ -220,7 +225,15 @@ def run_skill_runtime_entry(
         return {"ok": False, "error_code": "path_restricted", "error": str(exc)}
 
     timeout_s = float((runtime or {}).get("timeout_s") or 60.0)
-    stdin_json = {"skill": name, "args": args, "permissions": {"fs_write": fs_write}}
+    timeout_s = min(max(timeout_s, 1.0), 120.0)
+    max_output_bytes = int((runtime or {}).get("max_output_bytes") or 131072)
+    max_output_bytes = min(max(max_output_bytes, 1024), 1048576)
+    stdin_json = {
+        "skill": name,
+        "args": args,
+        "permissions": {"fs_write": fs_write, "net": allow_net, "process": allow_process},
+        "source": dict(source_meta),
+    }
 
     try:
         if tp == "python":
@@ -240,8 +253,13 @@ def run_skill_runtime_entry(
             "ok": bool(rr.ok),
             "exit_code": int(rr.exit_code),
             "duration_ms": int(rr.duration_ms),
-            "stdout": rr.stdout,
-            "stderr": rr.stderr,
+            "stdout": rr.stdout[:max_output_bytes],
+            "stderr": rr.stderr[:max_output_bytes],
+            "stdout_truncated": len(rr.stdout) > max_output_bytes,
+            "stderr_truncated": len(rr.stderr) > max_output_bytes,
+            "source_provider": str(source_meta.get("provider") or ""),
+            "source_version": str(source_meta.get("version") or ""),
+            "source_kind": str(source_meta.get("kind") or ""),
         }
         # Best-effort JSON decode for programmatic skills.
         out_obj: Any = None

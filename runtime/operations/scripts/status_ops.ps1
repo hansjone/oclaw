@@ -4,18 +4,29 @@ function Write-Step([string]$msg) {
     Write-Host "==> $msg" -ForegroundColor Cyan
 }
 
-$repoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
-Set-Location $repoRoot
+$repoRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))
+$repoParent = Split-Path -Parent $repoRoot
+Set-Location $repoParent
+$env:PYTHONPATH = $repoParent
+
+$venvPython = Join-Path $repoRoot ".venv/Scripts/python.exe"
+if (Test-Path $venvPython) {
+    $pythonExe = $venvPython
+} else {
+    $pythonExe = "python"
+}
 
 Write-Step "Project root: $repoRoot"
+Write-Step "Working directory: $repoParent"
 Write-Step "Stack status"
-python -m oclaw.runtime.operations stack status
+& $pythonExe -m oclaw.runtime.operations stack status
 
 Write-Host ""
 Write-Step "WeCom status"
-python -m oclaw.runtime.operations channel wecom status
+& $pythonExe -m oclaw.runtime.operations channel wecom status
 
 Write-Host ""
 Write-Host "Admin: http://127.0.0.1:8787/admin"
 Write-Host "Chat:  http://127.0.0.1:8787/chat"
+
 
