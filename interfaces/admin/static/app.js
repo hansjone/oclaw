@@ -45,9 +45,21 @@ const I18N = {
     "attachments.toolModeMinRows": "触发工具模式最小行数",
     "attachments.toolModeMaxBytes": "工具模式最大文件字节数",
     "attachments.sqlTimeoutMs": "SQL 超时（ms）",
+    "attachments.imageReplayCapChars": "图片结果回放上限字符数",
+    "attachments.videoReplayCapChars": "视频转写结果回放上限字符数",
+    "attachments.videoTranscriptChunkSize": "视频转写分块大小",
+    "attachments.videoTranscriptChunkOverlap": "视频转写分块重叠",
+    "attachments.archiveMaxDepth": "压缩包最大嵌套深度",
+    "attachments.archiveMaxFileCount": "压缩包最大文件数",
+    "attachments.archiveMaxEntryBytes": "压缩包单文件最大解压字节",
+    "attachments.archiveMaxTotalBytes": "压缩包总解压字节上限",
     "attachments.highPreviewWarn": "大表摘要预览行数超过 200，可能显著增加 token 消耗。确认继续？",
     "attachments.invalidNumber": "请输入有效正整数",
     "attachments.sqlTimeoutHint": "硬超时（wall-clock）。范围 100..120000，默认 8000。命中会返回 sql_timeout 结构化错误。",
+    "attachments.imageReplayCapHint": "历史轮次中，query_image_attachment 的 OCR/描述结果回放上限。范围 600..30000，默认 4000。",
+    "attachments.videoReplayCapHint": "历史轮次中，query_video_attachment 的 transcript 结果回放上限。范围 600..30000，默认 4000。",
+    "attachments.videoTranscriptChunkHint": "query_video_attachment(task=transcript) 默认使用该分块参数落库，便于后续 query_text_attachment 检索。",
+    "attachments.archivePolicyHint": "archive_processor 的统一预算：支持 zip/tar/tgz/gz，限制嵌套层级、文件数与解压体积。",
     "attachments.loadError": "加载失败",
     "attachments.saved": "已保存",
     "attachments.save": "保存",
@@ -452,9 +464,21 @@ const I18N = {
     "attachments.toolModeMinRows": "Min rows to trigger tool mode",
     "attachments.toolModeMaxBytes": "Max file bytes for tool mode",
     "attachments.sqlTimeoutMs": "SQL timeout (ms)",
+    "attachments.imageReplayCapChars": "Image replay cap chars",
+    "attachments.videoReplayCapChars": "Video replay cap chars",
+    "attachments.videoTranscriptChunkSize": "Video transcript chunk size",
+    "attachments.videoTranscriptChunkOverlap": "Video transcript chunk overlap",
+    "attachments.archiveMaxDepth": "Archive max depth",
+    "attachments.archiveMaxFileCount": "Archive max file count",
+    "attachments.archiveMaxEntryBytes": "Archive max entry uncompressed bytes",
+    "attachments.archiveMaxTotalBytes": "Archive max total uncompressed bytes",
     "attachments.highPreviewWarn": "Large-table preview rows is above 200, which may significantly increase token usage. Continue?",
     "attachments.invalidNumber": "Please enter valid positive integers",
     "attachments.sqlTimeoutHint": "Hard wall-clock timeout. Range 100..120000, default 8000. Timeout returns structured sql_timeout error.",
+    "attachments.imageReplayCapHint": "Replay cap for query_image_attachment OCR/description results in historical context. Range 600..30000, default 4000.",
+    "attachments.videoReplayCapHint": "Replay cap for query_video_attachment transcript results in historical context. Range 600..30000, default 4000.",
+    "attachments.videoTranscriptChunkHint": "Default chunk parameters used by query_video_attachment(task=transcript) when persisting transcript chunks for query_text_attachment retrieval.",
+    "attachments.archivePolicyHint": "Unified archive_processor budget for zip/tar/tgz/gz: limits depth, file count and uncompressed size.",
     "attachments.loadError": "Load failed",
     "attachments.saved": "Saved",
     "attachments.save": "Save",
@@ -6399,6 +6423,14 @@ async function renderAttachments() {
   const toolMinRowsInput = el("input", { class: "input", type: "number", min: "1", step: "1" });
   const toolMaxBytesInput = el("input", { class: "input", type: "number", min: "1", step: "1" });
   const sqlTimeoutInput = el("input", { class: "input", type: "number", min: "100", max: "120000", step: "1" });
+  const imageReplayCapInput = el("input", { class: "input", type: "number", min: "600", max: "30000", step: "1" });
+  const videoReplayCapInput = el("input", { class: "input", type: "number", min: "600", max: "30000", step: "1" });
+  const videoTranscriptChunkSizeInput = el("input", { class: "input", type: "number", min: "1", max: "8000", step: "1" });
+  const videoTranscriptChunkOverlapInput = el("input", { class: "input", type: "number", min: "1", max: "4000", step: "1" });
+  const archiveMaxDepthInput = el("input", { class: "input", type: "number", min: "1", max: "10", step: "1" });
+  const archiveMaxFileCountInput = el("input", { class: "input", type: "number", min: "1", max: "20000", step: "1" });
+  const archiveMaxEntryBytesInput = el("input", { class: "input", type: "number", min: "1", step: "1" });
+  const archiveMaxTotalBytesInput = el("input", { class: "input", type: "number", min: "1", step: "1" });
 
   const clampTimeout = (raw, fallback = 8000) => {
     const n = parseInt(String(raw ?? "").trim(), 10);
@@ -6421,6 +6453,14 @@ async function renderAttachments() {
     const minRows = parsePositiveInt(toolMinRowsInput.value);
     const maxBytes = parsePositiveInt(toolMaxBytesInput.value);
     const sqlTimeoutMs = parsePositiveInt(sqlTimeoutInput.value);
+    const imageReplayCapChars = parsePositiveInt(imageReplayCapInput.value);
+    const videoReplayCapChars = parsePositiveInt(videoReplayCapInput.value);
+    const videoTranscriptChunkSize = parsePositiveInt(videoTranscriptChunkSizeInput.value);
+    const videoTranscriptChunkOverlap = parsePositiveInt(videoTranscriptChunkOverlapInput.value);
+    const archiveMaxDepth = parsePositiveInt(archiveMaxDepthInput.value);
+    const archiveMaxFileCount = parsePositiveInt(archiveMaxFileCountInput.value);
+    const archiveMaxEntryBytes = parsePositiveInt(archiveMaxEntryBytesInput.value);
+    const archiveMaxTotalBytes = parsePositiveInt(archiveMaxTotalBytesInput.value);
     if (
       rows === null ||
       cols === null ||
@@ -6429,7 +6469,15 @@ async function renderAttachments() {
       previewRows === null ||
       minRows === null ||
       maxBytes === null ||
-      sqlTimeoutMs === null
+      sqlTimeoutMs === null ||
+      imageReplayCapChars === null ||
+      videoReplayCapChars === null ||
+      videoTranscriptChunkSize === null ||
+      videoTranscriptChunkOverlap === null ||
+      archiveMaxDepth === null ||
+      archiveMaxFileCount === null ||
+      archiveMaxEntryBytes === null ||
+      archiveMaxTotalBytes === null
     ) {
       throw new Error(t("attachments.invalidNumber"));
     }
@@ -6446,6 +6494,14 @@ async function renderAttachments() {
       tool_mode_min_rows: minRows,
       tool_mode_max_bytes: maxBytes,
       sql_timeout_ms: clampTimeout(sqlTimeoutMs, 8000),
+      image_result_replay_cap_chars: Math.max(600, Math.min(30000, imageReplayCapChars)),
+      video_result_replay_cap_chars: Math.max(600, Math.min(30000, videoReplayCapChars)),
+      video_transcript_chunk_size: Math.max(1, Math.min(8000, videoTranscriptChunkSize)),
+      video_transcript_chunk_overlap: Math.max(1, Math.min(4000, videoTranscriptChunkOverlap)),
+      archive_max_depth: Math.max(1, Math.min(10, archiveMaxDepth)),
+      archive_max_file_count: Math.max(1, Math.min(20000, archiveMaxFileCount)),
+      archive_max_entry_bytes: Math.max(1, archiveMaxEntryBytes),
+      archive_max_total_uncompressed_bytes: Math.max(1, archiveMaxTotalBytes),
     };
   };
 
@@ -6457,9 +6513,17 @@ async function renderAttachments() {
     maxSheetsInput.value = String(l.max_excel_sheets || 50);
     largePreviewRowsInput.value = String(l.large_table_preview_rows || 20);
     toolEnabledInput.checked = !!l.tool_mode_enabled;
-    toolMinRowsInput.value = String(l.tool_mode_min_rows || 20000);
+    toolMinRowsInput.value = String(l.tool_mode_min_rows || 5000);
     toolMaxBytesInput.value = String(l.tool_mode_max_bytes || 31457280);
     sqlTimeoutInput.value = String(clampTimeout(l.sql_timeout_ms, 8000));
+    imageReplayCapInput.value = String(Math.max(600, Math.min(30000, parsePositiveInt(l.image_result_replay_cap_chars) || 4000)));
+    videoReplayCapInput.value = String(Math.max(600, Math.min(30000, parsePositiveInt(l.video_result_replay_cap_chars) || 4000)));
+    videoTranscriptChunkSizeInput.value = String(Math.max(1, Math.min(8000, parsePositiveInt(l.video_transcript_chunk_size) || 1600)));
+    videoTranscriptChunkOverlapInput.value = String(Math.max(1, Math.min(4000, parsePositiveInt(l.video_transcript_chunk_overlap) || 200)));
+    archiveMaxDepthInput.value = String(Math.max(1, Math.min(10, parsePositiveInt(l.archive_max_depth) || 2)));
+    archiveMaxFileCountInput.value = String(Math.max(1, Math.min(20000, parsePositiveInt(l.archive_max_file_count) || 200)));
+    archiveMaxEntryBytesInput.value = String(Math.max(1, parsePositiveInt(l.archive_max_entry_bytes) || 10485760));
+    archiveMaxTotalBytesInput.value = String(Math.max(1, parsePositiveInt(l.archive_max_total_uncompressed_bytes) || 52428800));
   };
 
   const load = async () => {
@@ -6538,6 +6602,18 @@ async function renderAttachments() {
       inputRow(t("attachments.toolModeMaxBytes"), toolMaxBytesInput),
       inputRow(t("attachments.sqlTimeoutMs"), sqlTimeoutInput),
       el("div", { class: "muted", style: "margin-top:6px;line-height:1.45;", text: t("attachments.sqlTimeoutHint") }),
+      inputRow(t("attachments.imageReplayCapChars"), imageReplayCapInput),
+      el("div", { class: "muted", style: "margin-top:6px;line-height:1.45;", text: t("attachments.imageReplayCapHint") }),
+      inputRow(t("attachments.videoReplayCapChars"), videoReplayCapInput),
+      el("div", { class: "muted", style: "margin-top:6px;line-height:1.45;", text: t("attachments.videoReplayCapHint") }),
+      inputRow(t("attachments.videoTranscriptChunkSize"), videoTranscriptChunkSizeInput),
+      inputRow(t("attachments.videoTranscriptChunkOverlap"), videoTranscriptChunkOverlapInput),
+      el("div", { class: "muted", style: "margin-top:6px;line-height:1.45;", text: t("attachments.videoTranscriptChunkHint") }),
+      inputRow(t("attachments.archiveMaxDepth"), archiveMaxDepthInput),
+      inputRow(t("attachments.archiveMaxFileCount"), archiveMaxFileCountInput),
+      inputRow(t("attachments.archiveMaxEntryBytes"), archiveMaxEntryBytesInput),
+      inputRow(t("attachments.archiveMaxTotalBytes"), archiveMaxTotalBytesInput),
+      el("div", { class: "muted", style: "margin-top:6px;line-height:1.45;", text: t("attachments.archivePolicyHint") }),
       el("div", { class: "row", style: "gap:8px;margin-top:12px;flex-wrap:wrap;" }, [loadBtn, resetBtn, saveBtn]),
       el("div", { style: "height:8px" }),
       status,

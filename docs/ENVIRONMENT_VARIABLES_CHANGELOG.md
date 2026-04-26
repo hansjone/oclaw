@@ -57,6 +57,48 @@
 
 ---
 
+## 2026-04-26 / Unreleased
+
+### Added
+- `AIA_IMAGE_TOOL_RESULT_REPLAY_CAP_CHARS`
+  - 默认值：`4000`
+  - 用途：限制历史轮次中 `query_image_attachment`（OCR/描述）结果回放到模型上下文时的字符上限
+  - 影响模块：`oclaw/runtime/direct_loop.py`, `oclaw/interfaces/admin/chat_api.py`, `oclaw/interfaces/admin/static/app.js`
+- `AIA_VIDEO_TOOL_RESULT_REPLAY_CAP_CHARS`
+  - 默认值：`4000`
+  - 用途：限制历史轮次中 `query_video_attachment`（`task=transcript`）结果回放到模型上下文时的字符上限
+  - 影响模块：`oclaw/runtime/direct_loop.py`, `oclaw/interfaces/admin/chat_api.py`, `oclaw/interfaces/admin/static/app.js`
+
+### Changed
+- Admin「附件」设置页新增 `image_result_replay_cap_chars` 可视化配置，并写入 `oclaw.json`：
+  - 路径：`plugins.entries.memory-wiki.auto.attachments.tabular.image_result_replay_cap_chars`
+  - 范围：`600..30000`
+  - 是否需要重启：否（新 turn 读取时生效）
+- Admin「附件」设置页新增视频相关配置，并写入 `oclaw.json`：
+  - `video_result_replay_cap_chars`（范围 `600..30000`）
+  - `video_transcript_chunk_size`（范围 `1..8000`）
+  - `video_transcript_chunk_overlap`（范围 `1..4000`）
+  - 路径：`plugins.entries.memory-wiki.auto.attachments.tabular`
+  - 是否需要重启：否（新 turn 读取时生效）
+- Admin「附件」设置页新增压缩包统一预算配置，并写入 `oclaw.json`：
+  - `archive_max_depth`（默认 `2`）
+  - `archive_max_file_count`（默认 `200`）
+  - `archive_max_entry_bytes`（默认 `10485760`）
+  - `archive_max_total_uncompressed_bytes`（默认 `52428800`）
+  - 统一错误码：`archive_unsupported_format`, `archive_path_traversal`, `archive_max_depth_exceeded`, `archive_max_file_count_exceeded`, `archive_max_entry_bytes_exceeded`, `archive_max_total_uncompressed_bytes_exceeded`, `archive_link_entry_forbidden`, `archive_special_entry_forbidden`, `archive_parse_failed`
+  - 路径：`plugins.entries.memory-wiki.auto.attachments.tabular`
+  - 影响模块：`oclaw/platform/files/archive_processor.py`, `oclaw/platform/files/file_attachments.py`
+  - 是否需要重启：否（新 turn 读取时生效）
+
+### Migration Checklist
+- [x] 已更新 `oclaw/docs/ENVIRONMENT_VARIABLES.md`
+- [x] 已更新 `README.md`
+- [x] 已更新示例 env 文件
+- [x] 已验证 Admin 配置页（如适用）
+- [x] 已执行编译/测试回归
+
+---
+
 ## 2026-04-21 / Unreleased
 
 ### Added

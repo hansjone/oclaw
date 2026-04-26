@@ -40,7 +40,7 @@ def _oclaw_config_path() -> Path:
         p = Path(raw)
         return p if p.is_absolute() else p.resolve()
     # repo_root/src/admin/chat_api.py -> repo_root
-    return Path(__file__).resolve().parents[2] / "oclaw" / "oclaw.json"
+    return Path(__file__).resolve().parents[2] / "oclaw.json"
 
 
 def _wiki_root_from_config() -> Path | None:
@@ -103,6 +103,15 @@ _DISPATCH_REASON_LABELS_SETTING_KEY = "AIA_DISPATCH_REASON_LABELS_JSON"
 _SPECIALIST_FLAGS_SETTING_KEY = "AIA_CHAT_SPECIALIST_FLAGS_JSON"
 _CHAT_SPECIALIST_IDS: tuple[str, ...] = tuple(str(x) for x in SPECIALIST_IDS if str(x).strip())
 DEFAULT_TABULAR_SQL_TIMEOUT_MS = 8_000
+DEFAULT_TABULAR_TOOL_MODE_MIN_ROWS = 5_000
+DEFAULT_TEXT_INLINE_MAX_CHARS = 12_000
+DEFAULT_TEXT_CHUNK_SIZE = 1_600
+DEFAULT_TEXT_CHUNK_OVERLAP = 200
+DEFAULT_TEXT_QUERY_TOP_K = 5
+DEFAULT_IMAGE_RESULT_REPLAY_CAP_CHARS = 4_000
+DEFAULT_VIDEO_RESULT_REPLAY_CAP_CHARS = 4_000
+DEFAULT_VIDEO_TRANSCRIPT_CHUNK_SIZE = 1_600
+DEFAULT_VIDEO_TRANSCRIPT_CHUNK_OVERLAP = 200
 
 
 def _safe_rel_avatar_name(name: str) -> str:
@@ -441,9 +450,31 @@ def _tabular_limits_from_oclaw_config() -> dict[str, int]:
         "max_excel_sheets": _safe_int(tabular.get("max_excel_sheets"), DEFAULT_MAX_EXCEL_SHEETS, max_value=500),
         "large_table_preview_rows": _safe_int(tabular.get("large_table_preview_rows"), 20, max_value=500),
         "tool_mode_enabled": bool(tabular.get("tool_mode_enabled", True)),
-        "tool_mode_min_rows": _safe_int(tabular.get("tool_mode_min_rows"), 20_000),
+        "tool_mode_min_rows": _safe_int(tabular.get("tool_mode_min_rows"), DEFAULT_TABULAR_TOOL_MODE_MIN_ROWS),
         "tool_mode_max_bytes": _safe_int(tabular.get("tool_mode_max_bytes"), 30 * 1024 * 1024),
         "sql_timeout_ms": _safe_timeout_ms(tabular.get("sql_timeout_ms"), DEFAULT_TABULAR_SQL_TIMEOUT_MS),
+        "text_inline_max_chars": _safe_int(tabular.get("text_inline_max_chars"), DEFAULT_TEXT_INLINE_MAX_CHARS, max_value=200_000),
+        "text_chunk_size": _safe_int(tabular.get("text_chunk_size"), DEFAULT_TEXT_CHUNK_SIZE, max_value=8_000),
+        "text_chunk_overlap": _safe_int(tabular.get("text_chunk_overlap"), DEFAULT_TEXT_CHUNK_OVERLAP, max_value=4_000),
+        "text_query_top_k": _safe_int(tabular.get("text_query_top_k"), DEFAULT_TEXT_QUERY_TOP_K, max_value=50),
+        "image_result_replay_cap_chars": _safe_int(
+            tabular.get("image_result_replay_cap_chars"), DEFAULT_IMAGE_RESULT_REPLAY_CAP_CHARS, min_value=600, max_value=30_000
+        ),
+        "video_result_replay_cap_chars": _safe_int(
+            tabular.get("video_result_replay_cap_chars"), DEFAULT_VIDEO_RESULT_REPLAY_CAP_CHARS, min_value=600, max_value=30_000
+        ),
+        "video_transcript_chunk_size": _safe_int(
+            tabular.get("video_transcript_chunk_size"), DEFAULT_VIDEO_TRANSCRIPT_CHUNK_SIZE, max_value=8_000
+        ),
+        "video_transcript_chunk_overlap": _safe_int(
+            tabular.get("video_transcript_chunk_overlap"), DEFAULT_VIDEO_TRANSCRIPT_CHUNK_OVERLAP, max_value=4_000
+        ),
+        "archive_max_depth": _safe_int(tabular.get("archive_max_depth"), 2, max_value=10),
+        "archive_max_file_count": _safe_int(tabular.get("archive_max_file_count"), 200, max_value=20_000),
+        "archive_max_entry_bytes": _safe_int(tabular.get("archive_max_entry_bytes"), 10 * 1024 * 1024, max_value=2_000_000_000),
+        "archive_max_total_uncompressed_bytes": _safe_int(
+            tabular.get("archive_max_total_uncompressed_bytes"), 50 * 1024 * 1024, max_value=5_000_000_000
+        ),
     }
 
 
@@ -470,10 +501,68 @@ def _set_tabular_limits_into_oclaw_config(limits: dict[str, int]) -> dict[str, i
                                 "max_excel_sheets": int(limits.get("max_excel_sheets") or DEFAULT_MAX_EXCEL_SHEETS),
                                 "large_table_preview_rows": int(limits.get("large_table_preview_rows") or 20),
                                 "tool_mode_enabled": bool(limits.get("tool_mode_enabled", True)),
-                                "tool_mode_min_rows": int(limits.get("tool_mode_min_rows") or 20_000),
+                                "tool_mode_min_rows": int(limits.get("tool_mode_min_rows") or DEFAULT_TABULAR_TOOL_MODE_MIN_ROWS),
                                 "tool_mode_max_bytes": int(limits.get("tool_mode_max_bytes") or (30 * 1024 * 1024)),
                                 "sql_timeout_ms": int(
                                     _safe_timeout_ms(limits.get("sql_timeout_ms"), DEFAULT_TABULAR_SQL_TIMEOUT_MS)
+                                ),
+                                "text_inline_max_chars": int(
+                                    _safe_int(limits.get("text_inline_max_chars"), DEFAULT_TEXT_INLINE_MAX_CHARS, max_value=200_000)
+                                ),
+                                "text_chunk_size": int(
+                                    _safe_int(limits.get("text_chunk_size"), DEFAULT_TEXT_CHUNK_SIZE, max_value=8_000)
+                                ),
+                                "text_chunk_overlap": int(
+                                    _safe_int(limits.get("text_chunk_overlap"), DEFAULT_TEXT_CHUNK_OVERLAP, max_value=4_000)
+                                ),
+                                "text_query_top_k": int(
+                                    _safe_int(limits.get("text_query_top_k"), DEFAULT_TEXT_QUERY_TOP_K, max_value=50)
+                                ),
+                                "image_result_replay_cap_chars": int(
+                                    _safe_int(
+                                        limits.get("image_result_replay_cap_chars"),
+                                        DEFAULT_IMAGE_RESULT_REPLAY_CAP_CHARS,
+                                        min_value=600,
+                                        max_value=30_000,
+                                    )
+                                ),
+                                "video_result_replay_cap_chars": int(
+                                    _safe_int(
+                                        limits.get("video_result_replay_cap_chars"),
+                                        DEFAULT_VIDEO_RESULT_REPLAY_CAP_CHARS,
+                                        min_value=600,
+                                        max_value=30_000,
+                                    )
+                                ),
+                                "video_transcript_chunk_size": int(
+                                    _safe_int(
+                                        limits.get("video_transcript_chunk_size"),
+                                        DEFAULT_VIDEO_TRANSCRIPT_CHUNK_SIZE,
+                                        max_value=8_000,
+                                    )
+                                ),
+                                "video_transcript_chunk_overlap": int(
+                                    _safe_int(
+                                        limits.get("video_transcript_chunk_overlap"),
+                                        DEFAULT_VIDEO_TRANSCRIPT_CHUNK_OVERLAP,
+                                        max_value=4_000,
+                                    )
+                                ),
+                                "archive_max_depth": int(_safe_int(limits.get("archive_max_depth"), 2, max_value=10)),
+                                "archive_max_file_count": int(
+                                    _safe_int(limits.get("archive_max_file_count"), 200, max_value=20_000)
+                                ),
+                                "archive_max_entry_bytes": int(
+                                    _safe_int(
+                                        limits.get("archive_max_entry_bytes"), 10 * 1024 * 1024, max_value=2_000_000_000
+                                    )
+                                ),
+                                "archive_max_total_uncompressed_bytes": int(
+                                    _safe_int(
+                                        limits.get("archive_max_total_uncompressed_bytes"),
+                                        50 * 1024 * 1024,
+                                        max_value=5_000_000_000,
+                                    )
                                 ),
                             }
                         }
@@ -491,6 +580,72 @@ def _set_tabular_limits_into_oclaw_config(limits: dict[str, int]) -> dict[str, i
 
 def _chat_session_mode_setting_key(*, tenant_id: str, user_id: str, session_id: str, field: str) -> str:
     return f"chat.session.mode.{tenant_id}.{user_id}.{session_id}.{field}"
+
+
+def _chat_user_mode_setting_key(*, tenant_id: str, user_id: str, field: str) -> str:
+    return f"chat.user.mode.{tenant_id}.{user_id}.{field}"
+
+
+def _resolve_mode_settings(
+    *,
+    store: SqliteStore,
+    tenant_id: str,
+    user_id: str,
+    session_id: str,
+) -> tuple[str, str, str]:
+    """Resolve chat mode with global-user preference first, then session fallback."""
+    user_mode_key = _chat_user_mode_setting_key(tenant_id=tenant_id, user_id=user_id, field="interaction_mode")
+    user_specialist_key = _chat_user_mode_setting_key(tenant_id=tenant_id, user_id=user_id, field="specialist")
+    user_memory_mode_key = _chat_user_mode_setting_key(tenant_id=tenant_id, user_id=user_id, field="memory_mode")
+    session_mode_key = _chat_session_mode_setting_key(
+        tenant_id=tenant_id, user_id=user_id, session_id=str(session_id), field="interaction_mode"
+    )
+    session_specialist_key = _chat_session_mode_setting_key(
+        tenant_id=tenant_id, user_id=user_id, session_id=str(session_id), field="specialist"
+    )
+    session_memory_mode_key = _chat_session_mode_setting_key(
+        tenant_id=tenant_id, user_id=user_id, session_id=str(session_id), field="memory_mode"
+    )
+
+    mode_raw = str(store.get_setting(user_mode_key) or "").strip() or str(store.get_setting(session_mode_key) or "").strip()
+    specialist_raw = str(store.get_setting(user_specialist_key) or "").strip() or str(
+        store.get_setting(session_specialist_key) or ""
+    ).strip()
+    memory_raw = str(store.get_setting(user_memory_mode_key) or "").strip() or str(store.get_setting(session_memory_mode_key) or "").strip()
+
+    interaction_mode = normalize_interaction_mode(mode_raw or "expert")
+    specialist = normalize_requested_specialist(specialist_raw or "generalist")
+    specialist = _apply_specialist_flags(store, specialist)
+    memory_mode = _normalize_memory_mode({"memory_mode": (memory_raw or "default")})
+    return interaction_mode, specialist, memory_mode
+
+
+def _persist_mode_settings(
+    *,
+    store: SqliteStore,
+    tenant_id: str,
+    user_id: str,
+    session_id: str,
+    interaction_mode: str,
+    specialist: str,
+    memory_mode: str,
+) -> None:
+    """Persist as global user default and current-session compatibility snapshot."""
+    for key in (
+        _chat_user_mode_setting_key(tenant_id=tenant_id, user_id=user_id, field="interaction_mode"),
+        _chat_session_mode_setting_key(tenant_id=tenant_id, user_id=user_id, session_id=str(session_id), field="interaction_mode"),
+    ):
+        store.set_setting(key, interaction_mode)
+    for key in (
+        _chat_user_mode_setting_key(tenant_id=tenant_id, user_id=user_id, field="specialist"),
+        _chat_session_mode_setting_key(tenant_id=tenant_id, user_id=user_id, session_id=str(session_id), field="specialist"),
+    ):
+        store.set_setting(key, specialist)
+    for key in (
+        _chat_user_mode_setting_key(tenant_id=tenant_id, user_id=user_id, field="memory_mode"),
+        _chat_session_mode_setting_key(tenant_id=tenant_id, user_id=user_id, session_id=str(session_id), field="memory_mode"),
+    ):
+        store.set_setting(key, memory_mode)
 
 
 def include_chat_routes(router: APIRouter, *, resolve_auth: Callable[[SqliteStore, str | None], dict[str, Any]]) -> None:
@@ -538,6 +693,21 @@ def include_chat_routes(router: APIRouter, *, resolve_auth: Callable[[SqliteStor
         user_id = str(ctx.get("user_id") or "")
         title = str(payload.get("title") or "").strip() or ("新会话" if _api_lang(store) == "zh" else "New Chat")
         s = store.create_session_for_user(title=title, tenant_id=tenant_id, user_id=user_id)
+        interaction_mode, specialist, memory_mode = _resolve_mode_settings(
+            store=store,
+            tenant_id=tenant_id,
+            user_id=user_id,
+            session_id=str(s.id),
+        )
+        _persist_mode_settings(
+            store=store,
+            tenant_id=tenant_id,
+            user_id=user_id,
+            session_id=str(s.id),
+            interaction_mode=interaction_mode,
+            specialist=specialist,
+            memory_mode=memory_mode,
+        )
         return {
             "ok": True,
             "session": {
@@ -603,6 +773,21 @@ def include_chat_routes(router: APIRouter, *, resolve_auth: Callable[[SqliteStor
                 title=("新会话" if lang == "zh" else "New Chat"), tenant_id=tenant_id, user_id=user_id
             )
             next_id = str(ns.id)
+            interaction_mode, specialist, memory_mode = _resolve_mode_settings(
+                store=store,
+                tenant_id=tenant_id,
+                user_id=user_id,
+                session_id=next_id,
+            )
+            _persist_mode_settings(
+                store=store,
+                tenant_id=tenant_id,
+                user_id=user_id,
+                session_id=next_id,
+                interaction_mode=interaction_mode,
+                specialist=specialist,
+                memory_mode=memory_mode,
+            )
         return {"ok": True, "next_session_id": next_id}
 
     @chat.post("/sessions/{session_id}/fork")
@@ -793,19 +978,12 @@ def include_chat_routes(router: APIRouter, *, resolve_auth: Callable[[SqliteStor
         sess = _resolve_chat_session(store, ctx, session_id)
         if not sess:
             raise HTTPException(status_code=404, detail="session_not_found")
-        mode_key = _chat_session_mode_setting_key(
-            tenant_id=tenant_id, user_id=user_id, session_id=str(session_id), field="interaction_mode"
+        interaction_mode, specialist, memory_mode = _resolve_mode_settings(
+            store=store,
+            tenant_id=tenant_id,
+            user_id=user_id,
+            session_id=str(session_id),
         )
-        specialist_key = _chat_session_mode_setting_key(
-            tenant_id=tenant_id, user_id=user_id, session_id=str(session_id), field="specialist"
-        )
-        memory_mode_key = _chat_session_mode_setting_key(
-            tenant_id=tenant_id, user_id=user_id, session_id=str(session_id), field="memory_mode"
-        )
-        interaction_mode = normalize_interaction_mode(store.get_setting(mode_key))
-        specialist = normalize_requested_specialist(store.get_setting(specialist_key))
-        specialist = _apply_specialist_flags(store, specialist)
-        memory_mode = _normalize_memory_mode({"memory_mode": store.get_setting(memory_mode_key)})
         return {"ok": True, "interaction_mode": interaction_mode, "specialist": specialist, "memory_mode": memory_mode}
 
     @chat.post("/sessions/{session_id}/mode")
@@ -825,19 +1003,16 @@ def include_chat_routes(router: APIRouter, *, resolve_auth: Callable[[SqliteStor
         interaction_mode = normalize_interaction_mode(payload.get("interaction_mode"))
         specialist = normalize_requested_specialist(payload.get("specialist"))
         specialist = _apply_specialist_flags(store, specialist)
-        mode_key = _chat_session_mode_setting_key(
-            tenant_id=tenant_id, user_id=user_id, session_id=str(session_id), field="interaction_mode"
-        )
-        specialist_key = _chat_session_mode_setting_key(
-            tenant_id=tenant_id, user_id=user_id, session_id=str(session_id), field="specialist"
-        )
-        memory_mode_key = _chat_session_mode_setting_key(
-            tenant_id=tenant_id, user_id=user_id, session_id=str(session_id), field="memory_mode"
-        )
         memory_mode = _normalize_memory_mode(payload)
-        store.set_setting(mode_key, interaction_mode)
-        store.set_setting(specialist_key, specialist)
-        store.set_setting(memory_mode_key, memory_mode)
+        _persist_mode_settings(
+            store=store,
+            tenant_id=tenant_id,
+            user_id=user_id,
+            session_id=str(session_id),
+            interaction_mode=interaction_mode,
+            specialist=specialist,
+            memory_mode=memory_mode,
+        )
         return {"ok": True, "interaction_mode": interaction_mode, "specialist": specialist, "memory_mode": memory_mode}
 
     @chat.get("/admin/user-stats")
@@ -1066,9 +1241,21 @@ def include_chat_routes(router: APIRouter, *, resolve_auth: Callable[[SqliteStor
                 "max_excel_sheets": DEFAULT_MAX_EXCEL_SHEETS,
                 "large_table_preview_rows": 20,
                 "tool_mode_enabled": True,
-                "tool_mode_min_rows": 20_000,
+                "tool_mode_min_rows": DEFAULT_TABULAR_TOOL_MODE_MIN_ROWS,
                 "tool_mode_max_bytes": 30 * 1024 * 1024,
                 "sql_timeout_ms": DEFAULT_TABULAR_SQL_TIMEOUT_MS,
+                "text_inline_max_chars": DEFAULT_TEXT_INLINE_MAX_CHARS,
+                "text_chunk_size": DEFAULT_TEXT_CHUNK_SIZE,
+                "text_chunk_overlap": DEFAULT_TEXT_CHUNK_OVERLAP,
+                "text_query_top_k": DEFAULT_TEXT_QUERY_TOP_K,
+                "image_result_replay_cap_chars": DEFAULT_IMAGE_RESULT_REPLAY_CAP_CHARS,
+                "video_result_replay_cap_chars": DEFAULT_VIDEO_RESULT_REPLAY_CAP_CHARS,
+                "video_transcript_chunk_size": DEFAULT_VIDEO_TRANSCRIPT_CHUNK_SIZE,
+                "video_transcript_chunk_overlap": DEFAULT_VIDEO_TRANSCRIPT_CHUNK_OVERLAP,
+                "archive_max_depth": 2,
+                "archive_max_file_count": 200,
+                "archive_max_entry_bytes": 10 * 1024 * 1024,
+                "archive_max_total_uncompressed_bytes": 50 * 1024 * 1024,
             }
             saved = _set_tabular_limits_into_oclaw_config(limits)
             return {"ok": True, "cleared": True, "limits": saved}
@@ -1081,9 +1268,33 @@ def include_chat_routes(router: APIRouter, *, resolve_auth: Callable[[SqliteStor
             "max_excel_sheets": _safe_int(raw.get("max_excel_sheets"), DEFAULT_MAX_EXCEL_SHEETS, max_value=500),
             "large_table_preview_rows": _safe_int(raw.get("large_table_preview_rows"), 20, max_value=500),
             "tool_mode_enabled": bool(raw.get("tool_mode_enabled", True)),
-            "tool_mode_min_rows": _safe_int(raw.get("tool_mode_min_rows"), 20_000),
+            "tool_mode_min_rows": _safe_int(raw.get("tool_mode_min_rows"), DEFAULT_TABULAR_TOOL_MODE_MIN_ROWS),
             "tool_mode_max_bytes": _safe_int(raw.get("tool_mode_max_bytes"), 30 * 1024 * 1024),
             "sql_timeout_ms": _safe_timeout_ms(raw.get("sql_timeout_ms"), DEFAULT_TABULAR_SQL_TIMEOUT_MS),
+            "text_inline_max_chars": _safe_int(raw.get("text_inline_max_chars"), DEFAULT_TEXT_INLINE_MAX_CHARS, max_value=200_000),
+            "text_chunk_size": _safe_int(raw.get("text_chunk_size"), DEFAULT_TEXT_CHUNK_SIZE, max_value=8_000),
+            "text_chunk_overlap": _safe_int(raw.get("text_chunk_overlap"), DEFAULT_TEXT_CHUNK_OVERLAP, max_value=4_000),
+            "text_query_top_k": _safe_int(raw.get("text_query_top_k"), DEFAULT_TEXT_QUERY_TOP_K, max_value=50),
+            "image_result_replay_cap_chars": _safe_int(
+                raw.get("image_result_replay_cap_chars"), DEFAULT_IMAGE_RESULT_REPLAY_CAP_CHARS, min_value=600, max_value=30_000
+            ),
+            "video_result_replay_cap_chars": _safe_int(
+                raw.get("video_result_replay_cap_chars"), DEFAULT_VIDEO_RESULT_REPLAY_CAP_CHARS, min_value=600, max_value=30_000
+            ),
+            "video_transcript_chunk_size": _safe_int(
+                raw.get("video_transcript_chunk_size"), DEFAULT_VIDEO_TRANSCRIPT_CHUNK_SIZE, max_value=8_000
+            ),
+            "video_transcript_chunk_overlap": _safe_int(
+                raw.get("video_transcript_chunk_overlap"), DEFAULT_VIDEO_TRANSCRIPT_CHUNK_OVERLAP, max_value=4_000
+            ),
+            "archive_max_depth": _safe_int(raw.get("archive_max_depth"), 2, max_value=10),
+            "archive_max_file_count": _safe_int(raw.get("archive_max_file_count"), 200, max_value=20_000),
+            "archive_max_entry_bytes": _safe_int(
+                raw.get("archive_max_entry_bytes"), 10 * 1024 * 1024, max_value=2_000_000_000
+            ),
+            "archive_max_total_uncompressed_bytes": _safe_int(
+                raw.get("archive_max_total_uncompressed_bytes"), 50 * 1024 * 1024, max_value=5_000_000_000
+            ),
         }
         saved = _set_tabular_limits_into_oclaw_config(next_limits)
         return {"ok": True, "limits": saved}
@@ -1253,20 +1464,26 @@ def include_chat_routes(router: APIRouter, *, resolve_auth: Callable[[SqliteStor
         interaction_mode, selected_specialist = _normalize_chat_mode(payload)
         memory_mode = _normalize_memory_mode(payload)
         if "interaction_mode" not in payload and "chat_mode" not in payload:
-            mode_key = _chat_session_mode_setting_key(
-                tenant_id=tenant_id, user_id=user_id, session_id=str(session_id), field="interaction_mode"
+            interaction_mode, _, _ = _resolve_mode_settings(
+                store=store,
+                tenant_id=tenant_id,
+                user_id=user_id,
+                session_id=str(session_id),
             )
-            interaction_mode = normalize_interaction_mode(store.get_setting(mode_key))
         if "specialist" not in payload:
-            specialist_key = _chat_session_mode_setting_key(
-                tenant_id=tenant_id, user_id=user_id, session_id=str(session_id), field="specialist"
+            _, selected_specialist, _ = _resolve_mode_settings(
+                store=store,
+                tenant_id=tenant_id,
+                user_id=user_id,
+                session_id=str(session_id),
             )
-            selected_specialist = normalize_requested_specialist(store.get_setting(specialist_key))
         if "memory_mode" not in payload:
-            memory_mode_key = _chat_session_mode_setting_key(
-                tenant_id=tenant_id, user_id=user_id, session_id=str(session_id), field="memory_mode"
+            _, _, memory_mode = _resolve_mode_settings(
+                store=store,
+                tenant_id=tenant_id,
+                user_id=user_id,
+                session_id=str(session_id),
             )
-            memory_mode = _normalize_memory_mode({"memory_mode": store.get_setting(memory_mode_key)})
         selected_specialist = _apply_specialist_flags(store, selected_specialist)
         if not text_raw and not attachments:
             raise HTTPException(status_code=400, detail="text_or_attachments_required")
@@ -1351,20 +1568,26 @@ def include_chat_routes(router: APIRouter, *, resolve_auth: Callable[[SqliteStor
         interaction_mode, selected_specialist = _normalize_chat_mode(payload)
         memory_mode = _normalize_memory_mode(payload)
         if "interaction_mode" not in payload and "chat_mode" not in payload:
-            mode_key = _chat_session_mode_setting_key(
-                tenant_id=tenant_id, user_id=user_id, session_id=str(session_id), field="interaction_mode"
+            interaction_mode, _, _ = _resolve_mode_settings(
+                store=store,
+                tenant_id=tenant_id,
+                user_id=user_id,
+                session_id=str(session_id),
             )
-            interaction_mode = normalize_interaction_mode(store.get_setting(mode_key))
         if "specialist" not in payload:
-            specialist_key = _chat_session_mode_setting_key(
-                tenant_id=tenant_id, user_id=user_id, session_id=str(session_id), field="specialist"
+            _, selected_specialist, _ = _resolve_mode_settings(
+                store=store,
+                tenant_id=tenant_id,
+                user_id=user_id,
+                session_id=str(session_id),
             )
-            selected_specialist = normalize_requested_specialist(store.get_setting(specialist_key))
         if "memory_mode" not in payload:
-            memory_mode_key = _chat_session_mode_setting_key(
-                tenant_id=tenant_id, user_id=user_id, session_id=str(session_id), field="memory_mode"
+            _, _, memory_mode = _resolve_mode_settings(
+                store=store,
+                tenant_id=tenant_id,
+                user_id=user_id,
+                session_id=str(session_id),
             )
-            memory_mode = _normalize_memory_mode({"memory_mode": store.get_setting(memory_mode_key)})
         selected_specialist = _apply_specialist_flags(store, selected_specialist)
         if not text_raw and not attachments:
             raise HTTPException(status_code=400, detail="text_or_attachments_required")

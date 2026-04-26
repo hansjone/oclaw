@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import io
 import json
+import gzip
+import tarfile
 import zipfile
 from pathlib import Path
 
@@ -15,6 +17,7 @@ from oclaw.platform.files.tabular_attachment_store import (
     run_table_sql,
     save_workbook,
 )
+from oclaw.platform.files.text_attachment_store import query_text_document
 
 
 def _zip_bytes(files: dict[str, bytes]) -> bytes:
@@ -22,6 +25,17 @@ def _zip_bytes(files: dict[str, bytes]) -> bytes:
     with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
         for name, data in files.items():
             zf.writestr(name, data)
+    return buf.getvalue()
+
+
+def _tar_bytes(files: dict[str, bytes], *, gz: bool = False) -> bytes:
+    buf = io.BytesIO()
+    mode = "w:gz" if gz else "w"
+    with tarfile.open(fileobj=buf, mode=mode) as tf:
+        for name, data in files.items():
+            ti = tarfile.TarInfo(name=name)
+            ti.size = len(data)
+            tf.addfile(ti, io.BytesIO(data))
     return buf.getvalue()
 
 
@@ -37,6 +51,32 @@ def test_csv_is_summarized_not_full_dump() -> None:
     assert "# Table Summary" in content
     assert "rows: 2" in content
     assert "cols: 3" in content
+    assert "## Full table included (2 rows)" in content
+
+
+def test_long_txt_emits_text_ref_and_can_query() -> None:
+    payload = ("A" * 15000 + "\nneedle\n" + "B" * 2000).encode("utf-8")
+    out = process_file_data("notes.txt", payload)
+    text_refs = [x for x in out if isinstance(x, dict) and str(x.get("type") or "") == "text_ref"]
+    assert text_refs
+    text_id = str(text_refs[0].get("text_id") or "")
+    assert text_id
+    got = query_text_document(text_id=text_id, query="needle", top_k=3, offset=0)
+    assert bool(got.get("ok"))
+    rows = got.get("rows") or []
+    assert rows
+    assert any("needle" in str(x.get("content") or "") for x in rows)
+
+
+def test_video_upload_emits_video_ref() -> None:
+    # Minimal MP4 header-like bytes; parser should not crash and should still store as video_ref.
+    payload = b"\x00\x00\x00\x18ftypmp42\x00\x00\x00\x00mp42isom"
+    out = process_file_data("clip.mp4", payload)
+    vrefs = [x for x in out if isinstance(x, dict) and str(x.get("type") or "") == "video_ref"]
+    assert vrefs
+    vr = vrefs[0]
+    assert str(vr.get("attachment_id") or "")
+    assert str(vr.get("mime") or "").startswith("video/")
 
 
 def test_zip_file_count_limit_returns_error_attachment() -> None:
@@ -46,6 +86,104 @@ def test_zip_file_count_limit_returns_error_attachment() -> None:
     first = out[0]
     assert str(first.get("name") or "") == "zip-error"
     assert "too many files" in str(first.get("content") or "").lower()
+
+
+def test_tar_path_traversal_is_blocked() -> None:
+    payload = _tar_bytes({"../evil.txt": b"x"})
+    out = process_file_data("unsafe.tar", payload)
+    assert out
+    first = out[0]
+    assert str(first.get("name") or "") == "archive-error"
+    assert "unsafe path" in str(first.get("content") or "").lower()
+
+
+def test_tgz_is_parsed_and_members_processed() -> None:
+    payload = _tar_bytes({"ok.txt": b"hello"}, gz=True)
+    out = process_file_data("bundle.tgz", payload)
+    assert out
+    assert any(str(x.get("type") or "") == "text" and "hello" in str(x.get("content") or "") for x in out)
+
+
+def test_tar_link_entry_is_explicitly_rejected() -> None:
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w") as tf:
+        ti = tarfile.TarInfo(name="target.txt")
+        data = b"ok"
+        ti.size = len(data)
+        tf.addfile(ti, io.BytesIO(data))
+        lnk = tarfile.TarInfo(name="sym")
+        lnk.type = tarfile.SYMTYPE
+        lnk.linkname = "target.txt"
+        tf.addfile(lnk)
+    out = process_file_data("has-link.tar", buf.getvalue())
+    assert out
+    first = out[0]
+    assert str(first.get("name") or "") == "archive-error"
+    assert str(first.get("error_code") or "") == "archive_link_entry_forbidden"
+
+
+def test_gz_single_file_is_decompressed_and_processed() -> None:
+    payload = gzip.compress(b"hello-gz")
+    out = process_file_data("note.txt.gz", payload)
+    assert out
+    assert any(str(x.get("type") or "") == "text" and "hello-gz" in str(x.get("content") or "") for x in out)
+
+
+def test_rar_returns_explicit_unsupported_error() -> None:
+    out = process_file_data("bundle.rar", b"not-a-real-rar")
+    assert out
+    first = out[0]
+    assert str(first.get("name") or "") == "archive-error"
+    assert "unsupported archive format" in str(first.get("content") or "").lower()
+
+
+def test_7z_returns_explicit_unsupported_error() -> None:
+    out = process_file_data("bundle.7z", b"not-a-real-7z")
+    assert out
+    first = out[0]
+    assert str(first.get("name") or "") == "archive-error"
+    assert "unsupported archive format" in str(first.get("content") or "").lower()
+    assert str(first.get("error_code") or "") == "archive_unsupported_format"
+
+
+def test_archive_signature_detection_overrides_misleading_extension() -> None:
+    payload = _zip_bytes({"ok.txt": b"sig-ok"})
+    out = process_file_data("misleading.tar", payload)
+    assert out
+    assert any(str(x.get("type") or "") == "text" and "sig-ok" in str(x.get("content") or "") for x in out)
+
+
+def test_archive_limits_can_be_overridden_by_config(tmp_path: Path, monkeypatch) -> None:
+    cfg = {
+        "plugins": {
+            "entries": {
+                "memory-wiki": {
+                    "auto": {
+                        "attachments": {
+                            "tabular": {
+                                "archive_max_depth": 1,
+                                "archive_max_file_count": 2,
+                                "archive_max_entry_bytes": 20,
+                                "archive_max_total_uncompressed_bytes": 30,
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    cfg_path = tmp_path / "oclaw.json"
+    cfg_path.write_text(json.dumps(cfg), encoding="utf-8")
+    monkeypatch.setenv("AIA_OCLAW_CONFIG_PATH", str(cfg_path))
+    fa._attachments_limits.cache_clear()
+    try:
+        payload = _zip_bytes({"a.txt": b"x" * 50})
+        out = process_file_data("limited.zip", payload)
+    finally:
+        fa._attachments_limits.cache_clear()
+    assert out
+    first = out[0]
+    assert "entry too large" in str(first.get("content") or "").lower()
 
 
 def test_nested_zip_depth_limit_is_enforced() -> None:
@@ -197,6 +335,14 @@ def test_large_csv_emits_tabular_ref_and_can_query() -> None:
     assert str(got.get("engine") or "") in {"builtin_sqlite", "mcp_sqlite"}
 
 
+def test_medium_csv_enters_tool_mode_with_default_threshold() -> None:
+    rows = ["c1,c2"] + [f"{i},row-{i}" for i in range(0, 6000)]
+    payload = ("\n".join(rows)).encode("utf-8")
+    out = process_file_data("medium-default.csv", payload)
+    tab_refs = [x for x in out if isinstance(x, dict) and str(x.get("type") or "") == "tabular_ref"]
+    assert tab_refs
+
+
 def test_large_csv_can_aggregate_grouped_sum() -> None:
     rows = ["dept,amount"] + [f"{'A' if i % 2 == 0 else 'B'},{i}" for i in range(0, 25010)]
     payload = ("\n".join(rows)).encode("utf-8")
@@ -324,6 +470,20 @@ def test_query_can_target_specific_excel_sheet() -> None:
     assert rows and str(rows[0].get("k") or "") == "b"
 
 
+def test_multi_sheet_query_without_sheet_returns_sheet_hint() -> None:
+    s1 = pd.DataFrame([["a", "1"]], columns=["k", "v"])
+    s2 = pd.DataFrame([["b", "2"]], columns=["k", "v"])
+    meta = save_workbook(attachment_id="aid3", name="multi2.xlsx", sheets={"Main": s1, "Backup": s2})
+    tid = str(meta.get("table_id") or "")
+    got = query_table(table_id=tid, columns=["k", "v"], limit=5, offset=0)
+    assert bool(got.get("ok"))
+    hint = got.get("sheet_hint") or {}
+    assert isinstance(hint, dict)
+    names = hint.get("available_sheets") or []
+    assert "Main" in names and "Backup" in names
+    assert str(hint.get("default_sheet") or "") == "Main"
+
+
 def test_full_scan_analyzes_all_rows_and_returns_audit() -> None:
     rows = ["dept,score"] + [f"{'A' if i % 2 == 0 else 'B'},{i % 5}" for i in range(0, 25025)]
     payload = ("\n".join(rows)).encode("utf-8")
@@ -343,6 +503,25 @@ def test_full_scan_analyzes_all_rows_and_returns_audit() -> None:
     assert dept
     tops = dept[0].get("top_values") or []
     assert isinstance(tops, list) and len(tops) <= 2
+
+
+def test_tabular_tools_reject_non_table_id_filename() -> None:
+    bad_id = "日志.xlsx"
+    q = query_table(table_id=bad_id, columns=["a"], limit=5, offset=0)
+    assert not bool(q.get("ok"))
+    assert str(q.get("error") or "") == "table_id_invalid_format"
+
+    ag = aggregate_table(table_id=bad_id, metric="count")
+    assert not bool(ag.get("ok"))
+    assert str(ag.get("error") or "") == "table_id_invalid_format"
+
+    sql = run_table_sql(table_id=bad_id, sql="SELECT 1", limit=5)
+    assert not bool(sql.get("ok"))
+    assert str(sql.get("error") or "") == "table_id_invalid_format"
+
+    fs = analyze_table_full_scan(table_id=bad_id, columns=["a"], top_values_limit=1)
+    assert not bool(fs.get("ok"))
+    assert str(fs.get("error") or "") == "table_id_invalid_format"
 
 
 def test_xlsx_zip_safety_blocks_unsafe_paths() -> None:

@@ -8,6 +8,7 @@ import uuid
 import copy
 import threading
 from dataclasses import dataclass
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Callable, Optional
 
@@ -24,6 +25,8 @@ from oclaw.runtime.tools.base import ToolRegistry
 from oclaw.runtime.hooks_runtime import trigger_hook_event
 
 _OCLAW_TOOL_RESULT_HARD_CAP_CHARS = 24_000
+_OCLAW_ATTACHMENT_TEXT_REPLAY_CAP_CHARS = 4_000
+_OCLAW_IMAGE_TOOL_RESULT_REPLAY_CAP_CHARS = 4_000
 
 _DIRECT_LOOP_OC_STAGE: dict[str, str] = {
     "tool_wire_filter": "wire_filter",
@@ -37,6 +40,82 @@ _TOOL_WIRE_FROZEN_SIGNATURE: str | None = None
 _TOOL_WIRE_LAST_WARM_TS_MS: int = 0
 _TOOL_WIRE_LAST_WARM_ROLES: tuple[str, ...] = ()
 _TOOL_WIRE_LAST_WARM_COUNT: int = 0
+
+
+def _safe_int(raw: Any, default: int, *, min_value: int = 1, max_value: int = 2_000_000) -> int:
+    try:
+        value = int(raw)
+    except Exception:
+        return default
+    if value < min_value:
+        return default
+    return min(value, max_value)
+
+
+def _oclaw_config_path() -> Path:
+    raw = str(os.getenv("AIA_OCLAW_CONFIG_PATH") or "").strip()
+    if raw:
+        p = Path(raw)
+        return p if p.is_absolute() else p.resolve()
+    return Path(__file__).resolve().parents[1] / "oclaw.json"
+
+
+def _image_tool_result_replay_cap_chars(store: Any) -> int:
+    default = _OCLAW_IMAGE_TOOL_RESULT_REPLAY_CAP_CHARS
+    raw_setting = ""
+    try:
+        raw_setting = str(store.get_setting("AIA_IMAGE_TOOL_RESULT_REPLAY_CAP_CHARS") or "").strip()
+    except Exception:
+        raw_setting = ""
+    if raw_setting:
+        return _safe_int(raw_setting, default, min_value=600, max_value=30_000)
+    raw_env = str(os.getenv("AIA_IMAGE_TOOL_RESULT_REPLAY_CAP_CHARS") or "").strip()
+    if raw_env:
+        return _safe_int(raw_env, default, min_value=600, max_value=30_000)
+    try:
+        cfg_path = _oclaw_config_path()
+        if cfg_path.exists() and cfg_path.is_file():
+            obj = json.loads(cfg_path.read_text(encoding="utf-8"))
+            tab = (
+                (((obj.get("plugins") or {}).get("entries") or {}).get("memory-wiki") or {})
+                .get("auto", {})
+                .get("attachments", {})
+                .get("tabular", {})
+            )
+            if isinstance(tab, dict):
+                return _safe_int(tab.get("image_result_replay_cap_chars"), default, min_value=600, max_value=30_000)
+    except Exception:
+        pass
+    return default
+
+
+def _video_tool_result_replay_cap_chars(store: Any) -> int:
+    default = 4_000
+    raw_setting = ""
+    try:
+        raw_setting = str(store.get_setting("AIA_VIDEO_TOOL_RESULT_REPLAY_CAP_CHARS") or "").strip()
+    except Exception:
+        raw_setting = ""
+    if raw_setting:
+        return _safe_int(raw_setting, default, min_value=600, max_value=30_000)
+    raw_env = str(os.getenv("AIA_VIDEO_TOOL_RESULT_REPLAY_CAP_CHARS") or "").strip()
+    if raw_env:
+        return _safe_int(raw_env, default, min_value=600, max_value=30_000)
+    try:
+        cfg_path = _oclaw_config_path()
+        if cfg_path.exists() and cfg_path.is_file():
+            obj = json.loads(cfg_path.read_text(encoding="utf-8"))
+            tab = (
+                (((obj.get("plugins") or {}).get("entries") or {}).get("memory-wiki") or {})
+                .get("auto", {})
+                .get("attachments", {})
+                .get("tabular", {})
+            )
+            if isinstance(tab, dict):
+                return _safe_int(tab.get("video_result_replay_cap_chars"), default, min_value=600, max_value=30_000)
+    except Exception:
+        pass
+    return default
 
 
 def _tool_wire_freeze_enabled(store: Any) -> bool:
@@ -218,6 +297,7 @@ def _guard_tool_results_for_llm_context(
     run_id: str | None = None,
     attempt_no: int | None = None,
     lang: str = "",
+    active_turn_uuid: str | None = None,
 ) -> list[Any]:
     """Hard-guard overlarge `role=tool` message contents before sending to model.
 
@@ -225,28 +305,87 @@ def _guard_tool_results_for_llm_context(
     in-flight LLM context to prevent provider context overflow spirals.
     """
     cap = max(4096, min(int(hard_cap_chars or _OCLAW_TOOL_RESULT_HARD_CAP_CHARS), 500_000))
+    image_cap = _image_tool_result_replay_cap_chars(store)
+    video_cap = _video_tool_result_replay_cap_chars(store)
     out: list[Any] = []
     for m in store_messages or []:
         role = str(getattr(m, "role", "") or "")
         if role != "tool":
             out.append(m)
             continue
-        raw = str(getattr(m, "content", "") or "")
-        if len(raw) <= cap:
+        if str(getattr(m, "turn_uuid", "") or "") == str(active_turn_uuid or "") and str(active_turn_uuid or "").strip():
             out.append(m)
             continue
-        # Best-effort parse tool JSON for a minimal summary.
+        raw = str(getattr(m, "content", "") or "")
+        # Best-effort parse tool JSON for image-query specific guard and overflow metadata.
         ok = None
         error_code = ""
         error = ""
+        obj: dict[str, Any] | None = None
         try:
-            obj = json.loads(raw)
-            if isinstance(obj, dict):
+            parsed = json.loads(raw)
+            if isinstance(parsed, dict):
+                obj = parsed
                 ok = obj.get("ok")
                 error_code = str(obj.get("error_code") or "").strip()
                 error = str(obj.get("error") or "").strip()
         except Exception:
             obj = None
+        if isinstance(obj, dict):
+            task = str(obj.get("task") or "").strip().lower()
+            text = str(obj.get("text") or "")
+            has_attachment_id = bool(str(obj.get("attachment_id") or "").strip())
+            # Guard image describe/OCR result replay aggressively to avoid long visual transcripts
+            # occupying context across future rounds.
+            if task in {"describe", "ocr"} and has_attachment_id and len(text) > image_cap:
+                preview = text[:image_cap] + "\n...<image_tool_result_truncated_for_context_replay>"
+                guarded_obj = dict(obj)
+                guarded_obj["text"] = preview
+                guarded_obj["_image_tool_result_guarded"] = True
+                guarded_obj["image_result_original_chars"] = len(text)
+                guarded_obj["image_result_replay_cap_chars"] = image_cap
+                guarded_obj["image_result_hint"] = (
+                    "Image analysis result was truncated for context replay. "
+                    "Refine query_image_attachment(question=...) for narrower evidence. / "
+                    "图片分析结果在上下文回放中已截断，请缩小 query_image_attachment 的问题范围。"
+                )
+                guarded = _json_dumps_safe(guarded_obj)
+                out.append(
+                    SimpleNamespace(
+                        id=getattr(m, "id", 0),
+                        session_id=getattr(m, "session_id", session_id),
+                        role="tool",
+                        content=guarded,
+                        tool_calls=getattr(m, "tool_calls", None),
+                        timestamp=getattr(m, "timestamp", ""),
+                        attachments=getattr(m, "attachments", None),
+                    )
+                )
+                continue
+            # Guard video transcript replay similarly (usually long).
+            if str(obj.get("task") or "").strip().lower() == "transcript" and has_attachment_id and len(text) > video_cap:
+                preview = text[:video_cap] + "\n...<video_tool_result_truncated_for_context_replay>"
+                guarded_obj = dict(obj)
+                guarded_obj["text"] = preview
+                guarded_obj["_video_tool_result_guarded"] = True
+                guarded_obj["video_result_original_chars"] = len(text)
+                guarded_obj["video_result_replay_cap_chars"] = video_cap
+                guarded = _json_dumps_safe(guarded_obj)
+                out.append(
+                    SimpleNamespace(
+                        id=getattr(m, "id", 0),
+                        session_id=getattr(m, "session_id", session_id),
+                        role="tool",
+                        content=guarded,
+                        tool_calls=getattr(m, "tool_calls", None),
+                        timestamp=getattr(m, "timestamp", ""),
+                        attachments=getattr(m, "attachments", None),
+                    )
+                )
+                continue
+        if len(raw) <= cap:
+            out.append(m)
+            continue
         preview = raw[: max(1, min(4000, cap - 400))] + "\n...<tool_result_guard_truncated>"
         guarded_obj = {
             "ok": bool(ok) if ok is not None else None,
@@ -294,6 +433,118 @@ def _guard_tool_results_for_llm_context(
     return out
 
 
+def _guard_text_attachments_for_llm_context(
+    *,
+    store_messages: list[Any],
+    cap_chars: int,
+    active_turn_uuid: str | None = None,
+) -> list[Any]:
+    """Guard overlarge user text attachments for model context replay.
+
+    This does NOT rewrite DB history. It only guards the in-flight LLM context to
+    prevent large attachments from overwhelming context windows.
+    """
+    cap = max(800, min(int(cap_chars or _OCLAW_ATTACHMENT_TEXT_REPLAY_CAP_CHARS), 80_000))
+    out: list[Any] = []
+    for m in store_messages or []:
+        role = str(getattr(m, "role", "") or "")
+        if role != "user":
+            out.append(m)
+            continue
+        # Never guard the active user turn.
+        if str(getattr(m, "turn_uuid", "") or "") == str(active_turn_uuid or "") and str(active_turn_uuid or "").strip():
+            out.append(m)
+            continue
+        raw_att = getattr(m, "attachments", None)
+        if not raw_att:
+            out.append(m)
+            continue
+        try:
+            att_obj = json.loads(raw_att) if isinstance(raw_att, str) else raw_att
+        except Exception:
+            out.append(m)
+            continue
+        if isinstance(att_obj, dict):
+            atts = [att_obj]
+        elif isinstance(att_obj, list):
+            atts = att_obj
+        else:
+            out.append(m)
+            continue
+        has_text_ref = any(
+            isinstance(a, dict) and str(a.get("type") or "").strip().lower() == "text_ref" for a in atts
+        )
+        changed = False
+        next_atts: list[dict[str, Any]] = []
+        for a in atts:
+            if not isinstance(a, dict):
+                continue
+            if str(a.get("type") or "").strip().lower() != "text":
+                next_atts.append(a)
+                continue
+            content = str(a.get("content") or "")
+            # If this user message already has a text_ref, keep inline text very small in replay context.
+            # The model can retrieve evidence via query_text_attachment(text_id=...).
+            if has_text_ref and content:
+                changed = True
+                name = str(a.get("name") or "attachment")
+                next_atts.append(
+                    {
+                        **a,
+                        "content": (
+                            "# Attachment (collapsed; text_ref available)\n"
+                            f"- name: {name}\n"
+                            "- note: use `query_text_attachment` with `text_id` from `text_ref` for details.\n"
+                            "...<attachment_collapsed_for_context_replay>"
+                        ),
+                        "_attachment_context_guarded": True,
+                        "_attachment_context_collapsed": True,
+                    }
+                )
+                continue
+            if len(content) <= cap:
+                next_atts.append(a)
+                continue
+            changed = True
+            name = str(a.get("name") or "attachment")
+            hint_lines = [
+                "# Attachment (summarized for context replay)",
+                f"- name: {name}",
+                f"- original_chars: {len(content)}",
+                f"- replay_cap_chars: {cap}",
+            ]
+            if has_text_ref:
+                hint_lines.append("- note: use `query_text_attachment` with `text_id` from `text_ref` for details.")
+            else:
+                hint_lines.append("- note: attachment was large; re-upload or provide a smaller excerpt if needed.")
+            preview = content[: min(1200, cap)]
+            next_atts.append(
+                {
+                    **a,
+                    "content": "\n".join(hint_lines) + "\n\n## Preview\n" + preview + "\n\n...<attachment_truncated_for_context_replay>",
+                    "_attachment_context_guarded": True,
+                }
+            )
+        if not changed:
+            out.append(m)
+            continue
+        out.append(
+            SimpleNamespace(
+                id=getattr(m, "id", 0),
+                session_id=getattr(m, "session_id", ""),
+                role="user",
+                content=getattr(m, "content", ""),
+                tool_calls=getattr(m, "tool_calls", None),
+                timestamp=getattr(m, "timestamp", ""),
+                attachments=next_atts,
+                turn_uuid=getattr(m, "turn_uuid", ""),
+                event_type=getattr(m, "event_type", ""),
+                event_payload=getattr(m, "event_payload", None),
+            )
+        )
+    return out
+
+
 def _check_stop(should_stop: Optional[Callable[[], bool]]) -> None:
     if should_stop and should_stop():
         raise RuntimeError("generation interrupted by user")
@@ -318,6 +569,7 @@ def _build_model_context(
     skill_binding_role: str | None = None,
     user_text: str = "",
     prompt_build_context: dict[str, Any] | None = None,
+    active_turn_uuid: str | None = None,
 ) -> list[dict[str, Any]]:
     rows = store.get_messages(session_id=session_id, limit=int(max_messages))
     rows = _guard_tool_results_for_llm_context(
@@ -330,6 +582,12 @@ def _build_model_context(
         run_id=run_id,
         attempt_no=attempt_no,
         lang=lang,
+        active_turn_uuid=active_turn_uuid,
+    )
+    rows = _guard_text_attachments_for_llm_context(
+        store_messages=rows,
+        cap_chars=_OCLAW_ATTACHMENT_TEXT_REPLAY_CAP_CHARS,
+        active_turn_uuid=active_turn_uuid,
     )
     final_system = build_oclaw_executor_system_prompt(
         store=store,
@@ -672,10 +930,11 @@ def run_oclaw_direct_loop(
     skill_binding_role: str | None = None,
     wire_policy_role: str | None = None,
     prompt_build_context: dict[str, Any] | None = None,
+    turn_uuid: str | None = None,
 ) -> TurnRunOutcome:
     """A minimal oclaw-style loop: model -> tool_uses -> execute -> tool_results -> continue."""
     _check_stop(should_stop)
-    turn_uuid = str(uuid.uuid4())
+    turn_uuid = str(turn_uuid or "").strip() or str(uuid.uuid4())
     if persist_user_message:
         store.add_message(
             session_id=session_id,
@@ -689,10 +948,12 @@ def run_oclaw_direct_loop(
     skill_exec = SkillExecutor(config=ToolExecutionConfig(max_workers=max(1, min(int(max_tool_workers or 8), 32))))
     tool_traces: list[dict[str, Any]] = []
     final_text = ""
+    hit_tool_round_limit = False
 
     base_url = str(getattr(model, "base_url", "") or "")
 
-    for round_idx in range(max(1, int(max_tool_rounds or 1))):
+    max_rounds = max(1, int(max_tool_rounds or 1))
+    for round_idx in range(max_rounds):
         _check_stop(should_stop)
         if on_progress:
             on_progress(f"oclaw: think ({round_idx + 1})…")
@@ -715,6 +976,7 @@ def run_oclaw_direct_loop(
             skill_binding_role=skill_binding_role,
             user_text=str(user_text or ""),
             prompt_build_context=prompt_build_context,
+            active_turn_uuid=turn_uuid,
         )
         llm_tools = _prepare_llm_tools(
             store=store,
@@ -744,6 +1006,10 @@ def run_oclaw_direct_loop(
         final_text = step.assistant_text
         if not step.llm_tool_calls:
             break
+        if round_idx == (max_rounds - 1):
+            # Reached tool-round cap with pending tool calls. Execute this batch, then
+            # force one no-tool synthesis pass to guarantee a visible assistant body.
+            hit_tool_round_limit = True
 
         elapsed_ms, results_by_id = _execute_tool_step(
             skill_exec=skill_exec,
@@ -782,6 +1048,42 @@ def run_oclaw_direct_loop(
 
         if on_progress:
             on_progress(f"oclaw: tools done ({elapsed_ms}ms)")
+
+    if hit_tool_round_limit:
+        _check_stop(should_stop)
+        if on_progress:
+            on_progress("oclaw: finalize…")
+        msgs = _build_model_context(
+            store=store,
+            session_id=session_id,
+            max_messages=max_messages,
+            system_prompt=system_prompt,
+            model=model,
+            lang=lang,
+            memory_context=memory_context,
+            trace_id=trace_id,
+            parent_span_id=parent_span_id,
+            tools=tools,
+            base_url=base_url,
+            run_id=run_id,
+            attempt_no=attempt_no,
+            workspace_dir=workspace_dir,
+            skill_binding_role=skill_binding_role,
+            user_text=str(user_text or ""),
+            prompt_build_context=prompt_build_context,
+            active_turn_uuid=turn_uuid,
+        )
+        # Final pass forbids extra tool calls; model must synthesize answer.
+        resp = model.chat(msgs, [], on_token=on_token)
+        step = _persist_assistant_step(
+            store=store,
+            session_id=session_id,
+            turn_uuid=turn_uuid,
+            assistant_text=str(getattr(resp, "content", "") or ""),
+            reasoning_text=str(getattr(resp, "reasoning_content", "") or ""),
+            llm_tool_calls=[],
+        )
+        final_text = step.assistant_text
 
     return TurnRunOutcome(
         final_text=str(final_text or ""),

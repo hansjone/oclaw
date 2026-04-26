@@ -34,6 +34,7 @@ from oclaw.runtime.memory_stage import after_turn_memory
 from oclaw.runtime.router import decide_route
 from oclaw.runtime.worker import ensure_worker_started
 from oclaw.runtime.orchestration.trace import new_span_id, new_trace_id
+from oclaw.runtime.chat.tool_runtime import compact_turn_tool_messages_for_storage
 
 _OC_STAGE_BY_EVENT: dict[str, str] = {
     "gateway_received": "ingress",
@@ -91,6 +92,7 @@ class OclawGateway:
         start = t.find("{")
         if start < 0:
             return None
+        executed_turn_uuid = ""
         try:
             obj, _end = json.JSONDecoder().raw_decode(t[start:])
         except Exception:
@@ -415,6 +417,36 @@ class OclawGateway:
         return False
 
     @staticmethod
+    def _has_text_ref_attachments(msg: StandardMessage) -> bool:
+        atts = msg.attachments if isinstance(msg.attachments, list) else []
+        for a in atts:
+            if isinstance(a, dict) and str(a.get("type") or "").strip().lower() == "text_ref":
+                return True
+        return False
+
+    @staticmethod
+    def _has_image_ref_attachments(msg: StandardMessage) -> bool:
+        atts = msg.attachments if isinstance(msg.attachments, list) else []
+        for a in atts:
+            if not isinstance(a, dict):
+                continue
+            t = str(a.get("type") or "").strip().lower()
+            if t in {"image_ref", "image", "input_image"}:
+                return True
+        return False
+
+    @staticmethod
+    def _has_video_ref_attachments(msg: StandardMessage) -> bool:
+        atts = msg.attachments if isinstance(msg.attachments, list) else []
+        for a in atts:
+            if not isinstance(a, dict):
+                continue
+            t = str(a.get("type") or "").strip().lower()
+            if t == "video_ref":
+                return True
+        return False
+
+    @staticmethod
     def _tabular_query_system_hint(lang: str) -> str:
         limits = OclawGateway._tabular_limits_from_config()
         preview_rows = int(limits.get("large_table_preview_rows") or _DEFAULT_TABULAR_PREVIEW_ROWS)
@@ -430,6 +462,38 @@ class OclawGateway:
             f"单次读取上限为{max_rows_read}行。"
             "如果需要更多行或更细节，请通过数据库工具（`query_tabular_attachment` / `run_tabular_sql`）结合 table_id 查询。"
         )
+
+    @staticmethod
+    def _text_query_system_hint(lang: str) -> str:
+        if str(lang or "").startswith("en"):
+            return (
+                "For long text attachments: context may contain only summary/preview. "
+                "For detailed evidence, use `query_text_attachment` with `text_id` from `text_ref` attachment."
+            )
+        return (
+            "对于长文本附件：上下文可能只包含摘要/预览。"
+            "如需细节证据，请使用 `text_ref` 提供的 text_id 调用 `query_text_attachment`。"
+        )
+
+    @staticmethod
+    def _image_query_system_hint(lang: str) -> str:
+        if str(lang or "").startswith("en"):
+            return (
+                "For image attachments: use `query_image_attachment` with attachment_id "
+                "for OCR/description when visual evidence is required."
+            )
+        return (
+            "对于图片附件：如需 OCR 或图像细节，请使用 attachment_id 调用 `query_image_attachment`。"
+        )
+
+    @staticmethod
+    def _video_query_system_hint(lang: str) -> str:
+        if str(lang or "").startswith("en"):
+            return (
+                "For video attachments: use `query_video_attachment` with attachment_id from `video_ref` "
+                "to get metadata or transcript (if enabled)."
+            )
+        return "对于视频附件：请使用 `video_ref` 提供的 attachment_id 调用 `query_video_attachment` 获取元信息/转写。"
 
     @staticmethod
     def _tabular_limits_from_config() -> dict[str, int]:
@@ -767,6 +831,25 @@ class OclawGateway:
                 },
                 started_at=t0,
             )
+            if str(manager_instruction_text or "").strip() and not bool(manager_memory_mode):
+                try:
+                    assignment_title = "Task assignment" if str(lang or "").startswith("en") else "任务分配"
+                    assignment_text = (
+                        f"{assignment_title}\n"
+                        f"specialist={str(manager_specialist or '')}\n"
+                        f"instruction:\n{str(manager_instruction_text or '').strip()}"
+                    )
+                    self.store.add_message(
+                        session_id=msg.session_id,
+                        tenant_id=msg.tenant_id,
+                        user_id=msg.user_id,
+                        role="assistant",
+                        content=assignment_text,
+                        tool_calls=None,
+                        event_type="reasoning",
+                    )
+                except Exception:
+                    pass
             # Build specialist/dynamic executor and dispatch only manager instruction to it.
             specialist_input_msg = StandardMessage(
                 session_id=msg.session_id,
@@ -984,6 +1067,12 @@ class OclawGateway:
             sys_prompt = str(getattr(selected_executor, "system_prompt", "") or "")
             if self._has_tabular_ref_attachments(msg):
                 sys_prompt = f"{sys_prompt}\n\n{self._tabular_query_system_hint(lang)}".strip()
+            if self._has_text_ref_attachments(msg):
+                sys_prompt = f"{sys_prompt}\n\n{self._text_query_system_hint(lang)}".strip()
+            if self._has_image_ref_attachments(msg):
+                sys_prompt = f"{sys_prompt}\n\n{self._image_query_system_hint(lang)}".strip()
+            if self._has_video_ref_attachments(msg):
+                sys_prompt = f"{sys_prompt}\n\n{self._video_query_system_hint(lang)}".strip()
 
             def _get_int_setting(key: str, default: int, lo: int, hi: int) -> int:
                 try:
@@ -1042,6 +1131,7 @@ class OclawGateway:
                     wire_policy_role="manager" if interaction_mode == "comprehensive" else str(requested_specialist),
                 ),
             )
+            executed_turn_uuid = str(getattr(core_out.outcome, "turn_uuid", "") or "")
             specialist_reply = str(core_out.outcome.final_text or "")
             if manager_memory_mode:
                 # manager_memory: write memory silently, but keep dialog output independent.
@@ -1092,6 +1182,15 @@ class OclawGateway:
                         "post_reply_memory_write_chars": int(len(manager_post_reply_memory_write_text or "")),
                     },
                     started_at=t0,
+                )
+            except Exception:
+                pass
+        if str(executed_turn_uuid or "").strip():
+            try:
+                compact_turn_tool_messages_for_storage(
+                    store=self.store,
+                    session_id=msg.session_id,
+                    turn_uuid=executed_turn_uuid,
                 )
             except Exception:
                 pass

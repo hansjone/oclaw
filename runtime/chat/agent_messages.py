@@ -177,6 +177,9 @@ def _summarize_unpaired_tool_content(raw: str, *, cap: int) -> str:
 
 
 def _truncate_tool_context(text: str, *, lang: str) -> str:
+    # NOTE: this is a history-replay safety clamp only.
+    # Never apply this to current-turn tool rows; otherwise the model may
+    # incorrectly infer runtime truncation from UI-facing copy.
     s = str(text or "").strip()
     if not s:
         return s
@@ -315,6 +318,39 @@ def build_llm_messages(
                             ),
                         }
                     )
+                elif att_type == "text_ref":
+                    name = str(att.get("name") or "document")
+                    text_id = str(att.get("text_id") or "")
+                    chars = int(att.get("chars") or 0)
+                    chunks = int(att.get("chunks") or 0)
+                    source_kind = str(att.get("source_kind") or "text")
+                    aid = str(att.get("attachment_id") or "")
+                    content_list.append(
+                        {
+                            "type": "text",
+                            "text": (
+                                f"[LongTextAttachment]\n"
+                                f"- name: {name}\n"
+                                f"- text_id: {text_id}\n"
+                                f"- attachment_id: {aid}\n"
+                                f"- source_kind: {source_kind}\n"
+                                f"- chars: {chars}\n"
+                                f"- chunks: {chunks}\n"
+                                f"- tools: query_text_attachment\n"
+                                "- note: for detailed evidence, call `query_text_attachment` with text_id."
+                            ),
+                        }
+                    )
+                elif att_type == "video_ref":
+                    name = str(att.get("name") or "video")
+                    mime = str(att.get("mime") or "video/*")
+                    aid = str(att.get("attachment_id") or "")
+                    sz = att.get("bytes")
+                    meta_line = f"[VideoAttachment]\n- name: {name}\n- mime: {mime}\n- attachment_id: {aid}"
+                    if sz:
+                        meta_line += f"\n- bytes: {sz}"
+                    meta_line += "\n- tools: query_video_attachment"
+                    content_list.append({"type": "text", "text": meta_line})
                 elif att_type == "relay_pointer":
                     p_uri = str(att.get("pointer_uri") or "").strip()
                     if not p_uri:
@@ -471,7 +507,7 @@ def build_llm_messages(
                             tool_content_out = raw_tc_content[: max(1, cap - 80)] + "\n...<truncated>"
                     except Exception:
                         tool_content_out = raw_tc_content[: max(1, cap - 80)] + "\n...<truncated>"
-                if tool_context_truncate_enabled:
+                if tool_context_truncate_enabled and str(tool_call_id) in historical_tool_ids:
                     # Preserve explicit guard markers from upstream context guards.
                     if "_tool_result_guarded" not in str(tool_content_out or ""):
                         tool_content_out = _truncate_tool_context(tool_content_out, lang=lang)
@@ -494,8 +530,7 @@ def build_llm_messages(
                 r = getattr(m, "content", "") or ""
                 cap2 = tool_llm_message_max_chars()
                 pretty2 = _summarize_unpaired_tool_content(r, cap=cap2)
-                if tool_context_truncate_enabled:
-                    pretty2 = _truncate_tool_context(pretty2, lang=lang)
+                # Unpaired tool rows are already summarized; avoid extra 50-char clipping.
                 out.append(
                     {
                         "role": "assistant",

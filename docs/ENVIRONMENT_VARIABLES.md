@@ -181,6 +181,34 @@
   - 作用：`tool_log` 中 args/result 截断上限
   - 生效：`oclaw/platform/persistence/sqlite_store.py`
 
+- `AIA_IMAGE_TOOL_RESULT_REPLAY_CAP_CHARS`
+  - 默认：`4000`
+  - 作用：限制历史轮次中 `query_image_attachment`（OCR/描述）结果回放到模型上下文时的 `text` 长度上限
+  - 范围：`600..30000`
+  - 优先级：DB setting（同名） > 环境变量 > `oclaw.json`(`plugins.entries.memory-wiki.auto.attachments.tabular.image_result_replay_cap_chars`) > 默认值
+  - 生效：`oclaw/runtime/direct_loop.py`
+
+- `AIA_VIDEO_TOOL_RESULT_REPLAY_CAP_CHARS`
+  - 默认：`4000`
+  - 作用：限制历史轮次中 `query_video_attachment`（`task=transcript`）结果回放到模型上下文时的 `text` 长度上限
+  - 范围：`600..30000`
+  - 优先级：DB setting（同名） > 环境变量 > `oclaw.json`(`plugins.entries.memory-wiki.auto.attachments.tabular.video_result_replay_cap_chars`) > 默认值
+  - 生效：`oclaw/runtime/direct_loop.py`
+
+- `video_transcript_chunk_size` / `video_transcript_chunk_overlap`（`oclaw.json` 配置项）
+  - 默认：`1600` / `200`
+  - 作用：`query_video_attachment(task=transcript)` 落库转写文本时的默认分块参数（可被工具入参覆盖）
+  - 范围：`size: 1..8000`，`overlap: 1..4000`（实际使用会约束 overlap < size）
+  - 路径：`plugins.entries.memory-wiki.auto.attachments.tabular`
+  - 生效：`oclaw/runtime/tools/experts/generalist/video_query.py`
+
+- `archive_max_depth` / `archive_max_file_count` / `archive_max_entry_bytes` / `archive_max_total_uncompressed_bytes`（`oclaw.json` 配置项）
+  - 默认：`2` / `200` / `10485760` / `52428800`
+  - 作用：统一 `archive_processor`（zip/tar/tgz/gz）安全预算：限制嵌套深度、文件数量、单文件解压大小、总解压大小
+  - 路径：`plugins.entries.memory-wiki.auto.attachments.tabular`
+  - 生效：`oclaw/platform/files/archive_processor.py`, `oclaw/platform/files/file_attachments.py`
+  - 错误码（工具/上下文可见）：`archive_unsupported_format`, `archive_path_traversal`, `archive_max_depth_exceeded`, `archive_max_file_count_exceeded`, `archive_max_entry_bytes_exceeded`, `archive_max_total_uncompressed_bytes_exceeded`, `archive_link_entry_forbidden`, `archive_special_entry_forbidden`, `archive_parse_failed`
+
 ## MCP 与工具线侧
 
 - `AIA_MCP_SPECIALISTS`

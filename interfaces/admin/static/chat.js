@@ -288,8 +288,14 @@ const CHAT_URL_SCOPE_KEY = "ops_chat_url_scope";
 const CHAT_SPECIALIST_PREF_KEY = "ops_chat_specialist_pref";
 const CHAT_INTERACTION_MODE_KEY = "ops_chat_interaction_mode";
 const CHAT_MEMORY_MODE_KEY = "ops_chat_memory_mode";
+const CHAT_REASONING_TOGGLE_KEY = "ops_chat_reasoning_toggle";
 const ADMIN_CHAT_SHOW_TOOL_OUTPUT_DEFAULT = false;
-let adminChatShowToolOutput = ADMIN_CHAT_SHOW_TOOL_OUTPUT_DEFAULT;
+const REASONING_BLOCK_MAX_CHARS = 12000;
+const CHAT_ENABLE_WIKI_EVENT_POLLER = false;
+const _rt = String(localStorage.getItem(CHAT_REASONING_TOGGLE_KEY) || "").trim().toLowerCase();
+let adminChatShowToolOutput = _rt
+  ? ["1", "true", "yes", "on"].includes(_rt)
+  : ADMIN_CHAT_SHOW_TOOL_OUTPUT_DEFAULT;
 let authSession = null;
 
 function _toolSummaryTitle(role) {
@@ -303,10 +309,33 @@ function _normalizeEventType(v) {
 }
 
 function _collapsedBlockNode(title, text) {
+  const raw = String(text || "");
+  const clipped = raw.length > REASONING_BLOCK_MAX_CHARS ? raw.slice(0, REASONING_BLOCK_MAX_CHARS) : raw;
+  const suffix =
+    raw.length > REASONING_BLOCK_MAX_CHARS
+      ? `\n\n[truncated ${raw.length - REASONING_BLOCK_MAX_CHARS} chars to keep UI responsive]`
+      : "";
   const box = document.createElement("div");
   box.className = "chat-msg__reasoning-block";
   box.appendChild(el("div", { class: "chat-msg__reasoning-title", text: String(title || "") }));
-  box.appendChild(el("pre", { class: "chat-msg__reasoning-pre", text: String(text || "") || "—" }));
+  const pre = el("pre", { class: "chat-msg__reasoning-pre", text: (clipped + suffix) || "—" });
+  box.appendChild(pre);
+  if (raw.length > REASONING_BLOCK_MAX_CHARS) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "btn btn-sm";
+    btn.style.marginTop = "6px";
+    btn.textContent = currentLang === "zh" ? "展开全文（可能较慢）" : "Load full text (may be slow)";
+    btn.addEventListener("click", () => {
+      btn.disabled = true;
+      btn.textContent = currentLang === "zh" ? "加载中..." : "Loading...";
+      requestAnimationFrame(() => {
+        pre.textContent = raw || "—";
+        btn.remove();
+      });
+    });
+    box.appendChild(btn);
+  }
   return box;
 }
 
@@ -1206,12 +1235,14 @@ function createStreamStitcher() {
   };
 }
 
-function formatToolPanelText(name, payload) {
+function formatToolPanelText(name, payload, options = {}) {
+  const streamMode = !!(options && options.streamMode);
   const truncateToolPanel = (s) => {
     const raw = String(s || "").trim();
-    const maxChars = 50;
+    if (streamMode) return raw;
+    const maxChars = 4000;
     if (raw.length <= maxChars) return raw;
-    return `${raw.slice(0, maxChars)}…（详情请重新阅读）`;
+    return `${raw.slice(0, maxChars)}\n\n…（为保证界面性能，已截断 ${raw.length - maxChars} 字符）`;
   };
   const n = String(name || "").trim() || "tool";
   const p = payload && typeof payload === "object" ? payload : {};
@@ -1252,7 +1283,7 @@ function formatToolPanelText(name, payload) {
       body = String(r || "");
     }
   }
-  body = normalizeStreamText(body).replace(/\\n/g, "").replace(/\n/g, "");
+  body = normalizeStreamText(body);
   return `${n}\n${truncateToolPanel(body)}`.trim();
 }
 
@@ -1870,12 +1901,12 @@ async function renderChatUi() {
   });
   modeSelect.appendChild(el("option", { value: "comprehensive", text: t("chat.modeComprehensive") }));
   modeSelect.appendChild(el("option", { value: "expert", text: t("chat.modeExpert") }));
-  const _im = String(localStorage.getItem(CHAT_INTERACTION_MODE_KEY) || "comprehensive").toLowerCase();
-  modeSelect.value = ["comprehensive", "expert"].includes(_im) ? _im : "comprehensive";
+  const _im = String(localStorage.getItem(CHAT_INTERACTION_MODE_KEY) || "expert").toLowerCase();
+  modeSelect.value = ["comprehensive", "expert"].includes(_im) ? _im : "expert";
   const _mm = String(localStorage.getItem(CHAT_MEMORY_MODE_KEY) || "default").toLowerCase();
   localStorage.setItem(CHAT_MEMORY_MODE_KEY, _mm === "store_only" ? "store_only" : "default");
   modeSelect.addEventListener("change", () => {
-    localStorage.setItem(CHAT_INTERACTION_MODE_KEY, String(modeSelect.value || "comprehensive"));
+    localStorage.setItem(CHAT_INTERACTION_MODE_KEY, String(modeSelect.value || "expert"));
     saveSessionModePreference();
   });
   const applySpecialistOptions = () => {
@@ -1944,7 +1975,7 @@ async function renderChatUi() {
       if (String(modeSelect.value || "").toLowerCase() !== "expert") {
         specialistSelect.value = "generalist";
       }
-      localStorage.setItem(CHAT_INTERACTION_MODE_KEY, String(modeSelect.value || "comprehensive"));
+      localStorage.setItem(CHAT_INTERACTION_MODE_KEY, String(modeSelect.value || "expert"));
       localStorage.setItem(CHAT_SPECIALIST_PREF_KEY, String(specialistSelect.value || "generalist"));
       const mml = String(localStorage.getItem(CHAT_MEMORY_MODE_KEY) || "default").toLowerCase();
       localStorage.setItem(CHAT_MEMORY_MODE_KEY, mml === "store_only" ? "store_only" : "default");
@@ -1955,9 +1986,9 @@ async function renderChatUi() {
     if (!activeId) return;
     try {
       await apiPost(`/admin/api/chat/sessions/${encodeURIComponent(activeId)}/mode`, {
-        interaction_mode: String(modeSelect.value || "comprehensive"),
+        interaction_mode: String(modeSelect.value || "expert"),
         specialist:
-          String(modeSelect.value || "comprehensive").toLowerCase() === "expert"
+          String(modeSelect.value || "expert").toLowerCase() === "expert"
             ? String(specialistSelect.value || "generalist")
             : "generalist",
         memory_mode: String(localStorage.getItem(CHAT_MEMORY_MODE_KEY) || "default"),
@@ -1975,7 +2006,7 @@ async function renderChatUi() {
   ]);
 
   const syncModeSpecialistUi = () => {
-    const m = String(modeSelect.value || "comprehensive").toLowerCase();
+    const m = String(modeSelect.value || "expert").toLowerCase();
     const showSpecialist = m === "expert";
     specialistLabelEl.style.display = showSpecialist ? "" : "none";
     specialistSelect.style.display = showSpecialist ? "" : "none";
@@ -2069,22 +2100,12 @@ async function renderChatUi() {
         topTopic = String(k || "");
       }
     }
-    const actions = [
-      {
-        label: t("chat.wikiViewMerged"),
-        onClick: () => openWikiPreviewModal({ sessionId: String(activeId || ""), path: "inbox/merged-turns.md" }),
-      },
-    ];
-    if (topTopic) {
-      actions.push({
-        label: t("chat.wikiViewTopic", { topic: topTopic }),
-        onClick: () => openWikiPreviewModal({ sessionId: String(activeId || ""), path: `topics/auto-${topTopic}.md` }),
-      });
-    }
+    const actions = [];
     return { kind: "info", text: t("chat.wikiToastMerged", { merged: String(merged), skipped: String(skipped) }), actions };
   };
 
   const pollWikiEvents = async () => {
+    if (!CHAT_ENABLE_WIKI_EVENT_POLLER) return;
     const sid = String(activeId || "");
     if (!sid) return;
     const after = String((wikiAfterFinishedAt && wikiAfterFinishedAt[sid]) || "");
@@ -2129,6 +2150,7 @@ async function renderChatUi() {
   };
 
   const startWikiPoller = () => {
+    if (!CHAT_ENABLE_WIKI_EVENT_POLLER) return;
     if (wikiPollTimerId != null) return;
     wikiPollTimerId = setInterval(pollWikiEvents, 2200);
     // kick once
@@ -2171,6 +2193,7 @@ async function renderChatUi() {
   toolToggleBtn.addEventListener("click", () => {
     showToolOutput = !showToolOutput;
     adminChatShowToolOutput = showToolOutput;
+    localStorage.setItem(CHAT_REASONING_TOGGLE_KEY, showToolOutput ? "1" : "0");
     syncToolToggleBtn();
     const isStreaming = composerShell.classList.contains("chat-composer-shell--busy");
     if (isStreaming) {
@@ -2464,6 +2487,7 @@ async function renderChatUi() {
         statusBar.textContent = t("chat.loading");
         const resp = await apiPost("/admin/api/chat/sessions", {});
         adoptCreatedSession(resp);
+        await loadSessionModePreference();
         paintSessions();
         messagesEl.innerHTML = "";
         messagesEl.appendChild(el("div", { class: "muted", text: t("chat.empty") }));
@@ -2614,7 +2638,7 @@ async function renderChatUi() {
           attachments: Array.isArray(attachments) ? attachments : [],
           idempotencyKey: String(idempotencyKey || `idem_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`),
           thinking: "default",
-          interaction_mode: String(interactionMode || "comprehensive"),
+          interaction_mode: String(interactionMode || "expert"),
           specialist: String(specialist || "generalist"),
           memory_mode: String(memoryMode || "default"),
         },
@@ -2710,7 +2734,7 @@ async function renderChatUi() {
   let currentStreamAbortController = null;
   let currentWsTransport = null;
   let currentAbortMeta = { sessionId: "", runId: "" };
-  const WS_CHAT_SEND_TIMEOUT_MS = 60000;
+  const WS_CHAT_SEND_TIMEOUT_MS = 180000;
   const isAbortError = (err) => {
     const name = String(err && err.name ? err.name : "");
     const msg = String(err && err.message ? err.message : err || "");
@@ -2856,10 +2880,12 @@ async function renderChatUi() {
       const chunks = [];
       for (const seg of chatStreamSegments) {
         if (!seg || seg.type !== "text") continue;
-        const txt = String(seg.text || "").trim();
+        const txt = String(seg.text || "");
         if (txt) chunks.push(txt);
       }
-      return decodeEscapedNewlines(chunks.join("\n"));
+      // Keep 1:1 character mapping with original text segments.
+      // Never inject separators here; otherwise typewriter offsets drift.
+      return decodeEscapedNewlines(chunks.join(""));
     };
     const _renderStreamCompositeNow = () => {
       const bubble = ensureStreamBubble();
@@ -2902,7 +2928,7 @@ async function renderChatUi() {
             const showLen = Math.max(0, Math.min(full.length, streamDisplayShown.length - textIdx));
             const shown = full.slice(0, showLen);
             textIdx += full.length;
-            if (!shown.trim()) continue;
+            if (!shown) continue;
             blocks.push(`<div class="chat-msg__plain">${escapeHtml(decodeEscapedNewlines(shown))}</div>`);
           } else if (seg.type === "tool") {
             if (!showToolOutput) continue;
@@ -2968,8 +2994,9 @@ ${autoLimit ? `<div style="margin-top:8px;"><span class="muted">auto-added claus
           renderStreamComposite();
           return;
         }
-        // Slightly faster typing while keeping typewriter feel for正文.
-        const step = 2;
+        // Adaptive typing speed: when backlog grows, catch up quickly
+        // to avoid fragmented/laggy streaming and end-of-turn text bursts.
+        const step = Math.max(4, Math.min(180, Math.ceil(remain / 10)));
         streamDisplayShown = streamDisplayTarget.slice(0, streamDisplayShown.length + step);
         renderStreamComposite();
         if (typingTimerId != null) {
@@ -2979,7 +3006,7 @@ ${autoLimit ? `<div style="margin-top:8px;"><span class="muted">auto-added claus
         typingTimerId = setTimeout(() => {
           typingTimerId = null;
           _scheduleTypingTick();
-        }, 22);
+        }, 14);
       });
     };
     const setStreamText = (text) => {
@@ -2996,11 +3023,12 @@ ${autoLimit ? `<div style="margin-top:8px;"><span class="muted">auto-added claus
     const appendToolSegment = (payload) => {
       const p = payload && typeof payload === "object" ? payload : {};
       const name = String(p.name || "tool");
+      const liveTag = currentLang === "zh" ? "[实时全量]" : "[LIVE FULL]";
       const key = `${name}:${++toolSeq}`;
       const rawPayload = p.payload != null ? p.payload : p;
-      const body = formatToolPanelText(name, rawPayload);
+      const body = formatToolPanelText(name, rawPayload, { streamMode: true });
       const sqlAudit = extractSqlAuditPayload(rawPayload);
-      chatStreamSegments.push({ type: "tool", key, title: name, body, sqlAudit });
+      chatStreamSegments.push({ type: "tool", key, title: `${name} ${liveTag}`, body, sqlAudit });
     };
     const appendFinalAssistant = async (message, fallbackText) => {
       const normalized = _normalizeAssistantMessage(message, { requireRole: false, requireContentArray: false });
@@ -3053,10 +3081,10 @@ ${autoLimit ? `<div style="margin-top:8px;"><span class="muted">auto-added claus
           sessionId: activeId,
           text: userText,
           attachments: attachmentPayload,
-          interactionMode: String(modeSelect.value || "comprehensive"),
+          interactionMode: String(modeSelect.value || "expert"),
           idempotencyKey: String(turnId || ""),
           specialist:
-            String(modeSelect.value || "comprehensive").toLowerCase() === "expert"
+            String(modeSelect.value || "expert").toLowerCase() === "expert"
               ? String(specialistSelect.value || "generalist")
               : "generalist",
           memoryMode: String(localStorage.getItem(CHAT_MEMORY_MODE_KEY) || "default"),
@@ -3144,6 +3172,11 @@ ${autoLimit ? `<div style="margin-top:8px;"><span class="muted">auto-added claus
               chatStream = "";
               chatRunId = null;
               chatStreamSegments = [];
+              // Final assistant body may arrive before reasoning/tool rows are fully persisted.
+              // Reload once shortly after final to avoid "reasoning disappears until session switch".
+              setTimeout(() => {
+                loadMessagesForActive().catch(() => {});
+              }, 350);
               if (!ok) statusBar.textContent = "";
               return;
             }
@@ -3208,6 +3241,24 @@ ${autoLimit ? `<div style="margin-top:8px;"><span class="muted">auto-added claus
             loadMessagesForActive().catch(() => {});
           }, 350);
           return doneMeta;
+        }
+        // WS timeout may happen while backend still computes and persists final reply.
+        // Try recovering from persisted history before surfacing a hard error.
+        if (emsg.includes("ws_send_timeout")) {
+          try {
+            for (let i = 0; i < 12; i++) {
+              if (await _recoverLatestAssistantFromHistory()) {
+                statusBar.textContent =
+                  currentLang === "zh"
+                    ? "请求超时，已从历史补齐本轮结果。"
+                    : "Request timed out; recovered this turn from history.";
+                return doneMeta || { __transport: "ws_timeout_history_recovered" };
+              }
+              await _sleep(600 + i * 400);
+            }
+          } catch (_) {
+            // fall through to generic ws-like failure recovery
+          }
         }
         // WS may time out/close while backend persists final message slightly later.
         // Poll history briefly before surfacing hard failure.

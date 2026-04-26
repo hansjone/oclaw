@@ -35,6 +35,11 @@ def _meta_path(table_id: str) -> Path:
     return _tabular_root() / f"{table_id}.meta.json"
 
 
+def _is_valid_table_id(table_id: str) -> bool:
+    tid = str(table_id or "").strip().lower()
+    return bool(re.fullmatch(r"[0-9a-f]{64}", tid))
+
+
 def _normalize_columns(raw_cols: list[Any]) -> tuple[list[str], list[dict[str, Any]]]:
     out: list[str] = []
     mapping: list[dict[str, Any]] = []
@@ -311,7 +316,10 @@ def save_workbook(*, attachment_id: str, name: str, sheets: dict[str, pd.DataFra
 
 
 def get_table_meta(table_id: str) -> dict[str, Any] | None:
-    p = _meta_path(str(table_id or "").strip())
+    tid = str(table_id or "").strip()
+    if not _is_valid_table_id(tid):
+        return None
+    p = _meta_path(tid)
     if not p.exists():
         return None
     try:
@@ -352,6 +360,29 @@ def _columns_for_sheet(meta: dict[str, Any], table_name: str) -> list[str]:
     return []
 
 
+def _sheet_hint_payload(meta: dict[str, Any], *, selected_sheet: str | None, table_name: str) -> dict[str, Any] | None:
+    sheets = meta.get("sheets") if isinstance(meta.get("sheets"), list) else []
+    valid_rows = [x for x in sheets if isinstance(x, dict)]
+    if len(valid_rows) <= 1:
+        return None
+    if str(selected_sheet or "").strip():
+        return None
+    names = [str((x or {}).get("sheet_name") or "") for x in valid_rows]
+    names = [x for x in names if x]
+    if len(names) <= 1:
+        return None
+    default_sheet_name = ""
+    for row in valid_rows:
+        if str(row.get("table_name") or "") == str(table_name):
+            default_sheet_name = str(row.get("sheet_name") or "")
+            break
+    return {
+        "available_sheets": names[:20],
+        "default_sheet": default_sheet_name,
+        "note": "Workbook contains multiple sheets; pass `sheet` to target a specific sheet.",
+    }
+
+
 def query_table(
     *,
     table_id: str,
@@ -361,6 +392,12 @@ def query_table(
     where_contains: dict[str, str] | None = None,
     sheet: str | None = None,
 ) -> dict[str, Any]:
+    if not _is_valid_table_id(table_id):
+        return {
+            "ok": False,
+            "error": "table_id_invalid_format",
+            "hint": "Use table_id from tabular_ref attachment (64-char hex id).",
+        }
     meta = get_table_meta(table_id)
     if not isinstance(meta, dict):
         return {"ok": False, "error": "table_not_found"}
@@ -392,6 +429,7 @@ def query_table(
     out_rows, engine = _run_select_sql(db_path=db, sql=sql, params=params)
     with sqlite3.connect(str(db)) as conn:
         total = int(conn.execute(f'SELECT COUNT(1) AS n FROM "{table_name}"').fetchone()[0] or 0)
+    hint = _sheet_hint_payload(meta, selected_sheet=sheet, table_name=table_name)
     return {
         "ok": True,
         "table_id": str(table_id),
@@ -404,6 +442,7 @@ def query_table(
         "limit": lim,
         "offset": off,
         "engine": engine,
+        **({"sheet_hint": hint} if isinstance(hint, dict) else {}),
     }
 
 
@@ -417,6 +456,12 @@ def aggregate_table(
     top_n: int = 20,
     sheet: str | None = None,
 ) -> dict[str, Any]:
+    if not _is_valid_table_id(table_id):
+        return {
+            "ok": False,
+            "error": "table_id_invalid_format",
+            "hint": "Use table_id from tabular_ref attachment (64-char hex id).",
+        }
     meta = get_table_meta(table_id)
     if not isinstance(meta, dict):
         return {"ok": False, "error": "table_not_found"}
@@ -465,7 +510,7 @@ def aggregate_table(
                     "value": float(r.get("metric_value") or 0.0),
                 }
             )
-        return {
+        out = {
             "ok": True,
             "table_id": str(table_id),
             "sheet": str(sheet or ""),
@@ -477,10 +522,14 @@ def aggregate_table(
             "top_n": lim,
             "engine": engine,
         }
+        hint = _sheet_hint_payload(meta, selected_sheet=sheet, table_name=table_name)
+        if isinstance(hint, dict):
+            out["sheet_hint"] = hint
+        return out
     sql = f'SELECT {metric_sql} AS metric_value FROM "{table_name}"{where_sql} '
     raw_rows, engine = _run_select_sql(db_path=db, sql=sql, params=params)
     row = raw_rows[0] if raw_rows else {}
-    return {
+    out = {
         "ok": True,
         "table_id": str(table_id),
         "sheet": str(sheet or ""),
@@ -491,6 +540,10 @@ def aggregate_table(
         "value": float((row.get("metric_value") if isinstance(row, dict) else 0.0) or 0.0),
         "engine": engine,
     }
+    hint = _sheet_hint_payload(meta, selected_sheet=sheet, table_name=table_name)
+    if isinstance(hint, dict):
+        out["sheet_hint"] = hint
+    return out
 
 
 def run_table_sql(
@@ -500,6 +553,12 @@ def run_table_sql(
     limit: int = 200,
     sheet: str | None = None,
 ) -> dict[str, Any]:
+    if not _is_valid_table_id(table_id):
+        return {
+            "ok": False,
+            "error": "table_id_invalid_format",
+            "hint": "Use table_id from tabular_ref attachment (64-char hex id).",
+        }
     meta = get_table_meta(table_id)
     if not isinstance(meta, dict):
         return {"ok": False, "error": "table_not_found"}
@@ -547,7 +606,7 @@ def run_table_sql(
             },
         }
     out_rows = rows[:lim]
-    return {
+    out = {
         "ok": True,
         "table_id": str(table_id),
         "name": str(meta.get("name") or ""),
@@ -568,6 +627,10 @@ def run_table_sql(
         "limit": lim,
         "engine": engine,
     }
+    hint = _sheet_hint_payload(meta, selected_sheet=sheet, table_name=table_name)
+    if isinstance(hint, dict):
+        out["sheet_hint"] = hint
+    return out
 
 
 def analyze_table_full_scan(
@@ -577,6 +640,12 @@ def analyze_table_full_scan(
     sheet: str | None = None,
     top_values_limit: int = 3,
 ) -> dict[str, Any]:
+    if not _is_valid_table_id(table_id):
+        return {
+            "ok": False,
+            "error": "table_id_invalid_format",
+            "hint": "Use table_id from tabular_ref attachment (64-char hex id).",
+        }
     meta = get_table_meta(table_id)
     if not isinstance(meta, dict):
         return {"ok": False, "error": "table_not_found"}
@@ -628,7 +697,7 @@ def analyze_table_full_scan(
                 item["top_values"] = [{"value": str(r[0]), "count": int(r[1] or 0)} for r in tops]
             col_stats.append(item)
     elapsed_ms = int((time.perf_counter() - started) * 1000)
-    return {
+    out = {
         "ok": True,
         "table_id": str(table_id),
         "name": str(meta.get("name") or ""),
@@ -645,6 +714,10 @@ def analyze_table_full_scan(
         },
         "engine": "builtin_sqlite_fullscan",
     }
+    hint = _sheet_hint_payload(meta, selected_sheet=sheet, table_name=table_name)
+    if isinstance(hint, dict):
+        out["sheet_hint"] = hint
+    return out
 
 
 __all__ = [
