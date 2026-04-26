@@ -13,12 +13,15 @@ from oclaw.interfaces.http.fastapi_app import create_app
 from oclaw.platform.config.paths import db_path
 from oclaw.platform.persistence.sqlite_store import SqliteStore
 from oclaw.runtime.tools.experts.workspace.fs_tools import list_files_tool, write_file_tool
+from oclaw.runtime.tools.experts.workspace.shell_tools import run_command_tool
 from oclaw.runtime.tools.experts.workspace.workspace_base import (
     access_from_env,
     build_workspace_path_access,
     clear_workspace_path_access_for_tests,
+    current_workspace_write_namespace,
     resolve_workspace_path,
     workspace_path_access_scope,
+    workspace_write_namespace_scope,
 )
 
 
@@ -111,9 +114,222 @@ class WorkspacePathGuardTests(unittest.TestCase):
             with workspace_path_access_scope(None, None):
                 r = spec.handler({"path": "generated.py", "content": "print('ok')\n", "mode": "overwrite"})
             self.assertTrue(r.get("ok"), r)
-            expected = (self.root / "data" / self.root.name / "generated.py").resolve()
+            expected = (self.root / "data" / "workspace" / "generated.py").resolve()
             self.assertEqual(str(expected), str(r.get("path")))
             self.assertTrue(expected.exists())
+
+    def test_write_file_relative_path_uses_workspace_namespace_scope(self) -> None:
+        with mock.patch.dict(
+            os.environ,
+            {"OPS_WORKSPACE_ROOT": str(self.root), "OPS_WORKSPACE_EXTRA_ROOTS": "", "OPS_WORKSPACE_ALLOW_ANY_PATH": ""},
+            clear=False,
+        ):
+            clear_workspace_path_access_for_tests()
+            spec = write_file_tool()
+            with workspace_path_access_scope(None, None), workspace_write_namespace_scope("ops"):
+                self.assertEqual(current_workspace_write_namespace(), "ops")
+                r = spec.handler({"path": "generated.py", "content": "print('ok')\n", "mode": "overwrite"})
+            self.assertTrue(r.get("ok"), r)
+            expected = (self.root / "data" / "workspace" / "generated.py").resolve()
+            self.assertEqual(str(expected), str(r.get("path")))
+            self.assertTrue(expected.exists())
+
+    def test_write_file_absolute_path_is_forced_into_workspace_sandbox(self) -> None:
+        with mock.patch.dict(
+            os.environ,
+            {"OPS_WORKSPACE_ROOT": str(self.root), "OPS_WORKSPACE_EXTRA_ROOTS": "", "OPS_WORKSPACE_ALLOW_ANY_PATH": ""},
+            clear=False,
+        ):
+            clear_workspace_path_access_for_tests()
+            spec = write_file_tool()
+            abs_target = str((self.root / "count_items.py").resolve())
+            with workspace_path_access_scope(None, None), workspace_write_namespace_scope("ops"):
+                r = spec.handler({"path": abs_target, "content": "print('ok')\n", "mode": "overwrite"})
+            self.assertTrue(r.get("ok"), r)
+            expected = (self.root / "data" / "workspace" / "count_items.py").resolve()
+            self.assertEqual(str(expected), str(r.get("path")))
+            self.assertTrue(expected.exists())
+
+    def test_run_command_default_cwd_uses_workspace_namespace_sandbox(self) -> None:
+        with mock.patch.dict(
+            os.environ,
+            {
+                "OPS_WORKSPACE_ROOT": str(self.root),
+                "OPS_WORKSPACE_EXTRA_ROOTS": "",
+                "OPS_WORKSPACE_ALLOW_ANY_PATH": "",
+                "AIA_ENABLE_RUN_COMMAND": "1",
+            },
+            clear=False,
+        ):
+            clear_workspace_path_access_for_tests()
+            spec = run_command_tool()
+            with workspace_path_access_scope(None, None), workspace_write_namespace_scope("ops"):
+                r = spec.handler({"command": "python -c \"print('ok')\""})
+            self.assertTrue(r.get("ok"), r)
+            expected_cwd = (self.root / "data" / "workspace").resolve()
+            self.assertEqual(str(expected_cwd), str(r.get("cwd")))
+
+    def test_run_command_strips_leading_cd_chain_in_default_sandbox(self) -> None:
+        with mock.patch.dict(
+            os.environ,
+            {
+                "OPS_WORKSPACE_ROOT": str(self.root),
+                "OPS_WORKSPACE_EXTRA_ROOTS": "",
+                "OPS_WORKSPACE_ALLOW_ANY_PATH": "",
+                "AIA_ENABLE_RUN_COMMAND": "1",
+            },
+            clear=False,
+        ):
+            clear_workspace_path_access_for_tests()
+            spec = run_command_tool()
+            cmd = f'cd /d "{self.root}" && python -c "print(123)"'
+            with workspace_path_access_scope(None, None), workspace_write_namespace_scope("ops"):
+                r = spec.handler({"command": cmd})
+            self.assertTrue(r.get("ok"), r)
+            self.assertTrue(bool(r.get("normalized_cd_removed")))
+            expected_cwd = (self.root / "data" / "workspace").resolve()
+            self.assertEqual(str(expected_cwd), str(r.get("cwd")))
+            self.assertIn("123", str(r.get("output") or ""))
+
+    def test_run_command_strips_windows_drive_prefix_cd_chain(self) -> None:
+        with mock.patch.dict(
+            os.environ,
+            {
+                "OPS_WORKSPACE_ROOT": str(self.root),
+                "OPS_WORKSPACE_EXTRA_ROOTS": "",
+                "OPS_WORKSPACE_ALLOW_ANY_PATH": "",
+                "AIA_ENABLE_RUN_COMMAND": "1",
+            },
+            clear=False,
+        ):
+            clear_workspace_path_access_for_tests()
+            ws_root = self.root / "data" / "workspace"
+            ws_root.mkdir(parents=True, exist_ok=True)
+            (ws_root / "count_directory.py").write_text("print('drive-cd-ok')\n", encoding="utf-8")
+            spec = run_command_tool()
+            cmd = f'D: && cd /d "{self.root}" && python count_directory.py'
+            with workspace_path_access_scope(None, None):
+                r = spec.handler({"command": cmd})
+            self.assertTrue(r.get("ok"), r)
+            self.assertTrue(bool(r.get("normalized_cd_removed")), r)
+            self.assertTrue(bool(r.get("script_path_rewritten")), r)
+            self.assertIn("drive-cd-ok", str(r.get("output") or ""))
+
+    def test_run_command_output_flags_distinguish_empty_from_truncation(self) -> None:
+        with mock.patch.dict(
+            os.environ,
+            {
+                "OPS_WORKSPACE_ROOT": str(self.root),
+                "OPS_WORKSPACE_EXTRA_ROOTS": "",
+                "OPS_WORKSPACE_ALLOW_ANY_PATH": "",
+                "AIA_ENABLE_RUN_COMMAND": "1",
+            },
+            clear=False,
+        ):
+            clear_workspace_path_access_for_tests()
+            spec = run_command_tool()
+            with workspace_path_access_scope(None, None), workspace_write_namespace_scope("ops"):
+                r = spec.handler({"command": 'python -c "pass"'})
+            self.assertTrue(r.get("ok"), r)
+            self.assertTrue(bool(r.get("output_empty")))
+            self.assertFalse(bool(r.get("output_truncated")))
+            self.assertTrue(bool(r.get("output_not_truncated")))
+            self.assertEqual(str(r.get("error_code") or ""), "")
+
+    def test_run_command_nonzero_exit_marks_failure_not_truncation(self) -> None:
+        with mock.patch.dict(
+            os.environ,
+            {
+                "OPS_WORKSPACE_ROOT": str(self.root),
+                "OPS_WORKSPACE_EXTRA_ROOTS": "",
+                "OPS_WORKSPACE_ALLOW_ANY_PATH": "",
+                "AIA_ENABLE_RUN_COMMAND": "1",
+            },
+            clear=False,
+        ):
+            clear_workspace_path_access_for_tests()
+            spec = run_command_tool()
+            with workspace_path_access_scope(None, None), workspace_write_namespace_scope("ops"):
+                r = spec.handler({"command": 'python -c "import sys; sys.exit(3)"'})
+            self.assertFalse(bool(r.get("ok")))
+            self.assertEqual(int(r.get("exit_code") or 0), 3)
+            self.assertEqual(str(r.get("error_code") or ""), "command_exit_nonzero")
+            self.assertFalse(bool(r.get("output_truncated")))
+
+    def test_run_command_rewrites_workspace_absolute_script_path_to_sandbox(self) -> None:
+        with mock.patch.dict(
+            os.environ,
+            {
+                "OPS_WORKSPACE_ROOT": str(self.root),
+                "OPS_WORKSPACE_EXTRA_ROOTS": "",
+                "OPS_WORKSPACE_ALLOW_ANY_PATH": "",
+                "AIA_ENABLE_RUN_COMMAND": "1",
+            },
+            clear=False,
+        ):
+            clear_workspace_path_access_for_tests()
+            # Prepare script inside sandbox, but command will reference repo-root absolute path.
+            ws_script = self.root / "data" / "workspace" / "count_files.py"
+            ws_script.parent.mkdir(parents=True, exist_ok=True)
+            ws_script.write_text("print('sandbox-ok')\n", encoding="utf-8")
+            spec = run_command_tool()
+            absolute_repo_script = str((self.root / "count_files.py").resolve())
+            with workspace_path_access_scope(None, None), workspace_write_namespace_scope("ops"):
+                r = spec.handler({"command": f'python "{absolute_repo_script}"'})
+            self.assertTrue(r.get("ok"), r)
+            self.assertTrue(bool(r.get("command_rewritten")), r)
+            self.assertIn("sandbox-ok", str(r.get("output") or ""))
+
+    def test_run_command_explicit_repo_root_cwd_is_redirected_to_sandbox(self) -> None:
+        with mock.patch.dict(
+            os.environ,
+            {
+                "OPS_WORKSPACE_ROOT": str(self.root),
+                "OPS_WORKSPACE_EXTRA_ROOTS": "",
+                "OPS_WORKSPACE_ALLOW_ANY_PATH": "",
+                "AIA_ENABLE_RUN_COMMAND": "1",
+            },
+            clear=False,
+        ):
+            clear_workspace_path_access_for_tests()
+            ws_script = self.root / "data" / "workspace" / "count_files.py"
+            ws_script.parent.mkdir(parents=True, exist_ok=True)
+            ws_script.write_text("print('redirect-ok')\n", encoding="utf-8")
+            spec = run_command_tool()
+            abs_repo_script = str((self.root / "count_files.py").resolve())
+            with workspace_path_access_scope(None, None):
+                r = spec.handler(
+                    {
+                        "command": f'python "{abs_repo_script}"',
+                        "cwd": str(self.root),
+                    }
+                )
+            self.assertTrue(r.get("ok"), r)
+            self.assertTrue(bool(r.get("cwd_redirected_to_sandbox")), r)
+            self.assertTrue(bool(r.get("command_rewritten")), r)
+            self.assertIn("redirect-ok", str(r.get("output") or ""))
+
+    def test_run_command_rewrites_relative_python_script_to_sandbox_root(self) -> None:
+        with mock.patch.dict(
+            os.environ,
+            {
+                "OPS_WORKSPACE_ROOT": str(self.root),
+                "OPS_WORKSPACE_EXTRA_ROOTS": "",
+                "OPS_WORKSPACE_ALLOW_ANY_PATH": "",
+                "AIA_ENABLE_RUN_COMMAND": "1",
+            },
+            clear=False,
+        ):
+            clear_workspace_path_access_for_tests()
+            ws_root = self.root / "data" / "workspace"
+            ws_root.mkdir(parents=True, exist_ok=True)
+            (ws_root / "count_directory.py").write_text("print('found-in-sandbox-root')\n", encoding="utf-8")
+            spec = run_command_tool()
+            with workspace_path_access_scope(None, None):
+                r = spec.handler({"command": "python count_directory.py"})
+            self.assertTrue(r.get("ok"), r)
+            self.assertTrue(bool(r.get("script_path_rewritten")), r)
+            self.assertIn("found-in-sandbox-root", str(r.get("output") or ""))
 
     def test_per_user_extra_roots_from_db(self) -> None:
         f = self.extra / "u.txt"

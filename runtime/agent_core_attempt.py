@@ -15,6 +15,13 @@ def _workspace_owner_session_id_from_msg(msg: StandardMessage) -> str | None:
     return w or None
 
 
+def _should_after_turn_memory(msg: StandardMessage) -> bool:
+    # Wiki memory must be agent-initiated only.
+    # Disable passive/automatic capture path in agent core.
+    _ = msg
+    return False
+
+
 ALL_ATTEMPT_ERROR_CODES = (
     "relay_envelope_invalid",
     "relay_envelope_unsupported_version",
@@ -56,6 +63,7 @@ class AttemptRunnerInput:
     skill_binding_role: str | None = None
     wire_policy_role: str | None = None
     prompt_build_context: dict[str, Any] | None = None
+    turn_uuid: str | None = None
 
 
 @dataclass(frozen=True)
@@ -125,33 +133,35 @@ def run_attempt(*, store: Any, data: AttemptRunnerInput) -> AttemptRunnerOutput:
             skill_binding_role=data.skill_binding_role,
             wire_policy_role=data.wire_policy_role,
             prompt_build_context=data.prompt_build_context,
+            turn_uuid=data.turn_uuid,
         )
-        after_turn_memory(
-            store=store,
-            session_id=data.msg.session_id,
-            tenant_id=data.msg.tenant_id,
-            user_id=data.msg.user_id,
-            user_text=data.msg.text,
-            assistant_text=outcome.final_text,
-            turn_uuid=outcome.turn_uuid,
-        )
-        if data.trace_id:
-            try:
-                store.add_trace_event(
-                    session_id=data.msg.session_id,
-                    trace_id=str(data.trace_id),
-                    span_id=new_span_id(),
-                    parent_span_id=data.parent_span_id,
-                    event_type="after_turn_memory",
-                    payload={
-                        "pipeline": "oclaw_agent_core",
-                        "oc_stage": "memory_done",
-                        "run_id": str(data.run_id or ""),
-                        "attempt_no": int(data.attempt_no),
-                    },
-                )
-            except Exception:
-                pass
+        if _should_after_turn_memory(data.msg):
+            after_turn_memory(
+                store=store,
+                session_id=data.msg.session_id,
+                tenant_id=data.msg.tenant_id,
+                user_id=data.msg.user_id,
+                user_text=data.msg.text,
+                assistant_text=outcome.final_text,
+                turn_uuid=outcome.turn_uuid,
+            )
+            if data.trace_id:
+                try:
+                    store.add_trace_event(
+                        session_id=data.msg.session_id,
+                        trace_id=str(data.trace_id),
+                        span_id=new_span_id(),
+                        parent_span_id=data.parent_span_id,
+                        event_type="after_turn_memory",
+                        payload={
+                            "pipeline": "oclaw_agent_core",
+                            "oc_stage": "memory_done",
+                            "run_id": str(data.run_id or ""),
+                            "attempt_no": int(data.attempt_no),
+                        },
+                    )
+                except Exception:
+                    pass
         st = AttemptState(
             attempt_no=int(data.attempt_no),
             status="success",

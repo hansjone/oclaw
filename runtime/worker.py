@@ -14,6 +14,128 @@ from oclaw.runtime.types import StandardMessage
 
 _LOCK = threading.Lock()
 _THREAD: threading.Thread | None = None
+_SESSION_TITLE_MAX_LEN = 120
+_AUTO_TITLE_STAGE_KEY_PREFIX = "AIA_SESSION_AUTO_TITLE_STAGE:"
+_TITLE_TRIGGER_ROUND = 3
+_TITLE_BODIES_MAX_CHARS = 4000
+
+
+def _maybe_rename_from_first_user_message(*, store: Any, session_id: str, user_text: str, attachments: list[dict[str, Any]] | None) -> None:
+    sid = str(session_id or "").strip()
+    if not sid:
+        return
+    try:
+        stage_raw = str(store.get_setting(f"{_AUTO_TITLE_STAGE_KEY_PREFIX}{sid}") or "").strip()
+    except Exception:
+        stage_raw = ""
+    if stage_raw in ("1", "3"):
+        return
+    try:
+        sess = store.get_session(sid)
+    except Exception:
+        sess = None
+    if not sess:
+        return
+    cur_title = str(getattr(sess, "title", "") or "").strip()
+    if cur_title not in ("新会话", "New Chat"):
+        return
+    try:
+        rows = store.get_messages(session_id=sid, limit=20)
+    except Exception:
+        rows = []
+    user_count = 0
+    for r in rows or []:
+        if str(getattr(r, "role", "") or "").strip().lower() == "user":
+            user_count += 1
+    if user_count > 1:
+        return
+    title = str(user_text or "").strip().replace("\n", " ")
+    if not title:
+        atts = attachments if isinstance(attachments, list) else []
+        if atts and isinstance(atts[0], dict):
+            title = str(atts[0].get("name") or "").strip()
+    if not title:
+        return
+    try:
+        store.rename_session(sid, title[:_SESSION_TITLE_MAX_LEN])
+        try:
+            store.set_setting(f"{_AUTO_TITLE_STAGE_KEY_PREFIX}{sid}", "1")
+        except Exception:
+            pass
+    except Exception:
+        pass
+
+
+def _maybe_generate_title_on_third_round(*, store: Any, msg: StandardMessage, model: Any | None) -> None:
+    """Generate title once on round-3 using user text only (no tools/reasoning context)."""
+    if model is None or not callable(getattr(model, "chat", None)):
+        return
+    sid = str(msg.session_id or "").strip()
+    if not sid:
+        return
+    try:
+        stage_raw = str(store.get_setting(f"{_AUTO_TITLE_STAGE_KEY_PREFIX}{sid}") or "").strip()
+    except Exception:
+        stage_raw = ""
+    try:
+        sess = store.get_session(sid)
+    except Exception:
+        sess = None
+    if not sess:
+        return
+    cur_title = str(getattr(sess, "title", "") or "").strip()
+    # Two-stage naming:
+    # - stage "1": renamed from first user message
+    # - stage "3": renamed on third user message (final)
+    if stage_raw == "3":
+        return
+    if (cur_title not in ("新会话", "New Chat")) and (stage_raw != "1"):
+        return
+    try:
+        rows = store.get_messages(session_id=sid, limit=200)
+    except Exception:
+        rows = []
+    bodies: list[str] = []
+    for r in rows or []:
+        role = str(getattr(r, "role", "") or "").strip().lower()
+        if role != "user":
+            continue
+        txt = str(getattr(r, "content", "") or "").strip()
+        if txt:
+            bodies.append(txt)
+    cur_txt = str(msg.text or "").strip()
+    if cur_txt:
+        bodies.append(cur_txt)
+    if len(bodies) != _TITLE_TRIGGER_ROUND:
+        return
+    body = "\n".join(f"{i+1}. {t}" for i, t in enumerate(bodies))
+    body = body[:_TITLE_BODIES_MAX_CHARS]
+    try:
+        lang_is_en = str(msg.metadata.get("lang") if isinstance(msg.metadata, dict) else "").lower().startswith("en")
+        sys = (
+            "Generate a concise chat title from these user messages only. "
+            "Use the dominant language used by the user content body. "
+            "Return title text only, no quotes, no markdown, max 18 chars."
+            if lang_is_en
+            else "仅基于以下用户正文生成简短会话标题。请使用对话内容主体语言命名。"
+            "只返回标题文本，不要引号，不要markdown，最多18个字。"
+        )
+        resp = model.chat(
+            [{"role": "system", "content": sys}, {"role": "user", "content": body}],
+            [],
+            on_token=None,
+        )
+        title = str(getattr(resp, "content", "") or "").strip().replace("\n", " ")
+        title = title.strip("\"'` ").strip()
+        if not title:
+            return
+        store.rename_session(sid, title[:_SESSION_TITLE_MAX_LEN])
+        try:
+            store.set_setting(f"{_AUTO_TITLE_STAGE_KEY_PREFIX}{sid}", "3")
+        except Exception:
+            pass
+    except Exception:
+        return
 
 
 def ensure_worker_started(*, store: Any, poll_interval_s: float = 1.0) -> str:
@@ -156,6 +278,17 @@ def _worker_loop(*, store: Any, worker_id: str, poll_interval_s: float) -> None:
                 text=user_text,
                 attachments=list(attachments or []),
                 metadata=dict(metadata or {}),
+            )
+            _maybe_rename_from_first_user_message(
+                store=store,
+                session_id=session_id,
+                user_text=user_text,
+                attachments=list(attachments or []),
+            )
+            _maybe_generate_title_on_third_round(
+                store=store,
+                msg=msg,
+                model=getattr(executor, "model", None),
             )
             run_out = run_agent_core(
                 store=store,

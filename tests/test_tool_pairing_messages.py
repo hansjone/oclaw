@@ -165,3 +165,52 @@ def test_signature_metadata_can_be_forced_on_via_env(monkeypatch) -> None:
     tc = (assistant.get("tool_calls") or [])[0]
     assert tc.get("extra_content", {}).get("google", {}).get("thought_signature") == "sig_abc"
 
+
+def test_current_turn_tool_content_not_clipped_with_details_phrase() -> None:
+    model = RuleBasedChatModel()
+    rows = [
+        _Msg(
+            "assistant",
+            "",
+            tool_calls=json.dumps([{"id": "call_now", "name": "t", "arguments": {}}], ensure_ascii=False),
+            event_type="tool_call",
+            turn_uuid="turn-now",
+        ),
+        _Msg(
+            "tool",
+            json.dumps({"ok": True, "blob": "x" * 1200}, ensure_ascii=False),
+            tool_calls=json.dumps({"tool_call_id": "call_now", "name": "t"}, ensure_ascii=False),
+            event_type="tool_result",
+            turn_uuid="turn-now",
+        ),
+    ]
+    msgs = build_llm_messages(store_messages=rows, system_prompt="s", model=model, lang="zh", tool_context_truncate_enabled=True)
+    tool_rows = [m for m in msgs if m.get("role") == "tool"]
+    assert tool_rows
+    assert "详情请重新阅读" not in str(tool_rows[-1].get("content") or "")
+
+
+def test_historical_tool_content_can_include_details_phrase_when_clamped(monkeypatch) -> None:
+    monkeypatch.setenv("AIA_REPLAY_TOOL_FULL_ROUNDS", "0")
+    model = RuleBasedChatModel()
+    rows = [
+        _Msg(
+            "assistant",
+            "",
+            tool_calls=json.dumps([{"id": "call_hist", "name": "t", "arguments": {}}], ensure_ascii=False),
+            event_type="tool_call",
+            turn_uuid="turn-hist",
+        ),
+        _Msg(
+            "tool",
+            json.dumps({"ok": True, "blob": "x" * 1600}, ensure_ascii=False),
+            tool_calls=json.dumps({"tool_call_id": "call_hist", "name": "t"}, ensure_ascii=False),
+            event_type="tool_result",
+            turn_uuid="turn-hist",
+        ),
+    ]
+    msgs = build_llm_messages(store_messages=rows, system_prompt="s", model=model, lang="zh", tool_context_truncate_enabled=True)
+    tool_rows = [m for m in msgs if m.get("role") == "tool"]
+    assert tool_rows
+    assert "详情请重新阅读" in str(tool_rows[-1].get("content") or "")
+

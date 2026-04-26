@@ -275,6 +275,65 @@ def test_gateway_comprehensive_mode_manager_first_selects_specialist(monkeypatch
     assert chosen.get("sid") == "image"
     assert captured.get("exec_text") == "Please edit the image background."
 
+
+def test_gateway_comprehensive_mode_writes_task_assignment_reasoning(monkeypatch: pytest.MonkeyPatch) -> None:
+    written: list[dict] = []
+
+    class Store:
+        def get_setting(self, _k: str) -> str:
+            return ""
+
+        def add_trace_event(self, **_kwargs: object) -> None:
+            return None
+
+        def add_message(self, **kwargs: object) -> None:
+            written.append(dict(kwargs))
+
+    class _ManagerModel:
+        def chat(self, _messages, _tools, *, on_token=None):
+            return LLMResponse(
+                content='{"route":{"specialist":"ops","reason":"ops task"},"dispatch":{"instruction_text":"请检查并修复网关启动失败。"}}',
+                tool_calls=[],
+            )
+
+    class _Exec:
+        def __init__(self, model=None):
+            self.model = model
+            self.tools = object()
+            self.system_prompt = ""
+
+    monkeypatch.setattr(
+        "oclaw.runtime.gateway.get_manager_prompt_prebuild",
+        lambda **kwargs: {
+            "manager_context": "manager",
+            "allowed_fixed": ("generalist", "ops", "image", "memory"),
+            "allowed_fixed_quoted": '"generalist", "ops", "image", "memory"',
+        },
+    )
+    monkeypatch.setattr(
+        "oclaw.runtime.gateway.run_agent_core",
+        lambda **kwargs: SimpleNamespace(outcome=SimpleNamespace(final_text="specialist_answer")),
+    )
+
+    gw = OclawGateway(store=Store())
+    msg = StandardMessage(
+        session_id="sid-assign-1",
+        tenant_id="t1",
+        user_id="u1",
+        role="user",
+        channel="admin_chat",
+        text="网关起不来，帮我修复",
+        attachments=[],
+        metadata={"interaction_mode": "comprehensive"},
+    )
+    _ = gw.handle_turn(msg=msg, lang="zh", executor=_Exec(model=_ManagerModel()))
+    reasoning_rows = [x for x in written if str(x.get("event_type") or "") == "reasoning"]
+    assert reasoning_rows, "expected task-assignment reasoning row"
+    content = str(reasoning_rows[-1].get("content") or "")
+    assert "任务分配" in content
+    assert "specialist=ops" in content
+    assert "请检查并修复网关启动失败" in content
+
 def test_gateway_comprehensive_mode_has_manager_final_pass(monkeypatch: pytest.MonkeyPatch) -> None:
     class Store:
         def get_setting(self, _k: str) -> str:

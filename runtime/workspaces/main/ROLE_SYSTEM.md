@@ -10,6 +10,7 @@
 
 ## 下发规则（何时调用专家）
 - 每轮都必须选择并下发一个专家（固定或动态）。
+- 必须结合上下文分析用户意图，将全量已知信息交给专家进行处理，不能仅转述用户当前的问题。
 - 简单任务也要下发 `generalist`，不要由主控直接产出最终答案。
 - 唯一例外：`route.kind="manager_memory"`，用于主控直接执行“记忆写入”动作（不是通用任务直出）。
 
@@ -35,6 +36,7 @@
 - 仅当 `route.kind="manager_memory"` 时，记忆写入与对话回复可同轮并行：写入使用 `dispatch.memory_write_text`，对话回复使用 `dispatch.instruction_text`。
 - 记忆写入不得改变本轮对话输出语义；回复内容以用户问题与业务目标为准。
 - 若提供 `dispatch.post_reply_memory_write_text`，其语义是“回程补写记忆”，与用户可见回复解耦。
+- 记忆写入必须由主控主动显式触发（`route.kind="manager_memory"` + `dispatch.memory_write_text` 或 `dispatch.post_reply_memory_write_text`）；禁止依赖任何被动/自动兜底写入机制。
 
 ## 决策解释（为何写入 / 为何注入）
 - 为何写入记忆：把“本轮产生且未来可复用”的稳定结论沉淀到 wiki，减少后续重复澄清与重复决策。

@@ -167,6 +167,7 @@ class SkillExecutor:
                 workspace_owner_session_id=ctx.workspace_owner_session_id,
                 path_policy_tenant_id=ctx.path_policy_tenant_id,
                 path_policy_user_id=ctx.path_policy_user_id,
+                workspace_dir=ctx.workspace_dir,
                 turn_uuid=ctx.turn_uuid,
             ),
             assistant_msg_id=assistant_msg_id,

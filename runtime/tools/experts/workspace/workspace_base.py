@@ -179,6 +179,29 @@ def current_workspace_path_access() -> WorkspacePathAccess:
     return access_from_env()
 
 
+@contextmanager
+def workspace_write_namespace_scope(namespace: str | None) -> Iterator[str]:
+    prev = getattr(_TLS, "write_namespace", None)
+    ns = str(namespace or "").strip()
+    _TLS.write_namespace = ns
+    try:
+        yield ns
+    finally:
+        if prev is None:
+            if hasattr(_TLS, "write_namespace"):
+                delattr(_TLS, "write_namespace")
+        else:
+            _TLS.write_namespace = prev
+
+
+def current_workspace_write_namespace() -> str:
+    ns = str(getattr(_TLS, "write_namespace", "") or "").strip()
+    if ns:
+        return ns
+    root = workspace_root()
+    return str(root.name or "workspace").strip() or "workspace"
+
+
 def clear_workspace_path_access_for_tests() -> None:
     if hasattr(_TLS, "access"):
         delattr(_TLS, "access")
@@ -253,9 +276,11 @@ __all__ = [
     "build_workspace_path_access",
     "clear_workspace_path_access_for_tests",
     "current_workspace_path_access",
+    "current_workspace_write_namespace",
     "resolve_workspace_path",
     "sanitize_git_ref",
     "truncate_text",
+    "workspace_write_namespace_scope",
     "workspace_path_access_scope",
     "workspace_root",
 ]

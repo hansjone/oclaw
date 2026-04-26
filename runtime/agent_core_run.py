@@ -152,6 +152,7 @@ def _relay_envelope_stats(msg: StandardMessage) -> dict[str, Any]:
 
 def run_agent_core(*, store: Any, data: AgentCoreRunInput) -> AgentCoreRunOutput:
     run_id = str(data.run_id or "").strip() or str(uuid.uuid4())
+    user_turn_uuid = str(uuid.uuid4())
     attempts: list[AttemptState] = []
     compact_count = 0
     outcome = TurnRunOutcome(final_text="", tool_traces=tuple(), handoff_note="", turn_uuid="")
@@ -215,6 +216,7 @@ def run_agent_core(*, store: Any, data: AgentCoreRunInput) -> AgentCoreRunOutput
                 skill_binding_role=data.skill_binding_role,
                 wire_policy_role=data.wire_policy_role,
                 prompt_build_context=(dict(data.msg.metadata or {}) if isinstance(data.msg.metadata, dict) else None),
+                turn_uuid=user_turn_uuid,
             ),
         )
         attempts.append(out.state)

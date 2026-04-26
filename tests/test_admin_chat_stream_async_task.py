@@ -127,6 +127,28 @@ class AdminChatStreamAsyncTaskTests(unittest.TestCase):
         self.assertEqual(str(body.get("mode") or ""), "async_task")
         self.assertTrue(str(body.get("task_id") or "").strip())
 
+    def test_async_task_first_turn_renames_new_chat_title(self) -> None:
+        token = self._login()
+        headers = {
+            "authorization": f"Bearer {token}",
+            "accept": "application/json",
+            "content-type": "application/json",
+        }
+        created = self.client.post("/admin/api/chat/sessions", headers=headers, json={}).json()
+        sid = str(((created.get("session") or {}).get("id")) or "")
+        self.assertTrue(sid)
+        send = self.client.post(
+            f"/admin/api/chat/sessions/{sid}/messages",
+            headers=headers,
+            json={"text": "请总结并发送到项目群"},
+        )
+        self.assertEqual(send.status_code, 200)
+        self.assertTrue(send.json().get("ok"), send.json())
+        sess = self.store.get_session(sid)
+        self.assertIsNotNone(sess)
+        title = str(getattr(sess, "title", "") or "")
+        self.assertNotIn(title, {"新会话", "New Chat"})
+
     def test_async_task_payload_contains_selected_specialist(self) -> None:
         token = self._login()
         headers = {
@@ -208,6 +230,71 @@ class AdminChatStreamAsyncTaskTests(unittest.TestCase):
         self.assertEqual(str(payload.get("interaction_mode") or ""), "expert")
         self.assertEqual(str(payload.get("requested_specialist") or ""), "ops")
         self.assertEqual(str(payload.get("memory_mode") or ""), "store_only")
+
+    def test_new_session_inherits_user_mode_preference(self) -> None:
+        token = self._login()
+        headers = {
+            "authorization": f"Bearer {token}",
+            "accept": "application/json",
+            "content-type": "application/json",
+        }
+        set_resp = self.client.post(
+            f"/admin/api/chat/sessions/{self.session_id}/mode",
+            headers=headers,
+            json={"interaction_mode": "expert", "specialist": "ops", "memory_mode": "store_only"},
+        )
+        self.assertEqual(set_resp.status_code, 200)
+
+        create_resp = self.client.post(
+            "/admin/api/chat/sessions",
+            headers=headers,
+            json={"title": "new one"},
+        )
+        self.assertEqual(create_resp.status_code, 200)
+        created = create_resp.json()
+        self.assertTrue(created.get("ok"), created)
+        new_session_id = str(((created.get("session") or {}).get("id")) or "")
+        self.assertTrue(new_session_id)
+
+        mode_resp = self.client.get(
+            f"/admin/api/chat/sessions/{new_session_id}/mode",
+            headers={"authorization": f"Bearer {token}", "accept": "application/json"},
+        )
+        self.assertEqual(mode_resp.status_code, 200)
+        mode_body = mode_resp.json()
+        self.assertTrue(mode_body.get("ok"), mode_body)
+        self.assertEqual(str(mode_body.get("interaction_mode") or ""), "expert")
+        self.assertEqual(str(mode_body.get("specialist") or ""), "ops")
+        self.assertEqual(str(mode_body.get("memory_mode") or ""), "store_only")
+
+    def test_new_session_default_mode_is_expert_generalist(self) -> None:
+        token = self._login()
+        headers = {
+            "authorization": f"Bearer {token}",
+            "accept": "application/json",
+            "content-type": "application/json",
+        }
+        create_resp = self.client.post(
+            "/admin/api/chat/sessions",
+            headers=headers,
+            json={"title": "default mode chat"},
+        )
+        self.assertEqual(create_resp.status_code, 200)
+        created = create_resp.json()
+        self.assertTrue(created.get("ok"), created)
+        new_session_id = str(((created.get("session") or {}).get("id")) or "")
+        self.assertTrue(new_session_id)
+
+        mode_resp = self.client.get(
+            f"/admin/api/chat/sessions/{new_session_id}/mode",
+            headers={"authorization": f"Bearer {token}", "accept": "application/json"},
+        )
+        self.assertEqual(mode_resp.status_code, 200)
+        mode_body = mode_resp.json()
+        self.assertTrue(mode_body.get("ok"), mode_body)
+        self.assertEqual(str(mode_body.get("interaction_mode") or ""), "expert")
+        self.assertEqual(str(mode_body.get("specialist") or ""), "generalist")
+        self.assertEqual(str(mode_body.get("memory_mode") or ""), "default")
 
     def test_admin_dynamic_expert_stats_endpoint(self) -> None:
         token = self._login()
@@ -322,6 +409,13 @@ class AdminChatStreamAsyncTaskTests(unittest.TestCase):
         self.assertTrue(get_body.get("ok"), get_body)
         self.assertEqual(int((get_body.get("limits") or {}).get("max_rows_read") or 0), 5000)
         self.assertEqual(int((get_body.get("limits") or {}).get("sql_timeout_ms") or 0), 8000)
+        # newly added replay caps should exist with sane defaults
+        self.assertGreaterEqual(int((get_body.get("limits") or {}).get("image_result_replay_cap_chars") or 0), 600)
+        self.assertGreaterEqual(int((get_body.get("limits") or {}).get("video_result_replay_cap_chars") or 0), 600)
+        self.assertGreaterEqual(int((get_body.get("limits") or {}).get("video_transcript_chunk_size") or 0), 1)
+        self.assertGreaterEqual(int((get_body.get("limits") or {}).get("video_transcript_chunk_overlap") or 0), 0)
+        self.assertGreaterEqual(int((get_body.get("limits") or {}).get("archive_max_depth") or 0), 1)
+        self.assertGreaterEqual(int((get_body.get("limits") or {}).get("archive_max_file_count") or 0), 1)
 
         set_resp = self.client.post(
             "/admin/api/chat/settings/attachment-limits",
@@ -334,6 +428,12 @@ class AdminChatStreamAsyncTaskTests(unittest.TestCase):
                     "max_excel_sheets": 8,
                     "large_table_preview_rows": 33,
                     "sql_timeout_ms": 1234,
+                    "video_transcript_chunk_size": 1700,
+                    "video_transcript_chunk_overlap": 240,
+                    "archive_max_depth": 3,
+                    "archive_max_file_count": 555,
+                    "archive_max_entry_bytes": 123456,
+                    "archive_max_total_uncompressed_bytes": 654321,
                 }
             },
         )
@@ -347,6 +447,12 @@ class AdminChatStreamAsyncTaskTests(unittest.TestCase):
         self.assertEqual(int(limits.get("max_excel_sheets") or 0), 8)
         self.assertEqual(int(limits.get("large_table_preview_rows") or 0), 33)
         self.assertEqual(int(limits.get("sql_timeout_ms") or 0), 1234)
+        self.assertEqual(int(limits.get("video_transcript_chunk_size") or 0), 1700)
+        self.assertEqual(int(limits.get("video_transcript_chunk_overlap") or 0), 240)
+        self.assertEqual(int(limits.get("archive_max_depth") or 0), 3)
+        self.assertEqual(int(limits.get("archive_max_file_count") or 0), 555)
+        self.assertEqual(int(limits.get("archive_max_entry_bytes") or 0), 123456)
+        self.assertEqual(int(limits.get("archive_max_total_uncompressed_bytes") or 0), 654321)
 
 
 if __name__ == "__main__":
