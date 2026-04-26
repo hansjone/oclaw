@@ -260,18 +260,102 @@ async def run_agent_turn_via_bridge(
             on_tool_ui=on_tool_ui,
         )
 
+    async def _heartbeat_during_turn(stop_evt: asyncio.Event) -> None:
+        # Keep WS active while model/tool pipeline is still preparing first token.
+        # Some proxies/load balancers close idle WS in 20-30s without downstream frames.
+        while not stop_evt.is_set():
+            try:
+                await asyncio.wait_for(stop_evt.wait(), timeout=4.0)
+                break
+            except asyncio.TimeoutError:
+                rid = run_id_holder.get("run_id") or ""
+                if not rid:
+                    continue
+                with conn._abort_lock:
+                    if rid in conn._aborted_run_ids:
+                        continue
+                try:
+                    await conn.emit_agent_event(
+                        run_id=rid,
+                        stream="lifecycle",
+                        data={"phase": "running", "event": "heartbeat"},
+                    )
+                except Exception:
+                    # Best-effort keepalive; never fail the turn on heartbeat errors.
+                    pass
+
+    hb_stop = asyncio.Event()
+    hb_task: asyncio.Task[Any] | None = asyncio.create_task(_heartbeat_during_turn(hb_stop))
     try:
         result = await asyncio.to_thread(_run_turn_sync)
     except Exception as exc:
+        hb_stop.set()
+        if hb_task is not None:
+            try:
+                await hb_task
+            except Exception:
+                pass
+        err_text = str(exc or "agent_failed")
+        user_facing_error = (
+            "本轮执行失败：工具不可用或执行异常。"
+            f"\n\n错误信息：{err_text}\n\n请重试，或改用其它可用工具。"
+        )
+        fail_msg: dict[str, Any] = {
+            "role": "assistant",
+            "content": user_facing_error,
+            "timestamp": now_ms(),
+        }
+        try:
+            store.add_message(
+                session_id=str(session_id),
+                role="assistant",
+                content=str(user_facing_error),
+                turn_uuid=str(run_id_holder.get("run_id") or "") or None,
+                event_type="assistant_text",
+            )
+        except Exception:
+            pass
         if send_response:
-            await conn.send_res(req_id, ok=False, error=error_shape("UNAVAILABLE", str(exc or "agent_failed")))
+            await conn.send_res(
+                req_id,
+                ok=True,
+                payload={
+                    "runId": run_id_holder.get("run_id") or "",
+                    "acceptedAt": now_ms(),
+                    "mode": "sync_direct",
+                    "taskId": "",
+                    "traceId": "",
+                    "reply": user_facing_error,
+                    "selectedSpecialist": str(p.get("specialist") or "generalist"),
+                    "interactionMode": str(p.get("interaction_mode") or "comprehensive"),
+                    "dispatchReason": "execution_failed",
+                    "managerSelectedSpecialist": str(p.get("specialist") or "generalist"),
+                    "requestedSpecialist": str(p.get("specialist") or "generalist"),
+                    "dynamicAgentUsed": False,
+                    "dynamicAgentName": "",
+                    "relayPointerCount": 0,
+                    "relayEnvelopePresent": False,
+                    "relayEnvelopePointerCount": 0,
+                    "relayTtlTurnCount": int(marker_turn_count),
+                    "relayTtlSessionCount": int(marker_session_count),
+                    "relayTtlKeepCount": int(marker_keep_count),
+                    "status": "failed",
+                    "error": err_text,
+                },
+            )
         await conn.emit_agent_event(
             run_id=run_id_holder.get("run_id") or "",
             stream="lifecycle",
             # Always emit a terminal lifecycle event even on failure.
             data={"phase": "end", "status": "error", "error": str(exc or "agent_failed")},
         )
-        await conn.emit_chat_event(run_id=run_id_holder.get("run_id") or "", state="error", error=str(exc or "agent_failed"))
+        await conn.emit_chat_event(
+            run_id=run_id_holder.get("run_id") or "",
+            state="final",
+            reply=user_facing_error,
+            message=fail_msg,
+            session_key=str(session_id),
+        )
         try:
             await conn.send_event(
                 "session.marker",
@@ -287,8 +371,18 @@ async def run_agent_turn_via_bridge(
             )
         except Exception:
             pass
+        try:
+            await conn.send_event("session.message", {"sessionKey": str(session_id), "message": fail_msg})
+        except Exception:
+            pass
         return
     finally:
+        hb_stop.set()
+        if hb_task is not None:
+            try:
+                await hb_task
+            except Exception:
+                pass
         _rid0 = str(run_id_holder.get("run_id") or "")
         if _rid0:
             with conn._abort_lock:
@@ -296,6 +390,25 @@ async def run_agent_turn_via_bridge(
                 conn._aborted_run_ids.discard(_rid0)
 
     rid = str(getattr(result, "run_id", "") or run_id_holder.get("run_id") or "")
+    run_status = "success"
+    run_last_error_code = ""
+    run_stop_reason = ""
+    run_error_detail = ""
+    try:
+        rr = store.oclaw_run_get(run_id=rid, tenant_id=tenant_id or None) if rid else None
+        if rr is not None:
+            run_status = str(getattr(rr, "status", "") or "success").strip().lower() or "success"
+            payload = getattr(rr, "payload", {}) or {}
+            if isinstance(payload, dict):
+                run_last_error_code = str(payload.get("last_error_code") or "").strip()
+                run_stop_reason = str(payload.get("stop_reason") or "").strip()
+        if rid and run_status == "failed":
+            attempts = store.oclaw_attempt_list(run_id=rid, limit=30)
+            if attempts:
+                latest = attempts[-1] if isinstance(attempts[-1], dict) else {}
+                run_error_detail = str((latest or {}).get("reason") or "").strip()
+    except Exception:
+        pass
     ttft_payload: dict[str, Any] | None = None
     try:
         ft = first_token_ms_holder.get("ms")
@@ -362,6 +475,10 @@ async def run_agent_turn_via_bridge(
                 "relayTtlSessionCount": int(getattr(result, "relay_ttl_session_count", 0) or 0),
                 "relayTtlKeepCount": int(getattr(result, "relay_ttl_keep_count", 0) or 0),
                 "ttft": ttft_payload if isinstance(ttft_payload, dict) else None,
+                "status": run_status,
+                "lastErrorCode": run_last_error_code,
+                "stopReason": run_stop_reason,
+                "errorDetail": run_error_detail,
             },
         )
     await conn.emit_agent_event(
@@ -369,7 +486,7 @@ async def run_agent_turn_via_bridge(
         stream="lifecycle",
         data={
             "phase": "end",
-            "status": "ok",
+            "status": "error" if run_status == "failed" else "ok",
             "reply": str(getattr(result, "reply_text", "") or ""),
             "elapsedMs": int(getattr(result, "elapsed_ms", 0) or 0),
             "mode": str(getattr(result, "mode", "sync_direct") or "sync_direct"),
@@ -382,26 +499,49 @@ async def run_agent_turn_via_bridge(
         with buf_lock:
             final_text = "".join(token_chunks)
     final_msg: dict[str, Any] = {"role": "assistant", "content": final_text, "timestamp": now_ms()}
-    try:
-        persisted = store.get_messages(session_id=session_id, limit=12)
-        for m in reversed(list(persisted or [])):
-            if str(getattr(m, "role", "") or "").lower() != "assistant":
-                continue
-            content = str(getattr(m, "content", "") or "")
-            if not content.strip():
-                continue
-            final_text = content
-            final_msg = {
-                "id": int(getattr(m, "id", 0) or 0),
-                "role": "assistant",
-                "content": content,
-                "timestamp": str(getattr(m, "timestamp", "") or ""),
-                "tool_calls": getattr(m, "tool_calls", None),
-                "attachments": getattr(m, "attachments", None),
-            }
-            break
-    except Exception:
-        pass
+    if run_status == "failed" and not str(final_text or "").strip():
+        err_code = run_last_error_code or "unknown_error"
+        stop_reason = run_stop_reason or "failed"
+        detail_line = f"\n详细原因：{run_error_detail}" if run_error_detail else ""
+        final_text = (
+            "本轮执行失败，已提前结束。"
+            f"\n\n错误代码：{err_code}"
+            f"\n停止原因：{stop_reason}"
+            f"{detail_line}"
+            "\n\n请重试，或减少输入复杂度后再试。"
+        )
+        final_msg = {"role": "assistant", "content": final_text, "timestamp": now_ms()}
+        try:
+            store.add_message(
+                session_id=str(session_id),
+                role="assistant",
+                content=str(final_text),
+                turn_uuid=str(rid or "") or None,
+                event_type="assistant_text",
+            )
+        except Exception:
+            pass
+    elif run_status != "failed":
+        try:
+            persisted = store.get_messages(session_id=session_id, limit=12)
+            for m in reversed(list(persisted or [])):
+                if str(getattr(m, "role", "") or "").lower() != "assistant":
+                    continue
+                content = str(getattr(m, "content", "") or "")
+                if not content.strip():
+                    continue
+                final_text = content
+                final_msg = {
+                    "id": int(getattr(m, "id", 0) or 0),
+                    "role": "assistant",
+                    "content": content,
+                    "timestamp": str(getattr(m, "timestamp", "") or ""),
+                    "tool_calls": getattr(m, "tool_calls", None),
+                    "attachments": getattr(m, "attachments", None),
+                }
+                break
+        except Exception:
+            pass
 
     await conn.emit_chat_event(run_id=rid, state="final", reply=str(final_text or ""), message=final_msg, session_key=str(session_id))
     try:

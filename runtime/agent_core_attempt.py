@@ -28,6 +28,7 @@ ALL_ATTEMPT_ERROR_CODES = (
     "control_interrupted",
     "auth_invalid_credentials",
     "input_invalid_request",
+    "tool_replay_protocol_mismatch",
     "context_overflow",
     "tool_loop_guard",
     "tool_execution_failed",
@@ -83,6 +84,8 @@ def _classify_attempt_error(exc: Exception) -> tuple[str, str, bool]:
         return ("control_interrupted", raw[:500], False)
     if "api_key" in low or "invalid api key" in low or "unauthorized" in low or "401" in low or "forbidden" in low or "403" in low:
         return ("auth_invalid_credentials", raw[:500], False)
+    if "invalid tool_result sequence" in low or "unexpected tool_use_id" in low:
+        return ("tool_replay_protocol_mismatch", raw[:500], True)
     if "invalid_request" in low or "bad_request" in low or "400" in low:
         return ("input_invalid_request", raw[:500], False)
     if "context_length" in low or "token limit" in low or "max context" in low:

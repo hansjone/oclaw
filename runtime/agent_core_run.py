@@ -61,6 +61,7 @@ DEFAULT_RETRYABLE_ERROR_CODES = (
     "provider_rate_limited",
     "provider_temporary_error",
     "provider_unavailable",
+    "tool_replay_protocol_mismatch",
     "context_overflow",
     "tool_execution_failed",
 )

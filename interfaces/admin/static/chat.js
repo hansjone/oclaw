@@ -2649,10 +2649,6 @@ async function renderChatUi() {
           const payload = msg.payload || {};
           onEvent({ event: String(msg.event || ""), payload });
           const d = msg.event === "chat" ? { phase: String(payload.state || "") } : {};
-          if (msg.event === "session.message") {
-            const role = String(((payload.message || {}).role) || "").toLowerCase();
-            if (role === "assistant") return doneMeta;
-          }
           const phase = String(d.phase || "");
           if (phase === "final" || phase === "error" || phase === "aborted") {
             return doneMeta;
@@ -2783,7 +2779,13 @@ async function renderChatUi() {
       let last = null;
       for (let i = msgs.length - 1; i >= 0; i--) {
         const m = msgs[i];
-        if (String((m && m.role) || "").toLowerCase() === "assistant") {
+        if (String((m && m.role) || "").toLowerCase() !== "assistant") continue;
+        // Recovery should only accept visible assistant body, not intermediate
+        // reasoning/tool-call events; otherwise we may terminate on a partial line.
+        const et = String((m && m.event_type) || "").trim().toLowerCase();
+        if (et && et !== "assistant_text" && et !== "assistant") continue;
+        if (!String((m && m.content) || "").trim()) continue;
+        {
           last = m;
           break;
         }
@@ -3055,6 +3057,10 @@ ${autoLimit ? `<div style="margin-top:8px;"><span class="muted">auto-added claus
     const abortController = new AbortController();
     currentStreamAbortController = abortController;
     currentAbortMeta = { sessionId: String(activeId || ""), runId: "" };
+    // End-of-turn reload gating: avoid clearing/repainting messagesEl after we already
+    // finalized the stream bubble in-place (prevents end "flash").
+    let turnFinalized = false;
+    let turnStreamedEnough = false;
     try {
       const transport = new OclawWsChatTransport({
         tokenProvider: () => token,
@@ -3064,6 +3070,7 @@ ${autoLimit ? `<div style="margin-top:8px;"><span class="muted">auto-added claus
         // Immediate assistant placeholder bubble with dynamic status.
         ensureStreamBubble();
         _startDynamicStreamStatus();
+        let wsLastActivityAt = Date.now();
         const wsSendPromise = transport.sendSessionSend({
           sessionId: activeId,
           text: userText,
@@ -3078,6 +3085,7 @@ ${autoLimit ? `<div style="margin-top:8px;"><span class="muted">auto-added claus
           memoryMode: String(localStorage.getItem(CHAT_MEMORY_MODE_KEY) || "default"),
           signal: abortController.signal,
           onEvent: async (frame) => {
+            wsLastActivityAt = Date.now();
             const eventName = String((frame && frame.event) || "");
             const payload = (frame && frame.payload) || {};
             if (eventName === "agent.event") {
@@ -3164,6 +3172,8 @@ ${autoLimit ? `<div style="margin-top:8px;"><span class="muted">auto-added claus
               streamTextBuffer = "";
               chatRunId = null;
               const streamedEnough = hasRealStreamText || chatStreamSegments.length > 0 || sawWsChatEvent;
+              turnFinalized = true;
+              turnStreamedEnough = streamedEnough;
               chatStreamSegments = [];
               // Avoid end-of-turn flash: only reload history when stream had no usable content.
               if (!streamedEnough) {
@@ -3180,6 +3190,8 @@ ${autoLimit ? `<div style="margin-top:8px;"><span class="muted">auto-added claus
               streamDisplayShown = streamDisplayTarget;
               const ok = await appendFinalAssistant(payload.message, chatStream);
               if (!ok) _markStreamTerminal("error", "aborted");
+              turnFinalized = true;
+              turnStreamedEnough = hasRealStreamText || chatStreamSegments.length > 0 || sawWsChatEvent;
               chatStream = "";
               streamTextBuffer = "";
               chatRunId = null;
@@ -3190,6 +3202,8 @@ ${autoLimit ? `<div style="margin-top:8px;"><span class="muted">auto-added claus
               sawWsTerminalEvent = true;
               _stopDynamicStreamStatus();
               _markStreamTerminal("error", String(payload.errorMessage || "chat error"));
+              turnFinalized = true;
+              turnStreamedEnough = hasRealStreamText || chatStreamSegments.length > 0 || sawWsChatEvent;
               chatStream = "";
               streamTextBuffer = "";
               chatRunId = null;
@@ -3198,12 +3212,25 @@ ${autoLimit ? `<div style="margin-top:8px;"><span class="muted">auto-added claus
             }
           },
         });
-        doneMeta = await Promise.race([
-          wsSendPromise,
-          new Promise((_, reject) => {
-            setTimeout(() => reject(new Error(`ws_send_timeout:${WS_CHAT_SEND_TIMEOUT_MS}`)), WS_CHAT_SEND_TIMEOUT_MS);
-          }),
-        ]);
+        let wsWatchdog = 0;
+        const wsInactivityTimeoutPromise = new Promise((_, reject) => {
+          wsWatchdog = setInterval(() => {
+            if (Date.now() - wsLastActivityAt > WS_CHAT_SEND_TIMEOUT_MS) {
+              if (wsWatchdog) {
+                clearInterval(wsWatchdog);
+                wsWatchdog = 0;
+              }
+              reject(new Error(`ws_send_timeout:${WS_CHAT_SEND_TIMEOUT_MS}`));
+            }
+          }, 1000);
+        });
+        const wsSendObserved = wsSendPromise.finally(() => {
+          if (wsWatchdog) {
+            clearInterval(wsWatchdog);
+            wsWatchdog = 0;
+          }
+        });
+        doneMeta = await Promise.race([wsSendObserved, wsInactivityTimeoutPromise]);
         if (doneMeta && typeof doneMeta === "object") doneMeta.__transport = "ws";
         if (doneMeta && typeof doneMeta === "object") {
           const startToRunning =
@@ -3231,11 +3258,17 @@ ${autoLimit ? `<div style="margin-top:8px;"><span class="muted">auto-added claus
         emsg.includes("closed") ||
         emsg.includes("timeout");
       if (wsLikeFailure) {
-        const wsLikelyAlreadyProducedReply = sawWsTerminalEvent || hasRealStreamText || sawWsChatEvent;
-        if (wsLikelyAlreadyProducedReply) {
-          setTimeout(() => {
-            loadMessagesForActive().catch(() => {});
-          }, 350);
+        // Only short-circuit when a terminal event was already received.
+        // If we only saw partial deltas and WS drops, we must attempt recovery.
+        if (sawWsTerminalEvent) {
+          // If the stream bubble was already finalized with usable content, do NOT
+          // repaint messagesEl (prevents end-of-turn flash). Only reload when we
+          // have nothing usable and need to recover from persisted history.
+          if (!turnFinalized || !turnStreamedEnough) {
+            setTimeout(() => {
+              loadMessagesForActive().catch(() => {});
+            }, 350);
+          }
           return doneMeta;
         }
         // WS timeout may happen while backend still computes and persists final reply.

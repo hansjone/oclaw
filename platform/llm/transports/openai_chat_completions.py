@@ -24,6 +24,12 @@ def _model_id_suggests_gemini(model: str | None) -> bool:
     return "gemini" in (model or "").lower()
 
 
+def _is_minimax_compat(model: str | None, base_url: str | None) -> bool:
+    m = str(model or "").strip().lower()
+    b = str(base_url or "").strip().lower()
+    return ("minimax" in m) or ("minimax" in b)
+
+
 def _find_thought_signature_in_obj(o: Any) -> str | None:
     if isinstance(o, dict):
         for k in ("thought_signature", "thoughtSignature"):
@@ -126,12 +132,34 @@ class OpenAIChatModel(ChatModel):
         except Exception as exc:
             logger.warning("replay_policy apply failed (%s); continuing without rewrite", exc)
 
+        minimax_compat = _is_minimax_compat(self.model, self.base_url)
         use_tools = bool(tools)
         cleaned_msgs: list[dict[str, Any]] = []
         for m in norm_msgs or []:
             if not isinstance(m, dict):
                 continue
-            if str(m.get("role") or "") == "tool":
+            role = str(m.get("role") or "")
+            if minimax_compat and role == "assistant" and isinstance(m.get("tool_calls"), list):
+                # MiniMax OpenAI-compat can reject long-history tool_use/tool_result replays.
+                # Keep text semantics, but remove historical wire-level tool_calls.
+                mm = dict(m)
+                mm.pop("tool_calls", None)
+                cleaned_msgs.append(mm)
+                continue
+            if minimax_compat and role == "tool":
+                # Downgrade history tool_result rows to plain assistant text context,
+                # avoiding strict tool_result sequence validation on replay.
+                tcid = str(m.get("tool_call_id") or m.get("call_id") or "").strip()
+                tname = str(m.get("name") or "").strip()
+                raw = str(m.get("content") or "")
+                prefix = "[tool_result replay]"
+                if tname:
+                    prefix += f" name={tname}"
+                if tcid:
+                    prefix += f" id={tcid}"
+                cleaned_msgs.append({"role": "assistant", "content": f"{prefix}\n{raw}".strip()})
+                continue
+            if role == "tool":
                 mm = dict(m)
                 for k in ("tool_call_id", "call_id"):
                     if k in mm:
