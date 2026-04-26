@@ -1,4 +1,0 @@
-{"id":"unbound_user_prompt_bind","input":"You are a team assistant. If the user is not bound, reply with an instruction to use `bind <code>` and do not call tools.","assert_contains":["bind <code>"],"assert_not_contains":["todo_create","kb_add"]}
-{"id":"todo_create_flow","input":"Create a todo for tenant_id=TEST_TENANT owner_user_id=TEST_USER: 'tomorrow 10am meeting'. Then list open todos.","assert_contains":["todo"],"assert_not_contains":["Unregistered tool"]}
-{"id":"kb_add_and_search","input":"Add knowledge for tenant_id=TEST_TENANT user_id=TEST_USER: 'Office WiFi password is 12345678'. Then search 'WiFi password'.","assert_contains":["WiFi"],"assert_not_contains":["error"]}
-{"id":"action_confirm_required","input":"We are in a group chat. User says '@all please announce'. If action is high risk, require confirmation token like `confirm <token>`.","assert_contains":["confirm"],"assert_not_contains":["(confirmed)"]}
