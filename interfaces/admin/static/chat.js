@@ -1880,75 +1880,83 @@ async function renderChatUi() {
     disabled: "disabled",
   });
   const composerShell = el("div", { class: "chat-composer-shell" });
-  const toolToggleBtn = el("button", {
-    type: "button",
-    class: "btn",
-    style: "padding:4px 8px;min-height:auto;font-size:12px;",
-  });
-  const specialistSelect = el("select", {
-    class: "input",
-    style: "min-width:120px;max-width:160px;padding:6px 8px;",
-  });
-  let specialistFlags = {
-    generalist: true,
-    ops: true,
-    image: true,
-    memory: true,
-  };
+  const toolToggleCb = el("input", { type: "checkbox", class: "switch-input" });
+  const toolToggleWrap = el("label", { class: "switch-wrap", title: t("chat.tools.visible") }, [
+    toolToggleCb,
+    el("span", { class: "switch-slider" }),
+    el("span", { class: "muted", text: t("chat.tools") }),
+  ]);
+  const MAIN_MODE_VALUE = "comprehensive";
+  const EXCLUDED_SPECIALISTS = new Set(["main", "memory", "manager_self", "pycache", "__pycache__"]);
+  let specialistCatalog = [];
   const modeSelect = el("select", {
     class: "input",
     style: "min-width:120px;max-width:160px;padding:6px 8px;",
   });
-  modeSelect.appendChild(el("option", { value: "comprehensive", text: t("chat.modeComprehensive") }));
-  modeSelect.appendChild(el("option", { value: "expert", text: t("chat.modeExpert") }));
-  const _im = String(localStorage.getItem(CHAT_INTERACTION_MODE_KEY) || "expert").toLowerCase();
-  modeSelect.value = ["comprehensive", "expert"].includes(_im) ? _im : "expert";
+  const modeOptionLabel = (v) => {
+    const key = String(v || "").trim().toLowerCase();
+    if (key === MAIN_MODE_VALUE) return t("chat.modeComprehensive");
+    if (key === "generalist") return t("chat.specialistGeneralist");
+    const row = specialistCatalog.find((x) => String(x.id || "").toLowerCase() === key);
+    if (!row) return key || t("chat.modeComprehensive");
+    const zh = String(row.display_name_zh || "").trim();
+    const en = String(row.display_name_en || "").trim();
+    return currentLang === "zh" ? (zh || en || key) : (en || zh || key);
+  };
+  const isSelectableSpecialist = (v) => {
+    const key = String(v || "").trim().toLowerCase();
+    if (!key || key === MAIN_MODE_VALUE) return false;
+    if (key === "generalist") return true;
+    return specialistCatalog.some((x) => String(x.id || "").toLowerCase() === key);
+  };
+  const persistModeSelection = () => {
+    const v = String(modeSelect.value || MAIN_MODE_VALUE).toLowerCase();
+    localStorage.setItem(CHAT_INTERACTION_MODE_KEY, v);
+    if (v !== MAIN_MODE_VALUE) localStorage.setItem(CHAT_SPECIALIST_PREF_KEY, v);
+  };
+  const applyModeOptions = () => {
+    const prev = String(modeSelect.value || localStorage.getItem(CHAT_INTERACTION_MODE_KEY) || MAIN_MODE_VALUE).toLowerCase();
+    modeSelect.innerHTML = "";
+    modeSelect.appendChild(el("option", { value: MAIN_MODE_VALUE, text: modeOptionLabel(MAIN_MODE_VALUE) }));
+    modeSelect.appendChild(el("option", { value: "generalist", text: modeOptionLabel("generalist") }));
+    specialistCatalog.forEach((x) => {
+      const sid = String(x.id || "").toLowerCase();
+      if (!sid || sid === "generalist") return;
+      modeSelect.appendChild(el("option", { value: sid, text: modeOptionLabel(sid) }));
+    });
+    if (Array.from(modeSelect.options).some((o) => String(o.value || "") === prev)) modeSelect.value = prev;
+    else modeSelect.value = MAIN_MODE_VALUE;
+  };
+  const _im = String(localStorage.getItem(CHAT_INTERACTION_MODE_KEY) || MAIN_MODE_VALUE).toLowerCase();
+  modeSelect.value = _im;
   const _mm = String(localStorage.getItem(CHAT_MEMORY_MODE_KEY) || "default").toLowerCase();
   localStorage.setItem(CHAT_MEMORY_MODE_KEY, _mm === "store_only" ? "store_only" : "default");
   modeSelect.addEventListener("change", () => {
-    localStorage.setItem(CHAT_INTERACTION_MODE_KEY, String(modeSelect.value || "expert"));
+    persistModeSelection();
     saveSessionModePreference();
   });
-  const applySpecialistOptions = () => {
-    specialistSelect.innerHTML = "";
-    const opts = [
-      { value: "generalist", text: t("chat.specialistGeneralist"), enabled: true },
-      { value: "ops", text: t("chat.specialistOps"), enabled: !!specialistFlags.ops },
-      { value: "image", text: t("chat.specialistImage"), enabled: !!specialistFlags.image },
-      { value: "memory", text: t("chat.specialistMemory"), enabled: !!specialistFlags.memory },
-    ];
-    for (const op of opts) {
-      if (!op.enabled) continue;
-      specialistSelect.appendChild(el("option", { value: op.value, text: op.text }));
-    }
-    if (!specialistSelect.value) {
-      specialistSelect.value = "generalist";
-    }
-    if (!Array.from(specialistSelect.options).some((o) => String(o.value || "") === String(specialistSelect.value || ""))) {
-      specialistSelect.value = "generalist";
-    }
-  };
-  const loadSpecialistFlags = async () => {
+  const loadSpecialistCatalog = async () => {
     try {
-      const r = await apiGet("/admin/api/chat/settings/specialist-flags");
-      if (r && r.ok && r.flags && typeof r.flags === "object") {
-        specialistFlags = {
-          ...specialistFlags,
-          ...r.flags,
-        };
-      }
+      const r = await apiGet("/admin/api/experts");
+      const items = Array.isArray(r && r.items) ? r.items : [];
+      specialistCatalog = items
+        .filter((x) => {
+          const id = String((x && x.id) || "").trim().toLowerCase();
+          if (!id || EXCLUDED_SPECIALISTS.has(id)) return false;
+          const role = String((x && x.role) || "").trim().toLowerCase();
+          return role === "expert" || id === "generalist";
+        })
+        .map((x) => ({
+          id: String(x.id || "").trim().toLowerCase(),
+          display_name_en: String(x.display_name_en || "").trim(),
+          display_name_zh: String(x.display_name_zh || "").trim(),
+        }));
     } catch (_) {
-      // non-admin users or unavailable endpoint: keep defaults
+      specialistCatalog = [];
     }
-    applySpecialistOptions();
+    applyModeOptions();
   };
-  const _sp = String(localStorage.getItem(CHAT_SPECIALIST_PREF_KEY) || "generalist").toLowerCase();
-  specialistSelect.value = ["generalist", "ops", "image", "memory"].includes(_sp) ? _sp : "generalist";
-  await loadSpecialistFlags();
-  specialistSelect.addEventListener("change", () => {
-    localStorage.setItem(CHAT_SPECIALIST_PREF_KEY, String(specialistSelect.value || "generalist"));
-    saveSessionModePreference();
-  });
+  await loadSpecialistCatalog();
   const activeModelText = el("span", { class: "muted", text: `${t("chat.activeModelLabel")}: -` });
   const refreshActiveModelText = async () => {
     try {
@@ -1969,53 +1977,32 @@ async function renderChatUi() {
       const m = String((resp && resp.interaction_mode) || "").toLowerCase();
       const s = String((resp && resp.specialist) || "").toLowerCase();
       const mm = String((resp && resp.memory_mode) || "").toLowerCase();
-      if (["comprehensive", "expert"].includes(m)) modeSelect.value = m;
-      if (["generalist", "ops", "image", "memory"].includes(s)) specialistSelect.value = s;
+      if (m === "comprehensive") modeSelect.value = MAIN_MODE_VALUE;
+      else if (m === "expert" && isSelectableSpecialist(s)) modeSelect.value = s;
       if (["default", "store_only"].includes(mm)) localStorage.setItem(CHAT_MEMORY_MODE_KEY, mm);
-      if (String(modeSelect.value || "").toLowerCase() !== "expert") {
-        specialistSelect.value = "generalist";
-      }
-      localStorage.setItem(CHAT_INTERACTION_MODE_KEY, String(modeSelect.value || "expert"));
-      localStorage.setItem(CHAT_SPECIALIST_PREF_KEY, String(specialistSelect.value || "generalist"));
+      persistModeSelection();
       const mml = String(localStorage.getItem(CHAT_MEMORY_MODE_KEY) || "default").toLowerCase();
       localStorage.setItem(CHAT_MEMORY_MODE_KEY, mml === "store_only" ? "store_only" : "default");
-      syncModeSpecialistUi();
     } catch (_) {}
   };
   const saveSessionModePreference = async () => {
     if (!activeId) return;
     try {
+      const modeVal = String(modeSelect.value || MAIN_MODE_VALUE).toLowerCase();
+      const isMain = modeVal === MAIN_MODE_VALUE;
       await apiPost(`/admin/api/chat/sessions/${encodeURIComponent(activeId)}/mode`, {
-        interaction_mode: String(modeSelect.value || "expert"),
-        specialist:
-          String(modeSelect.value || "expert").toLowerCase() === "expert"
-            ? String(specialistSelect.value || "generalist")
-            : "generalist",
+        interaction_mode: isMain ? "comprehensive" : "expert",
+        specialist: isMain ? "generalist" : modeVal,
         memory_mode: String(localStorage.getItem(CHAT_MEMORY_MODE_KEY) || "default"),
       });
     } catch (_) {}
   };
   await refreshActiveModelText();
-  const specialistLabelEl = el("span", { class: "muted", text: t("chat.specialistLabel") });
   const composerMetaBar = el("div", { class: "row", style: "gap:8px;padding:2px 4px 6px;align-items:center;" }, [
     el("span", { class: "muted", text: t("chat.modeLabel") }),
     modeSelect,
-    specialistLabelEl,
-    specialistSelect,
-    toolToggleBtn,
+    toolToggleWrap,
   ]);
-
-  const syncModeSpecialistUi = () => {
-    const m = String(modeSelect.value || "expert").toLowerCase();
-    const showSpecialist = m === "expert";
-    specialistLabelEl.style.display = showSpecialist ? "" : "none";
-    specialistSelect.style.display = showSpecialist ? "" : "none";
-    specialistSelect.disabled = !showSpecialist;
-  };
-  modeSelect.addEventListener("change", () => {
-    syncModeSpecialistUi();
-  });
-  syncModeSpecialistUi();
 
   const fitComposerTextarea = () => {
     textarea.style.height = "auto";
@@ -2187,11 +2174,11 @@ async function renderChatUi() {
 
   attachBtn.addEventListener("click", () => fileInput.click());
   const syncToolToggleBtn = () => {
-    toolToggleBtn.textContent = `${t("chat.tools")}: ${showToolOutput ? t("chat.tools.on") : t("chat.tools.off")}`;
-    toolToggleBtn.title = showToolOutput ? t("chat.tools.visible") : t("chat.tools.hidden");
+    toolToggleCb.checked = !!showToolOutput;
+    toolToggleWrap.title = showToolOutput ? t("chat.tools.visible") : t("chat.tools.hidden");
   };
-  toolToggleBtn.addEventListener("click", () => {
-    showToolOutput = !showToolOutput;
+  toolToggleCb.addEventListener("change", () => {
+    showToolOutput = !!toolToggleCb.checked;
     adminChatShowToolOutput = showToolOutput;
     localStorage.setItem(CHAT_REASONING_TOGGLE_KEY, showToolOutput ? "1" : "0");
     syncToolToggleBtn();
@@ -2771,6 +2758,7 @@ async function renderChatUi() {
     let streamStatusBase = "oclaw";
     let streamDisplayTarget = "";
     let streamDisplayShown = "";
+    let streamTextBuffer = "";
     let toolSeq = 0;
     let hasRealStreamText = false;
     let sawWsChatEvent = false;
@@ -2929,7 +2917,7 @@ async function renderChatUi() {
             const shown = full.slice(0, showLen);
             textIdx += full.length;
             if (!shown) continue;
-            blocks.push(`<div class="chat-msg__plain">${escapeHtml(decodeEscapedNewlines(shown))}</div>`);
+            blocks.push(`<div class="chat-msg__md">${renderMarkdownHtml(decodeEscapedNewlines(shown))}</div>`);
           } else if (seg.type === "tool") {
             if (!showToolOutput) continue;
             const title = String(seg.title || "tool");
@@ -2965,7 +2953,7 @@ ${autoLimit ? `<div style="margin-top:8px;"><span class="muted">auto-added claus
         }
         const currentShown = streamDisplayShown.slice(textIdx);
         if (String(currentShown || "").trim()) {
-          blocks.push(`<div class="chat-msg__plain">${escapeHtml(decodeEscapedNewlines(currentShown))}</div>`);
+          blocks.push(`<div class="chat-msg__md">${renderMarkdownHtml(decodeEscapedNewlines(currentShown))}</div>`);
         }
         md.innerHTML = blocks.join("");
       }
@@ -3009,14 +2997,13 @@ ${autoLimit ? `<div style="margin-top:8px;"><span class="muted">auto-added claus
         }, 14);
       });
     };
-    const setStreamText = (text) => {
-      chatStream = String(text || "");
-      // Keep current text as a dedicated trailing segment for strict in-order rendering.
-      if (!chatStreamSegments.length || chatStreamSegments[chatStreamSegments.length - 1].type !== "text") {
-        chatStreamSegments.push({ type: "text", text: chatStream });
-      } else {
-        chatStreamSegments[chatStreamSegments.length - 1].text = chatStream;
-      }
+    const appendStreamTextChunk = (chunk) => {
+      const piece = String(chunk || "");
+      if (!piece) return;
+      streamTextBuffer = `${streamTextBuffer}${piece}`;
+      chatStream = streamTextBuffer;
+      // Keep strict chronological order: append text deltas as independent segments.
+      chatStreamSegments.push({ type: "text", text: piece });
       streamDisplayTarget = _composeStreamPlainText();
       _scheduleTypingTick();
     };
@@ -3081,12 +3068,13 @@ ${autoLimit ? `<div style="margin-top:8px;"><span class="muted">auto-added claus
           sessionId: activeId,
           text: userText,
           attachments: attachmentPayload,
-          interactionMode: String(modeSelect.value || "expert"),
+          interactionMode: String(modeSelect.value || MAIN_MODE_VALUE).toLowerCase() === MAIN_MODE_VALUE ? "comprehensive" : "expert",
           idempotencyKey: String(turnId || ""),
-          specialist:
-            String(modeSelect.value || "expert").toLowerCase() === "expert"
-              ? String(specialistSelect.value || "generalist")
-              : "generalist",
+          specialist: String(modeSelect.value || MAIN_MODE_VALUE).toLowerCase() === MAIN_MODE_VALUE
+            ? "generalist"
+            : (isSelectableSpecialist(String(modeSelect.value || "").toLowerCase())
+              ? String(modeSelect.value || "generalist").toLowerCase()
+              : "generalist"),
           memoryMode: String(localStorage.getItem(CHAT_MEMORY_MODE_KEY) || "default"),
           signal: abortController.signal,
           onEvent: async (frame) => {
@@ -3151,15 +3139,18 @@ ${autoLimit ? `<div style="margin-top:8px;"><span class="muted">auto-added claus
               const next = extractWsAssistantText(payload.message);
               const d = String(payload.delta || "");
               if (d && !_isSilentReplyStream(d)) {
-                const base = hasRealStreamText ? String(chatStream || "") : "";
-                chatStream = `${base}${decodeEscapedNewlines(d)}`;
+                appendStreamTextChunk(decodeEscapedNewlines(d));
                 hasRealStreamText = true;
-                setStreamText(chatStream);
               } else if (typeof next === "string" && next && !_isSilentReplyStream(next)) {
                 // Fallback when gateway doesn't include delta.
-                chatStream = next;
+                // Prefer monotonic append from snapshot deltas.
+                const snapshot = decodeEscapedNewlines(next);
+                if (snapshot.startsWith(streamTextBuffer)) {
+                  appendStreamTextChunk(snapshot.slice(streamTextBuffer.length));
+                } else if (!streamTextBuffer.startsWith(snapshot)) {
+                  appendStreamTextChunk(snapshot);
+                }
                 hasRealStreamText = true;
-                setStreamText(chatStream);
               }
               return;
             }
@@ -3170,13 +3161,16 @@ ${autoLimit ? `<div style="margin-top:8px;"><span class="muted">auto-added claus
               const ok = await appendFinalAssistant(payload.message, chatStream || extractWsAssistantText(payload.message || {}));
               if (!ok) _markStreamTerminal("end", t("chat.status.end"));
               chatStream = "";
+              streamTextBuffer = "";
               chatRunId = null;
+              const streamedEnough = hasRealStreamText || chatStreamSegments.length > 0 || sawWsChatEvent;
               chatStreamSegments = [];
-              // Final assistant body may arrive before reasoning/tool rows are fully persisted.
-              // Reload once shortly after final to avoid "reasoning disappears until session switch".
-              setTimeout(() => {
-                loadMessagesForActive().catch(() => {});
-              }, 350);
+              // Avoid end-of-turn flash: only reload history when stream had no usable content.
+              if (!streamedEnough) {
+                setTimeout(() => {
+                  loadMessagesForActive().catch(() => {});
+                }, 350);
+              }
               if (!ok) statusBar.textContent = "";
               return;
             }
@@ -3187,6 +3181,7 @@ ${autoLimit ? `<div style="margin-top:8px;"><span class="muted">auto-added claus
               const ok = await appendFinalAssistant(payload.message, chatStream);
               if (!ok) _markStreamTerminal("error", "aborted");
               chatStream = "";
+              streamTextBuffer = "";
               chatRunId = null;
               chatStreamSegments = [];
               return;
@@ -3196,6 +3191,7 @@ ${autoLimit ? `<div style="margin-top:8px;"><span class="muted">auto-added claus
               _stopDynamicStreamStatus();
               _markStreamTerminal("error", String(payload.errorMessage || "chat error"));
               chatStream = "";
+              streamTextBuffer = "";
               chatRunId = null;
               chatStreamSegments = [];
               statusBar.textContent = `${t("chat.error")}: ${String(payload.errorMessage || "chat error")}`;

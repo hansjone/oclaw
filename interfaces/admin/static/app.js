@@ -3284,8 +3284,16 @@ async function renderModels() {
   const expertsStatus = el("div", { class: "muted", text: "" });
   const expertsSelect = el("select", { class: "input" });
   const expertNewId = el("input", { class: "input", placeholder: "new expert id, e.g. qa" });
-  const expertSoul = el("textarea", { class: "input", rows: "5", placeholder: "SOUL.md (required)" });
-  const expertRoleSystem = el("textarea", { class: "input", rows: "5", placeholder: "ROLE_SYSTEM.md (required for runtime rules)" });
+  const expertNewNameEn = el("input", { class: "input", placeholder: "English name (required)" });
+  const expertNewNameZh = el("input", { class: "input", placeholder: "中文名（可选）" });
+  const expertRoleSel = el("select", { class: "input" }, [
+    el("option", { value: "expert", text: "expert" }),
+    el("option", { value: "system", text: "system" }),
+  ]);
+  const expertNameEn = el("input", { class: "input", placeholder: "English name (required)" });
+  const expertNameZh = el("input", { class: "input", placeholder: "中文名（可选）" });
+  const expertSoul = el("textarea", { class: "input", rows: "5", placeholder: "SOUL.md (optional)" });
+  const expertRoleSystem = el("textarea", { class: "input", rows: "5", placeholder: "ROLE_SYSTEM.md (optional)" });
 
   async function downloadEvalExport(format) {
     const fmt = format === "json" ? "json" : "csv";
@@ -3478,8 +3486,14 @@ async function renderModels() {
 
   function fillExpertFields(item) {
     const files = (item && item.files && typeof item.files === "object") ? item.files : {};
+    expertNameEn.value = String((item && item.display_name_en) || "");
+    expertNameZh.value = String((item && item.display_name_zh) || "");
+    expertRoleSel.value = String((item && item.role) || "expert");
     expertSoul.value = String(files["SOUL.md"] || "");
     expertRoleSystem.value = String(files["ROLE_SYSTEM.md"] || "");
+    const isSystem = !!(item && (item.builtin || String(item.role || "") === "system"));
+    expertRoleSel.disabled = isSystem;
+    btnExpertDelete.disabled = isSystem;
   }
 
   function paintExperts() {
@@ -3489,8 +3503,10 @@ async function renderModels() {
     items.forEach((x) => {
       const id = String(x.id || "");
       if (!id) return;
-      const tail = x.builtin ? " (builtin)" : "";
-      expertsSelect.appendChild(el("option", { value: id, text: `${id}${tail}` }));
+      const isSystem = !!(x && (x.builtin || String(x.role || "") === "system"));
+      const tail = isSystem ? " (system)" : "";
+      const name = String(x.display_name_en || "").trim() || id;
+      expertsSelect.appendChild(el("option", { value: id, text: `${name} [${id}]${tail}` }));
     });
     if (items.some((x) => String(x.id || "") === prev)) expertsSelect.value = prev;
     else if (items.length) expertsSelect.value = String(items[0].id || "");
@@ -3761,13 +3777,20 @@ async function renderModels() {
         expertsStatus.textContent = "expert id required";
         return;
       }
-      if (!String(expertSoul.value || "").trim()) {
-        expertsStatus.textContent = "SOUL.md is required";
+      if (!String(expertNewNameEn.value || "").trim()) {
+        expertsStatus.textContent = "English name is required";
+        return;
+      }
+      if (!String(expertSoul.value || "").trim() && !String(expertRoleSystem.value || "").trim()) {
+        expertsStatus.textContent = "SOUL.md or ROLE_SYSTEM.md is required";
         return;
       }
       try {
         const res = await apiPost("/admin/api/experts", {
           id: eid,
+          display_name_en: String(expertNewNameEn.value || "").trim(),
+          display_name_zh: String(expertNewNameZh.value || "").trim(),
+          role: "expert",
           files: {
             "SOUL.md": expertSoul.value,
             "ROLE_SYSTEM.md": expertRoleSystem.value,
@@ -3775,6 +3798,8 @@ async function renderModels() {
         });
         if (!res || res.ok !== true) throw new Error(String((res && res.error) || "create_failed"));
         expertNewId.value = "";
+        expertNewNameEn.value = "";
+        expertNewNameZh.value = "";
         expertsStatus.textContent = "expert created";
         markPrewarmReminder("expert_created");
         await refresh();
@@ -3793,13 +3818,20 @@ async function renderModels() {
       if (!hasPermission("admin:tenant:write")) return;
       const item = currentExpertItem();
       if (!item) return;
-      if (!String(expertSoul.value || "").trim()) {
-        expertsStatus.textContent = "SOUL.md is required";
+      if (!String(expertNameEn.value || "").trim()) {
+        expertsStatus.textContent = "English name is required";
+        return;
+      }
+      if (!String(expertSoul.value || "").trim() && !String(expertRoleSystem.value || "").trim()) {
+        expertsStatus.textContent = "SOUL.md or ROLE_SYSTEM.md is required";
         return;
       }
       try {
         const eid = String(item.id || "");
         const res = await apiRequest("PATCH", "/admin/api/experts/" + encodeURIComponent(eid), {
+          display_name_en: String(expertNameEn.value || "").trim(),
+          display_name_zh: String(expertNameZh.value || "").trim(),
+          role: String(expertRoleSel.value || "expert"),
           files: {
             "SOUL.md": expertSoul.value,
             "ROLE_SYSTEM.md": expertRoleSystem.value,
@@ -3824,8 +3856,8 @@ async function renderModels() {
       if (!hasPermission("admin:tenant:write")) return;
       const item = currentExpertItem();
       if (!item) return;
-      if (item.builtin) {
-        expertsStatus.textContent = "builtin expert cannot be deleted";
+      if (item.builtin || String(item.role || "") === "system") {
+        expertsStatus.textContent = "system expert cannot be deleted";
         return;
       }
       const eid = String(item.id || "");
@@ -3905,7 +3937,9 @@ async function renderModels() {
         el("div", { class: "row" }, [el("label", { text: t("models.pickModel") }), activeSelect]),
       ], { id: "models-overview" }),
       renderSectionCard(t("models.sectionNew"), "", [
-        el("div", { class: "row" }, [newName, newMode, btnCreate]),
+        el("div", { class: "row" }, [el("label", { text: t("models.profileName") }), newName]),
+        el("div", { class: "row" }, [el("label", { text: t("models.mode") }), newMode]),
+        el("div", { class: "row" }, [btnCreate]),
       ]),
     ]),
     renderSectionCard(t("models.sectionBindings"), t("models.agentBindingHelp"), [
@@ -3925,11 +3959,19 @@ async function renderModels() {
       ollamaHint,
       el("div", { class: "row" }, [el("label", { text: t("models.apiKey") }), keyInp]),
       el("div", { class: "row" }, [el("label", { text: t("models.rememberKey") }), rememberCb]),
-      el("div", { class: "row" }, [btnSave, btnDelete]),
+      el("div", { class: "row" }, [btnSave]),
+      el("div", { class: "row" }, [btnDelete]),
     ], { id: "models-api" }),
-    renderSectionCard("Experts (runtime/workspaces)", "Only SOUL.md and ROLE_SYSTEM.md are maintained in Admin. SOUL.md is required.", [
-      el("div", { class: "row" }, [el("label", { text: "Existing" }), expertsSelect, btnExpertDelete]),
-      el("div", { class: "row" }, [el("label", { text: "Create" }), expertNewId, btnExpertCreate]),
+    renderSectionCard("Experts (runtime/workspaces)", "English name required; Chinese optional. SOUL.md or ROLE_SYSTEM.md is required.", [
+      el("div", { class: "row" }, [el("label", { text: "Existing" }), expertsSelect]),
+      el("div", { class: "row" }, [btnExpertDelete]),
+      el("div", { class: "row" }, [el("label", { text: "Create ID" }), expertNewId]),
+      el("div", { class: "row" }, [el("label", { text: "Create Name(en)" }), expertNewNameEn]),
+      el("div", { class: "row" }, [el("label", { text: "Create Name(zh)" }), expertNewNameZh]),
+      el("div", { class: "row" }, [btnExpertCreate]),
+      el("div", { class: "row" }, [el("label", { text: "Name(en)" }), expertNameEn]),
+      el("div", { class: "row" }, [el("label", { text: "Name(zh)" }), expertNameZh]),
+      el("div", { class: "row" }, [el("label", { text: "Role" }), expertRoleSel]),
       el("div", { class: "row" }, [el("label", { text: "SOUL.md" }), expertSoul]),
       el("div", { class: "row" }, [el("label", { text: "ROLE_SYSTEM.md" }), expertRoleSystem]),
       el("div", { class: "row" }, [btnExpertSave]),
@@ -5396,11 +5438,11 @@ async function renderPlugins() {
       el("label", { text: "Tool log max chars (20000-2000000)" }),
       toolLogMaxCharsInput,
     ]),
-    el("label", { class: "kv" }, [enableMcpToolsCb, document.createTextNode(" Enable MCP tools")]),
-    el("label", { class: "kv" }, [enablePluginToolsCb, document.createTextNode(" Enable plugin tools")]),
-    el("label", { class: "kv" }, [enableRunCommandCb, document.createTextNode(" Enable run_command (high-risk)")]),
-    el("label", { class: "kv" }, [toolContextTruncateCb, document.createTextNode(" Compress tool result in agent context (50 chars + hint)")]),
-    el("label", { class: "kv" }, [chatShowTtftDebugCb, document.createTextNode(" Show TTFT debug timings in chat status")]),
+    el("div", { class: "row" }, [el("label", { class: "kv" }, [enableMcpToolsCb, document.createTextNode(" Enable MCP tools")])]),
+    el("div", { class: "row" }, [el("label", { class: "kv" }, [enablePluginToolsCb, document.createTextNode(" Enable plugin tools")])]),
+    el("div", { class: "row" }, [el("label", { class: "kv" }, [enableRunCommandCb, document.createTextNode(" Enable run_command (high-risk)")])]),
+    el("div", { class: "row" }, [el("label", { class: "kv" }, [toolContextTruncateCb, document.createTextNode(" Compress tool result in agent context (50 chars + hint)")])]),
+    el("div", { class: "row" }, [el("label", { class: "kv" }, [chatShowTtftDebugCb, document.createTextNode(" Show TTFT debug timings in chat status")])]),
     el("div", { class: "row" }, [
       el("label", { text: "Tool message max chars to LLM (0=unlimited, 4096-500000 recommended)" }),
       toolLlmMessageMaxCharsInput,
@@ -5418,7 +5460,7 @@ async function renderPlugins() {
       el("label", { text: "oclaw retryable error codes (comma separated)" }),
       oclawRetryableErrorCodesInput,
     ]),
-    el("label", { class: "kv" }, [oclawRetryCodesStrictModeCb, document.createTextNode(" Strict mode: reject unknown retry codes")]),
+    el("div", { class: "row" }, [el("label", { class: "kv" }, [oclawRetryCodesStrictModeCb, document.createTextNode(" Strict mode: reject unknown retry codes")])]),
     el("div", { class: "row" }, [
       el("label", { text: "WeCom longconn workers (1-8)" }),
       wecomLongconnWorkersInput,

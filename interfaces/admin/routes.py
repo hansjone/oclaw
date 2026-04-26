@@ -53,7 +53,14 @@ from oclaw.platform.llm.chat_models import LLMToolCall
 from oclaw.runtime.agent_core_attempt import ALL_ATTEMPT_ERROR_CODES
 from oclaw.runtime.agent_core_run import DEFAULT_RETRYABLE_ERROR_CODES, resolve_retryable_error_codes
 from oclaw.runtime.prompt_prebuild import run_runtime_prewarm, runtime_prewarm_prompts_snapshot, runtime_prewarm_status
-from oclaw.runtime.workspaces.experts import create_expert, delete_expert, list_experts, normalize_expert_id, update_expert_files
+from oclaw.runtime.workspaces.experts import (
+    create_expert,
+    delete_expert,
+    list_experts,
+    normalize_expert_id,
+    update_expert_files,
+    update_expert_meta,
+)
 
 _WECOM_CLEAR_KEYS = [
     "wecom_mode",
@@ -262,6 +269,9 @@ def build_admin_router() -> APIRouter:
             "id": str(row.get("id") or ""),
             "builtin": bool(row.get("builtin")),
             "has_required_soul": bool(row.get("has_required_soul")),
+            "display_name_en": str(row.get("display_name_en") or ""),
+            "display_name_zh": str(row.get("display_name_zh") or ""),
+            "role": str(row.get("role") or "expert"),
             "path": str(row.get("path") or ""),
             "files": {
                 "SOUL.md": str(obj.get("SOUL.md") or ""),
@@ -2537,10 +2547,19 @@ def build_admin_router() -> APIRouter:
         ctx = _resolve_auth(store, authorization)
         _require_permission(ctx, "admin:tenant:write")
         expert_id = normalize_expert_id(payload.get("id"))
+        display_name_en = str(payload.get("display_name_en") or "").strip()
+        display_name_zh = str(payload.get("display_name_zh") or "").strip()
+        role = str(payload.get("role") or "").strip().lower()
         files_raw = payload.get("files") if isinstance(payload.get("files"), dict) else {}
         try:
             files = _sanitize_expert_files_payload(files_raw)
-            created = create_expert(expert_id=expert_id, files=files)
+            created = create_expert(
+                expert_id=expert_id,
+                files=files,
+                display_name_en=display_name_en,
+                display_name_zh=display_name_zh,
+                role=role or None,
+            )
         except ValueError as exc:
             return {"ok": False, "error": str(exc)}
         store.add_admin_audit_log(
@@ -2567,9 +2586,18 @@ def build_admin_router() -> APIRouter:
         _require_permission(ctx, "admin:tenant:write")
         files_raw = payload.get("files") if isinstance(payload.get("files"), dict) else {}
         eid = normalize_expert_id(expert_id)
+        display_name_en = str(payload.get("display_name_en") or "").strip()
+        display_name_zh = str(payload.get("display_name_zh") or "").strip()
+        role = str(payload.get("role") or "").strip().lower()
         try:
             files = _sanitize_expert_files_payload(files_raw)
             update_expert_files(expert_id=eid, files=files)
+            update_expert_meta(
+                expert_id=eid,
+                display_name_en=display_name_en,
+                display_name_zh=display_name_zh,
+                role=role or None,
+            )
         except ValueError as exc:
             return {"ok": False, "error": str(exc)}
         store.add_admin_audit_log(

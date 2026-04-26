@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import json
 import threading
 from pathlib import Path
 from typing import Any
@@ -11,6 +12,8 @@ _REQUIRED_FILES: tuple[str, ...] = ("SOUL.md",)
 _OPTIONAL_FILES: tuple[str, ...] = ("ROLE_SYSTEM.md",)
 _ALL_FILES: tuple[str, ...] = (*_REQUIRED_FILES, *_OPTIONAL_FILES)
 _RESERVED_IDS: frozenset[str] = frozenset({"main"})
+_META_FILE = "META.json"
+_ROLE_OPTIONS: frozenset[str] = frozenset({"system", "expert"})
 _CACHE_LOCK = threading.Lock()
 _LIST_CACHE_SIGNATURE: tuple[Any, ...] | None = None
 _LIST_CACHE_ROWS: list[dict[str, Any]] = []
@@ -37,6 +40,46 @@ def is_builtin_expert(expert_id: str) -> bool:
     return normalize_expert_id(expert_id) in _RESERVED_IDS
 
 
+def _default_role_for_expert(eid: str) -> str:
+    return "system" if eid in _RESERVED_IDS else "expert"
+
+
+def _is_noise_workspace_id(eid: str) -> bool:
+    sid = normalize_expert_id(eid)
+    return sid in {"pycache", "__pycache__"} or sid.endswith("pycache")
+
+
+def _read_meta(expert_dir: Path) -> dict[str, str]:
+    p = expert_dir / _META_FILE
+    if not p.exists() or not p.is_file():
+        return {}
+    try:
+        raw = json.loads(p.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    obj = raw if isinstance(raw, dict) else {}
+    role = str(obj.get("role") or "").strip().lower()
+    if role not in _ROLE_OPTIONS:
+        role = ""
+    return {
+        "display_name_en": str(obj.get("display_name_en") or "").strip(),
+        "display_name_zh": str(obj.get("display_name_zh") or "").strip(),
+        "role": role,
+    }
+
+
+def _write_meta(expert_dir: Path, *, display_name_en: str | None, display_name_zh: str | None, role: str | None) -> None:
+    role_norm = str(role or "").strip().lower()
+    if role_norm and role_norm not in _ROLE_OPTIONS:
+        raise ValueError("invalid_role")
+    payload = {
+        "display_name_en": str(display_name_en or "").strip(),
+        "display_name_zh": str(display_name_zh or "").strip(),
+        "role": role_norm,
+    }
+    (expert_dir / _META_FILE).write_text(f"{json.dumps(payload, ensure_ascii=False, indent=2)}\n", encoding="utf-8")
+
+
 def _workspace_signature() -> tuple[Any, ...]:
     root = workspaces_root()
     if not root.exists() or not root.is_dir():
@@ -49,6 +92,8 @@ def _workspace_signature() -> tuple[Any, ...]:
             continue
         eid = normalize_expert_id(item.name)
         if not eid:
+            continue
+        if _is_noise_workspace_id(eid):
             continue
         for name in _ALL_FILES:
             p = item / name
@@ -109,6 +154,8 @@ def list_experts() -> list[dict[str, Any]]:
         eid = normalize_expert_id(item.name)
         if not eid:
             continue
+        if _is_noise_workspace_id(eid):
+            continue
         files: dict[str, str] = {}
         for name in _ALL_FILES:
             p = item / name
@@ -119,12 +166,19 @@ def list_experts() -> list[dict[str, Any]]:
                 files[name] = p.read_text(encoding="utf-8")
             except Exception:
                 files[name] = ""
+        meta = _read_meta(item)
+        role = _default_role_for_expert(eid)
+        if str(meta.get("role") or "").strip() in _ROLE_OPTIONS:
+            role = str(meta.get("role") or "").strip()
         out.append(
             {
                 "id": eid,
                 "path": str(item),
                 "builtin": is_builtin_expert(eid),
                 "has_required_soul": bool(str(files.get("SOUL.md") or "").strip()),
+                "display_name_en": str(meta.get("display_name_en") or ""),
+                "display_name_zh": str(meta.get("display_name_zh") or ""),
+                "role": role,
                 "files": files,
             }
         )
@@ -227,7 +281,14 @@ def _workspace_dir(expert_id: str) -> Path:
     return (workspaces_root() / eid).resolve()
 
 
-def create_expert(*, expert_id: str, files: dict[str, Any]) -> dict[str, Any]:
+def create_expert(
+    *,
+    expert_id: str,
+    files: dict[str, Any],
+    display_name_en: str | None = None,
+    display_name_zh: str | None = None,
+    role: str | None = None,
+) -> dict[str, Any]:
     eid = normalize_expert_id(expert_id)
     if not eid or eid in _RESERVED_IDS:
         raise ValueError("invalid_expert_id")
@@ -238,8 +299,9 @@ def create_expert(*, expert_id: str, files: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("expert_exists")
     clean_files = _normalize_supported_files(files)
     soul = str(clean_files.get("SOUL.md") or "").strip()
-    if not soul:
-        raise ValueError("soul_required")
+    role_system = str(clean_files.get("ROLE_SYSTEM.md") or "").strip()
+    if not soul and not role_system:
+        raise ValueError("soul_or_role_system_required")
     target.mkdir(parents=True, exist_ok=False)
     for name in _ALL_FILES:
         body = str(clean_files.get(name) or "")
@@ -248,7 +310,15 @@ def create_expert(*, expert_id: str, files: dict[str, Any]) -> dict[str, Any]:
         if body:
             (target / name).write_text(body.strip() + "\n", encoding="utf-8")
     if not (target / "SOUL.md").exists():
-        (target / "SOUL.md").write_text(soul + "\n", encoding="utf-8")
+        if soul:
+            (target / "SOUL.md").write_text(soul + "\n", encoding="utf-8")
+    role_save = str(role or "").strip().lower() or _default_role_for_expert(eid)
+    _write_meta(
+        target,
+        display_name_en=display_name_en,
+        display_name_zh=display_name_zh,
+        role=role_save,
+    )
     _clear_experts_cache()
     return {"id": eid, "path": str(target)}
 
@@ -268,8 +338,8 @@ def update_expert_files(*, expert_id: str, files: dict[str, Any]) -> dict[str, A
         else:
             p = target / name
             next_files[name] = p.read_text(encoding="utf-8") if p.exists() and p.is_file() else ""
-    if not str(next_files.get("SOUL.md") or "").strip():
-        raise ValueError("soul_required")
+    if not str(next_files.get("SOUL.md") or "").strip() and not str(next_files.get("ROLE_SYSTEM.md") or "").strip():
+        raise ValueError("soul_or_role_system_required")
     for name in _ALL_FILES:
         p = target / name
         body = str(next_files.get(name) or "")
@@ -277,6 +347,30 @@ def update_expert_files(*, expert_id: str, files: dict[str, Any]) -> dict[str, A
             p.write_text(body.strip() + "\n", encoding="utf-8")
         elif p.exists():
             p.unlink()
+    _clear_experts_cache()
+    return {"id": eid, "path": str(target)}
+
+
+def update_expert_meta(
+    *,
+    expert_id: str,
+    display_name_en: str | None = None,
+    display_name_zh: str | None = None,
+    role: str | None = None,
+) -> dict[str, Any]:
+    eid = normalize_expert_id(expert_id)
+    if not eid:
+        raise ValueError("invalid_expert_id")
+    target = _workspace_dir(eid)
+    if not target.exists() or not target.is_dir():
+        raise ValueError("expert_not_found")
+    role_save = str(role or "").strip().lower() or _default_role_for_expert(eid)
+    _write_meta(
+        target,
+        display_name_en=display_name_en,
+        display_name_zh=display_name_zh,
+        role=role_save,
+    )
     _clear_experts_cache()
     return {"id": eid, "path": str(target)}
 
@@ -308,6 +402,7 @@ __all__ = [
     "is_builtin_expert",
     "list_experts",
     "normalize_expert_id",
+    "update_expert_meta",
     "update_expert_files",
     "warm_expert_workspace_cache",
     "workspaces_root",
