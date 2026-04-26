@@ -55,19 +55,31 @@
           </div>
         </div>
         <nav class="nav">
-          <a class="nav__item" data-page="models" href="#/models" data-i18n="nav.models">模型管理</a>
-          <a class="nav__item" data-page="api-grants" href="#/api-grants" data-i18n="nav.apiGrants">API 使用授权</a>
-          <a class="nav__item" data-page="stack" href="#/stack" data-i18n="nav.stack">Runtime</a>
-          <a class="nav__item" data-page="users" href="#/users" data-i18n="nav.users">用户管理</a>
-          <a class="nav__item" data-page="workspace-paths" href="#/workspace-paths" data-i18n="nav.workspacePaths">工作区路径</a>
-          <a class="nav__item" data-page="memory" href="#/memory" data-i18n="nav.memory">Memory</a>
-          <a class="nav__item" data-page="audit" href="#/audit" data-i18n="nav.audit">Audit & Trace</a>
-          <a class="nav__item" data-page="session-monitor" href="#/session-monitor" data-i18n="nav.sessionMonitor">会话监控</a>
-          <a class="nav__item" data-page="admin-audit" href="#/admin-audit" data-i18n="nav.adminAudit">Admin Audit</a>
-          <a class="nav__item" data-page="plugins" href="#/plugins" data-i18n="nav.plugins">Plugins</a>
-          <a class="nav__item" data-page="skills" href="#/skills" data-i18n="nav.skills">Skills</a>
-          <a class="nav__item" data-page="attachments" href="#/attachments" data-i18n="nav.attachments">附件</a>
-          <a class="nav__item" data-page="profile" href="#/profile" data-i18n="nav.profile">设置</a>
+          <div class="nav__group">
+            <div class="nav__groupTitle">系统与运行</div>
+            <a class="nav__item" data-page="stack" href="#/stack" data-i18n="nav.stack">Runtime</a>
+            <a class="nav__item" data-page="session-monitor" href="#/session-monitor" data-i18n="nav.sessionMonitor">会话监控</a>
+            <a class="nav__item" data-page="workspace-paths" href="#/workspace-paths" data-i18n="nav.workspacePaths">工作区路径</a>
+            <a class="nav__item" data-page="attachments" href="#/attachments" data-i18n="nav.attachments">附件</a>
+          </div>
+          <div class="nav__group">
+            <div class="nav__groupTitle">模型与插件</div>
+            <a class="nav__item" data-page="models" href="#/models" data-i18n="nav.models">模型管理</a>
+            <a class="nav__item" data-page="api-grants" href="#/api-grants" data-i18n="nav.apiGrants">API 使用授权</a>
+            <a class="nav__item" data-page="plugins" href="#/plugins" data-i18n="nav.plugins">Plugins</a>
+            <a class="nav__item" data-page="skills" href="#/skills" data-i18n="nav.skills">Skills</a>
+          </div>
+          <div class="nav__group">
+            <div class="nav__groupTitle">治理与审计</div>
+            <a class="nav__item" data-page="memory" href="#/memory" data-i18n="nav.memory">Memory</a>
+            <a class="nav__item" data-page="audit" href="#/audit" data-i18n="nav.audit">Audit & Trace</a>
+            <a class="nav__item" data-page="admin-audit" href="#/admin-audit" data-i18n="nav.adminAudit">Admin Audit</a>
+          </div>
+          <div class="nav__group">
+            <div class="nav__groupTitle">用户与配置</div>
+            <a class="nav__item" data-page="users" href="#/users" data-i18n="nav.users">用户管理</a>
+            <a class="nav__item" data-page="profile" href="#/profile" data-i18n="nav.profile">设置</a>
+          </div>
         </nav>
         <div class="sidebar__footer">
           <div class="muted" data-i18n="notice.noLogin">v1 无登录：请仅在内网访问</div>

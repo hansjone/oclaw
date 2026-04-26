@@ -1309,6 +1309,58 @@ function mount(node) {
   c.appendChild(node);
 }
 
+function renderPageShell(opts = {}, children = []) {
+  const title = String(opts.title || "").trim();
+  const subtitle = String(opts.subtitle || "").trim();
+  const actions = Array.isArray(opts.actions) ? opts.actions.filter(Boolean) : [];
+  const sections = Array.isArray(opts.sections) ? opts.sections.filter((x) => x && x.id && x.label) : [];
+  const head = [];
+  if (title || subtitle || actions.length) {
+    const left = [];
+    if (title) left.push(el("h1", { class: "page-shell__title", text: title }));
+    if (subtitle) left.push(el("div", { class: "page-shell__subtitle muted", text: subtitle }));
+    head.push(
+      el("div", { class: "page-shell__header" }, [
+        el("div", { class: "page-shell__headline" }, left),
+        el("div", { class: "page-shell__actions row" }, actions),
+      ]),
+    );
+    if (sections.length > 1) {
+      head.push(
+        el(
+          "div",
+          { class: "page-shell__toc", role: "navigation", "aria-label": "page sections" },
+          sections.map((s) =>
+            el("button", {
+              class: "page-shell__tocItem",
+              type: "button",
+              text: String(s.label),
+              onclick: () => {
+                const target = document.getElementById(String(s.id));
+                if (!target) return;
+                target.scrollIntoView({ behavior: "smooth", block: "start" });
+              },
+            }),
+          ),
+        ),
+      );
+    }
+  }
+  return el("section", { class: "page-shell" }, [...head, ...children.filter(Boolean)]);
+}
+
+function renderSectionCard(title, subtitle, bodyNodes = [], opts = {}) {
+  const nodes = [el("div", { class: "card__title", text: title })];
+  if (subtitle) nodes.push(el("div", { class: "muted", text: subtitle }));
+  if (Array.isArray(opts.actions) && opts.actions.length) {
+    nodes.push(el("div", { class: "row section-card__actions" }, opts.actions));
+  }
+  bodyNodes.filter(Boolean).forEach((node) => nodes.push(node));
+  const attrs = { class: "card section-card" };
+  if (opts.id) attrs.id = String(opts.id);
+  return el("div", attrs, nodes);
+}
+
 function shortText(v, maxLen = 200) {
   const s = String(v ?? "");
   if (s.length <= maxLen) return s;
@@ -3836,25 +3888,32 @@ async function renderModels() {
   // Show secret migration helper when legacy secrets exist.
   topBits.push(secretsCard);
 
-  return el("div", {}, [
+  return renderPageShell({
+    title: t("title.models"),
+    subtitle: "模型切换、绑定与评估配置",
+    sections: [
+      { id: "models-overview", label: "概览" },
+      { id: "models-bindings", label: "绑定" },
+      { id: "models-api", label: "API配置" },
+      { id: "models-experts", label: "Experts" },
+      { id: "models-eval", label: "评估" },
+    ],
+  }, [
     ...topBits,
-    el("div", { class: "card" }, [
-      el("div", { class: "card__title", text: t("models.sectionActive") }),
-      el("div", { class: "row" }, [el("label", { text: t("models.pickModel") }), activeSelect]),
+    el("div", { class: "page-grid page-grid--two" }, [
+      renderSectionCard(t("models.sectionActive"), "", [
+        el("div", { class: "row" }, [el("label", { text: t("models.pickModel") }), activeSelect]),
+      ], { id: "models-overview" }),
+      renderSectionCard(t("models.sectionNew"), "", [
+        el("div", { class: "row" }, [newName, newMode, btnCreate]),
+      ]),
     ]),
-    el("div", { class: "card" }, [
-      el("div", { class: "card__title", text: t("models.sectionBindings") }),
-      el("div", { class: "muted", text: t("models.agentBindingHelp") }),
+    renderSectionCard(t("models.sectionBindings"), t("models.agentBindingHelp"), [
       el("div", { class: "muted", text: t("models.bindingsExtraHint") }),
       el("div", { class: "muted", text: t("models.bindingsScopeHint") }),
       bindingWrap,
-    ]),
-    el("div", { class: "card" }, [
-      el("div", { class: "card__title", text: t("models.sectionNew") }),
-      el("div", { class: "row" }, [newName, newMode, btnCreate]),
-    ]),
-    el("div", { class: "card" }, [
-      el("div", { class: "card__title", text: t("models.sectionApi") }),
+    ], { id: "models-bindings" }),
+    renderSectionCard(t("models.sectionApi"), "", [
       builtinCap,
       readonlyProfileHint,
       el("div", { class: "row" }, [el("label", { text: t("models.profileName") }), profName]),
@@ -3867,18 +3926,16 @@ async function renderModels() {
       el("div", { class: "row" }, [el("label", { text: t("models.apiKey") }), keyInp]),
       el("div", { class: "row" }, [el("label", { text: t("models.rememberKey") }), rememberCb]),
       el("div", { class: "row" }, [btnSave, btnDelete]),
-    ]),
-    el("div", { class: "card" }, [
-      el("div", { class: "card__title", text: "Experts (runtime/workspaces)" }),
-      el("div", { class: "muted", text: "Only SOUL.md and ROLE_SYSTEM.md are maintained in Admin. SOUL.md is required." }),
+    ], { id: "models-api" }),
+    renderSectionCard("Experts (runtime/workspaces)", "Only SOUL.md and ROLE_SYSTEM.md are maintained in Admin. SOUL.md is required.", [
       el("div", { class: "row" }, [el("label", { text: "Existing" }), expertsSelect, btnExpertDelete]),
       el("div", { class: "row" }, [el("label", { text: "Create" }), expertNewId, btnExpertCreate]),
       el("div", { class: "row" }, [el("label", { text: "SOUL.md" }), expertSoul]),
       el("div", { class: "row" }, [el("label", { text: "ROLE_SYSTEM.md" }), expertRoleSystem]),
       el("div", { class: "row" }, [btnExpertSave]),
       expertsStatus,
-    ]),
-    el("div", { class: "card" }, [evalDetails]),
+    ], { id: "models-experts" }),
+    el("div", { class: "card section-card", id: "models-eval" }, [evalDetails]),
   ]);
 }
 
@@ -5618,24 +5675,28 @@ async function renderPlugins() {
     bindingReverseWrap,
     bindingStatus,
   ]);
-  const pluginsPageHeader = el("div", { class: "card" }, [
-    el("div", { class: "card__title", text: t("plugins.title") }),
-    el("div", {
-      class: "muted",
-      text: "以下按功能分为多个区块，默认折叠；表格均支持翻页（每页 " + PLUGINS_PAGE_SIZE + " 条）。",
-    }),
-  ]);
-  return el("div", {}, [
-    pluginsPageHeader,
-    foldToolPolicy,
-    foldMcpMarket,
-    foldMcpInstall,
-    foldMcpInstalled,
-    foldMcpUsage,
-    foldWireGlobal,
-    foldWireTools,
-    foldExpertBindingDash,
-    foldMcpBinding,
+  return renderPageShell({
+    title: t("plugins.title"),
+    subtitle: "按功能分区展示，默认折叠；表格支持分页（每页 " + PLUGINS_PAGE_SIZE + " 条）。",
+    sections: [
+      { id: "plugins-tool-policy", label: "策略" },
+      { id: "plugins-market", label: "市场" },
+      { id: "plugins-install", label: "安装" },
+      { id: "plugins-instances", label: "实例" },
+      { id: "plugins-binding", label: "专家绑定" },
+    ],
+  }, [
+    el("div", { class: "page-grid page-grid--single" }, [
+      el("div", { id: "plugins-tool-policy" }, [foldToolPolicy]),
+      el("div", { id: "plugins-market" }, [foldMcpMarket]),
+      el("div", { id: "plugins-install" }, [foldMcpInstall]),
+      el("div", { id: "plugins-instances" }, [foldMcpInstalled]),
+      foldMcpUsage,
+      foldWireGlobal,
+      foldWireTools,
+      foldExpertBindingDash,
+      el("div", { id: "plugins-binding" }, [foldMcpBinding]),
+    ]),
   ]);
 }
 
@@ -6163,13 +6224,17 @@ async function renderSessionMonitor() {
   detailModal.addEventListener("click", (ev) => {
     if (ev.target === detailModal) closeDetailModal();
   });
-  return el("div", {}, [
-    el("div", { class: "card" }, [
-      el("div", { class: "card__title", text: t("sessionMonitor.totals") }),
-      totalsWrap,
-    ]),
-    el("div", { class: "card" }, [
-      el("div", { class: "card__title", text: t("sessionMonitor.userStats") }),
+  return renderPageShell({
+    title: t("title.sessionMonitor"),
+    subtitle: "按用户、会话与消息详情进行巡检与导出",
+    sections: [
+      { id: "sm-totals", label: "总览" },
+      { id: "sm-users", label: "用户" },
+      { id: "sm-sessions", label: "会话" },
+    ],
+  }, [
+    renderSectionCard(t("sessionMonitor.totals"), "", [totalsWrap], { id: "sm-totals" }),
+    renderSectionCard(t("sessionMonitor.userStats"), "", [
       el("div", { class: "row" }, [userQ, btnQueryUsers]),
       el("div", { class: "table-wrap" }, [
         el("table", { class: "table table--compact" }, [
@@ -6189,9 +6254,8 @@ async function renderSessionMonitor() {
           userBody,
         ]),
       ]),
-    ]),
-    el("div", { class: "card" }, [
-      el("div", { class: "card__title", text: t("sessionMonitor.sessions") }),
+    ], { id: "sm-users" }),
+    renderSectionCard(t("sessionMonitor.sessions"), "", [
       el("div", { class: "row" }, [sessQ, activeOnlyLabel, btnQuerySessions]),
       selectedHint,
       sessionPagerTop,
@@ -6212,7 +6276,7 @@ async function renderSessionMonitor() {
         ]),
       ]),
       sessionPagerBottom,
-    ]),
+    ], { id: "sm-sessions" }),
     detailModal,
   ]);
 }
@@ -6582,42 +6646,53 @@ async function renderAttachments() {
       inputEl,
     ]);
 
-  return el("div", {}, [
-    el("div", { class: "card" }, [
-      el("div", { class: "card__title", text: t("attachments.title") }),
-      el("div", { class: "muted", text: t("attachments.excelPolicy") }),
-      el("div", { style: "height:8px" }),
-      hint,
-      el("div", { style: "height:10px" }),
-      inputRow(t("attachments.maxRowsRead"), rowInput),
-      inputRow(t("attachments.maxColumns"), colInput),
-      inputRow(t("attachments.maxCellChars"), cellInput),
-      inputRow(t("attachments.maxExcelSheets"), maxSheetsInput),
-      inputRow(t("attachments.largePreviewRows"), largePreviewRowsInput),
-      el("label", { class: "muted", style: "display:flex;gap:8px;align-items:center;margin-top:10px;cursor:pointer;" }, [
-        toolEnabledInput,
-        el("span", { text: t("attachments.toolModeEnabled") }),
-      ]),
-      inputRow(t("attachments.toolModeMinRows"), toolMinRowsInput),
-      inputRow(t("attachments.toolModeMaxBytes"), toolMaxBytesInput),
-      inputRow(t("attachments.sqlTimeoutMs"), sqlTimeoutInput),
-      el("div", { class: "muted", style: "margin-top:6px;line-height:1.45;", text: t("attachments.sqlTimeoutHint") }),
-      inputRow(t("attachments.imageReplayCapChars"), imageReplayCapInput),
-      el("div", { class: "muted", style: "margin-top:6px;line-height:1.45;", text: t("attachments.imageReplayCapHint") }),
-      inputRow(t("attachments.videoReplayCapChars"), videoReplayCapInput),
-      el("div", { class: "muted", style: "margin-top:6px;line-height:1.45;", text: t("attachments.videoReplayCapHint") }),
-      inputRow(t("attachments.videoTranscriptChunkSize"), videoTranscriptChunkSizeInput),
-      inputRow(t("attachments.videoTranscriptChunkOverlap"), videoTranscriptChunkOverlapInput),
-      el("div", { class: "muted", style: "margin-top:6px;line-height:1.45;", text: t("attachments.videoTranscriptChunkHint") }),
+  return renderPageShell({
+    title: t("attachments.title"),
+    subtitle: "附件处理阈值、预算与回放策略配置",
+    actions: [loadBtn, resetBtn, saveBtn],
+    sections: [
+      { id: "attach-overview", label: "说明" },
+      { id: "attach-table", label: "表格" },
+      { id: "attach-media", label: "图像/视频" },
+      { id: "attach-archive", label: "压缩包" },
+    ],
+  }, [
+    renderSectionCard("策略说明", t("attachments.excelPolicy"), [hint], { id: "attach-overview" }),
+    el("div", { class: "page-grid page-grid--two" }, [
+      renderSectionCard("表格与工具模式", "", [
+        inputRow(t("attachments.maxRowsRead"), rowInput),
+        inputRow(t("attachments.maxColumns"), colInput),
+        inputRow(t("attachments.maxCellChars"), cellInput),
+        inputRow(t("attachments.maxExcelSheets"), maxSheetsInput),
+        inputRow(t("attachments.largePreviewRows"), largePreviewRowsInput),
+        el("label", { class: "muted", style: "display:flex;gap:8px;align-items:center;margin-top:10px;cursor:pointer;" }, [
+          toolEnabledInput,
+          el("span", { text: t("attachments.toolModeEnabled") }),
+        ]),
+        inputRow(t("attachments.toolModeMinRows"), toolMinRowsInput),
+        inputRow(t("attachments.toolModeMaxBytes"), toolMaxBytesInput),
+        inputRow(t("attachments.sqlTimeoutMs"), sqlTimeoutInput),
+        el("div", { class: "muted", style: "margin-top:6px;line-height:1.45;", text: t("attachments.sqlTimeoutHint") }),
+      ], { id: "attach-table" }),
+      renderSectionCard("图像与视频策略", "", [
+        inputRow(t("attachments.imageReplayCapChars"), imageReplayCapInput),
+        el("div", { class: "muted", style: "margin-top:6px;line-height:1.45;", text: t("attachments.imageReplayCapHint") }),
+        inputRow(t("attachments.videoReplayCapChars"), videoReplayCapInput),
+        el("div", { class: "muted", style: "margin-top:6px;line-height:1.45;", text: t("attachments.videoReplayCapHint") }),
+        inputRow(t("attachments.videoTranscriptChunkSize"), videoTranscriptChunkSizeInput),
+        inputRow(t("attachments.videoTranscriptChunkOverlap"), videoTranscriptChunkOverlapInput),
+        el("div", { class: "muted", style: "margin-top:6px;line-height:1.45;", text: t("attachments.videoTranscriptChunkHint") }),
+      ], { id: "attach-media" }),
+    ]),
+    renderSectionCard("压缩包预算策略", "", [
       inputRow(t("attachments.archiveMaxDepth"), archiveMaxDepthInput),
       inputRow(t("attachments.archiveMaxFileCount"), archiveMaxFileCountInput),
       inputRow(t("attachments.archiveMaxEntryBytes"), archiveMaxEntryBytesInput),
       inputRow(t("attachments.archiveMaxTotalBytes"), archiveMaxTotalBytesInput),
       el("div", { class: "muted", style: "margin-top:6px;line-height:1.45;", text: t("attachments.archivePolicyHint") }),
-      el("div", { class: "row", style: "gap:8px;margin-top:12px;flex-wrap:wrap;" }, [loadBtn, resetBtn, saveBtn]),
       el("div", { style: "height:8px" }),
       status,
-    ]),
+    ], { id: "attach-archive" }),
   ]);
 }
 
