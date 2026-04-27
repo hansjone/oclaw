@@ -199,7 +199,28 @@ def build_llm_messages(
 ) -> list[dict[str, Any]]:
     """把 DB 中的消息序列转换为 LLM messages。"""
     out: list[dict[str, Any]] = [{"role": "system", "content": (system_prompt or "").strip()}]
+    thinking_mode_enabled = bool(getattr(model, "thinking_mode_enabled", False))
     allow_signature_replay = _allow_reasoning_signature_replay(model)
+    reasoning_by_turn: dict[str, list[tuple[int, str]]] = {}
+    if thinking_mode_enabled:
+        for m in store_messages or []:
+            if str(getattr(m, "role", "") or "") != "assistant":
+                continue
+            if str(getattr(m, "event_type", "") or "").strip().lower() != "reasoning":
+                continue
+            tid = str(getattr(m, "turn_uuid", "") or "").strip()
+            if not tid:
+                continue
+            try:
+                idx = 0
+                ep = getattr(m, "event_payload", None)
+                if isinstance(ep, str) and ep.strip():
+                    payload = json.loads(ep)
+                    if isinstance(payload, dict):
+                        idx = int(payload.get("chunk_index") or 0)
+            except Exception:
+                idx = 0
+            reasoning_by_turn.setdefault(tid, []).append((idx, str(getattr(m, "content", "") or "")))
     historical_tool_ids = _collect_historical_tool_call_ids(
         store_messages=store_messages, full_rounds=_replay_recent_tool_rounds()
     )
@@ -207,7 +228,46 @@ def build_llm_messages(
     # that is not present in the assistant tool_calls within the same request context.
     # This can happen when context windows are trimmed and the assistant tool_calls row is dropped.
     valid_tool_call_ids: set[str] = set()
-    for m in store_messages:
+    # Precompute tool_call_id suffix sets to detect broken tool_calls -> tool pairing.
+    tool_ids_after: list[set[str]] = []
+    seen_tool_ids: set[str] = set()
+    for m in reversed(store_messages or []):
+        role = str(getattr(m, "role", "") or "")
+        if role == "tool":
+            tcid = _tool_call_id_from_tool_row(getattr(m, "tool_calls", None))
+            if tcid:
+                seen_tool_ids.add(tcid)
+        tool_ids_after.append(set(seen_tool_ids))
+    tool_ids_after.reverse()
+    def _attach_reasoning_content(row: dict[str, Any], m: Any) -> dict[str, Any]:
+        if not thinking_mode_enabled:
+            return row
+        rc = ""
+        ep = getattr(m, "event_payload", None)
+        if isinstance(ep, str) and ep.strip():
+            try:
+                payload = json.loads(ep)
+                if isinstance(payload, dict):
+                    rc = str(payload.get("reasoning_content") or "").strip()
+            except Exception:
+                rc = ""
+        if not rc:
+            tid = str(getattr(m, "turn_uuid", "") or "").strip()
+            chunks = reasoning_by_turn.get(tid) or []
+            if chunks:
+                rc = "\n".join(
+                    [
+                        str(x[1] or "").strip()
+                        for x in sorted(chunks, key=lambda t: int(t[0] or 0))
+                        if str(x[1] or "").strip()
+                    ]
+                ).strip()
+        # Provider contract: in thinking mode, the field must be present for every assistant message,
+        # even if empty (some gateways error on missing key).
+        row["reasoning_content"] = rc
+        return row
+
+    for i, m in enumerate(store_messages):
         role = str(getattr(m, "role", "") or "")
         event_type = str(getattr(m, "event_type", "") or "").strip().lower()
         if event_type == "reasoning":
@@ -408,6 +468,19 @@ def build_llm_messages(
                     tool_calls = None
 
             if tool_calls and isinstance(tool_calls, list):
+                # Guard: only include tool_calls if tool results exist later in this trimmed window.
+                want_ids = [str(tc.get("id") or "").strip() for tc in tool_calls if isinstance(tc, dict) and str(tc.get("id") or "").strip()]
+                suffix = tool_ids_after[i] if (i >= 0 and i < len(tool_ids_after)) else set()
+                if want_ids and any(tid not in suffix for tid in want_ids):
+                    tool_calls = None
+                if tool_calls is None:
+                    out.append(
+                        _attach_reasoning_content(
+                            {"role": "assistant", "content": _strip_reasoning_blocks(getattr(m, "content", "") or "")},
+                            m,
+                        )
+                    )
+                    continue
                 api_tool_calls = []
                 gemini_fc = gemini_openai_compat_client(model)
                 for idx, tc in enumerate(tool_calls):
@@ -439,16 +512,29 @@ def build_llm_messages(
                     api_tool_calls.append(entry)
                 if api_tool_calls:
                     out.append(
-                        {
-                            "role": "assistant",
-                            "content": _strip_reasoning_blocks(getattr(m, "content", "") or ""),
-                            "tool_calls": api_tool_calls,
-                        }
+                        _attach_reasoning_content(
+                            {
+                                "role": "assistant",
+                                "content": _strip_reasoning_blocks(getattr(m, "content", "") or ""),
+                                "tool_calls": api_tool_calls,
+                            },
+                            m,
+                        )
                     )
                 else:
-                    out.append({"role": "assistant", "content": _strip_reasoning_blocks(getattr(m, "content", "") or "")})
+                    out.append(
+                        _attach_reasoning_content(
+                            {"role": "assistant", "content": _strip_reasoning_blocks(getattr(m, "content", "") or "")},
+                            m,
+                        )
+                    )
             else:
-                out.append({"role": "assistant", "content": _strip_reasoning_blocks(getattr(m, "content", "") or "")})
+                out.append(
+                    _attach_reasoning_content(
+                        {"role": "assistant", "content": _strip_reasoning_blocks(getattr(m, "content", "") or "")},
+                        m,
+                    )
+                )
             continue
 
         if role == "tool":

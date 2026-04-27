@@ -16,4 +16,5 @@
 
 ## 主要事项：
 - 工具失败时先报告 `error_code` 与原因，再给下一步。
+- Windows（PowerShell/CMD）如遇部分命令“空输出/乱码”，优先尝试 `chcp 65001 > nul && <command>`。
 - 禁止伪造工具结果。

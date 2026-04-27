@@ -276,6 +276,17 @@ def include_model_mgmt_routes(
             mode_save = mode_raw
         model = payload.get("model")
         base_url = payload.get("base_url")
+        thinking_mode_enabled = payload.get("thinking_mode_enabled")
+        if thinking_mode_enabled is None:
+            think_enabled: bool | None = None
+        else:
+            think_enabled = bool(thinking_mode_enabled)
+        reasoning_effort_raw = payload.get("reasoning_effort")
+        reasoning_effort: str | None = None
+        if reasoning_effort_raw is not None:
+            reasoning_effort = str(reasoning_effort_raw or "").strip().lower()
+            if reasoning_effort not in ("", "low", "medium", "high"):
+                raise HTTPException(status_code=400, detail="invalid_reasoning_effort")
         model_s = str(model).strip() if model is not None else str(prof.get("model") or "").strip()
         bu_s = str(base_url).strip() if base_url is not None else str(prof.get("base_url") or "").strip()
         store.update_llm_profile(
@@ -284,6 +295,8 @@ def include_model_mgmt_routes(
             mode=mode_save,
             model=model_s or None,
             base_url=bu_s or None,
+            thinking_mode_enabled=think_enabled,
+            reasoning_effort=reasoning_effort,
         )
         store.set_setting(_active_key(ctx), pid)
         return {"ok": True, "profile": store.get_llm_profile(pid)}

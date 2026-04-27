@@ -196,14 +196,57 @@ class McpProcessRuntime:
         req = {"jsonrpc": "2.0", "id": rid, "method": str(method), "params": params or {}}
         p.stdin.write(json.dumps(req, ensure_ascii=False) + "\n")
         p.stdin.flush()
+        skipped: list[str] = []
+        max_skip = 60
         while True:
             line = p.stdout.readline()
             if not line:
-                return {"ok": False, "error_code": "mcp_runtime_empty_response", "error": "empty_response"}
+                # Process may have exited early (common when runtime deps are missing).
+                rc = None
+                try:
+                    rc = p.poll()
+                except Exception:
+                    rc = None
+                err_tail = ""
+                if rc is not None and p.stderr is not None:
+                    try:
+                        err_tail = (p.stderr.read() or "")[-2000:]
+                    except Exception:
+                        err_tail = ""
+                out: dict[str, Any] = {"ok": False, "error_code": "mcp_runtime_empty_response", "error": "empty_response"}
+                if rc is not None:
+                    out["exit_code"] = int(rc)
+                if err_tail.strip():
+                    out["stderr_tail"] = err_tail.strip()
+                return out
+            s = str(line).strip()
+            if not s:
+                # Some servers emit blank lines; ignore.
+                continue
+            # Some MCP servers print logs/banner to stdout. Skip non-JSON lines until a JSON-RPC response arrives.
+            if not (s.startswith("{") or s.startswith("[")):
+                skipped.append(s[:200])
+                if len(skipped) > max_skip:
+                    return {
+                        "ok": False,
+                        "error_code": "mcp_runtime_protocol_mismatch",
+                        "error": "non_jsonrpc_response",
+                        "skipped": skipped[-12:],
+                    }
+                continue
             try:
-                obj = json.loads(line)
+                obj = json.loads(s)
             except Exception as exc:
-                return {"ok": False, "error_code": "mcp_runtime_bad_json", "error": str(exc)}
+                # If a server mixes JSON with log fragments, keep skipping until we see a clean JSON object.
+                skipped.append(s[:200])
+                if len(skipped) > max_skip:
+                    return {
+                        "ok": False,
+                        "error_code": "mcp_runtime_bad_json",
+                        "error": str(exc),
+                        "skipped": skipped[-12:],
+                    }
+                continue
             if not isinstance(obj, dict):
                 return {"ok": False, "error_code": "mcp_runtime_invalid_payload", "error": "response_not_object"}
             if "jsonrpc" not in obj and "id" not in obj:

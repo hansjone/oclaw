@@ -912,6 +912,10 @@ class SqliteStore:
                 conn.execute("ALTER TABLE llm_profile ADD COLUMN hide_in_ui INTEGER NOT NULL DEFAULT 0")
             if "owner_user_id" not in prof_cols:
                 conn.execute("ALTER TABLE llm_profile ADD COLUMN owner_user_id TEXT")
+            if "thinking_mode_enabled" not in prof_cols:
+                conn.execute("ALTER TABLE llm_profile ADD COLUMN thinking_mode_enabled INTEGER NOT NULL DEFAULT 0")
+            if "reasoning_effort" not in prof_cols:
+                conn.execute("ALTER TABLE llm_profile ADD COLUMN reasoning_effort TEXT")
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS llm_profile_user_grant (
@@ -2349,8 +2353,8 @@ class SqliteStore:
             conn.execute(
                 """
                 INSERT INTO llm_profile
-                    (id, name, mode, model, base_url, api_key, updated_at, is_builtin, hide_in_ui, owner_user_id)
-                VALUES (?, ?, ?, ?, ?, NULL, ?, 0, 0, ?)
+                    (id, name, mode, model, base_url, api_key, updated_at, is_builtin, hide_in_ui, owner_user_id, thinking_mode_enabled, reasoning_effort)
+                VALUES (?, ?, ?, ?, ?, NULL, ?, 0, 0, ?, 0, '')
                 """,
                 (profile_id, name, mode, model, base_url, ts, own),
             )
@@ -2393,7 +2397,9 @@ class SqliteStore:
                 SELECT id, name, mode, model, base_url, api_key, updated_at,
                        COALESCE(is_builtin, 0) AS is_builtin,
                        COALESCE(hide_in_ui, 0) AS hide_in_ui,
-                       owner_user_id
+                       owner_user_id,
+                       COALESCE(thinking_mode_enabled, 0) AS thinking_mode_enabled,
+                       COALESCE(reasoning_effort, '') AS reasoning_effort
                 FROM llm_profile
                 {where_sql}
                 ORDER BY COALESCE(is_builtin, 0) DESC, COALESCE(hide_in_ui, 0) ASC, updated_at DESC
@@ -2465,6 +2471,8 @@ class SqliteStore:
                     "is_builtin": is_builtin,
                     "hide_in_ui": bool(int(r["hide_in_ui"] or 0)),
                     "owner_user_id": own,
+                    "thinking_mode_enabled": bool(int(r["thinking_mode_enabled"] or 0)),
+                    "reasoning_effort": str(r["reasoning_effort"] or "").strip().lower(),
                     "mutable": mutable,
                     "visibility_reason": vis,
                 }
@@ -2478,7 +2486,9 @@ class SqliteStore:
                 SELECT id, name, mode, model, base_url, api_key, updated_at,
                        COALESCE(is_builtin, 0) AS is_builtin,
                        COALESCE(hide_in_ui, 0) AS hide_in_ui,
-                       owner_user_id
+                       owner_user_id,
+                       COALESCE(thinking_mode_enabled, 0) AS thinking_mode_enabled,
+                       COALESCE(reasoning_effort, '') AS reasoning_effort
                 FROM llm_profile
                 WHERE id = ?
                 """,
@@ -2497,6 +2507,8 @@ class SqliteStore:
             "is_builtin": bool(int(r["is_builtin"] or 0)),
             "hide_in_ui": bool(int(r["hide_in_ui"] or 0)),
             "owner_user_id": str(r["owner_user_id"] or "").strip() if r["owner_user_id"] is not None else "",
+            "thinking_mode_enabled": bool(int(r["thinking_mode_enabled"] or 0)),
+            "reasoning_effort": str(r["reasoning_effort"] or "").strip().lower(),
         }
 
     def update_llm_profile(
@@ -2506,16 +2518,26 @@ class SqliteStore:
         mode: str,
         model: str | None,
         base_url: str | None,
+        *,
+        thinking_mode_enabled: bool | None = None,
+        reasoning_effort: str | None = None,
     ) -> None:
         ts = utc_now_iso()
+        think_val = None if thinking_mode_enabled is None else (1 if bool(thinking_mode_enabled) else 0)
+        eff = None if reasoning_effort is None else str(reasoning_effort or "").strip().lower()
+        if eff is not None and eff not in ("", "low", "medium", "high"):
+            eff = ""
         with self._connect() as conn:
             conn.execute(
                 """
                 UPDATE llm_profile
-                SET name = ?, mode = ?, model = ?, base_url = ?, updated_at = ?
+                SET name = ?, mode = ?, model = ?, base_url = ?,
+                    thinking_mode_enabled = COALESCE(?, thinking_mode_enabled),
+                    reasoning_effort = COALESCE(?, reasoning_effort),
+                    updated_at = ?
                 WHERE id = ?
                 """,
-                (name, mode, model, base_url, ts, profile_id),
+                (name, mode, model, base_url, think_val, eff, ts, profile_id),
             )
 
     def delete_llm_profile(self, profile_id: str) -> None:

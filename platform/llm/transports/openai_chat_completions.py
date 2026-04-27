@@ -30,6 +30,47 @@ def _is_minimax_compat(model: str | None, base_url: str | None) -> bool:
     return ("minimax" in m) or ("minimax" in b)
 
 
+def _truthy_env(name: str, default: str = "") -> bool:
+    v = os.getenv(name)
+    if v is None:
+        v = default
+    return str(v or "").strip().lower() in ("1", "true", "yes", "on")
+
+
+def _should_disable_thinking(base_url: str | None) -> bool:
+    # Some OpenAI-compatible gateways enable "thinking" mode and require replaying
+    # reasoning_content in subsequent turns. When the client does not preserve it,
+    # the gateway returns HTTP 400. Allow disabling thinking at request level.
+    #
+    # Safety: do NOT send unknown fields to official OpenAI endpoints by default.
+    if _truthy_env("AIA_LLM_THINKING_FORCE_DISABLED", "0"):
+        return True
+    if _truthy_env("AIA_LLM_THINKING_FORCE_ENABLED", "0"):
+        return False
+    b = str(base_url or "").strip().lower()
+    if not b:
+        return False
+    if "api.openai.com" in b:
+        return False
+    # Default-on for non-official OpenAI-compatible gateways.
+    return _truthy_env("AIA_LLM_THINKING_DISABLED", "1")
+
+
+def _should_enable_thinking(base_url: str | None, *, thinking_mode_enabled: bool = False) -> bool:
+    if _truthy_env("AIA_LLM_THINKING_FORCE_ENABLED", "0"):
+        return True
+    if _truthy_env("AIA_LLM_THINKING_FORCE_DISABLED", "0"):
+        return False
+    if not bool(thinking_mode_enabled):
+        return False
+    b = str(base_url or "").strip().lower()
+    if not b:
+        return False
+    if "api.openai.com" in b:
+        return False
+    return True
+
+
 def _find_thought_signature_in_obj(o: Any) -> str | None:
     if isinstance(o, dict):
         for k in ("thought_signature", "thoughtSignature"):
@@ -102,10 +143,15 @@ class OpenAIChatModel(ChatModel):
         model: str | None = None,
         api_key: str | None = None,
         base_url: str | None = None,
+        thinking_mode_enabled: bool = False,
+        reasoning_effort: str | None = None,
     ):
         self.model = model or os.getenv("OPENAI_MODEL") or "gpt-4o-mini"
         self.api_key = api_key or os.getenv("OPENAI_API_KEY")
         self.base_url = base_url or os.getenv("OPENAI_BASE_URL")
+        self.thinking_mode_enabled = bool(thinking_mode_enabled)
+        eff = str(reasoning_effort or "").strip().lower()
+        self.reasoning_effort = eff if eff in ("low", "medium", "high") else ""
 
         if not self.api_key:
             raise RuntimeError("未设置 OPENAI_API_KEY，无法使用 OpenAI 模型")
@@ -177,6 +223,19 @@ class OpenAIChatModel(ChatModel):
                 cleaned_msgs.append(m)
 
         kwargs: dict[str, Any] = {"model": self.model, "messages": cleaned_msgs, "stream": stream}
+        if _should_enable_thinking(self.base_url, thinking_mode_enabled=bool(getattr(self, "thinking_mode_enabled", False))):
+            extra_body = kwargs.get("extra_body") if isinstance(kwargs.get("extra_body"), dict) else {}
+            extra_body = dict(extra_body)
+            extra_body["thinking"] = {"type": "enabled"}
+            kwargs["extra_body"] = extra_body
+            eff = str(getattr(self, "reasoning_effort", "") or "").strip().lower()
+            if eff in ("low", "medium", "high"):
+                kwargs["reasoning_effort"] = eff
+        elif _should_disable_thinking(self.base_url):
+            extra_body = kwargs.get("extra_body") if isinstance(kwargs.get("extra_body"), dict) else {}
+            extra_body = dict(extra_body)
+            extra_body["thinking"] = {"type": "disabled"}
+            kwargs["extra_body"] = extra_body
         if use_tools:
             try:
                 from oclaw.platform.config.paths import db_path
@@ -195,7 +254,20 @@ class OpenAIChatModel(ChatModel):
                 kwargs["tools"] = plan.tools_wired
             except Exception:
                 kwargs["tools"] = tools
-        return self._client.chat.completions.create(**kwargs)
+        try:
+            return self._client.chat.completions.create(**kwargs)
+        except Exception as exc:
+            msg = str(exc)
+            if "reasoning_content" in msg and "thinking mode" in msg and "must be passed back" in msg:
+                # Provider requires replaying assistant.reasoning_content in thinking mode.
+                # As a safety fallback, force-disable thinking and retry once.
+                extra_body = kwargs.get("extra_body") if isinstance(kwargs.get("extra_body"), dict) else {}
+                extra_body = dict(extra_body)
+                extra_body["thinking"] = {"type": "disabled"}
+                kwargs["extra_body"] = extra_body
+                kwargs.pop("reasoning_effort", None)
+                return self._client.chat.completions.create(**kwargs)
+            raise
 
     def _llm_response_from_completion(self, completion: Any, *, on_token: Optional[Callable[[str], None]]) -> LLMResponse:
         msg = completion.choices[0].message

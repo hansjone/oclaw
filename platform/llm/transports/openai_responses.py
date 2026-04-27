@@ -104,10 +104,21 @@ def parse_openai_responses_stream_events(
 class OpenAIResponsesModel(ChatModel):
     """OpenAI Responses API transport (OpenAI-compatible gateways may implement this surface)."""
 
-    def __init__(self, *, model: str | None = None, api_key: str | None = None, base_url: str | None = None):
+    def __init__(
+        self,
+        *,
+        model: str | None = None,
+        api_key: str | None = None,
+        base_url: str | None = None,
+        thinking_mode_enabled: bool = False,
+        reasoning_effort: str | None = None,
+    ):
         self.model = (model or os.getenv("OPENAI_MODEL") or "gpt-4o-mini").strip()
         self.api_key = (api_key or os.getenv("OPENAI_API_KEY") or "").strip()
         self.base_url = (base_url or os.getenv("OPENAI_BASE_URL") or "").strip() or None
+        self.thinking_mode_enabled = bool(thinking_mode_enabled)
+        eff = str(reasoning_effort or "").strip().lower()
+        self.reasoning_effort = eff if eff in ("low", "medium", "high") else ""
         if not self.api_key:
             raise RuntimeError("未设置 OPENAI_API_KEY，无法使用 OpenAI Responses")
         try:
@@ -188,9 +199,41 @@ class OpenAIResponsesModel(ChatModel):
         norm = self._normalize_messages(messages)
         # OpenAI-compatible gateways differ: some require input={"messages":[...]} with role=user only.
         stream_errors: list[str] = []
+        b = str(self.base_url or "").strip().lower()
+        force_disable = str(os.getenv("AIA_LLM_THINKING_FORCE_DISABLED") or "").strip().lower() in ("1", "true", "yes", "on")
+        force_enable = str(os.getenv("AIA_LLM_THINKING_FORCE_ENABLED") or "").strip().lower() in ("1", "true", "yes", "on")
+        mode_enabled = bool(getattr(self, "thinking_mode_enabled", False))
+        extra_body: dict[str, Any] = {}
+        if b and ("api.openai.com" not in b):
+            if force_disable:
+                extra_body["thinking"] = {"type": "disabled"}
+            elif force_enable or mode_enabled:
+                extra_body["thinking"] = {"type": "enabled"}
+            else:
+                # Default: disable thinking for non-official gateways unless explicitly enabled.
+                if str(os.getenv("AIA_LLM_THINKING_DISABLED") or "1").strip().lower() in ("1", "true", "yes", "on"):
+                    extra_body["thinking"] = {"type": "disabled"}
+        thinking = {"extra_body": extra_body} if extra_body else {}
+        reasoning_effort = str(getattr(self, "reasoning_effort", "") or "").strip().lower()
+        if reasoning_effort not in ("low", "medium", "high"):
+            reasoning_effort = ""
         stream_variants: list[dict[str, Any]] = [
-            {"model": self.model, "input": {"messages": norm}, "tools": tools or None, "stream": True},
-            {"model": self.model, "input": norm, "tools": tools or None, "stream": True},
+            {
+                **thinking,
+                **({"reasoning_effort": reasoning_effort} if reasoning_effort else {}),
+                "model": self.model,
+                "input": {"messages": norm},
+                "tools": tools or None,
+                "stream": True,
+            },
+            {
+                **thinking,
+                **({"reasoning_effort": reasoning_effort} if reasoning_effort else {}),
+                "model": self.model,
+                "input": norm,
+                "tools": tools or None,
+                "stream": True,
+            },
         ]
         try:
             for payload in stream_variants:
@@ -205,15 +248,48 @@ class OpenAIResponsesModel(ChatModel):
                                 on_token(text)
                     return LLMResponse(content=text, tool_calls=tool_calls)
                 except Exception as exc:
-                    stream_errors.append(str(exc))
+                    emsg = str(exc)
+                    # Fallback: provider thinking-mode replay contract.
+                    if "reasoning_content" in emsg and "thinking mode" in emsg and "must be passed back" in emsg:
+                        try:
+                            forced = dict(payload)
+                            eb = forced.get("extra_body") if isinstance(forced.get("extra_body"), dict) else {}
+                            eb = dict(eb)
+                            eb["thinking"] = {"type": "disabled"}
+                            forced["extra_body"] = eb
+                            forced.pop("reasoning_effort", None)
+                            stream = self._client.responses.create(**forced)
+                            text, tool_calls, final_resp = parse_openai_responses_stream_events(stream, on_token=on_token)
+                            if (not text.strip()) and final_resp:
+                                ot = final_resp.get("output_text")
+                                if isinstance(ot, str) and ot.strip():
+                                    text = ot
+                                    if on_token:
+                                        on_token(text)
+                            return LLMResponse(content=text, tool_calls=tool_calls)
+                        except Exception:
+                            pass
+                    stream_errors.append(emsg)
                     continue
             raise RuntimeError("; ".join(stream_errors) or "responses_stream_all_variants_failed")
         except Exception as exc:
             logger.info("responses stream failed; fallback to non-stream (%s)", exc)
             nonstream_errors: list[str] = []
             for payload in (
-                {"model": self.model, "input": {"messages": norm}, "tools": tools or None},
-                {"model": self.model, "input": norm, "tools": tools or None},
+                {
+                    **thinking,
+                    **({"reasoning_effort": reasoning_effort} if reasoning_effort else {}),
+                    "model": self.model,
+                    "input": {"messages": norm},
+                    "tools": tools or None,
+                },
+                {
+                    **thinking,
+                    **({"reasoning_effort": reasoning_effort} if reasoning_effort else {}),
+                    "model": self.model,
+                    "input": norm,
+                    "tools": tools or None,
+                },
             ):
                 try:
                     resp = self._client.responses.create(**payload)
@@ -224,7 +300,25 @@ class OpenAIResponsesModel(ChatModel):
                         on_token(text)
                     return LLMResponse(content=text, tool_calls=tool_calls)
                 except Exception as e2:
-                    nonstream_errors.append(str(e2))
+                    emsg2 = str(e2)
+                    if "reasoning_content" in emsg2 and "thinking mode" in emsg2 and "must be passed back" in emsg2:
+                        try:
+                            forced = dict(payload)
+                            eb = forced.get("extra_body") if isinstance(forced.get("extra_body"), dict) else {}
+                            eb = dict(eb)
+                            eb["thinking"] = {"type": "disabled"}
+                            forced["extra_body"] = eb
+                            forced.pop("reasoning_effort", None)
+                            resp = self._client.responses.create(**forced)
+                            d = _as_dict(resp) or {}
+                            text = str(d.get("output_text") or "")
+                            tool_calls = _collect_tool_calls_from_response_dict(d)
+                            if on_token and text:
+                                on_token(text)
+                            return LLMResponse(content=text, tool_calls=tool_calls)
+                        except Exception:
+                            pass
+                    nonstream_errors.append(emsg2)
                     continue
             raise RuntimeError(
                 "openai_responses_request_failed: "

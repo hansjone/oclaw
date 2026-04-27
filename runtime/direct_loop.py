@@ -807,6 +807,7 @@ def _persist_assistant_step(
     assistant_text: str,
     reasoning_text: str,
     llm_tool_calls: list[Any],
+    thinking_mode_enabled: bool = False,
 ) -> _LoopStepResult:
     stored_tool_calls = []
     for tc in llm_tool_calls:
@@ -819,19 +820,18 @@ def _persist_assistant_step(
             }
         )
 
-    reasoning_chunks, assistant_body = _split_reasoning_and_body(
-        assistant_text,
-        explicit_reasoning=reasoning_text,
-    )
-    for idx, chunk in enumerate(reasoning_chunks):
-        store.add_message(
-            session_id=session_id,
-            role="assistant",
-            content=chunk,
-            turn_uuid=turn_uuid,
-            event_type="reasoning",
-            event_payload={"chunk_index": int(idx), "chunk_count": len(reasoning_chunks)},
-        )
+    reasoning_chunks, assistant_body = _split_reasoning_and_body(assistant_text, explicit_reasoning=reasoning_text)
+    reasoning_full = "\n".join([str(x or "").strip() for x in reasoning_chunks if str(x or "").strip()]).strip()
+    if not thinking_mode_enabled:
+        for idx, chunk in enumerate(reasoning_chunks):
+            store.add_message(
+                session_id=session_id,
+                role="assistant",
+                content=chunk,
+                turn_uuid=turn_uuid,
+                event_type="reasoning",
+                event_payload={"chunk_index": int(idx), "chunk_count": len(reasoning_chunks)},
+            )
     assistant_row = store.add_message(
         session_id=session_id,
         role="assistant",
@@ -839,6 +839,7 @@ def _persist_assistant_step(
         tool_calls=stored_tool_calls or None,
         turn_uuid=turn_uuid,
         event_type="tool_call" if stored_tool_calls else "assistant_text",
+        event_payload=({"reasoning_content": reasoning_full} if (thinking_mode_enabled and reasoning_full) else None),
     )
     return _LoopStepResult(
         assistant_text=assistant_body,
@@ -1002,6 +1003,7 @@ def run_oclaw_direct_loop(
             assistant_text=assistant_text,
             reasoning_text=reasoning_text,
             llm_tool_calls=llm_tool_calls,
+            thinking_mode_enabled=bool(getattr(model, "thinking_mode_enabled", False)),
         )
         final_text = step.assistant_text
         if not step.llm_tool_calls:
@@ -1082,6 +1084,7 @@ def run_oclaw_direct_loop(
             assistant_text=str(getattr(resp, "content", "") or ""),
             reasoning_text=str(getattr(resp, "reasoning_content", "") or ""),
             llm_tool_calls=[],
+            thinking_mode_enabled=bool(getattr(model, "thinking_mode_enabled", False)),
         )
         final_text = step.assistant_text
 

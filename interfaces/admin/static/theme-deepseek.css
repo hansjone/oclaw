@@ -471,6 +471,7 @@ body.theme-ds-body .card {
 
 /* 与 .chat-avatar-slot 48px + .chat-row gap 10px 一致 */
 .chat-msg-col--assistant {
+  width: min(max(0px, calc(50% + 2cm - 58px)), 100%);
   max-width: min(max(0px, calc(50% + 2cm - 58px)), 100%);
 }
 
@@ -570,6 +571,7 @@ body.theme-ds-body .card {
 
 .chat-msg--assistant {
   align-self: flex-start;
+  width: 100%;
   background: rgba(255, 255, 255, 0.04);
   border: 1px solid var(--ds-border, rgba(255, 255, 255, 0.08));
 }

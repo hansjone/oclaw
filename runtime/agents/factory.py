@@ -90,6 +90,24 @@ def _build_executor_components(
         m = (raw or "").strip().lower()
         return m if m in ("openai", "openai_responses", "anthropic", "ollama", "rule", "google") else "rule"
 
+    def _profile_thinking_config(profile: dict[str, Any] | None) -> tuple[bool, str]:
+        if not isinstance(profile, dict):
+            return False, ""
+        think = bool(profile.get("thinking_mode_enabled"))
+        eff = str(profile.get("reasoning_effort") or "").strip().lower()
+        if eff not in ("", "low", "medium", "high"):
+            eff = ""
+        return think, eff
+
+    def _apply_profile_thinking(model_obj: object, profile: dict[str, Any] | None) -> object:
+        think, eff = _profile_thinking_config(profile)
+        try:
+            setattr(model_obj, "thinking_mode_enabled", think)
+            setattr(model_obj, "reasoning_effort", eff)
+        except Exception:
+            pass
+        return model_obj
+
     def _build_chat_model_for_profile(
         target_profile_id: str | None,
         *,
@@ -123,7 +141,7 @@ def _build_executor_components(
         if mode == "openai_responses":
             if not api_key:
                 return StaticTextChatModel(_openai_missing_key_user_message(lang)), mode
-            return OpenAIResponsesModel(model=model_name, api_key=api_key, base_url=bu or None), mode
+            return _apply_profile_thinking(OpenAIResponsesModel(model=model_name, api_key=api_key, base_url=bu or None), profile), mode
         if mode == "anthropic":
             akey = (
                 (openai_api_key if allow_runtime_overrides else None)
@@ -155,10 +173,10 @@ def _build_executor_components(
         if mode == "ollama":
             ollama_base = (bu or DEFAULT_OLLAMA_BASE_URL).strip() or DEFAULT_OLLAMA_BASE_URL
             ollama_key = api_key or _OLLAMA_DUMMY_KEY
-            return OpenAIChatModel(model=model_name, api_key=ollama_key, base_url=ollama_base), mode
+            return _apply_profile_thinking(OpenAIChatModel(model=model_name, api_key=ollama_key, base_url=ollama_base), profile), mode
         if not api_key:
             return StaticTextChatModel(_openai_missing_key_user_message(lang)), mode
-        return OpenAIChatModel(model=model_name, api_key=api_key, base_url=bu or None), mode
+        return _apply_profile_thinking(OpenAIChatModel(model=model_name, api_key=api_key, base_url=bu or None), profile), mode
 
     valid_profile_ids = {p["id"] for p in store.list_llm_profiles(visible_only=True, **list_kw)}
     if active_pid and active_pid not in valid_profile_ids:
