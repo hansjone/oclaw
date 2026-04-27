@@ -5,7 +5,7 @@ import json
 from typing import Any
 
 from oclaw.runtime.agent_context import build_role_system_context
-from oclaw.runtime.workspaces.experts import discover_specialist_ids_from_workspaces
+from oclaw.runtime.workspaces.experts import specialist_registry_snapshot
 
 
 SpecialistId = str
@@ -47,16 +47,24 @@ SPECIALISTS: dict[SpecialistId, SpecialistConfig] = {
 }
 
 def discover_specialist_ids() -> tuple[SpecialistId, ...]:
-    return discover_specialist_ids_from_workspaces(base_order=("generalist", "ops", "image", "memory"))
+    rows = specialist_registry_snapshot(base_order=("generalist", "ops", "image", "memory"))
+    return tuple(str(x.get("id") or "").strip().lower() for x in rows if str(x.get("id") or "").strip())
 
 
-SPECIALIST_IDS: tuple[SpecialistId, ...] = discover_specialist_ids()
-AGENT_ROLE_IDS: tuple[AgentRoleId, ...] = (MANAGER_AGENT_ID, *SPECIALIST_IDS)
+def specialist_ids() -> tuple[SpecialistId, ...]:
+    return discover_specialist_ids()
+
+
+def agent_role_ids() -> tuple[AgentRoleId, ...]:
+    return (MANAGER_AGENT_ID, *specialist_ids())
 
 
 def expert_name_for_specialist(specialist_id: SpecialistId) -> str:
     sid = normalize_specialist_id(specialist_id)
-    cfg = SPECIALISTS.get(sid) or SPECIALISTS["generalist"]
+    cfg = SPECIALISTS.get(sid)
+    if cfg is None:
+        # Unknown dynamic specialists default to least-privilege tools.
+        return "generalist"
     return cfg.expert_name
 
 
@@ -74,7 +82,7 @@ def default_system_prefix_for_specialist(specialist_id: SpecialistId, lang: str 
 
 def model_role_for_specialist(specialist_id: SpecialistId) -> AgentRoleId:
     sid = normalize_specialist_id(specialist_id)
-    if sid in SPECIALIST_IDS:
+    if sid in specialist_ids():
         return sid
     return "generalist"
 
@@ -89,7 +97,7 @@ def normalize_specialist_id(specialist_id: SpecialistId | None) -> SpecialistId:
 
 
 def empty_agent_profile_bindings() -> dict[AgentRoleId, str]:
-    return {rid: "" for rid in AGENT_ROLE_IDS}
+    return {rid: "" for rid in agent_role_ids()}
 
 
 def parse_agent_profile_bindings(raw: str | None) -> dict[AgentRoleId, str]:
@@ -103,7 +111,7 @@ def parse_agent_profile_bindings(raw: str | None) -> dict[AgentRoleId, str]:
         return out
     if not isinstance(obj, dict):
         return out
-    for rid in AGENT_ROLE_IDS:
+    for rid in agent_role_ids():
         v = obj.get(rid)
         if v is None:
             continue
@@ -114,7 +122,7 @@ def parse_agent_profile_bindings(raw: str | None) -> dict[AgentRoleId, str]:
 
 def dump_agent_profile_bindings(bindings: dict[AgentRoleId, Any]) -> str:
     raw = {}
-    for rid in AGENT_ROLE_IDS:
+    for rid in agent_role_ids():
         v = bindings.get(rid) if isinstance(bindings, dict) else None
         raw[rid] = str(v).strip() if v is not None else ""
     return json.dumps(raw, ensure_ascii=False)
@@ -122,15 +130,15 @@ def dump_agent_profile_bindings(bindings: dict[AgentRoleId, Any]) -> str:
 
 __all__ = [
     "AGENT_PROFILE_BINDINGS_KEY",
-    "AGENT_ROLE_IDS",
     "AgentRoleId",
+    "agent_role_ids",
     "dump_agent_profile_bindings",
     "empty_agent_profile_bindings",
     "MANAGER_AGENT_ID",
     "SpecialistConfig",
     "SpecialistId",
     "SPECIALISTS",
-    "SPECIALIST_IDS",
+    "specialist_ids",
     "default_system_prefix_for_specialist",
     "default_tool_tags_for_specialist",
     "discover_specialist_ids",

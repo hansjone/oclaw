@@ -15,7 +15,7 @@ from fastapi.responses import Response
 from oclaw.runtime.agents.factory import DEFAULT_OLLAMA_BASE_URL, DEFAULT_OLLAMA_MODEL
 from oclaw.runtime.agents.specialists import (
     AGENT_PROFILE_BINDINGS_KEY,
-    AGENT_ROLE_IDS,
+    agent_role_ids,
     dump_agent_profile_bindings,
     parse_agent_profile_bindings,
 )
@@ -173,7 +173,7 @@ def include_model_mgmt_routes(
             "ui_lang": ui_lang,
             "builtin_ollama_profile_id": LLM_BUILTIN_OLLAMA_PROFILE_ID,
             "has_openai_api_key_env": bool((os.getenv("OPENAI_API_KEY") or "").strip()),
-            "role_ids": list(AGENT_ROLE_IDS),
+            "role_ids": list(agent_role_ids()),
             "profile_secret": secret,
             "can_manage_llm_grants": _can_manage_llm_grants(ctx),
             # 便于核对「浏览器连的是哪台网关、网关读的是哪个库文件」
@@ -214,7 +214,7 @@ def include_model_mgmt_routes(
         if not isinstance(raw, dict):
             raise HTTPException(status_code=400, detail="bindings_object_required")
         cur = parse_agent_profile_bindings(store.get_setting(_bindings_key(ctx)))
-        for rid in AGENT_ROLE_IDS:
+        for rid in agent_role_ids():
             v = raw.get(rid)
             if v is None:
                 continue

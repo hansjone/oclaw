@@ -11,9 +11,9 @@ from oclaw.runtime.agents.specialist_agent import SpecialistProfile
 from oclaw.runtime.agents.specialists import (
     AGENT_PROFILE_BINDINGS_KEY,
     normalize_specialist_id,
-    AGENT_ROLE_IDS,
+    agent_role_ids,
     MANAGER_AGENT_ID,
-    SPECIALIST_IDS,
+    specialist_ids,
     default_system_prefix_for_specialist,
     default_tool_tags_for_specialist,
     dump_agent_profile_bindings,
@@ -167,7 +167,7 @@ def _build_executor_components(
 
     raw_bindings = parse_agent_profile_bindings(store.get_setting(bindings_key))
     normalized_bindings: dict[str, str] = {}
-    for rid in AGENT_ROLE_IDS:
+    for rid in agent_role_ids():
         pid = (raw_bindings.get(rid) or "").strip()
         normalized_bindings[rid] = pid if pid in valid_profile_ids else ""
     if dump_agent_profile_bindings(normalized_bindings) != dump_agent_profile_bindings(raw_bindings):
@@ -182,7 +182,7 @@ def _build_executor_components(
     manager_model, manager_mode = _pick_model_for_role(MANAGER_AGENT_ID)
     specialist_models: dict[str, object] = {}
     specialist_modes: dict[str, str] = {}
-    for sid in SPECIALIST_IDS:
+    for sid in specialist_ids():
         m, md = _pick_model_for_role(sid)
         specialist_models[sid] = m
         specialist_modes[sid] = md
@@ -219,7 +219,7 @@ def _build_executor_components(
             system_prefix=default_system_prefix_for_specialist(sid, lang),
             tool_tags=default_tool_tags_for_specialist(sid),
         )
-        for sid in SPECIALIST_IDS
+        for sid in specialist_ids()
     }
     return (
         base_agent,
@@ -354,7 +354,7 @@ def build_gateway_executors(
         path_policy_user_id=path_policy_user_id,
     )
     specialists: dict[str, Any] = {}
-    for sid in SPECIALIST_IDS:
+    for sid in specialist_ids():
         specialists[sid] = build_gateway_executor(
             store,
             lang=lang,

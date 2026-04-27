@@ -15,7 +15,7 @@ from fastapi import APIRouter, Body, File, Header, HTTPException, Query, UploadF
 from fastapi.responses import Response, StreamingResponse
 
 from oclaw.runtime.operations.mcp_env import apply_gateway_mcp_env_to_os
-from oclaw.runtime.agents.specialists import SPECIALIST_IDS
+from oclaw.runtime.agents.specialists import specialist_ids
 from oclaw.runtime.agents.factory import build_gateway_executor
 from oclaw.runtime.chat.agent import GenerationInterrupted
 from oclaw.platform.config.paths import db_path
@@ -101,7 +101,8 @@ _DISPATCH_REASON_LABELS: dict[str, dict[str, str]] = {
 }
 _DISPATCH_REASON_LABELS_SETTING_KEY = "AIA_DISPATCH_REASON_LABELS_JSON"
 _SPECIALIST_FLAGS_SETTING_KEY = "AIA_CHAT_SPECIALIST_FLAGS_JSON"
-_CHAT_SPECIALIST_IDS: tuple[str, ...] = tuple(str(x) for x in SPECIALIST_IDS if str(x).strip())
+def _chat_specialist_ids() -> tuple[str, ...]:
+    return tuple(str(x) for x in specialist_ids() if str(x).strip())
 DEFAULT_TABULAR_SQL_TIMEOUT_MS = 8_000
 DEFAULT_TABULAR_TOOL_MODE_MIN_ROWS = 5_000
 DEFAULT_TEXT_INLINE_MAX_CHARS = 12_000
@@ -326,7 +327,7 @@ def _normalize_memory_mode(payload: dict[str, Any] | None) -> str:
 
 
 def _specialist_flags_with_overrides(store: SqliteStore) -> dict[str, bool]:
-    flags: dict[str, bool] = {sid: True for sid in _CHAT_SPECIALIST_IDS}
+    flags: dict[str, bool] = {sid: True for sid in _chat_specialist_ids()}
     raw = str(store.get_setting(_SPECIALIST_FLAGS_SETTING_KEY) or "").strip()
     if not raw:
         return flags
@@ -336,7 +337,7 @@ def _specialist_flags_with_overrides(store: SqliteStore) -> dict[str, bool]:
         return flags
     if not isinstance(obj, dict):
         return flags
-    for sid in _CHAT_SPECIALIST_IDS:
+    for sid in _chat_specialist_ids():
         if sid in obj:
             flags[sid] = bool(obj.get(sid))
     # keep generalist always on for safety
@@ -1180,7 +1181,7 @@ def include_chat_routes(router: APIRouter, *, resolve_auth: Callable[[SqliteStor
         ctx = resolve_auth(store, authorization)
         _require_administrator_chat_viewer(ctx)
         flags = _specialist_flags_with_overrides(store)
-        available = [sid for sid in _CHAT_SPECIALIST_IDS if bool(flags.get(sid, True))]
+        available = [sid for sid in _chat_specialist_ids() if bool(flags.get(sid, True))]
         return {
             "ok": True,
             "setting_key": _SPECIALIST_FLAGS_SETTING_KEY,
@@ -1205,7 +1206,7 @@ def include_chat_routes(router: APIRouter, *, resolve_auth: Callable[[SqliteStor
         if not isinstance(raw_flags, dict):
             raise HTTPException(status_code=400, detail="invalid_flags")
         clean: dict[str, bool] = {}
-        for sid in _CHAT_SPECIALIST_IDS:
+        for sid in _chat_specialist_ids():
             if sid in raw_flags:
                 clean[sid] = bool(raw_flags.get(sid))
         clean["generalist"] = True
