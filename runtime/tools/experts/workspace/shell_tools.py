@@ -45,7 +45,11 @@ def run_command_tool() -> ToolSpec:
         import os
 
         def _default_exec_dir() -> str:
-            return str(resolve_workspace_path("data/workspace"))
+            # Keep command execution in the same sandbox namespace as write_file.
+            try:
+                return str(resolve_workspace_path("data/workspace"))
+            except Exception:
+                return str(workspace_root())
 
         def _strip_leading_cd_chain(cmd: str) -> tuple[str, bool]:
             raw = str(cmd or "")
@@ -139,9 +143,32 @@ def run_command_tool() -> ToolSpec:
         cwd_redirected_to_sandbox = False
         script_path_rewritten = False
         original_command = command
-        # Hard policy: always execute in sandbox root, ignore caller-supplied cwd.
-        workdir = _default_exec_dir()
-        cwd_redirected_to_sandbox = bool(str(cwd or "").strip() and str(cwd).strip() not in {".", "./", ".\\"})
+        # Execute in caller-provided cwd (guarded by resolve_workspace_path), otherwise workspace root.
+        try:
+            workdir = str(resolve_workspace_path(cwd)) if cwd else _default_exec_dir()
+        except Exception:
+            # If caller path is rejected by workspace guard, fall back to workspace root.
+            workdir = _default_exec_dir()
+            if cwd:
+                cwd_redirected_to_sandbox = True
+        if cwd:
+            try:
+                requested_path = Path(cwd).expanduser().resolve()
+                if requested_path == workspace_root().resolve():
+                    # Explicit repo-root cwd still gets sandboxed to avoid writes/exec at repo root.
+                    workdir = _default_exec_dir()
+                    cwd_redirected_to_sandbox = True
+            except Exception:
+                pass
+        if cwd:
+            try:
+                requested = str(Path(cwd).expanduser().resolve())
+                resolved = str(Path(workdir).expanduser().resolve())
+                if requested != resolved:
+                    cwd_redirected_to_sandbox = True
+            except Exception:
+                # Conservative signal: explicit cwd provided but could not preserve same path.
+                cwd_redirected_to_sandbox = True
         command, normalized_cd_removed = _strip_leading_cd_chain(command)
         command, command_rewritten = _rewrite_workspace_absolute_refs(command, workdir=workdir)
         command, script_path_rewritten = _rewrite_python_script_arg(command, workdir=workdir)

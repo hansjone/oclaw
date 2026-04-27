@@ -82,6 +82,24 @@ class OclawGatewayResult:
     relay_ttl_keep_count: int = 0
 
 
+@dataclass(frozen=True)
+class GatewayDispatchPlan:
+    interaction_mode: str
+    requested_specialist: str
+    manager_specialist: str
+    dispatch_reason: str
+    selected_executor: Any
+    dynamic_agent: dict[str, Any] | None
+    specialist_input_msg: StandardMessage | None
+    manager_exec_msg: StandardMessage | None
+    manager_instruction_text: str
+    manager_memory_mode: bool
+    manager_need_wiki_inject: bool | None
+    manager_wiki_query: str
+    manager_memory_write_text: str
+    manager_post_reply_memory_write_text: str
+
+
 class OclawGateway:
     def __init__(self, *, store: Any):
         self.store = store
@@ -615,6 +633,111 @@ class OclawGateway:
         except Exception:
             pass
 
+    def _build_skill_stats(self, *, executor: Any, started_at: float, trace_local: Callable[..., None]) -> dict[str, Any]:
+        skill_stats: dict[str, Any] = {}
+        try:
+            reg = getattr(executor, "tools", None)
+            base_url = str(getattr(getattr(executor, "model", None), "base_url", "") or "")
+            if reg is not None:
+                cache_key = (
+                    f"base={base_url}|skill_rt={str(self.store.get_setting('AIA_SKILL_RUNTIME_ENABLED') or '')}|"
+                    f"skill_disabled={str(self.store.get_setting('AIA_SKILL_DISABLED_NAMES') or '')}|"
+                    f"bind_en={str(self.store.get_setting('AIA_SKILL_ROLE_BINDING_ENABLED') or '')}|"
+                    f"bind_inherit={str(self.store.get_setting('AIA_SKILL_ROLE_BINDING_MANAGER_INHERIT') or '')}"
+                )
+                now = time.time()
+                with _SKILL_MANIFEST_CACHE_LOCK:
+                    cached = _SKILL_MANIFEST_CACHE.get(cache_key)
+                    if cached and (now - float(cached[0])) <= _SKILL_MANIFEST_CACHE_TTL_SEC:
+                        skill_stats = dict(cached[1] or {})
+                    else:
+                        _, stats = build_skill_manifest(registry=reg, store=self.store, base_url=base_url)
+                        skill_stats = dict(stats or {})
+                        _SKILL_MANIFEST_CACHE[cache_key] = (now, dict(skill_stats))
+                        if len(_SKILL_MANIFEST_CACHE) > 128:
+                            oldest_key = sorted(_SKILL_MANIFEST_CACHE.items(), key=lambda kv: kv[1][0])[0][0]
+                            _SKILL_MANIFEST_CACHE.pop(oldest_key, None)
+                trace_local(event_type="skill_manifest", payload={"base_url": base_url, **skill_stats}, started_at=started_at)
+        except Exception:
+            pass
+        return skill_stats
+
+    def _select_dispatch_plan(
+        self,
+        *,
+        msg: StandardMessage,
+        lang: str,
+        executor: Any,
+        interaction_mode: str,
+        requested_specialist: str,
+        memory_enabled: bool,
+        specialist_executor_factory: Optional[Callable[[str], Any]],
+        trace_local: Callable[..., None],
+        started_at: float,
+    ) -> GatewayDispatchPlan:
+        manager_specialist = requested_specialist
+        dispatch_reason = "expert_direct"
+        selected_executor = executor
+        dynamic_agent: dict[str, Any] | None = None
+        specialist_input_msg: StandardMessage | None = None
+        manager_exec_msg: StandardMessage | None = None
+        manager_instruction_text = ""
+        manager_memory_mode = False
+        manager_need_wiki_inject: bool | None = None
+        manager_wiki_query = ""
+        manager_memory_write_text = ""
+        manager_post_reply_memory_write_text = ""
+        if interaction_mode == "expert" and callable(specialist_executor_factory):
+            try:
+                selected_executor = specialist_executor_factory(requested_specialist)
+            except Exception:
+                selected_executor = executor
+                dispatch_reason = "expert_factory_failed"
+        if interaction_mode == "comprehensive":
+            (
+                manager_specialist,
+                dispatch_reason,
+                dynamic_agent,
+                instruction_text,
+                manager_memory_mode,
+                manager_need_wiki_inject,
+                manager_wiki_query,
+                manager_memory_write_text,
+                manager_post_reply_memory_write_text,
+            ) = self._manager_select_specialist(msg=msg, lang=lang, executor=executor, memory_enabled=memory_enabled)
+            manager_instruction_text = str(instruction_text or "").strip()
+            trace_local(
+                event_type="manager_decision",
+                payload={
+                    "interaction_mode": interaction_mode,
+                    "manager_selected_specialist": str(manager_specialist or ""),
+                    "manager_memory_mode": bool(manager_memory_mode),
+                    "dispatch_reason": str(dispatch_reason or ""),
+                    "instruction_chars": int(len(manager_instruction_text or "")),
+                    "dynamic_agent_used": bool(dynamic_agent is not None),
+                    "dynamic_agent_name": str((dynamic_agent or {}).get("name") or "") if isinstance(dynamic_agent, dict) else "",
+                    "memory_write_chars": int(len(manager_memory_write_text or "")),
+                    "post_reply_memory_write_chars": int(len(manager_post_reply_memory_write_text or "")),
+                },
+                started_at=started_at,
+            )
+        return GatewayDispatchPlan(
+            interaction_mode=interaction_mode,
+            requested_specialist=requested_specialist,
+            manager_specialist=manager_specialist,
+            dispatch_reason=dispatch_reason,
+            selected_executor=selected_executor,
+            dynamic_agent=dynamic_agent,
+            specialist_input_msg=specialist_input_msg,
+            manager_exec_msg=manager_exec_msg,
+            manager_instruction_text=manager_instruction_text,
+            manager_memory_mode=manager_memory_mode,
+            manager_need_wiki_inject=manager_need_wiki_inject,
+            manager_wiki_query=manager_wiki_query,
+            manager_memory_write_text=manager_memory_write_text,
+            manager_post_reply_memory_write_text=manager_post_reply_memory_write_text,
+        )
+
     def handle_turn(
         self,
         *,
@@ -727,32 +850,7 @@ class OclawGateway:
             started_at=t0,
         )
 
-        skill_stats: dict[str, Any] = {}
-        try:
-            reg = getattr(executor, "tools", None)
-            base_url = str(getattr(getattr(executor, "model", None), "base_url", "") or "")
-            if reg is not None:
-                cache_key = (
-                    f"base={base_url}|skill_rt={str(self.store.get_setting('AIA_SKILL_RUNTIME_ENABLED') or '')}|"
-                    f"skill_disabled={str(self.store.get_setting('AIA_SKILL_DISABLED_NAMES') or '')}|"
-                    f"bind_en={str(self.store.get_setting('AIA_SKILL_ROLE_BINDING_ENABLED') or '')}|"
-                    f"bind_inherit={str(self.store.get_setting('AIA_SKILL_ROLE_BINDING_MANAGER_INHERIT') or '')}"
-                )
-                now = time.time()
-                with _SKILL_MANIFEST_CACHE_LOCK:
-                    cached = _SKILL_MANIFEST_CACHE.get(cache_key)
-                    if cached and (now - float(cached[0])) <= _SKILL_MANIFEST_CACHE_TTL_SEC:
-                        skill_stats = dict(cached[1] or {})
-                    else:
-                        _, stats = build_skill_manifest(registry=reg, store=self.store, base_url=base_url)
-                        skill_stats = dict(stats or {})
-                        _SKILL_MANIFEST_CACHE[cache_key] = (now, dict(skill_stats))
-                        if len(_SKILL_MANIFEST_CACHE) > 128:
-                            oldest_key = sorted(_SKILL_MANIFEST_CACHE.items(), key=lambda kv: kv[1][0])[0][0]
-                            _SKILL_MANIFEST_CACHE.pop(oldest_key, None)
-                _trace_local(event_type="skill_manifest", payload={"base_url": base_url, **skill_stats}, started_at=t0)
-        except Exception:
-            pass
+        skill_stats = self._build_skill_stats(executor=executor, started_at=t0, trace_local=_trace_local)
 
         _trace_local(event_type="memory_retrieval_started", payload={"session_id": msg.session_id}, started_at=t0)
         memory_context = build_memory_context(
@@ -778,59 +876,30 @@ class OclawGateway:
         requested_specialist = normalize_requested_specialist(base_metadata.get("selected_specialist"))
         if requested_specialist == "memory" and not memory_enabled:
             requested_specialist = "generalist"
-        manager_specialist = requested_specialist
-        dispatch_reason = "expert_direct"
-        selected_executor = executor
-        dynamic_agent: dict[str, Any] | None = None
-        specialist_input_msg: StandardMessage | None = None
-        manager_exec_msg: StandardMessage | None = None
-        manager_instruction_text = ""
-        manager_memory_mode = False
-        manager_need_wiki_inject: bool | None = None
-        manager_wiki_query = ""
-        manager_memory_write_text = ""
-        manager_post_reply_memory_write_text = ""
-
-        if interaction_mode == "expert" and callable(specialist_executor_factory):
-            try:
-                selected_executor = specialist_executor_factory(requested_specialist)
-            except Exception:
-                selected_executor = executor
-                dispatch_reason = "expert_factory_failed"
-
+        plan = self._select_dispatch_plan(
+            msg=msg,
+            lang=lang,
+            executor=executor,
+            interaction_mode=interaction_mode,
+            requested_specialist=requested_specialist,
+            memory_enabled=memory_enabled,
+            specialist_executor_factory=specialist_executor_factory,
+            trace_local=_trace_local,
+            started_at=t0,
+        )
+        manager_specialist = plan.manager_specialist
+        dispatch_reason = plan.dispatch_reason
+        selected_executor = plan.selected_executor
+        dynamic_agent = plan.dynamic_agent
+        specialist_input_msg = plan.specialist_input_msg
+        manager_exec_msg = plan.manager_exec_msg
+        manager_instruction_text = plan.manager_instruction_text
+        manager_memory_mode = plan.manager_memory_mode
+        manager_need_wiki_inject = plan.manager_need_wiki_inject
+        manager_wiki_query = plan.manager_wiki_query
+        manager_memory_write_text = plan.manager_memory_write_text
+        manager_post_reply_memory_write_text = plan.manager_post_reply_memory_write_text
         if interaction_mode == "comprehensive":
-            (
-                manager_specialist,
-                dispatch_reason,
-                dynamic_agent,
-                instruction_text,
-                manager_memory_mode,
-                manager_need_wiki_inject,
-                manager_wiki_query,
-                manager_memory_write_text,
-                manager_post_reply_memory_write_text,
-            ) = self._manager_select_specialist(
-                msg=msg,
-                lang=lang,
-                executor=executor,
-                memory_enabled=memory_enabled,
-            )
-            manager_instruction_text = str(instruction_text or "").strip()
-            _trace_local(
-                event_type="manager_decision",
-                payload={
-                    "interaction_mode": interaction_mode,
-                    "manager_selected_specialist": str(manager_specialist or ""),
-                    "manager_memory_mode": bool(manager_memory_mode),
-                    "dispatch_reason": str(dispatch_reason or ""),
-                    "instruction_chars": int(len(manager_instruction_text or "")),
-                    "dynamic_agent_used": bool(dynamic_agent is not None),
-                    "dynamic_agent_name": str((dynamic_agent or {}).get("name") or "") if isinstance(dynamic_agent, dict) else "",
-                    "memory_write_chars": int(len(manager_memory_write_text or "")),
-                    "post_reply_memory_write_chars": int(len(manager_post_reply_memory_write_text or "")),
-                },
-                started_at=t0,
-            )
             if str(manager_instruction_text or "").strip() and not bool(manager_memory_mode):
                 try:
                     assignment_title = "Task assignment" if str(lang or "").startswith("en") else "任务分配"
