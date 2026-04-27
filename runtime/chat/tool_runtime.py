@@ -52,6 +52,95 @@ _VIDEO_QUERY_TOOL_NAMES = {
 }
 
 
+def _attachments_from_tool_result(result: Any) -> list[dict[str, Any]]:
+    """Extract renderable attachments from tool results for durable chat history."""
+    if not isinstance(result, dict):
+        return []
+    out: list[dict[str, Any]] = []
+    aid = str(result.get("attachment_id") or "").strip()
+    if aid:
+        out.append(
+            {
+                "type": "image_ref",
+                "attachment_id": aid,
+                "name": str(result.get("name") or "generated-image"),
+                "mime": str(result.get("mime") or "image/png"),
+                "bytes": result.get("bytes"),
+                "width": result.get("width"),
+                "height": result.get("height"),
+            }
+        )
+    refs = result.get("attachments")
+    if isinstance(refs, list):
+        for r in refs:
+            if not isinstance(r, dict):
+                continue
+            p_uri = str(r.get("pointer_uri") or "").strip()
+            if p_uri:
+                out.append(
+                    {
+                        "type": "relay_pointer",
+                        "pointer_uri": p_uri,
+                        "rel_path": str(r.get("rel_path") or ""),
+                        "mime": str(r.get("mime_type") or r.get("mime") or ""),
+                        "bytes": r.get("bytes"),
+                        "sha256": str(r.get("sha256") or ""),
+                        "name": str(r.get("name") or ""),
+                    }
+                )
+                continue
+            r_aid = str(r.get("attachment_id") or "").strip()
+            if r_aid:
+                out.append(
+                    {
+                        "type": "image_ref",
+                        "attachment_id": r_aid,
+                        "name": str(r.get("name") or "generated-image"),
+                        "mime": str(r.get("mime") or "image/png"),
+                        "bytes": r.get("bytes"),
+                        "width": r.get("width"),
+                        "height": r.get("height"),
+                    }
+                )
+    inner = result.get("result")
+    if isinstance(inner, dict):
+        content = inner.get("content")
+        if isinstance(content, list):
+            for item in content:
+                if not isinstance(item, dict):
+                    continue
+                typ = str(item.get("type") or "").strip().lower()
+                if typ in {"image", "input_image"}:
+                    b64 = item.get("image_base64") or item.get("data")
+                    if isinstance(b64, str) and b64.strip():
+                        out.append(
+                            {
+                                "type": "image",
+                                "data": b64.strip(),
+                                "mime": str(item.get("mime_type") or item.get("mime") or "image/png"),
+                                "name": str(item.get("name") or "tool-image"),
+                            }
+                        )
+                elif typ == "image_url":
+                    src = str(item.get("url") or item.get("image_url") or "").strip()
+                    if src:
+                        out.append({"type": "image_url", "url": src, "name": str(item.get("name") or "tool-image")})
+    uniq: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for a in out:
+        k = str(
+            a.get("attachment_id")
+            or a.get("pointer_uri")
+            or a.get("url")
+            or (f"b64:{a.get('mime')}:{len(str(a.get('data') or ''))}" if a.get("data") else "")
+        ).strip()
+        if not k or k in seen:
+            continue
+        seen.add(k)
+        uniq.append(a)
+    return uniq
+
+
 def _message_has_tabular_ref(raw_attachments: Any) -> bool:
     if raw_attachments is None:
         return False
@@ -781,6 +870,7 @@ class ToolExecutor:
                 role="tool",
                 content=tool_content,
                 tool_calls={"tool_call_id": tc.id, "name": tc.name, "assistant_message_id": assistant_msg_id},
+                attachments=_attachments_from_tool_result(result) or None,
                 turn_uuid=ctx.turn_uuid,
                 event_type="tool_result",
                 event_payload={"tool_name": tc.name, "observed_rows": int(observed_rows_this_call)},

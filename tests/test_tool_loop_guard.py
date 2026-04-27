@@ -392,3 +392,43 @@ def test_video_tools_allowed_with_video_ref(tmp_path: Path) -> None:
     assert bool(ok_res.get("ok"))
     assert calls["n"] == 1
 
+
+def test_tool_result_image_payload_persisted_as_attachments(tmp_path: Path) -> None:
+    store = SqliteStore(str(tmp_path / "g12.sqlite"))
+    sess = store.create_session("t")
+
+    def _handler(_args):
+        return {
+            "ok": True,
+            "result": {
+                "content": [
+                    {"type": "image", "data": "YWJj", "mime_type": "image/png"},
+                    {"type": "image_url", "url": "https://example.com/a.png"},
+                ]
+            },
+        }
+
+    reg = ToolRegistry(
+        [
+            ToolSpec(
+                name="make_image",
+                description="make image",
+                parameters={"type": "object", "properties": {}},
+                handler=_handler,
+                read_only=True,
+            )
+        ]
+    )
+    tool_uses = [LLMToolCall(id="c1", name="make_image", arguments={})]
+    ToolExecutor().execute_tool_uses(
+        ctx=ToolExecutionContext(store=store, tools=reg, session_id=sess.id),
+        assistant_msg_id=1,
+        tool_uses=tool_uses,
+    )
+    rows = store.get_messages(session_id=sess.id, limit=10)
+    tool_rows = [m for m in rows if str(getattr(m, "role", "") or "") == "tool"]
+    assert len(tool_rows) == 1
+    attachments = json.loads(str(getattr(tool_rows[0], "attachments", "") or "[]"))
+    assert any(str(a.get("type") or "") == "image" and str(a.get("data") or "") == "YWJj" for a in attachments)
+    assert any(str(a.get("type") or "") == "image_url" and str(a.get("url") or "").endswith("/a.png") for a in attachments)
+

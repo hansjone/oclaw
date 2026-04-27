@@ -389,10 +389,32 @@ function _appendAssistantTextSegments(inner, rawText, collapsedItems) {
 function _buildAggregatedAssistantBubble(tsIso, items) {
   const inner = el("div", { class: "chat-msg chat-msg--assistant chat-msg--rich" });
   const collapsedItems = [];
+  const _inlineImageHtmlFromAttachments = (raw) => {
+    const list = parseAttachments(raw);
+    if (!Array.isArray(list) || !list.length) return "";
+    const blocks = [];
+    for (const att of list) {
+      if (!att || typeof att !== "object") continue;
+      const typ = String(att.type || "").toLowerCase();
+      if (typ === "image" || typ === "input_image") {
+        const b64 = String(att.image_base64 || att.data || "").trim();
+        if (!b64) continue;
+        const mime = String(att.mime || att.mime_type || "image/png").trim() || "image/png";
+        const src = `data:${mime};base64,${b64.replace(/\s/g, "")}`;
+        blocks.push(`<div class="chat-att-wrap"><img class="chat-att-img" src="${escapeHtml(src)}" alt="tool image" /></div>`);
+      } else if (typ === "image_url") {
+        const src = String(att.url || att.image_url || "").trim();
+        if (!src) continue;
+        blocks.push(`<div class="chat-att-wrap"><img class="chat-att-img" src="${escapeHtml(src)}" alt="tool image" /></div>`);
+      }
+    }
+    return blocks.join("");
+  };
   for (const it of items || []) {
     const kind = String((it && it.kind) || "");
     const text = String((it && it.text) || "");
-    if (!text.trim()) continue;
+    const hasInlineAtt = !!(it && it.attachments);
+    if (!text.trim() && !(kind === "tool_result" && hasInlineAtt)) continue;
     if (kind === "assistant_text") {
       _appendAssistantTextSegments(inner, text, collapsedItems);
     } else if (kind === "reasoning") {
@@ -401,6 +423,8 @@ function _buildAggregatedAssistantBubble(tsIso, items) {
       if (adminChatShowToolOutput) collapsedItems.push({ title: _toolSummaryTitle("tool_call"), text });
     } else if (kind === "tool_result") {
       if (adminChatShowToolOutput) collapsedItems.push({ title: _toolSummaryTitle("tool"), text });
+      const inlineImages = _inlineImageHtmlFromAttachments(it && it.attachments);
+      if (inlineImages) inner.appendChild(el("div", { class: "chat-msg__md", html: inlineImages }));
     } else {
       inner.appendChild(el("div", { class: "chat-msg__md", html: renderMarkdownHtml(text) }));
     }
@@ -488,7 +512,8 @@ function _buildRenderRows(msgs) {
         }
         if (m.attachments) agg.attachments = m.attachments;
       } else if (String(content || "").trim()) {
-        agg._items.push({ kind: "tool_result", text: content });
+        agg._items.push({ kind: "tool_result", text: content, attachments: m.attachments || null });
+        if (m.attachments) agg.attachments = m.attachments;
       }
       continue;
     }
@@ -1304,6 +1329,71 @@ function extractSqlAuditPayload(payload) {
   };
 }
 
+function extractToolImageItems(payload) {
+  const _toObj = (v) => {
+    if (v && typeof v === "object") return v;
+    if (typeof v !== "string") return null;
+    const s = String(v || "").trim();
+    if (!s) return null;
+    try {
+      const j = JSON.parse(s);
+      return j && typeof j === "object" ? j : null;
+    } catch (_) {
+      return null;
+    }
+  };
+  const p = _toObj(payload) || {};
+  const cands = [p, _toObj(p.payload), _toObj(p.result), _toObj(p.payload && p.payload.result), _toObj(p.result && p.result.result)].filter(Boolean);
+  const out = [];
+  for (const cand of cands) {
+    const content = Array.isArray(cand.content) ? cand.content : [];
+    for (const item of content) {
+      if (!item || typeof item !== "object") continue;
+      const typ = String(item.type || "").trim().toLowerCase();
+      if (typ === "image" || typ === "input_image") {
+        const srcObj = item.source && typeof item.source === "object" ? item.source : {};
+        const b64 = String(item.image_base64 || item.data || srcObj.data || "").trim();
+        if (!b64) continue;
+        const mime = String(item.mime_type || item.mime || srcObj.media_type || "image/png").trim() || "image/png";
+        out.push({ type: "image", src: `data:${mime};base64,${b64.replace(/\s/g, "")}` });
+        continue;
+      }
+      if (typ === "image_url") {
+        const urlObj = item.image_url && typeof item.image_url === "object" ? item.image_url : {};
+        const url = String(item.url || item.image_url || urlObj.url || "").trim();
+        if (!url) continue;
+        out.push({ type: "image_url", src: url });
+      }
+    }
+  }
+  // Fallback: direct attachment-like payload shape.
+  const direct = _toObj(p.attachments);
+  const atts = Array.isArray(direct) ? direct : [];
+  for (const a of atts) {
+    if (!a || typeof a !== "object") continue;
+    const t = String(a.type || "").toLowerCase();
+    if (t === "image" || t === "input_image") {
+      const b64 = String(a.image_base64 || a.data || "").trim();
+      if (!b64) continue;
+      const mime = String(a.mime || a.mime_type || "image/png").trim() || "image/png";
+      out.push({ type: "image", src: `data:${mime};base64,${b64.replace(/\s/g, "")}` });
+    } else if (t === "image_url") {
+      const src = String(a.url || a.image_url || "").trim();
+      if (src) out.push({ type: "image_url", src });
+    }
+  }
+  // De-dup by src.
+  const uniq = [];
+  const seen = new Set();
+  for (const it of out) {
+    const k = String((it && it.src) || "");
+    if (!k || seen.has(k)) continue;
+    seen.add(k);
+    uniq.push(it);
+  }
+  return uniq;
+}
+
 function _sqlLimitSuffix(inputSql, executedSql) {
   const a = String(inputSql || "").trim();
   const b = String(executedSql || "").trim();
@@ -1616,7 +1706,9 @@ async function appendMessageRow(messagesEl, m) {
   const bubble = Array.isArray(m._items)
     ? _buildAggregatedAssistantBubble(ts, m._items)
     : await buildMessageBubble(role, content, ts);
-  const att = await renderAttachmentsEl(m.attachments);
+  // For aggregated assistant bubbles, attachments should be rendered inline
+  // at tool_result positions, not appended at bubble tail.
+  const att = Array.isArray(m._items) ? null : await renderAttachmentsEl(m.attachments);
   if (att) {
     const innerBubble = bubble.querySelector(".chat-msg-col .chat-msg");
     if (innerBubble) innerBubble.appendChild(att);
@@ -2784,7 +2876,9 @@ async function renderChatUi() {
   let currentStreamAbortController = null;
   let currentWsTransport = null;
   let currentAbortMeta = { sessionId: "", runId: "" };
-  const WS_CHAT_SEND_TIMEOUT_MS = 180000;
+  // Disable WS send inactivity timeout by default (0 = disabled).
+  // Some gateways can legitimately stream slower than 3 minutes.
+  const WS_CHAT_SEND_TIMEOUT_MS = 0;
   const isAbortError = (err) => {
     const name = String(err && err.name ? err.name : "");
     const msg = String(err && err.message ? err.message : err || "");
@@ -2822,6 +2916,9 @@ async function renderChatUi() {
     let streamDisplayTarget = "";
     let streamDisplayShown = "";
     let streamTextBuffer = "";
+    const streamStitcher = createStreamStitcher();
+    let perCharNewlineMode = false;
+    let perCharNewlineScore = 0;
     let toolSeq = 0;
     let hasRealStreamText = false;
     let sawWsChatEvent = false;
@@ -2944,6 +3041,38 @@ async function renderChatUi() {
       // Never inject separators here; otherwise typewriter offsets drift.
       return decodeEscapedNewlines(chunks.join(""));
     };
+    const _normalizeStreamTargetForRender = (raw) => {
+      let s = String(raw || "").replace(/\r/g, "");
+      if (!s) return "";
+      // Streaming-only guard: some gateways emit per-char newlines in delta chunks,
+      // producing vertical "one character per line" layout.
+      const lines = s.split("\n");
+      if (lines.length >= 4) {
+        let short = 0;
+        let nonEmpty = 0;
+        let totalLen = 0;
+        for (const ln of lines) {
+          const t = String(ln || "");
+          if (!t) continue;
+          nonEmpty += 1;
+          totalLen += t.length;
+          if (t.length <= 2) short += 1;
+        }
+        const avgLen = nonEmpty ? totalLen / nonEmpty : 0;
+        const shortRatio = nonEmpty ? short / nonEmpty : 0;
+        if (shortRatio >= 0.75 && avgLen <= 2.0) {
+          // Join characters back for live display.
+          s = lines.join("");
+        } else {
+          // Fallback: if newline density is abnormally high, collapse line breaks for live view.
+          const nl = lines.length - 1;
+          if (nl >= 8 && nl >= Math.floor(s.length * 0.2)) {
+            s = s.replace(/\n+/g, "");
+          }
+        }
+      }
+      return s;
+    };
     const _renderStreamCompositeNow = () => {
       const bubble = ensureStreamBubble();
       const md = bubble.querySelector(".chat-msg__md");
@@ -2977,6 +3106,17 @@ async function renderChatUi() {
           }
         }
         let textIdx = 0;
+        let textBuf = "";
+        const flushTextBuf = () => {
+          if (!String(textBuf || "").trim()) {
+            textBuf = "";
+            return;
+          }
+          blocks.push(
+            `<div class="chat-msg__plain">${escapeHtml(decodeEscapedNewlines(textBuf)).replace(/\\n/g, "<br/>")}</div>`,
+          );
+          textBuf = "";
+        };
         for (const seg of chatStreamSegments) {
           if (!seg) continue;
           if (seg.type === "text") {
@@ -2986,18 +3126,23 @@ async function renderChatUi() {
             const shown = full.slice(0, showLen);
             textIdx += full.length;
             if (!shown) continue;
-            blocks.push(`<div class="chat-msg__md">${renderMarkdownHtml(decodeEscapedNewlines(shown))}</div>`);
-          } else if (seg.type === "tool") {
-            if (!showToolOutput) continue;
+            textBuf += shown;
+            continue;
+          }
+          if (seg.type === "tool") {
             const title = String(seg.title || "tool");
             const body = String(seg.body || "");
+            const images = Array.isArray(seg.images) ? seg.images : [];
+            if (!showToolOutput && !images.length) continue;
+            flushTextBuf();
             const audit = seg.sqlAudit && typeof seg.sqlAudit === "object" ? seg.sqlAudit : null;
-            if (audit) {
-              const guard = audit.guard && typeof audit.guard === "object" ? audit.guard : {};
-              const autoLimit = _sqlLimitSuffix(audit.inputSql, audit.executedSql);
-              const executedDiffHtml = _renderExecutedSqlWithAddedHighlight(audit.inputSql, audit.executedSql);
-              blocks.push(
-                `<details class="chat-msg__reasoning"><summary>${escapeHtml(title)} · SQL audit</summary>
+            if (showToolOutput) {
+              if (audit) {
+                const guard = audit.guard && typeof audit.guard === "object" ? audit.guard : {};
+                const autoLimit = _sqlLimitSuffix(audit.inputSql, audit.executedSql);
+                const executedDiffHtml = _renderExecutedSqlWithAddedHighlight(audit.inputSql, audit.executedSql);
+                blocks.push(
+                  `<details class="chat-msg__reasoning"><summary>${escapeHtml(title)} · SQL audit</summary>
 <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px;">
   <div><div class="muted" style="margin-bottom:4px;">input SQL</div><pre class="chat-msg__reasoning-pre">${escapeHtml(String(audit.inputSql || ""))}</pre></div>
   <div><div class="muted" style="margin-bottom:4px;">executed SQL (added highlighted)</div><pre class="chat-msg__reasoning-pre">${executedDiffHtml}</pre></div>
@@ -3012,18 +3157,23 @@ ${autoLimit ? `<div style="margin-top:8px;"><span class="muted">auto-added claus
   rows_returned=${escapeHtml(String(audit.rowsReturned != null ? audit.rowsReturned : ""))}
 </div>
 </details>`,
-              );
-            } else {
-              blocks.push(
-                `<details class="chat-msg__reasoning"><summary>${escapeHtml(title)}</summary><pre class="chat-msg__reasoning-pre">${escapeHtml(body)}</pre></details>`,
-              );
+                );
+              } else {
+                blocks.push(
+                  `<details class="chat-msg__reasoning"><summary>${escapeHtml(title)}</summary><pre class="chat-msg__reasoning-pre">${escapeHtml(body)}</pre></details>`,
+                );
+              }
+            }
+            for (const im of images) {
+              const src = String((im && im.src) || "").trim();
+              if (!src) continue;
+              blocks.push(`<div class="chat-att-wrap"><img class="chat-att-img" src="${escapeHtml(src)}" alt="tool image" /></div>`);
             }
           }
         }
         const currentShown = streamDisplayShown.slice(textIdx);
-        if (String(currentShown || "").trim()) {
-          blocks.push(`<div class="chat-msg__md">${renderMarkdownHtml(decodeEscapedNewlines(currentShown))}</div>`);
-        }
+        if (String(currentShown || "").trim()) textBuf += currentShown;
+        flushTextBuf();
         md.innerHTML = blocks.join("");
       }
       scrollMessagesToBottom();
@@ -3066,14 +3216,33 @@ ${autoLimit ? `<div style="margin-top:8px;"><span class="muted">auto-added claus
         }, 14);
       });
     };
+    const _sanitizeStreamDelta = (delta) => {
+      let s = streamStitcher.push(delta);
+      if (!s) return "";
+      // Detect and suppress "one char per line" noise early in the stream.
+      // Typical pattern: "好\n问\n题\n" or chunks like "好\n".
+      const nl = (s.match(/\n/g) || []).length;
+      const nonNlLen = s.replace(/\n/g, "").length;
+      if (nl > 0 && nonNlLen > 0 && nonNlLen <= 2 && nl >= nonNlLen) {
+        perCharNewlineScore += 1;
+      } else if (nonNlLen >= 4 && nl === 0) {
+        perCharNewlineScore = Math.max(0, perCharNewlineScore - 1);
+      }
+      if (!perCharNewlineMode && perCharNewlineScore >= 3) perCharNewlineMode = true;
+      if (perCharNewlineMode) {
+        // Drop all newlines in this mode; rely on natural wrapping.
+        s = s.replace(/\n+/g, "");
+      }
+      return s;
+    };
     const appendStreamTextChunk = (chunk) => {
-      const piece = String(chunk || "");
+      const piece = _sanitizeStreamDelta(chunk);
       if (!piece) return;
       streamTextBuffer = `${streamTextBuffer}${piece}`;
       chatStream = streamTextBuffer;
       // Keep strict chronological order: append text deltas as independent segments.
       chatStreamSegments.push({ type: "text", text: piece });
-      streamDisplayTarget = _composeStreamPlainText();
+      streamDisplayTarget = _normalizeStreamTargetForRender(_composeStreamPlainText());
       _scheduleTypingTick();
     };
     const appendToolSegment = (payload) => {
@@ -3084,7 +3253,8 @@ ${autoLimit ? `<div style="margin-top:8px;"><span class="muted">auto-added claus
       const rawPayload = p.payload != null ? p.payload : p;
       const body = formatToolPanelText(name, rawPayload, { streamMode: true });
       const sqlAudit = extractSqlAuditPayload(rawPayload);
-      chatStreamSegments.push({ type: "tool", key, title: `${name} ${liveTag}`, body, sqlAudit });
+      const images = extractToolImageItems(rawPayload);
+      chatStreamSegments.push({ type: "tool", key, title: `${name} ${liveTag}`, body, sqlAudit, images });
     };
     const appendFinalAssistant = async (message, fallbackText) => {
       const normalized = _normalizeAssistantMessage(message, { requireRole: false, requireContentArray: false });
@@ -3198,7 +3368,7 @@ ${autoLimit ? `<div style="margin-top:8px;"><span class="muted">auto-added claus
               _setStreamStatusBase("tool");
               // Keep strict order: tool card appears exactly where tool event arrives.
               appendToolSegment(payload);
-              streamDisplayTarget = _composeStreamPlainText();
+              streamDisplayTarget = _normalizeStreamTargetForRender(_composeStreamPlainText());
               _scheduleTypingTick();
               return;
             }
@@ -3233,7 +3403,18 @@ ${autoLimit ? `<div style="margin-top:8px;"><span class="muted">auto-added claus
               sawWsTerminalEvent = true;
               _stopDynamicStreamStatus();
               streamDisplayShown = streamDisplayTarget;
-              const ok = await appendFinalAssistant(payload.message, chatStream || extractWsAssistantText(payload.message || {}));
+              const hasStreamToolImages = chatStreamSegments.some(
+                (seg) => seg && seg.type === "tool" && Array.isArray(seg.images) && seg.images.length > 0,
+              );
+              let ok = false;
+              if (hasStreamToolImages) {
+                // Keep stream bubble as final UI when it already contains image blocks.
+                renderStreamComposite();
+                _markStreamTerminal("end", t("chat.status.end"));
+                ok = true;
+              } else {
+                ok = await appendFinalAssistant(payload.message, chatStream || extractWsAssistantText(payload.message || {}));
+              }
               if (!ok) _markStreamTerminal("end", t("chat.status.end"));
               chatStream = "";
               streamTextBuffer = "";
@@ -3280,24 +3461,28 @@ ${autoLimit ? `<div style="margin-top:8px;"><span class="muted">auto-added claus
           },
         });
         let wsWatchdog = 0;
-        const wsInactivityTimeoutPromise = new Promise((_, reject) => {
-          wsWatchdog = setInterval(() => {
-            if (Date.now() - wsLastActivityAt > WS_CHAT_SEND_TIMEOUT_MS) {
-              if (wsWatchdog) {
-                clearInterval(wsWatchdog);
-                wsWatchdog = 0;
-              }
-              reject(new Error(`ws_send_timeout:${WS_CHAT_SEND_TIMEOUT_MS}`));
-            }
-          }, 1000);
-        });
         const wsSendObserved = wsSendPromise.finally(() => {
           if (wsWatchdog) {
             clearInterval(wsWatchdog);
             wsWatchdog = 0;
           }
         });
-        doneMeta = await Promise.race([wsSendObserved, wsInactivityTimeoutPromise]);
+        if (Number(WS_CHAT_SEND_TIMEOUT_MS || 0) > 0) {
+          const wsInactivityTimeoutPromise = new Promise((_, reject) => {
+            wsWatchdog = setInterval(() => {
+              if (Date.now() - wsLastActivityAt > WS_CHAT_SEND_TIMEOUT_MS) {
+                if (wsWatchdog) {
+                  clearInterval(wsWatchdog);
+                  wsWatchdog = 0;
+                }
+                reject(new Error(`ws_send_timeout:${WS_CHAT_SEND_TIMEOUT_MS}`));
+              }
+            }, 1000);
+          });
+          doneMeta = await Promise.race([wsSendObserved, wsInactivityTimeoutPromise]);
+        } else {
+          doneMeta = await wsSendObserved;
+        }
         if (doneMeta && typeof doneMeta === "object") doneMeta.__transport = "ws";
         if (doneMeta && typeof doneMeta === "object") {
           const startToRunning =

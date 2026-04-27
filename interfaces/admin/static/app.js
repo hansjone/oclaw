@@ -341,6 +341,13 @@ const I18N = {
     "models.baseUrl": "Base URL",
     "models.baseUrlPlaceholder": "可选，留空用环境默认",
     "models.apiKey": "API Key",
+    "models.thinkMode": "Think 模式（仅当前 API）",
+    "models.thinkModeHint": "开启后仅对此配置回放完整 reasoning_content（默认关闭）",
+    "models.reasoningEffort": "Reasoning 强度",
+    "models.reasoningEffortDefault": "默认",
+    "models.reasoningEffortLow": "低",
+    "models.reasoningEffortMedium": "中",
+    "models.reasoningEffortHigh": "高",
     "models.rememberKey": "记住密钥（存库加密）",
     "models.save": "保存",
     "models.delete": "删除此配置",
@@ -760,6 +767,13 @@ const I18N = {
     "models.baseUrl": "Base URL",
     "models.baseUrlPlaceholder": "Optional",
     "models.apiKey": "API key",
+    "models.thinkMode": "Think mode (this API profile only)",
+    "models.thinkModeHint": "When on, replay full assistant reasoning_content for this profile only (default off).",
+    "models.reasoningEffort": "Reasoning effort",
+    "models.reasoningEffortDefault": "Default",
+    "models.reasoningEffortLow": "Low",
+    "models.reasoningEffortMedium": "Medium",
+    "models.reasoningEffortHigh": "High",
     "models.rememberKey": "Remember key (encrypted in DB)",
     "models.save": "Save",
     "models.delete": "Delete profile",
@@ -3269,6 +3283,13 @@ async function renderModels() {
   const modeSel = el("select", { class: "input" });
   const modelInp = el("input", { class: "input" });
   const baseInp = el("input", { class: "input", placeholder: t("models.baseUrlPlaceholder") });
+  const thinkingModeCb = el("input", { type: "checkbox" });
+  const reasoningEffortSel = el("select", { class: "input", style: "max-width:180px" }, [
+    el("option", { value: "", text: t("models.reasoningEffortDefault") }),
+    el("option", { value: "low", text: t("models.reasoningEffortLow") }),
+    el("option", { value: "medium", text: t("models.reasoningEffortMedium") }),
+    el("option", { value: "high", text: t("models.reasoningEffortHigh") }),
+  ]);
   const keyInp = el("input", { class: "input", type: "password", autocomplete: "off" });
   const rememberCb = el("input", { type: "checkbox" });
   const readonlyProfileHint = el("div", { class: "muted", text: "" });
@@ -3661,12 +3682,16 @@ async function renderModels() {
     }
     modelInp.value = String(selProf.model || "");
     baseInp.value = String(selProf.base_url || "");
+    thinkingModeCb.checked = !!selProf.thinking_mode_enabled;
+    reasoningEffortSel.value = String(selProf.reasoning_effort || "");
     keyInp.value = String(state.profile_secret || "");
     rememberCb.checked = !!selProf.has_key;
 
     profName.disabled = !canEditFields;
     modelInp.disabled = !canEditFields;
     baseInp.disabled = !canEditFields;
+    thinkingModeCb.disabled = !canEditFields;
+    reasoningEffortSel.disabled = !canEditFields;
     keyInp.disabled = !canEditFields;
     rememberCb.disabled = !canEditFields;
 
@@ -3739,6 +3764,8 @@ async function renderModels() {
         mode: modeSave,
         model: modelInp.value.trim(),
         base_url: baseInp.value.trim(),
+        thinking_mode_enabled: !!thinkingModeCb.checked,
+        reasoning_effort: String(reasoningEffortSel.value || ""),
       });
       await apiRequest("POST", "/admin/api/models/profiles/" + encodeURIComponent(pid) + "/secret", {
         remember: rememberCb.checked,
@@ -3954,6 +3981,9 @@ async function renderModels() {
       el("div", { class: "row" }, [el("label", { text: t("models.mode") }), modeSel]),
       el("div", { class: "row" }, [el("label", { text: t("models.model") }), modelInp]),
       el("div", { class: "row" }, [el("label", { text: t("models.baseUrl") }), baseInp]),
+      el("div", { class: "row" }, [el("label", { text: t("models.thinkMode") }), thinkingModeCb]),
+      el("div", { class: "muted", text: t("models.thinkModeHint") }),
+      el("div", { class: "row" }, [el("label", { text: t("models.reasoningEffort") }), reasoningEffortSel]),
       warnKey,
       openaiHint,
       ollamaHint,
@@ -4530,6 +4560,96 @@ async function renderPlugins() {
       "Paste install JSON: one object, array of objects, or { servers: [...] } / { payload: {...} } (seed file shape)",
     rows: "6",
   });
+  const cliInstallInput = el("input", {
+    class: "input",
+    placeholder: "CLI one-liner, e.g. npx -y mcp-fetch-server | pip install mcp-server-time | pip install git+https://... && python -m <module>",
+  });
+  const _parseCliInstall = (raw) => {
+    const s = String(raw || "").trim();
+    if (!s) return { ok: false, error: "empty_command" };
+    // Support "A && B" one-liners (we only parse safe shapes; never shell-eval).
+    const segs = s.split(/\s*&&\s*/).map((x) => String(x || "").trim()).filter(Boolean);
+    const s0 = String(segs[0] || "").trim();
+    const s1 = String(segs[1] || "").trim();
+    // normalize spaces for simple token parse (no shell eval).
+    const parts = s0.split(/\s+/).filter(Boolean);
+    const low0 = String(parts[0] || "").toLowerCase();
+    const low1 = String(parts[1] || "").toLowerCase();
+    const idxPkg = (arr) => arr.findIndex((x) => !String(x || "").startsWith("-"));
+    if (low0 === "npx" || (low0 === "npm" && low1 === "exec")) {
+      // npx -y <pkg>
+      const rest = low0 === "npx" ? parts.slice(1) : parts.slice(2);
+      const i = idxPkg(rest);
+      const pkg = i >= 0 ? String(rest[i] || "").trim() : "";
+      if (!pkg) return { ok: false, error: "npx_package_missing" };
+      const tail = i >= 0 ? rest.slice(i + 1).map((x) => String(x || "").trim()).filter(Boolean) : [];
+      return {
+        ok: true,
+        payload: {
+          source_type: "npm",
+          source_ref: pkg,
+          server_id: pkg,
+          entry_command: "npx",
+          // Keep package tail args (e.g. "run <token>") for MCP CLIs that require subcommands/auth.
+          entry_args: ["-y", pkg, ...tail],
+        },
+      };
+    }
+    if (low0 === "npm" && low1 === "install") {
+      // npm install [-g] <pkg>
+      const rest = parts.slice(2);
+      const i = idxPkg(rest);
+      const pkg = i >= 0 ? String(rest[i] || "").trim() : "";
+      if (!pkg) return { ok: false, error: "npm_package_missing" };
+      return {
+        ok: true,
+        payload: {
+          source_type: "npm",
+          source_ref: pkg,
+          server_id: pkg,
+          entry_command: "npx",
+          entry_args: ["-y", pkg],
+        },
+      };
+    }
+    if ((low0 === "pip" && low1 === "install") || (low0 === "python" && low1 === "-m" && String(parts[2] || "").toLowerCase() === "pip")) {
+      const rest = low0 === "pip" ? parts.slice(2) : parts.slice(4);
+      const i = idxPkg(rest);
+      const pkg = i >= 0 ? String(rest[i] || "").trim() : "";
+      if (!pkg) return { ok: false, error: "pypi_package_missing" };
+      // If pip install uses git+... URL, require explicit entry module via "&& python -m <module>".
+      if (pkg.toLowerCase().startsWith("git+")) {
+        const p1 = s1.split(/\s+/).filter(Boolean);
+        const p10 = String(p1[0] || "").toLowerCase();
+        const p11 = String(p1[1] || "").toLowerCase();
+        const mod = (p10 === "python" && p11 === "-m") ? String(p1[2] || "").trim() : "";
+        if (!mod) return { ok: false, error: "git_pip_requires_python_m" };
+        const repoName = pkg.replace(/^git\+/i, "").split(/[?#]/)[0].split("/").filter(Boolean).pop() || "mcp-server";
+        const sid = String(repoName).replace(/\.git$/i, "");
+        return {
+          ok: true,
+          payload: {
+            source_type: "pypi",
+            source_ref: pkg,
+            server_id: sid,
+            entry_command: "python",
+            entry_args: ["-m", mod],
+          },
+        };
+      }
+      return {
+        ok: true,
+        payload: {
+          source_type: "pypi",
+          source_ref: pkg,
+          server_id: pkg,
+          entry_command: "python",
+          entry_args: ["-m", pkg.replace(/-/g, "_")],
+        },
+      };
+    }
+    return { ok: false, error: "unsupported_cli_command" };
+  };
   const installBtn = el("button", {
     class: "btn btn--primary",
     text: "Install MCP",
@@ -4657,6 +4777,72 @@ async function renderPlugins() {
       installStatus.textContent = JSON.stringify(results);
       markPrewarmReminder("mcp_batch_installed");
       router();
+    },
+  });
+  const cliInstallModal = el("div", { class: "session-monitor-modal", style: "display:none;" });
+  const cliInstallModalTitle = el("div", { class: "card__title", text: "MCP CLI install" });
+  const cliInstallModalBody = el("pre", { class: "pre", text: "" });
+  const closeCliInstallModal = () => {
+    cliInstallModal.style.display = "none";
+  };
+  const openCliInstallModal = (title, text) => {
+    cliInstallModalTitle.textContent = String(title || "MCP CLI install");
+    cliInstallModalBody.textContent = String(text || "");
+    cliInstallModal.style.display = "flex";
+  };
+  const setCliInstallModal = (title, text) => {
+    if (title) cliInstallModalTitle.textContent = String(title);
+    if (text != null) cliInstallModalBody.textContent = String(text);
+  };
+  cliInstallModal.addEventListener("click", (e) => {
+    if (e.target === cliInstallModal) closeCliInstallModal();
+  });
+  cliInstallModal.appendChild(
+    el("div", { class: "card session-monitor-modal__card", style: "width:min(720px,96vw);" }, [
+      cliInstallModalTitle,
+      cliInstallModalBody,
+      el("div", { class: "row", style: "justify-content:flex-end;margin-top:10px;" }, [
+        el("button", { class: "btn", text: "Close", onclick: closeCliInstallModal }),
+      ]),
+    ]),
+  );
+  const cliInstallBtn = el("button", {
+    class: "btn",
+    text: "Install from CLI",
+    onclick: async () => {
+      preflightFixWrap.innerHTML = "";
+      openCliInstallModal("MCP CLI install", "Parsing command...");
+      const parsed = _parseCliInstall(cliInstallInput.value);
+      if (!parsed.ok) {
+        installStatus.textContent = `[cli] ${String(parsed.error || "parse_failed")}`;
+        setCliInstallModal("MCP CLI install failed", installStatus.textContent);
+        return;
+      }
+      const payload = {
+        source_type: String(parsed.payload.source_type || "").trim(),
+        source_ref: String(parsed.payload.source_ref || "").trim(),
+        server_id: String(parsed.payload.server_id || "").trim(),
+        entry_command: String(parsed.payload.entry_command || "").trim(),
+        entry_args: Array.isArray(parsed.payload.entry_args) ? parsed.payload.entry_args.map((x) => String(x)) : [],
+        version: "",
+      };
+      setCliInstallModal("MCP CLI install", "Running preflight...");
+      const pre = await apiPost("/admin/api/mcp/preflight", payload);
+      if (!pre.ok) {
+        installStatus.textContent = `[cli/preflight] ${String(pre.error_code || "")} ${String(pre.error || "")}`.trim();
+        setCliInstallModal("MCP CLI preflight failed", installStatus.textContent);
+        return;
+      }
+      setCliInstallModal("MCP CLI install", "Installing...");
+      const res = await apiPost("/admin/api/mcp/install", payload);
+      installStatus.textContent = `[cli] ` + JSON.stringify(res);
+      if (res && res.ok) {
+        setCliInstallModal("MCP CLI install success", installStatus.textContent);
+        markPrewarmReminder("mcp_installed");
+        router();
+      } else {
+        setCliInstallModal("MCP CLI install failed", installStatus.textContent);
+      }
     },
   });
   const mcpServerList = Array.isArray(mcp.servers) ? mcp.servers : [];
@@ -5492,6 +5678,29 @@ async function renderPlugins() {
   const foldMcpInstall = pluginsFold("【3】MCP 安装（表单 / JSON / 运维）", [
     el("div", { class: "row" }, [sourceType, sourceRef, version]),
     el("div", { class: "row" }, [entryCmd, entryArgs, installBtn]),
+    el("div", { class: "muted", text: "CLI direct install (paste one command)" }),
+    el("div", { class: "row" }, [cliInstallInput, cliInstallBtn]),
+    el("div", { class: "muted", text: "常用命令行安装示例（可先本机验证，再填上方表单）" }),
+    el("pre", {
+      class: "pre",
+      text:
+`# npm 包（本地安装）
+npm install mcp-fetch-server
+
+# 直接运行（推荐）
+npx -y mcp-fetch-server
+
+# 全局安装后运行
+npm install -g mcp-fetch-server
+mcp-fetch-server
+
+# Python 包示例
+pip install mcp-server-time
+python -m mcp_server_time
+
+# Python（Git URL / VCS）示例：必须显式指定 entry module
+pip install git+https://github.com/philschmid/code-sandbox-mcp.git && python -m code_sandbox_mcp`,
+    }),
     el("div", { class: "muted", text: "JSON install (single object or array)" }),
     jsonInstallInput,
     el("div", { class: "row" }, [jsonInstallBtn]),
@@ -5739,6 +5948,7 @@ async function renderPlugins() {
       foldExpertBindingDash,
       el("div", { id: "plugins-binding" }, [foldMcpBinding]),
     ]),
+    cliInstallModal,
   ]);
 }
 

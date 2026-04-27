@@ -111,6 +111,30 @@ Linux/macOS:
 - `http://127.0.0.1:8787/admin`
 - `http://127.0.0.1:8787/chat`
 
+---
+
+## 7. Admin Chat：WS 请求超时（`ws_send_timeout:*`）
+
+现象：
+
+- 管理台聊天页流式请求中途提示：`请求失败: Error: ws_send_timeout:180000`（或其他毫秒值）
+
+说明：
+
+- 这是**前端**在 `interfaces/admin/static/chat.js` 中实现的 WS “无活动超时”看门狗（不是后端限流/超时）。
+- 触发条件通常为：在指定毫秒窗口内（默认曾为 180000ms）没有收到任何 WS 活动（delta / event / ack 等）。
+- 某些模型/网关可能会出现“长时间无增量、最终一次性返回”的情况，此时该看门狗会误判并提前报错。
+
+当前默认行为：
+
+- 默认已禁用（`WS_CHAT_SEND_TIMEOUT_MS = 0`）。
+
+如何调整：
+
+- 修改 `interfaces/admin/static/chat.js` 中常量 `WS_CHAT_SEND_TIMEOUT_MS`：
+  - `0`：禁用
+  - `> 0`：启用并作为无活动超时毫秒数
+
 ### 6.1 初始化管理员（幂等）
 
 ```bash
@@ -210,6 +234,55 @@ Linux/macOS:
 - `mcp_tools_list_invalid`
 
 详细开发与接入参考：`docs/MCP_LOCAL_SERVER.md`
+
+### 8.1 `images-mcp`（Windows）安装与 Health 通过指引
+
+现象：
+
+- `Install` 显示成功，但 `Health` 报错：`mcp_runtime_empty_response`
+- 手动执行 `npx -y images-mcp` 只输出 CLI 帮助并退出
+
+根因：
+
+- `images-mcp` 的 npm bin 入口默认是 CLI（`cli.ts`），不是 MCP stdio 服务入口。
+- 健康检查要求进程保持 MCP JSON-RPC（stdio）模式；CLI 进程会立即退出，导致空响应。
+
+前置检查（PowerShell）：
+
+```powershell
+where bun
+where bunx
+bun --version
+bunx --version
+```
+
+若 `where bun` 无结果，先安装/修复 Bun，再重启终端与网关进程。
+
+推荐安装方式（本地 runtime 目录）：
+
+```powershell
+mkdir D:\tools\images-mcp-runtime -Force
+cd D:\tools\images-mcp-runtime
+npm init -y
+npm install images-mcp
+```
+
+将 MCP Server 启动配置改为（管理台或数据库）：
+
+- `entry_command`: `powershell`
+- `entry_args`:
+  `["-NoProfile","-Command","Set-Location D:\\tools\\images-mcp-runtime; bun run node_modules/images-mcp/mcp.ts"]`
+
+预期结果：
+
+- 手动验证启动命令时，会看到 `Images MCP server running on stdio`
+- 管理台 `Health` 返回 `ok`
+- `Sync Tools` 后应看到 2 个工具（OpenAI / Gemini）
+
+排障补充：
+
+- 若仍失败，优先检查 `entry_args` 是否仍是 `npx -y images-mcp`（该配置会回到 CLI 模式，Health 继续失败）。
+- 若提示找不到 `bun`，确认网关进程启动时的 PATH 已包含 `C:\Users\<用户名>\.bun\bin`。
 
 ---
 
