@@ -14,7 +14,7 @@ class _Store:
 
 
 def test_build_project_context_block_reads_workspace_bootstrap(monkeypatch, tmp_path: Path) -> None:
-    ws = tmp_path / "oclaw" / "runtime" / "workspaces" / "main"
+    ws = tmp_path / "runtime" / "workspaces" / "main"
     ws.mkdir(parents=True, exist_ok=True)
     (ws / "TOOLS.md").write_text("tooling note", encoding="utf-8")
     monkeypatch.setattr("oclaw.runtime.project_context_prompt.PROJECT_ROOT", tmp_path)
@@ -38,7 +38,7 @@ def test_build_project_context_block_fallback_to_project_root(monkeypatch, tmp_p
 
 
 def test_build_project_context_block_triggers_bootstrap_for_each_root(monkeypatch, tmp_path: Path) -> None:
-    ws_agent = tmp_path / "oclaw" / "runtime" / "workspaces" / "main"
+    ws_agent = tmp_path / "runtime" / "workspaces" / "main"
     ws_agent.mkdir(parents=True, exist_ok=True)
     (ws_agent / "TOOLS.md").write_text("agent root", encoding="utf-8")
     monkeypatch.setattr("oclaw.runtime.project_context_prompt.PROJECT_ROOT", tmp_path)
@@ -62,8 +62,8 @@ def test_build_project_context_block_triggers_bootstrap_for_each_root(monkeypatc
 
 
 def test_project_context_bootstrap_includes_agent_id_when_config_matches(monkeypatch, tmp_path: Path) -> None:
-    ws_agent = tmp_path / "oclaw" / "runtime" / "workspaces" / "main"
-    ws_social = tmp_path / "oclaw" / "workspace-social"
+    ws_agent = tmp_path / "runtime" / "workspaces" / "main"
+    ws_social = tmp_path / "workspace-social"
     ws_agent.mkdir(parents=True, exist_ok=True)
     ws_social.mkdir(parents=True, exist_ok=True)
     (ws_agent / "TOOLS.md").write_text("agent root", encoding="utf-8")
