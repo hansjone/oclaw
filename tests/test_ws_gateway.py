@@ -4,6 +4,7 @@ from unittest import mock
 from fastapi.testclient import TestClient
 
 from oclaw.interfaces.http.fastapi_app import create_app
+from oclaw.interfaces.ws.runtime_impl import OclawWsGatewayConnection
 from oclaw.runtime.gateway import OclawGatewayResult
 
 
@@ -17,12 +18,26 @@ def _connect_params() -> dict:
         "caps": [],
         "commands": [],
         "permissions": {},
+        "auth": {"token": "test-token"},
     }
 
 
 class WsGatewayTests(unittest.TestCase):
     def setUp(self) -> None:
+        with OclawWsGatewayConnection._rate_lock:
+            OclawWsGatewayConnection._rate_by_ip.clear()
+            OclawWsGatewayConnection._rate_by_user.clear()
+            OclawWsGatewayConnection._stats.clear()
+            OclawWsGatewayConnection._event_buffer_by_user.clear()
+        self._auth_patcher = mock.patch(
+            "oclaw.interfaces.ws.runtime_impl.resolve_ws_auth_payload",
+            return_value={"tenant_id": "t1", "user_id": "u1", "role": "operator"},
+        )
+        self._auth_patcher.start()
         self.client = TestClient(create_app())
+
+    def tearDown(self) -> None:
+        self._auth_patcher.stop()
 
     def test_ws_requires_connect_first(self) -> None:
         with self.client.websocket_connect("/ws") as ws:
@@ -59,6 +74,56 @@ class WsGatewayTests(unittest.TestCase):
             res = ws.receive_json()
             assert res["type"] == "res"
             assert res["ok"] is False
+
+    def test_ws_connect_rejects_without_auth(self) -> None:
+        with mock.patch("oclaw.interfaces.ws.runtime_impl.resolve_ws_auth_payload", return_value={}):
+            with self.client.websocket_connect("/ws") as ws:
+                ws.receive_json()
+                bad = _connect_params()
+                bad["auth"] = {}
+                ws.send_json({"type": "req", "id": "c1", "method": "connect", "params": bad})
+                res = None
+                for _ in range(2):
+                    msg = ws.receive_json()
+                    if msg.get("type") == "res" and msg.get("id") == "c1":
+                        res = msg
+                        break
+                assert res is not None
+                assert res["type"] == "res"
+                assert res["ok"] is False
+                assert (res.get("error") or {}).get("code") == "UNAUTHORIZED"
+
+    def test_ws_origin_blocked(self) -> None:
+        with mock.patch("oclaw.interfaces.ws.runtime_impl.origin_is_allowed", return_value=False):
+            with self.assertRaises(Exception):
+                with self.client.websocket_connect("/ws", headers={"origin": "https://evil.example.com"}):
+                    pass
+
+    def test_ws_rate_limited(self) -> None:
+        with mock.patch("oclaw.interfaces.ws.runtime_impl.WS_RATE_LIMIT_CONN_PER_WINDOW", 1):
+            with self.client.websocket_connect("/ws") as ws:
+                ws.receive_json()
+                ws.send_json({"type": "req", "id": "c1", "method": "connect", "params": _connect_params()})
+                ws.receive_json()
+                ws.send_json({"type": "req", "id": "r1", "method": "sessions.list", "params": {}})
+                first = None
+                for _ in range(8):
+                    msg = ws.receive_json()
+                    if msg.get("type") == "res" and msg.get("id") == "r1":
+                        first = msg
+                        break
+                assert first is not None
+                assert first["ok"] is True
+                ws.send_json({"type": "req", "id": "r2", "method": "sessions.list", "params": {}})
+                second = None
+                for _ in range(8):
+                    msg = ws.receive_json()
+                    if msg.get("type") == "res" and msg.get("id") == "r2":
+                        second = msg
+                        break
+                assert second is not None
+                assert second["ok"] is False
+                assert (second.get("error") or {}).get("code") == "RATE_LIMITED"
 
     def test_ws_agent_run_emits_events_and_response(self) -> None:
         def _fake_handle_turn(self, **kwargs):  # noqa: ANN001
@@ -233,7 +298,13 @@ class WsGatewayTests(unittest.TestCase):
                         "params": {"sessionKey": "sess-chat", "message": "hi", "idempotencyKey": "idem-chat-1"},
                     }
                 )
-                ack = ws.receive_json()
+                ack = None
+                for _ in range(12):
+                    msg = ws.receive_json()
+                    if msg.get("type") == "res" and msg.get("id") == "cs1":
+                        ack = msg
+                        break
+                assert ack is not None
                 assert ack.get("type") == "res"
                 assert ack.get("id") == "cs1"
                 assert ack.get("ok") is True
@@ -291,7 +362,13 @@ class WsGatewayTests(unittest.TestCase):
                         "params": {"sessionKey": "sess-chat2", "message": "hi", "idempotencyKey": "idem-chat-2"},
                     }
                 )
-                ack = ws.receive_json()
+                ack = None
+                for _ in range(12):
+                    msg = ws.receive_json()
+                    if msg.get("type") == "res" and msg.get("id") == "cs2":
+                        ack = msg
+                        break
+                assert ack is not None
                 assert ack.get("type") == "res"
                 assert ack.get("id") == "cs2"
                 assert ack.get("ok") is True
@@ -317,4 +394,61 @@ class WsGatewayTests(unittest.TestCase):
                 assert seen_delta is True
                 assert seen_tool is True
                 assert seen_final is True
+
+    def test_ws_replay_events_with_last_seq(self) -> None:
+        def _fake_handle_turn(self, **kwargs):  # noqa: ANN001
+            rid = kwargs.get("run_id") or "run_replay"
+            on_token = kwargs.get("on_token")
+            if callable(on_token):
+                on_token("re")
+                on_token("play")
+            return OclawGatewayResult(
+                run_id=str(rid),
+                reply_text="replay",
+                trace_id="trace_replay",
+                elapsed_ms=3,
+                mode="sync_direct",
+                task_id=None,
+                selected_specialist="generalist",
+                interaction_mode="comprehensive",
+            )
+
+        with mock.patch("oclaw.runtime.gateway.OclawGateway.handle_turn", new=_fake_handle_turn):
+            with self.client.websocket_connect("/ws") as ws1:
+                ws1.receive_json()
+                ws1.send_json({"type": "req", "id": "c1", "method": "connect", "params": _connect_params()})
+                ws1.receive_json()
+                ws1.send_json(
+                    {
+                        "type": "req",
+                        "id": "cs1",
+                        "method": "chat.send",
+                        "params": {"sessionKey": "sess-replay", "message": "hi", "idempotencyKey": "idem-replay-1"},
+                    }
+                )
+                seq_seen = 0
+                for _ in range(20):
+                    msg = ws1.receive_json()
+                    if msg.get("type") != "event":
+                        continue
+                    seq_seen = max(seq_seen, int(msg.get("seq") or 0))
+                    if msg.get("event") == "chat" and str((msg.get("payload") or {}).get("state") or "") == "final":
+                        break
+                assert seq_seen > 0
+
+            p = _connect_params()
+            p["lastSeq"] = max(0, seq_seen - 1)
+            with self.client.websocket_connect("/ws") as ws2:
+                ws2.receive_json()
+                ws2.send_json({"type": "req", "id": "c2", "method": "connect", "params": p})
+                ws2.receive_json()
+                replayed = False
+                for _ in range(8):
+                    msg = ws2.receive_json()
+                    if msg.get("type") != "event":
+                        continue
+                    if int(msg.get("seq") or 0) > int(p["lastSeq"]):
+                        replayed = True
+                        break
+                assert replayed is True
 

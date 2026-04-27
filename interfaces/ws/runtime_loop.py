@@ -11,6 +11,9 @@ async def close_ws(conn: Any, code: int = 1000, reason: str = "done") -> None:
 
 
 async def run_connection_loop(conn: Any) -> None:
+    if hasattr(conn, "validate_origin") and not conn.validate_origin():
+        await close_ws(conn, 1008, "origin not allowed")
+        return
     await conn.ws.accept()
     await conn.send_event("connect.challenge", {"nonce": conn.connect_nonce, "ts": conn._now_ms()})
     while True:

@@ -8,6 +8,7 @@
   "properties": {
     "minProtocol": { "type": "integer", "minimum": 1 },
     "maxProtocol": { "type": "integer", "minimum": 1 },
+    "lastSeq": { "type": "integer", "minimum": 0 },
     "client": {
       "type": "object",
       "additionalProperties": false,

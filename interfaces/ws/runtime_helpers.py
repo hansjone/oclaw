@@ -6,6 +6,8 @@ from typing import Any
 
 from starlette.websockets import WebSocketDisconnect
 
+from oclaw.interfaces.ws.common import WS_REQUIRE_AUTH
+
 
 async def recv_frame(
     *,
@@ -93,16 +95,6 @@ async def handle_connect(
         )
         conn.handshake_failed = True
         return
-    hello = conn.build_hello_ok(params)
-    hello_errs = validate_or_errors(conn.schemas.hello_ok, hello)
-    if hello_errs:
-        await conn.send_res(
-            req_id,
-            ok=False,
-            error=error_shape("UNAVAILABLE", f"server hello-ok schema mismatch: {format_validation_errors(hello_errs)}"),
-        )
-        conn.handshake_failed = True
-        return
     conn.connected = True
     conn.client_meta = dict(params or {})
     try:
@@ -122,15 +114,38 @@ async def handle_connect(
         or str(auth.get("bootstrapToken") or "").strip()
         or str(auth.get("deviceToken") or "").strip()
     )
-    if auth_provided and not conn.auth_ctx:
+    if not conn.auth_ctx and (WS_REQUIRE_AUTH or auth_provided):
         await conn.send_res(
             req_id,
             ok=False,
-            error=error_shape("INVALID_REQUEST", "unauthorized", details={"code": "AUTH_UNAUTHORIZED"}),
+            error=error_shape("UNAUTHORIZED", "unauthorized", details={"code": "AUTH_UNAUTHORIZED"}),
+        )
+        conn.handshake_failed = True
+        if hasattr(conn, "mark_handshake"):
+            conn.mark_handshake(ok=False)
+        return
+    if conn.auth_ctx:
+        conn.role = str(conn.auth_ctx.get("role") or "member")
+        conn.scopes = [f"user:{str(conn.auth_ctx.get('user_id') or '')}"]
+    hello = conn.build_hello_ok(params)
+    hello_errs = validate_or_errors(conn.schemas.hello_ok, hello)
+    if hello_errs:
+        await conn.send_res(
+            req_id,
+            ok=False,
+            error=error_shape("UNAVAILABLE", f"server hello-ok schema mismatch: {format_validation_errors(hello_errs)}"),
         )
         conn.handshake_failed = True
         return
     await conn.send_res(req_id, ok=True, payload=hello)
+    if hasattr(conn, "mark_handshake"):
+        conn.mark_handshake(ok=True)
+    if hasattr(conn, "replay_events_since"):
+        try:
+            last_seq = int(p.get("lastSeq") or 0)
+        except Exception:
+            last_seq = 0
+        await conn.replay_events_since(last_seq)
 
 
 __all__ = ["recv_frame", "handle_connect"]

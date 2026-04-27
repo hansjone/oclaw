@@ -23,6 +23,11 @@ _DATA_MIGRATION_DONE = False
 
 
 def _canonical_data_root() -> Path:
+    # Compatibility: some callers/tests set PROJECT_ROOT to repo parent while
+    # data lives under "<root>/oclaw/data".
+    nested = (PROJECT_ROOT / "oclaw" / "data").resolve()
+    if nested.exists():
+        return nested
     return (PROJECT_ROOT / "data").resolve()
 
 

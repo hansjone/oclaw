@@ -335,7 +335,7 @@ class OclawGateway:
             if isinstance(dispatch, dict):
                 instruction_text = str(dispatch.get("instruction_text") or "").strip()
             if not instruction_text:
-                return ("generalist", "manager_instruction_missing", None, "", False, None, "", "")
+                return ("generalist", "manager_instruction_missing", None, "", False, None, "", "", "")
             need_wiki_inject: bool | None = None
             wiki_query = ""
             memory_write_text = ""
@@ -766,6 +766,7 @@ class OclawGateway:
             ws_received_ms = None
         trace_id = new_trace_id()
         rid = str(run_id or "").strip() or str(uuid.uuid4())
+        executed_turn_uuid = ""
         ctx = OclawSessionContext(
             session_id=msg.session_id,
             tenant_id=msg.tenant_id,
@@ -926,7 +927,7 @@ class OclawGateway:
                 user_id=msg.user_id,
                 role=msg.role,
                 channel=msg.channel,
-                text=str(instruction_text or "").strip(),
+                text=str(manager_instruction_text or "").strip(),
                 attachments=list(msg.attachments or []),
                 metadata=(
                     {

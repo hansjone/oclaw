@@ -391,6 +391,51 @@
   - 作用：SSE 事件队列上限
   - 生效：`oclaw/interfaces/admin/chat_api.py`
 
+- `OCLAW_WS_REQUIRE_AUTH`
+  - 默认：`1`
+  - 作用：WebSocket 握手是否强制鉴权；开启时 `connect` 必须携带并通过 token 校验
+  - 生效：`oclaw/interfaces/ws/common.py`, `oclaw/interfaces/ws/runtime_helpers.py`
+
+- `OCLAW_WS_ALLOWED_ORIGINS`
+  - 默认：空（回落为 same-host 校验）
+  - 作用：WebSocket 握手 Origin 白名单（逗号分隔）
+  - 生效：`oclaw/interfaces/ws/common.py`, `oclaw/interfaces/ws/runtime_impl.py`
+
+- `OCLAW_WS_RATE_LIMIT_WINDOW_MS`
+  - 默认：`60000`
+  - 作用：WebSocket 请求限流窗口（毫秒）
+  - 生效：`oclaw/interfaces/ws/common.py`, `oclaw/interfaces/ws/runtime_impl.py`
+
+- `OCLAW_WS_RATE_LIMIT_CONN_PER_WINDOW`
+  - 默认：`120`
+  - 作用：单连接在限流窗口内可处理请求上限
+  - 生效：`oclaw/interfaces/ws/common.py`, `oclaw/interfaces/ws/runtime_impl.py`
+
+- `OCLAW_WS_RATE_LIMIT_IP_PER_WINDOW`
+  - 默认：`240`
+  - 作用：单 IP 在限流窗口内可处理请求上限
+  - 生效：`oclaw/interfaces/ws/common.py`, `oclaw/interfaces/ws/runtime_impl.py`
+
+- `OCLAW_WS_RATE_LIMIT_USER_PER_WINDOW`
+  - 默认：`360`
+  - 作用：单用户在限流窗口内可处理请求上限
+  - 生效：`oclaw/interfaces/ws/common.py`, `oclaw/interfaces/ws/runtime_impl.py`
+
+- `OCLAW_WS_SEND_QUEUE_MAX_MESSAGES`
+  - 默认：`256`
+  - 作用：每连接发送队列最大消息数（背压阈值）
+  - 生效：`oclaw/interfaces/ws/common.py`, `oclaw/interfaces/ws/runtime_impl.py`, `oclaw/interfaces/ws/events.py`
+
+- `OCLAW_WS_SEND_QUEUE_MAX_BYTES`
+  - 默认：`52428800`（与 `MAX_BUFFERED_BYTES` 一致）
+  - 作用：每连接发送队列最大字节数（背压阈值）
+  - 生效：`oclaw/interfaces/ws/common.py`, `oclaw/interfaces/ws/runtime_impl.py`, `oclaw/interfaces/ws/events.py`
+
+- `OCLAW_WS_EVENT_REPLAY_MAX`
+  - 默认：`256`
+  - 作用：每用户最近事件回放缓冲上限（用于 `connect.params.lastSeq` 断线补偿）
+  - 生效：`oclaw/interfaces/ws/common.py`, `oclaw/interfaces/ws/runtime_impl.py`, `oclaw/interfaces/ws/runtime_helpers.py`
+
 ## WeCom 长连接
 
 - `AIA_WECOM_LONGCONN_WORKERS`

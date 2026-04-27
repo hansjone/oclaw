@@ -39,7 +39,6 @@ _SQL_REPLAY_COMPACT_TOOL_NAMES = {
 }
 _TABULAR_QUERY_TOOL_NAMES = {
     "query_tabular_attachment",
-    "run_tabular_sql",
     "analyze_tabular_attachment_full_scan",
 }
 _TEXT_QUERY_TOOL_NAMES = {
@@ -583,6 +582,14 @@ class ToolExecutor:
         turn_tool_name_counts, turn_tool_observed_rows = _load_turn_tool_stats()
         local_turn_tool_name_counts: dict[str, int] = {}
         local_turn_tool_observed_rows: dict[str, int] = {}
+        planned_sql_name_counts: dict[str, int] = {}
+        for tc in tool_uses:
+            name = str(tc.name or "")
+            if name in _SQL_REPLAY_COMPACT_TOOL_NAMES:
+                planned_sql_name_counts[name] = int(planned_sql_name_counts.get(name, 0)) + 1
+        compact_sql_names = {
+            name for name, cnt in planned_sql_name_counts.items() if int(cnt) >= int(tool_history_summary_after_calls())
+        }
         has_tabular_ref_in_session = _session_has_tabular_ref(ctx.store, ctx.session_id)
         has_text_ref_in_session = _session_has_text_ref(ctx.store, ctx.session_id)
         has_image_ref_in_session = _session_has_image_ref(ctx.store, ctx.session_id)
@@ -759,6 +766,13 @@ class ToolExecutor:
                 current_rows = int(local_turn_tool_observed_rows.get(tc.name, 0))
                 local_turn_tool_name_counts[tc.name] = current + 1
                 local_turn_tool_observed_rows[tc.name] = current_rows + observed_rows_this_call
+                if tc.name in compact_sql_names:
+                    cumulative_rows = int(turn_tool_observed_rows.get(tc.name, 0)) + int(local_turn_tool_observed_rows.get(tc.name, 0))
+                    result_for_llm["_history_compacted"] = True
+                    result_for_llm["_history_compact_reason"] = "repeated_tool_calls_in_turn"
+                    result_for_llm["_tool_observed_rows_this_call"] = int(observed_rows_this_call)
+                    result_for_llm["_tool_observed_rows_cumulative_in_turn"] = int(cumulative_rows)
+                    result_for_llm["audit_note"] = "Result compacted for history replay safety."
             trunc_ms = int((time.perf_counter() - t_trunc) * 1000)
             tool_content = self._json_dumps_safe(result_for_llm)
             t_db2 = time.perf_counter()

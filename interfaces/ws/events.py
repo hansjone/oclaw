@@ -19,8 +19,18 @@ def _ws_is_disconnected(conn: Any) -> bool:
     return False
 
 
-async def _safe_send_text(conn: Any, text: str) -> None:
+async def _safe_send_text(conn: Any, text: str, *, use_queue: bool = True) -> None:
     if _ws_is_disconnected(conn):
+        return
+    queue_send = getattr(conn, "_queue_send_text", None)
+    if use_queue and callable(queue_send):
+        ok = await queue_send(text)
+        if ok:
+            return
+        try:
+            await conn.ws.close(code=1013, reason="backpressure")
+        except Exception:
+            pass
         return
     try:
         await conn.ws.send_text(text)
@@ -37,7 +47,7 @@ async def send_res(conn: Any, req_id: str, *, ok: bool, payload: Any | None = No
         frame["payload"] = payload
     if error is not None:
         frame["error"] = error
-    await _safe_send_text(conn, json.dumps(frame, ensure_ascii=False))
+    await _safe_send_text(conn, json.dumps(frame, ensure_ascii=False), use_queue=False)
 
 
 async def send_event(conn: Any, event: str, payload: Any | None = None) -> None:
@@ -47,7 +57,12 @@ async def send_event(conn: Any, event: str, payload: Any | None = None) -> None:
     frame: dict[str, Any] = {"type": "event", "event": str(event or "event"), "seq": int(conn.seq)}
     if payload is not None:
         frame["payload"] = payload
-    await _safe_send_text(conn, json.dumps(frame, ensure_ascii=False))
+    raw = json.dumps(frame, ensure_ascii=False)
+    frame["_raw"] = raw
+    remember = getattr(conn, "remember_event", None)
+    if callable(remember):
+        remember(frame)
+    await _safe_send_text(conn, raw)
 
 
 async def emit_agent_event(conn: Any, *, run_id: str, stream: str, data: dict[str, Any], now_ms: int) -> None:

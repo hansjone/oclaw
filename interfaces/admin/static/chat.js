@@ -2500,6 +2500,11 @@ async function renderChatUi() {
       this.reqSeq = 0;
       this.msgQueue = [];
       this.waiters = [];
+      this.lastSeq = 0;
+      this._sessionSubscriptions = new Set();
+      this._reconnectBaseMs = 500;
+      this._reconnectCapMs = 5000;
+      this._maxReconnectAttempts = 4;
     }
     _isOpen() {
       return this.ws && this.ws.readyState === WebSocket.OPEN;
@@ -2523,6 +2528,24 @@ async function renderChatUi() {
     }
     async _openAndHandshake() {
       if (this._isOpen()) return;
+      let lastErr = null;
+      for (let i = 0; i <= this._maxReconnectAttempts; i += 1) {
+        try {
+          await this._openAndHandshakeOnce();
+          await this._restoreSubscriptions();
+          return;
+        } catch (err) {
+          lastErr = err;
+          this.close();
+          if (i >= this._maxReconnectAttempts) break;
+          const delay = Math.min(this._reconnectCapMs, this._reconnectBaseMs * Math.pow(2, i));
+          const jitter = Math.floor(Math.random() * 150);
+          await new Promise((resolve) => setTimeout(resolve, delay + jitter));
+        }
+      }
+      throw lastErr || new Error("ws_open_failed");
+    }
+    async _openAndHandshakeOnce() {
       const token = String(this.tokenProvider() || "");
       const wsUrl = this._wsUrl();
       const ws = new WebSocket(wsUrl);
@@ -2537,6 +2560,9 @@ async function renderChatUi() {
           parsed = null;
         }
         if (!parsed) return;
+        if (parsed && parsed.type === "event" && Number.isFinite(Number(parsed.seq))) {
+          this.lastSeq = Math.max(this.lastSeq, Number(parsed.seq) || 0);
+        }
         const waiter = this.waiters.shift();
         if (waiter) {
           waiter.resolve(parsed);
@@ -2555,7 +2581,6 @@ async function renderChatUi() {
           reject(new Error(`ws_open_failed:${wsUrl}`));
         };
       });
-      // Receive optional connect.challenge first.
       const challenge = await this._recv();
       if (!(challenge && challenge.type === "event" && challenge.event === "connect.challenge")) {
         throw new Error("ws_invalid_challenge");
@@ -2569,6 +2594,7 @@ async function renderChatUi() {
           params: {
             minProtocol: 3,
             maxProtocol: 3,
+            lastSeq: Number(this.lastSeq || 0),
             client: { id: "webchat-ui", version: "0.1", platform: navigator.platform || "web", mode: "webchat" },
             role: "operator",
             scopes: ["operator.read", "operator.write"],
@@ -2580,6 +2606,31 @@ async function renderChatUi() {
       if (!res || res.type !== "res" || res.id !== reqId || !res.ok) {
         throw new Error(`ws_connect_failed:${JSON.stringify((res && res.error) || {})}`);
       }
+    }
+    async _sendReqAndAwait(method, params) {
+      await this._openAndHandshake();
+      const reqId = this._nextReqId();
+      this.ws.send(JSON.stringify({ type: "req", id: reqId, method: String(method || ""), params: params || {} }));
+      for (;;) {
+        const msg = await this._recv();
+        if (msg && msg.type === "res" && msg.id === reqId) {
+          if (!msg.ok) throw new Error(`ws_req_failed:${JSON.stringify(msg.error || {})}`);
+          return msg.payload || {};
+        }
+      }
+    }
+    async _restoreSubscriptions() {
+      const items = Array.from(this._sessionSubscriptions);
+      for (let i = 0; i < items.length; i += 1) {
+        const key = String(items[i] || "");
+        if (!key) continue;
+        await this._sendReqAndAwait("sessions.messages.subscribe", { sessionKey: key });
+      }
+    }
+    _trackSessionSubscription(sessionId) {
+      const key = String(sessionId || "").trim();
+      if (!key) return;
+      this._sessionSubscriptions.add(key);
     }
     _recv() {
       const ws = this.ws;
@@ -2614,6 +2665,9 @@ async function renderChatUi() {
     }
     async sendSessionSend({ sessionId, text, attachments, interactionMode, specialist, memoryMode, idempotencyKey, signal, onEvent }) {
       await this._openAndHandshake();
+      this._trackSessionSubscription(sessionId);
+      await this._sendReqAndAwait("sessions.messages.subscribe", { sessionKey: String(sessionId || "") });
+      const stableIdempotencyKey = String(idempotencyKey || `idem_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`);
       const reqId = this._nextReqId();
       const req = {
         type: "req",
@@ -2623,7 +2677,7 @@ async function renderChatUi() {
           sessionKey: String(sessionId || ""),
           message: String(text || ""),
           attachments: Array.isArray(attachments) ? attachments : [],
-          idempotencyKey: String(idempotencyKey || `idem_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`),
+          idempotencyKey: stableIdempotencyKey,
           thinking: "default",
           interaction_mode: String(interactionMode || "expert"),
           specialist: String(specialist || "generalist"),
@@ -2632,9 +2686,22 @@ async function renderChatUi() {
       };
       this.ws.send(JSON.stringify(req));
       let doneMeta = null;
+      let retriedAfterReconnect = false;
       while (true) {
         if (signal && signal.aborted) throw new DOMException("Aborted", "AbortError");
-        const msg = await this._recv();
+        let msg = null;
+        try {
+          msg = await this._recv();
+        } catch (err) {
+          const em = String((err && err.message) || err || "").toLowerCase();
+          if (!retriedAfterReconnect && (em.includes("ws_closed") || em.includes("ws_receive_failed"))) {
+            retriedAfterReconnect = true;
+            await this._openAndHandshake();
+            this.ws.send(JSON.stringify(req));
+            continue;
+          }
+          throw err;
+        }
         if (
           msg &&
           msg.type === "event" &&
