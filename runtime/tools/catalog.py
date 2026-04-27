@@ -62,6 +62,57 @@ def _apply_declared_tool_policy(
     return out
 
 
+def _normalize_tool_name(name: str) -> str:
+    return str(name or "").strip()
+
+
+def _source_rank(source: str) -> int:
+    # Higher rank wins when names conflict.
+    order = {
+        "expert": 50,
+        "public": 40,
+        "skill_runtime": 30,
+        "mcp": 20,
+        "plugin": 10,
+    }
+    return int(order.get(str(source or "").strip().lower(), 0))
+
+
+def _resolve_tool_conflicts(collected: list[tuple[str, ToolSpec]]) -> list[ToolSpec]:
+    chosen: dict[str, tuple[str, ToolSpec]] = {}
+    for source, spec in collected:
+        name = _normalize_tool_name(getattr(spec, "name", ""))
+        if not name:
+            continue
+        prev = chosen.get(name)
+        if prev is None:
+            chosen[name] = (source, spec)
+            continue
+        prev_source, prev_spec = prev
+        cur_risk = str(getattr(spec, "risk_level", "low") or "low").strip().lower()
+        prev_risk = str(getattr(prev_spec, "risk_level", "low") or "low").strip().lower()
+        cur_rank = _source_rank(source)
+        prev_rank = _source_rank(prev_source)
+        # Prefer lower risk first; if equal risk, prefer stronger source rank.
+        if (cur_risk == "low" and prev_risk != "low") or (
+            cur_risk == prev_risk and cur_rank >= prev_rank
+        ):
+            chosen[name] = (source, spec)
+    # Preserve deterministic order by first collection order.
+    output: list[ToolSpec] = []
+    seen: set[str] = set()
+    for _, spec in collected:
+        name = _normalize_tool_name(getattr(spec, "name", ""))
+        if not name or name in seen:
+            continue
+        final = chosen.get(name)
+        if final is None:
+            continue
+        output.append(final[1])
+        seen.add(name)
+    return output
+
+
 def _skill_management_tools(store: SqliteStore) -> list[ToolSpec]:
     def _create_skill_handler(args: dict[str, Any]) -> dict[str, Any]:
         out = create_skill_from_template(
@@ -146,7 +197,7 @@ def materialize_tool_specs(
     plus public shared tools available to all roles.
     """
     _ = factories
-    tools: list[ToolSpec] = []
+    collected: list[tuple[str, ToolSpec]] = []
 
     def _risk_allowed(spec: ToolSpec) -> bool:
         # Optional safety gate for public tools.
@@ -157,7 +208,7 @@ def materialize_tool_specs(
             return True
         return str(getattr(spec, "risk_level", "") or "low").strip().lower() != "high"
 
-    # Load public shared tools first (available to all roles).
+    # collect: public
     try:
         for spec in list(materialize_public_tools()):
             if not isinstance(spec, ToolSpec):
@@ -165,32 +216,26 @@ def materialize_tool_specs(
             if not _risk_allowed(spec):
                 logger.warning("public tool blocked by risk gate: %s", str(spec.name or ""))
                 continue
-            tools.append(spec)
+            collected.append(("public", spec))
     except Exception as exc:
         logger.warning("public tool load skipped: %s", exc)
 
-    # Load role-scoped self-registered internal tools.
-    # `expert` can be composite (e.g. "generalist+workspace+productivity"), which
-    # is already supported by `materialize_tools_for_expert`.
+    # collect: expert
     try:
         for spec in materialize_tools_for_expert(str(expert or "").strip() or None):
             if not isinstance(spec, ToolSpec):
                 continue
-            if any(str(t.name or "") == str(spec.name or "") for t in tools):
-                continue
-            tools.append(spec)
+            collected.append(("expert", spec))
     except Exception as exc:
         logger.warning("expert tool load skipped: %s", exc)
 
-    # Load executable skills only when toolcall mode is explicitly enabled.
+    # collect: skill runtime
     if _skill_toolcall_enabled(store):
         try:
             for spec in materialize_executable_skill_tools(store=store):
                 if not isinstance(spec, ToolSpec):
                     continue
-                if any(str(t.name or "") == str(spec.name or "") for t in tools):
-                    continue
-                tools.append(spec)
+                collected.append(("skill_runtime", spec))
         except Exception as exc:
             logger.warning("skill runtime tool load skipped: %s", exc)
 
@@ -204,22 +249,24 @@ def materialize_tool_specs(
                 mcp_enabled = raw in {"1", "true", "yes", "on"}
     except Exception:
         mcp_enabled = True
+    # collect: mcp
     if mcp_enabled and _is_truthy(os.getenv("AIA_ENABLE_MCP_TOOLS", "1")):
         try:
-            tools.extend(
-                materialize_mcp_tools_for_specialist(
-                    store=store,
-                    specialist=str(specialist or "").strip().lower() or None,
-                    policy_session_id=policy_session_id,
-                    path_policy_tenant_id=path_policy_tenant_id,
-                    path_policy_user_id=path_policy_user_id,
-                )
-            )
+            for spec in materialize_mcp_tools_for_specialist(
+                store=store,
+                specialist=str(specialist or "").strip().lower() or None,
+                policy_session_id=policy_session_id,
+                path_policy_tenant_id=path_policy_tenant_id,
+                path_policy_user_id=path_policy_user_id,
+            ):
+                if isinstance(spec, ToolSpec):
+                    collected.append(("mcp", spec))
         except Exception as exc:
             logger.warning("mcp tool load skipped: %s", exc)
 
+    # collect: plugin
     if not _is_truthy(os.getenv("AIA_PLUGIN_TOOLS_ENABLED", "1")):
-        return tools
+        return _resolve_tool_conflicts(collected)
 
     try:
         only_ids_raw = str(os.getenv("AIA_PLUGIN_TOOL_IDS") or "").strip()
@@ -246,7 +293,8 @@ def materialize_tool_specs(
                 continue
             tags_raw = row.get("tags")
             tags = frozenset(str(x).strip() for x in (tags_raw or []) if str(x).strip())
-            tools.append(
+            collected.append((
+                "plugin",
                 ToolSpec(
                     name=name,
                     description=str(row.get("description") or ""),
@@ -257,10 +305,11 @@ def materialize_tool_specs(
                     timeout_s=float(row.get("timeout_s")) if row.get("timeout_s") is not None else None,
                     read_only=bool(row.get("read_only", False)),
                 )
-            )
+            ))
     except Exception as exc:
         logger.warning("plugin tool load skipped: %s", exc)
-    return tools
+    # normalize/policy/resolve_conflict/finalize
+    return _resolve_tool_conflicts(collected)
 
 
 def default_registry(
