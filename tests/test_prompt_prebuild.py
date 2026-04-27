@@ -101,3 +101,45 @@ def test_runtime_prewarm_prompts_snapshot_returns_roles(monkeypatch) -> None:
     assert "manager_system_prompt" not in prompts["manager"]
     assert "executor_system_prompt" not in prompts["manager"]
     assert "manager_user_scaffold" not in prompts["manager"]
+
+
+def test_manager_prompt_prebuild_cache_invalidates_on_workspace_revision_change(monkeypatch) -> None:
+    token = {"v": 1}
+    calls = {"ctx": 0}
+
+    monkeypatch.setattr(pp, "discover_specialist_ids", lambda: ("generalist", "ops"))
+    monkeypatch.setattr(
+        pp,
+        "list_experts",
+        lambda: [{"id": "generalist", "files": {"ROLE_SYSTEM.md": "General specialist"}}],
+    )
+    monkeypatch.setattr(pp, "expert_workspace_signature_token", lambda: ("revision", token["v"]))
+
+    def _ctx(_role: str, template_vars: dict[str, Any] | None = None) -> str:
+        calls["ctx"] += 1
+        return f"CTX\n{str((template_vars or {}).get('MANAGER_DYNAMIC_EXPERTS_HINT') or '')}"
+
+    monkeypatch.setattr(pp, "build_role_system_context", _ctx)
+
+    _ = pp.get_manager_prompt_prebuild(
+        store=_DummyStore(),
+        registry=object(),
+        base_url="",
+        memory_enabled=True,
+    )
+    _ = pp.get_manager_prompt_prebuild(
+        store=_DummyStore(),
+        registry=object(),
+        base_url="",
+        memory_enabled=True,
+    )
+    assert calls["ctx"] == 1
+
+    token["v"] = 2
+    _ = pp.get_manager_prompt_prebuild(
+        store=_DummyStore(),
+        registry=object(),
+        base_url="",
+        memory_enabled=True,
+    )
+    assert calls["ctx"] == 2

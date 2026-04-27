@@ -15,7 +15,9 @@ _RESERVED_IDS: frozenset[str] = frozenset({"main"})
 _META_FILE = "META.json"
 _ROLE_OPTIONS: frozenset[str] = frozenset({"system", "expert"})
 _CACHE_LOCK = threading.Lock()
-_LIST_CACHE_SIGNATURE: tuple[Any, ...] | None = None
+_WORKSPACE_REVISION = 1
+_LIST_CACHE_REVISION: int | None = None
+_LIST_CACHE_ROOT: str = ""
 _LIST_CACHE_ROWS: list[dict[str, Any]] = []
 _CATALOG_CACHE: dict[tuple[Any, ...], str] = {}
 _SPECIALIST_IDS_CACHE: dict[tuple[Any, ...], tuple[str, ...]] = {}
@@ -109,13 +111,16 @@ def _workspace_signature() -> tuple[Any, ...]:
 
 def expert_workspace_signature_token() -> tuple[Any, ...]:
     """Stable token for cache invalidation when workspace files change."""
-    return _workspace_signature()
+    with _CACHE_LOCK:
+        return ("revision", int(_WORKSPACE_REVISION), str(workspaces_root()))
 
 
 def _clear_experts_cache() -> None:
-    global _LIST_CACHE_SIGNATURE, _LIST_CACHE_ROWS
+    global _LIST_CACHE_REVISION, _LIST_CACHE_ROOT, _LIST_CACHE_ROWS, _WORKSPACE_REVISION
     with _CACHE_LOCK:
-        _LIST_CACHE_SIGNATURE = None
+        _WORKSPACE_REVISION += 1
+        _LIST_CACHE_REVISION = None
+        _LIST_CACHE_ROOT = ""
         _LIST_CACHE_ROWS = []
         _CATALOG_CACHE.clear()
         _SPECIALIST_IDS_CACHE.clear()
@@ -135,16 +140,19 @@ def _normalize_supported_files(files: dict[str, Any] | None) -> dict[str, str]:
 
 
 def list_experts() -> list[dict[str, Any]]:
-    global _LIST_CACHE_SIGNATURE, _LIST_CACHE_ROWS
-    sig = _workspace_signature()
+    global _LIST_CACHE_REVISION, _LIST_CACHE_ROOT, _LIST_CACHE_ROWS
     with _CACHE_LOCK:
-        if _LIST_CACHE_SIGNATURE == sig:
+        rev = int(_WORKSPACE_REVISION)
+        root_key = str(workspaces_root())
+    with _CACHE_LOCK:
+        if _LIST_CACHE_REVISION == rev and _LIST_CACHE_ROOT == root_key:
             return copy.deepcopy(_LIST_CACHE_ROWS)
     root = workspaces_root()
     out: list[dict[str, Any]] = []
     if not root.exists() or not root.is_dir():
         with _CACHE_LOCK:
-            _LIST_CACHE_SIGNATURE = sig
+            _LIST_CACHE_REVISION = rev
+            _LIST_CACHE_ROOT = root_key
             _LIST_CACHE_ROWS = []
             _CATALOG_CACHE.clear()
         return out
@@ -183,7 +191,8 @@ def list_experts() -> list[dict[str, Any]]:
             }
         )
     with _CACHE_LOCK:
-        _LIST_CACHE_SIGNATURE = sig
+        _LIST_CACHE_REVISION = rev
+        _LIST_CACHE_ROOT = root_key
         _LIST_CACHE_ROWS = copy.deepcopy(out)
         _CATALOG_CACHE.clear()
     return out
@@ -197,8 +206,7 @@ def _one_line_summary(text: str, *, limit: int = 120) -> str:
 
 
 def build_expert_catalog_block(*, include_main: bool = False, per_field_limit: int = 120, max_total_chars: int = 4000) -> str:
-    sig = _workspace_signature()
-    cache_key = (sig, bool(include_main), int(per_field_limit), int(max_total_chars))
+    cache_key = (expert_workspace_signature_token(), bool(include_main), int(per_field_limit), int(max_total_chars))
     with _CACHE_LOCK:
         cached = _CATALOG_CACHE.get(cache_key)
     if isinstance(cached, str):
@@ -238,8 +246,7 @@ def discover_specialist_ids_from_workspaces(
     *,
     base_order: tuple[str, ...] = ("generalist", "ops", "image", "memory"),
 ) -> tuple[str, ...]:
-    sig = _workspace_signature()
-    cache_key = (sig, tuple(str(x).strip().lower() for x in base_order if str(x).strip()))
+    cache_key = (expert_workspace_signature_token(), tuple(str(x).strip().lower() for x in base_order if str(x).strip()))
     with _CACHE_LOCK:
         cached = _SPECIALIST_IDS_CACHE.get(cache_key)
     if isinstance(cached, tuple):
@@ -272,6 +279,28 @@ def warm_expert_workspace_cache() -> None:
     _ = list_experts()
     _ = build_expert_catalog_block(include_main=False, per_field_limit=120, max_total_chars=4000)
     _ = discover_specialist_ids_from_workspaces()
+
+
+def specialist_registry_snapshot(
+    *,
+    base_order: tuple[str, ...] = ("generalist", "ops", "image", "memory"),
+) -> tuple[dict[str, Any], ...]:
+    """Single source of truth for runtime specialist discovery and metadata."""
+    ordered = discover_specialist_ids_from_workspaces(base_order=base_order)
+    experts_by_id: dict[str, dict[str, Any]] = {
+        str(row.get("id") or "").strip().lower(): row for row in list_experts() if isinstance(row, dict)
+    }
+    out: list[dict[str, Any]] = []
+    for sid in ordered:
+        row = experts_by_id.get(str(sid).strip().lower(), {})
+        meta = {
+            "id": sid,
+            "role": str((row.get("role") if isinstance(row, dict) else "") or "expert").strip().lower() or "expert",
+            "has_required_soul": bool((row.get("has_required_soul") if isinstance(row, dict) else False)),
+            "builtin": bool((row.get("builtin") if isinstance(row, dict) else False)),
+        }
+        out.append(meta)
+    return tuple(out)
 
 
 def _workspace_dir(expert_id: str) -> Path:
@@ -402,6 +431,7 @@ __all__ = [
     "is_builtin_expert",
     "list_experts",
     "normalize_expert_id",
+    "specialist_registry_snapshot",
     "update_expert_meta",
     "update_expert_files",
     "warm_expert_workspace_cache",

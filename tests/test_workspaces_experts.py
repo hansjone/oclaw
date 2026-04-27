@@ -14,7 +14,7 @@ def _set_project_root(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
 
 def test_list_experts_reads_runtime_workspaces(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     _set_project_root(monkeypatch, tmp_path)
-    ws = tmp_path / "oclaw" / "runtime" / "workspaces" / "qa"
+    ws = tmp_path / "runtime" / "workspaces" / "qa"
     ws.mkdir(parents=True, exist_ok=True)
     (ws / "SOUL.md").write_text("qa soul", encoding="utf-8")
     rows = experts_mod.list_experts()
@@ -24,7 +24,7 @@ def test_list_experts_reads_runtime_workspaces(monkeypatch: pytest.MonkeyPatch, 
 
 def test_create_expert_requires_soul(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     _set_project_root(monkeypatch, tmp_path)
-    with pytest.raises(ValueError, match="soul_required"):
+    with pytest.raises(ValueError, match="soul_or_role_system_required"):
         experts_mod.create_expert(expert_id="qa", files={})
 
 
@@ -53,7 +53,7 @@ def test_create_update_delete_expert_flow(monkeypatch: pytest.MonkeyPatch, tmp_p
 
 def test_delete_builtin_expert_is_protected(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     _set_project_root(monkeypatch, tmp_path)
-    ws = tmp_path / "oclaw" / "runtime" / "workspaces" / "main"
+    ws = tmp_path / "runtime" / "workspaces" / "main"
     ws.mkdir(parents=True, exist_ok=True)
     (ws / "SOUL.md").write_text("main soul", encoding="utf-8")
     with pytest.raises(ValueError, match="builtin_expert_protected"):
@@ -62,7 +62,7 @@ def test_delete_builtin_expert_is_protected(monkeypatch: pytest.MonkeyPatch, tmp
 
 def test_discover_specialists_reads_workspaces(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     _set_project_root(monkeypatch, tmp_path)
-    ws = tmp_path / "oclaw" / "runtime" / "workspaces"
+    ws = tmp_path / "runtime" / "workspaces"
     (ws / "main").mkdir(parents=True, exist_ok=True)
     (ws / "generalist").mkdir(parents=True, exist_ok=True)
     (ws / "generalist" / "ROLE_SYSTEM.md").write_text("g", encoding="utf-8")
@@ -77,7 +77,7 @@ def test_discover_specialists_reads_workspaces(monkeypatch: pytest.MonkeyPatch, 
 
 def test_build_expert_catalog_block_contains_dynamic_experts(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     _set_project_root(monkeypatch, tmp_path)
-    ws = tmp_path / "oclaw" / "runtime" / "workspaces"
+    ws = tmp_path / "runtime" / "workspaces"
     (ws / "main").mkdir(parents=True, exist_ok=True)
     (ws / "qa").mkdir(parents=True, exist_ok=True)
     (ws / "qa" / "SOUL.md").write_text("QA expert soul", encoding="utf-8")
@@ -90,7 +90,7 @@ def test_build_expert_catalog_block_contains_dynamic_experts(monkeypatch: pytest
 
 def test_discover_specialists_cache_invalidates_after_create(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     _set_project_root(monkeypatch, tmp_path)
-    ws = tmp_path / "oclaw" / "runtime" / "workspaces"
+    ws = tmp_path / "runtime" / "workspaces"
     (ws / "main").mkdir(parents=True, exist_ok=True)
     (ws / "generalist").mkdir(parents=True, exist_ok=True)
     (ws / "generalist" / "SOUL.md").write_text("g", encoding="utf-8")
@@ -99,3 +99,21 @@ def test_discover_specialists_cache_invalidates_after_create(monkeypatch: pytest
     experts_mod.create_expert(expert_id="qa", files={"SOUL.md": "qa soul"})
     after = set(discover_specialist_ids())
     assert "qa" in after
+
+
+def test_workspace_revision_token_changes_after_mutation(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    _set_project_root(monkeypatch, tmp_path)
+    before = experts_mod.expert_workspace_signature_token()
+    experts_mod.create_expert(expert_id="qa", files={"SOUL.md": "qa"})
+    after = experts_mod.expert_workspace_signature_token()
+    assert before != after
+
+
+def test_workspace_signature_token_no_longer_scans_filesystem(monkeypatch: pytest.MonkeyPatch) -> None:
+    def _boom():
+        raise AssertionError("should_not_scan_workspace_signature")
+
+    monkeypatch.setattr(experts_mod, "_workspace_signature", _boom)
+    token = experts_mod.expert_workspace_signature_token()
+    assert isinstance(token, tuple)
+    assert token and str(token[0]) == "revision"
