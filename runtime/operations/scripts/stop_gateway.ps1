@@ -14,6 +14,16 @@ function Warn([string]$msg) {
 }
 
 function Kill-ProcId([int]$procId) {
+    $exists = $null
+    try {
+        $exists = Get-Process -Id $procId -ErrorAction SilentlyContinue
+    } catch {
+        $exists = $null
+    }
+    if (-not $exists) {
+        Write-Host "PID=$procId already exited" -ForegroundColor DarkGray
+        return $true
+    }
     try {
         Stop-Process -Id $procId -Force
         Write-Host "Stopped PID=$procId" -ForegroundColor Green
