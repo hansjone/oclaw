@@ -609,6 +609,31 @@ class SqliteStore:
             conn.execute("CREATE INDEX IF NOT EXISTS idx_admin_audit_actor_ts ON admin_audit_log(actor_user_id, timestamp DESC)")
             conn.execute(
                 """
+                CREATE TABLE IF NOT EXISTS attachment_acl (
+                    attachment_id TEXT NOT NULL,
+                    tenant_id TEXT NOT NULL,
+                    user_id TEXT NOT NULL,
+                    session_id TEXT NOT NULL,
+                    source TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    PRIMARY KEY (attachment_id, tenant_id, user_id, session_id, source),
+                    FOREIGN KEY(session_id) REFERENCES chat_session(id) ON DELETE CASCADE,
+                    FOREIGN KEY(tenant_id) REFERENCES tenant(id) ON DELETE CASCADE,
+                    FOREIGN KEY(user_id) REFERENCES app_user(id) ON DELETE CASCADE
+                );
+                """
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_attachment_acl_tenant_attachment ON attachment_acl(tenant_id, attachment_id, created_at DESC)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_attachment_acl_user_attachment ON attachment_acl(tenant_id, user_id, attachment_id, created_at DESC)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_attachment_acl_session_attachment ON attachment_acl(session_id, attachment_id, created_at DESC)"
+            )
+            conn.execute(
+                """
                 CREATE TABLE IF NOT EXISTS tool_log (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     session_id TEXT NOT NULL,
@@ -1305,6 +1330,206 @@ class SqliteStore:
             created_at=row["created_at"],
             last_message_at=row["last_message_at"],
         )
+
+    @staticmethod
+    def _attachments_contain_attachment_id(raw_attachments: Any, *, attachment_id: str) -> bool:
+        aid = str(attachment_id or "").strip()
+        if not aid:
+            return False
+        obj = raw_attachments
+        if isinstance(raw_attachments, str):
+            s = str(raw_attachments or "").strip()
+            if not s:
+                return False
+            try:
+                obj = json.loads(s)
+            except Exception:
+                return False
+        if isinstance(obj, dict):
+            items = [obj]
+        elif isinstance(obj, list):
+            items = obj
+        else:
+            return False
+        for it in items:
+            if not isinstance(it, dict):
+                continue
+            if str(it.get("attachment_id") or "").strip() == aid:
+                return True
+        return False
+
+    def attachment_referenced_by_user(self, *, tenant_id: str, user_id: str, attachment_id: str, scan_limit: int = 2000) -> bool:
+        aid = str(attachment_id or "").strip()
+        tid = str(tenant_id or "").strip()
+        uid = str(user_id or "").strip()
+        if not aid or not tid or not uid:
+            return False
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT m.attachments
+                FROM chat_message m
+                INNER JOIN ui_session_owner o ON o.session_id = m.session_id
+                WHERE o.tenant_id = ? AND o.user_id = ? AND m.attachments IS NOT NULL AND m.attachments <> ''
+                ORDER BY m.id DESC
+                LIMIT ?
+                """,
+                (tid, uid, int(max(1, scan_limit))),
+            ).fetchall()
+        for r in rows:
+            if self._attachments_contain_attachment_id(r["attachments"], attachment_id=aid):
+                return True
+        return False
+
+    def attachment_referenced_in_tenant(self, *, tenant_id: str, attachment_id: str, scan_limit: int = 4000) -> bool:
+        aid = str(attachment_id or "").strip()
+        tid = str(tenant_id or "").strip()
+        if not aid or not tid:
+            return False
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT m.attachments
+                FROM chat_message m
+                INNER JOIN ui_session_owner o ON o.session_id = m.session_id
+                WHERE o.tenant_id = ? AND m.attachments IS NOT NULL AND m.attachments <> ''
+                ORDER BY m.id DESC
+                LIMIT ?
+                """,
+                (tid, int(max(1, scan_limit))),
+            ).fetchall()
+        for r in rows:
+            if self._attachments_contain_attachment_id(r["attachments"], attachment_id=aid):
+                return True
+        return False
+
+    def link_attachment_acl(
+        self,
+        *,
+        tenant_id: str,
+        user_id: str,
+        session_id: str,
+        attachment_id: str,
+        source: str,
+    ) -> None:
+        tid = str(tenant_id or "").strip()
+        uid = str(user_id or "").strip()
+        sid = str(session_id or "").strip()
+        aid = str(attachment_id or "").strip().lower()
+        src = str(source or "").strip() or "unknown"
+        if not tid or not uid or not sid or not aid:
+            return
+        ts = utc_now_iso()
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT OR IGNORE INTO attachment_acl
+                    (attachment_id, tenant_id, user_id, session_id, source, created_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (aid, tid, uid, sid, src, ts),
+            )
+
+    def attachment_acl_allows_user(self, *, tenant_id: str, user_id: str, attachment_id: str) -> bool:
+        tid = str(tenant_id or "").strip()
+        uid = str(user_id or "").strip()
+        aid = str(attachment_id or "").strip().lower()
+        if not tid or not uid or not aid:
+            return False
+        with self._connect() as conn:
+            r = conn.execute(
+                """
+                SELECT 1
+                FROM attachment_acl
+                WHERE tenant_id = ? AND user_id = ? AND attachment_id = ?
+                LIMIT 1
+                """,
+                (tid, uid, aid),
+            ).fetchone()
+        return bool(r)
+
+    def attachment_acl_allows_tenant(self, *, tenant_id: str, attachment_id: str) -> bool:
+        tid = str(tenant_id or "").strip()
+        aid = str(attachment_id or "").strip().lower()
+        if not tid or not aid:
+            return False
+        with self._connect() as conn:
+            r = conn.execute(
+                """
+                SELECT 1
+                FROM attachment_acl
+                WHERE tenant_id = ? AND attachment_id = ?
+                LIMIT 1
+                """,
+                (tid, aid),
+            ).fetchone()
+        return bool(r)
+
+    def backfill_attachment_acl_from_messages(
+        self,
+        *,
+        tenant_id: str,
+        limit_messages: int = 50_000,
+    ) -> dict[str, Any]:
+        """Best-effort backfill: scan chat_message.attachments and populate attachment_acl.
+
+        This is intended for one-off migration / operator maintenance.
+        """
+        tid = str(tenant_id or "").strip()
+        lim = max(1, int(limit_messages))
+        if not tid:
+            return {"ok": False, "error": "tenant_id_required"}
+        inserted = 0
+        scanned_msgs = 0
+        scanned_atts = 0
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT m.session_id, m.attachments, o.user_id
+                FROM chat_message m
+                INNER JOIN ui_session_owner o ON o.session_id = m.session_id
+                WHERE o.tenant_id = ? AND m.attachments IS NOT NULL AND m.attachments <> ''
+                ORDER BY m.id DESC
+                LIMIT ?
+                """,
+                (tid, lim),
+            ).fetchall()
+            ts = utc_now_iso()
+            for r in rows:
+                scanned_msgs += 1
+                sid = str(r["session_id"] or "").strip()
+                uid = str(r["user_id"] or "").strip()
+                if not sid or not uid:
+                    continue
+                try:
+                    obj = json.loads(str(r["attachments"] or ""))
+                except Exception:
+                    continue
+                items = obj if isinstance(obj, list) else ([obj] if isinstance(obj, dict) else [])
+                for a in items:
+                    if not isinstance(a, dict):
+                        continue
+                    scanned_atts += 1
+                    aid = str(a.get("attachment_id") or "").strip().lower()
+                    if not aid:
+                        continue
+                    src = "backfill:chat_message"
+                    cur = conn.execute(
+                        """
+                        INSERT OR IGNORE INTO attachment_acl
+                            (attachment_id, tenant_id, user_id, session_id, source, created_at)
+                        VALUES (?, ?, ?, ?, ?, ?)
+                        """,
+                        (aid, tid, uid, sid, src, ts),
+                    )
+                    inserted += int(cur.rowcount or 0)
+        return {
+            "ok": True,
+            "tenant_id": tid,
+            "scanned_messages": int(scanned_msgs),
+            "scanned_attachments": int(scanned_atts),
+            "inserted": int(inserted),
+        }
 
     def list_admin_sessions(
         self,

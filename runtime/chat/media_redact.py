@@ -5,6 +5,7 @@ Persistence is untouched; callers use copies when building model context."""
 from __future__ import annotations
 
 import base64
+import os
 from typing import Any
 from oclaw.platform.files.attachment_assets import AttachmentAssetStore
 
@@ -12,6 +13,7 @@ _IMAGE_CONTENT_TYPES = frozenset({"image", "input_image"})
 _BASE64_PAYLOAD_KEYS = ("data", "image_base64", "base64", "content_base64", "body_base64")
 # Below this length we keep values (tiny icons / markers).
 _MIN_B64_CHARS = 200
+_DEFAULT_MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024
 
 
 def redact_embedded_image_blobs(obj: Any) -> Any:
@@ -89,6 +91,19 @@ def ingest_embedded_image_blobs_as_refs(
         if raw:
             blob = _decode_image_bytes(raw)
             if blob:
+                max_bytes = _max_attachment_bytes()
+                if max_bytes > 0 and len(blob) > max_bytes:
+                    redacted = _redact_dict(node)
+                    redacted["type"] = _ref_type_for_mime(
+                        str(node.get("mime") or node.get("mime_type") or "application/octet-stream"),
+                        typ,
+                    )
+                    redacted["error"] = "attachment_too_large"
+                    redacted["max_bytes"] = int(max_bytes)
+                    redacted["actual_bytes"] = int(len(blob))
+                    redacted.setdefault("name", str(node.get("name") or "attachment"))
+                    redacted.setdefault("mime", str(node.get("mime") or node.get("mime_type") or "application/octet-stream"))
+                    return redacted
                 idx_seed[0] += 1
                 mime = str(node.get("mime") or node.get("mime_type") or "image/png").strip() or "image/png"
                 ext = _filename_ext_for_mime(mime)
@@ -193,6 +208,16 @@ def _safe_int(raw: Any) -> int | None:
         return int(raw)
     except Exception:
         return None
+
+
+def _max_attachment_bytes() -> int:
+    raw = str(os.getenv("AIA_MAX_ATTACHMENT_BYTES") or "").strip()
+    if raw.isdigit():
+        n = int(raw)
+        if n <= 0:
+            return 0
+        return min(n, 500 * 1024 * 1024)
+    return _DEFAULT_MAX_ATTACHMENT_BYTES
 
 
 __all__ = ["redact_embedded_image_blobs", "ingest_embedded_image_blobs_as_refs"]

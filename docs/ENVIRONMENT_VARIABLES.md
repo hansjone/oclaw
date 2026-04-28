@@ -181,6 +181,21 @@
   - 作用：`tool_log` 中 args/result 截断上限
   - 生效：`oclaw/platform/persistence/sqlite_store.py`
 
+- `AIA_MAX_ATTACHMENT_BYTES`
+  - 默认：`26214400`（25MB）
+  - 作用：工具结果/MCP payload 中嵌入式 base64 内容落盘为 `attachment_id` 时的单附件最大字节数（超限则不落盘，降级为 `*_ref` 元信息并标记 `attachment_too_large`）
+  - 取值：`0` 表示不限制（不推荐）
+  - 生效：`oclaw/runtime/chat/media_redact.py`
+
+- `AIA_ATTACHMENT_ACL_STRICT`
+  - 默认：`0`
+  - 作用：附件下载鉴权是否严格依赖 `attachment_acl`
+  - 说明：
+    - `0`：优先走 `attachment_acl`，缺失时仍允许回退扫描历史 `chat_message.attachments`（兼容旧数据）
+    - `1`：**严格模式**，只允许 `attachment_acl`（以及用户头像 `avatar_attachment_id`）命中的附件被下载
+  - 上线建议：先执行 Admin “ACL 回填”，再开启 strict
+  - 生效：`oclaw/interfaces/admin/chat_api.py`
+
 - `AIA_IMAGE_TOOL_RESULT_REPLAY_CAP_CHARS`
   - 默认：`4000`
   - 作用：限制历史轮次中 `query_image_attachment`（OCR/描述）结果回放到模型上下文时的 `text` 长度上限

@@ -47,12 +47,34 @@ class ChatProfileApiTests(unittest.TestCase):
         )
         self.assertEqual(resp.status_code, 200, resp.text)
         self.token = str(resp.json().get("token") or "")
+        store.create_user_account(
+            tenant_id=self.tenant_id,
+            username="alice",
+            display_name="Alice",
+            role="member",
+            password_hash=hashlib.sha256("alice-pass".encode("utf-8")).hexdigest(),
+            is_active=True,
+        )
+        resp_alice = self.client.post(
+            "/admin/api/auth/login",
+            json={
+                "tenant_id": self.tenant_id,
+                "username": "alice",
+                "password": "alice-pass",
+                "purpose": "console",
+            },
+        )
+        self.assertEqual(resp_alice.status_code, 200, resp_alice.text)
+        self.alice_token = str(resp_alice.json().get("token") or "")
 
     def tearDown(self) -> None:
         self._tmp.cleanup()
 
     def _h(self) -> dict[str, str]:
         return {"authorization": f"Bearer {self.token}"}
+
+    def _h_alice(self) -> dict[str, str]:
+        return {"authorization": f"Bearer {self.alice_token}"}
 
     def test_profile_get_patch_avatar_delete(self) -> None:
         g = self.client.get("/admin/api/chat/profile", headers=self._h())
@@ -91,6 +113,50 @@ class ChatProfileApiTests(unittest.TestCase):
         self.assertEqual(d.status_code, 200, d.text)
         g3 = self.client.get("/admin/api/chat/profile", headers=self._h())
         self.assertFalse((g3.json().get("profile") or {}).get("avatar_attachment_id"))
+
+    def test_attachment_endpoint_rejects_invalid_attachment_id(self) -> None:
+        r = self.client.get("/admin/api/chat/attachments/not-a-valid-id", headers=self._h())
+        self.assertEqual(r.status_code, 400, r.text)
+        self.assertEqual((r.json() or {}).get("detail"), "attachment_id_invalid")
+
+    def test_attachment_endpoint_forbids_unowned_attachment(self) -> None:
+        up = self.client.post(
+            "/admin/api/chat/profile/avatar",
+            files={"file": ("x.png", MINI_PNG, "image/png")},
+            headers=self._h(),
+        )
+        self.assertEqual(up.status_code, 200, up.text)
+        aid = str((up.json() or {}).get("avatar_attachment_id") or "").strip()
+        self.assertTrue(aid)
+
+        me = self.client.get(f"/admin/api/chat/attachments/{aid}", headers=self._h())
+        self.assertEqual(me.status_code, 200, me.text)
+
+        other = self.client.get(f"/admin/api/chat/attachments/{aid}", headers=self._h_alice())
+        self.assertEqual(other.status_code, 403, other.text)
+        self.assertEqual((other.json() or {}).get("detail"), "attachment_forbidden")
+
+    def test_attachment_acl_strict_requires_backfill_or_acl(self) -> None:
+        prev = os.environ.get("AIA_ATTACHMENT_ACL_STRICT")
+        os.environ["AIA_ATTACHMENT_ACL_STRICT"] = "1"
+        try:
+            # Upload an avatar (this is not linked into ACL; access is via avatar_attachment_id).
+            up = self.client.post(
+                "/admin/api/chat/profile/avatar",
+                files={"file": ("x.png", MINI_PNG, "image/png")},
+                headers=self._h(),
+            )
+            self.assertEqual(up.status_code, 200, up.text)
+            aid = str((up.json() or {}).get("avatar_attachment_id") or "").strip()
+            self.assertTrue(aid)
+            # Avatar download remains allowed under strict mode.
+            att = self.client.get(f"/admin/api/chat/attachments/{aid}", headers=self._h())
+            self.assertEqual(att.status_code, 200, att.text)
+        finally:
+            if prev is None:
+                os.environ.pop("AIA_ATTACHMENT_ACL_STRICT", None)
+            else:
+                os.environ["AIA_ATTACHMENT_ACL_STRICT"] = prev
 
 
 if __name__ == "__main__":

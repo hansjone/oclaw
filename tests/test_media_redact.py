@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import os
 
 from oclaw.runtime.chat.media_redact import ingest_embedded_image_blobs_as_refs, redact_embedded_image_blobs
 
@@ -42,3 +43,22 @@ def test_ingest_embedded_binary_blob_as_binary_ref(tmp_path) -> None:
     assert str(block.get("attachment_id") or "")
     assert "base64" not in block
     assert refs and refs[0]["attachment_id"] == block["attachment_id"]
+
+
+def test_ingest_rejects_oversized_blob_by_env_limit(tmp_path) -> None:
+    prev = os.environ.get("AIA_MAX_ATTACHMENT_BYTES")
+    os.environ["AIA_MAX_ATTACHMENT_BYTES"] = "4"
+    try:
+        raw = base64.b64encode(b"12345").decode("ascii")
+        obj = {"result": {"content": [{"type": "file", "mime": "application/octet-stream", "base64": raw, "name": "x.bin"}]}}
+        out, refs = ingest_embedded_image_blobs_as_refs(obj, root_dir=str(tmp_path), filename_prefix="unit")
+    finally:
+        if prev is None:
+            os.environ.pop("AIA_MAX_ATTACHMENT_BYTES", None)
+        else:
+            os.environ["AIA_MAX_ATTACHMENT_BYTES"] = prev
+    block = out["result"]["content"][0]
+    assert block["type"] == "binary_ref"
+    assert block.get("error") == "attachment_too_large"
+    assert int(block.get("actual_bytes") or 0) >= 5
+    assert refs == []

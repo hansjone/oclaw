@@ -7,6 +7,8 @@ import json
 import queue
 import threading
 import os
+import re
+import time
 from collections.abc import Callable, Iterator
 from typing import Any
 from pathlib import Path
@@ -66,6 +68,11 @@ _CHAT_MSG_LIMIT = 256
 _SESSION_TITLE_MAX_LEN = 120
 _AVATAR_UPLOAD_MAX_BYTES = 2 * 1024 * 1024
 _AVATAR_MIMES = frozenset({"image/png", "image/jpeg", "image/jpg", "image/webp", "image/gif"})
+_ATTACHMENT_ID_RE = re.compile(r"^[a-f0-9]{64}$")
+_ATT_DOWNLOAD_BUCKET: dict[str, tuple[float, float]] = {}
+_ATT_DOWNLOAD_LOCK = threading.Lock()
+_ATT_DOWNLOAD_RATE_PER_SEC = 1.0  # 60/min
+_ATT_DOWNLOAD_BURST = 20.0
 
 _CHAT_STOP_EVENTS: dict[str, threading.Event] = {}
 _CHAT_STOP_LOCK = threading.Lock()
@@ -250,6 +257,58 @@ def _parse_attachments_payload(raw: Any) -> list[dict[str, Any]] | None:
         if got:
             out.extend(got)
     return out if out else None
+
+
+def _is_valid_attachment_id(raw: str) -> bool:
+    return bool(_ATTACHMENT_ID_RE.fullmatch(str(raw or "").strip().lower()))
+
+
+def _can_access_attachment(store: SqliteStore, ctx: dict[str, Any], *, attachment_id: str) -> bool:
+    aid = str(attachment_id or "").strip().lower()
+    if not _is_valid_attachment_id(aid):
+        return False
+    tenant_id = str(ctx.get("tenant_id") or "").strip()
+    user_id = str(ctx.get("user_id") or "").strip()
+    if not tenant_id:
+        return False
+    if _is_administrator_chat_viewer(ctx):
+        if store.attachment_acl_allows_tenant(tenant_id=tenant_id, attachment_id=aid):
+            return True
+        if (not _attachment_acl_strict()) and store.attachment_referenced_in_tenant(tenant_id=tenant_id, attachment_id=aid):
+            return True
+        # Keep profile/avatar behavior compatible for administrator account.
+        admin = store.get_user_by_username(tenant_id=tenant_id, username="administrator") or {}
+        return str(admin.get("avatar_attachment_id") or "").strip().lower() == aid
+    if user_id and store.attachment_acl_allows_user(tenant_id=tenant_id, user_id=user_id, attachment_id=aid):
+        return True
+    if (not _attachment_acl_strict()) and user_id and store.attachment_referenced_by_user(tenant_id=tenant_id, user_id=user_id, attachment_id=aid):
+        return True
+    user = store.get_user_by_id(tenant_id=tenant_id, user_id=user_id) if user_id else None
+    return str((user or {}).get("avatar_attachment_id") or "").strip().lower() == aid
+
+
+def _rate_limit_attachment_download(*, actor_tenant_id: str, actor_user_id: str) -> bool:
+    tid = str(actor_tenant_id or "").strip()
+    uid = str(actor_user_id or "").strip()
+    if not tid or not uid:
+        return False
+    key = f"{tid}:{uid}"
+    now = time.time()
+    with _ATT_DOWNLOAD_LOCK:
+        tokens, last = _ATT_DOWNLOAD_BUCKET.get(key, (_ATT_DOWNLOAD_BURST, now))
+        dt = max(0.0, now - float(last or now))
+        tokens = min(_ATT_DOWNLOAD_BURST, float(tokens) + dt * _ATT_DOWNLOAD_RATE_PER_SEC)
+        if tokens < 1.0:
+            _ATT_DOWNLOAD_BUCKET[key] = (tokens, now)
+            return False
+        tokens -= 1.0
+        _ATT_DOWNLOAD_BUCKET[key] = (tokens, now)
+        return True
+
+
+def _attachment_acl_strict() -> bool:
+    raw = str(os.getenv("AIA_ATTACHMENT_ACL_STRICT") or "").strip().lower()
+    return raw in {"1", "true", "yes", "on"}
 
 
 def _chat_username(ctx: dict[str, Any]) -> str:
@@ -1448,17 +1507,85 @@ def include_chat_routes(router: APIRouter, *, resolve_auth: Callable[[SqliteStor
         authorization: str | None = Header(default=None),
     ) -> Response:
         store = SqliteStore(db_path())
-        _ = resolve_auth(store, authorization)
-        aid = str(attachment_id or "").strip()
+        ctx = resolve_auth(store, authorization)
+        tenant_id = str(ctx.get("tenant_id") or "").strip()
+        user_id = str(ctx.get("user_id") or "").strip()
+        aid = str(attachment_id or "").strip().lower()
         if not aid:
             raise HTTPException(status_code=400, detail="attachment_id_required")
+        if not _is_valid_attachment_id(aid):
+            raise HTTPException(status_code=400, detail="attachment_id_invalid")
+        if not _rate_limit_attachment_download(actor_tenant_id=tenant_id, actor_user_id=user_id):
+            store.add_admin_audit_log(
+                actor_tenant_id=tenant_id,
+                actor_user_id=user_id,
+                action="chat_attachment_download",
+                target_type="attachment",
+                target_id=aid,
+                status="rate_limited",
+                detail={"path": "chat_api.attachment_bytes"},
+            )
+            raise HTTPException(status_code=429, detail="rate_limited")
+        if not _can_access_attachment(store, ctx, attachment_id=aid):
+            store.add_admin_audit_log(
+                actor_tenant_id=tenant_id,
+                actor_user_id=user_id,
+                action="chat_attachment_download",
+                target_type="attachment",
+                target_id=aid,
+                status="forbidden",
+                detail={"path": "chat_api.attachment_bytes"},
+            )
+            raise HTTPException(status_code=403, detail="attachment_forbidden")
         ast = AttachmentAssetStore()
         try:
             blob, meta = ast.load_bytes(aid)
         except Exception:
+            store.add_admin_audit_log(
+                actor_tenant_id=tenant_id,
+                actor_user_id=user_id,
+                action="chat_attachment_download",
+                target_type="attachment",
+                target_id=aid,
+                status="not_found",
+                detail={"path": "chat_api.attachment_bytes"},
+            )
             raise HTTPException(status_code=404, detail="attachment_not_found") from None
         mime = (meta.mime if meta else None) or "application/octet-stream"
+        store.add_admin_audit_log(
+            actor_tenant_id=tenant_id,
+            actor_user_id=user_id,
+            action="chat_attachment_download",
+            target_type="attachment",
+            target_id=aid,
+            status="ok",
+            detail={"path": "chat_api.attachment_bytes", "mime": mime, "bytes": int(meta.bytes if meta else len(blob))},
+        )
         return Response(content=blob, media_type=mime)
+
+    @chat.post("/admin/attachments/acl/backfill")
+    def api_chat_admin_backfill_attachment_acl(
+        limit_messages: int = Query(default=50_000, ge=1, le=500_000),
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        store = SqliteStore(db_path())
+        ctx = resolve_auth(store, authorization)
+        _require_administrator_chat_viewer(ctx)
+        tenant_id = str(ctx.get("tenant_id") or "").strip()
+        user_id = str(ctx.get("user_id") or "").strip()
+        res = store.backfill_attachment_acl_from_messages(tenant_id=tenant_id, limit_messages=int(limit_messages))
+        if bool(res.get("ok")):
+            res.setdefault("recommended_next", "Set AIA_ATTACHMENT_ACL_STRICT=1 after verifying downloads.")
+        store.add_admin_audit_log(
+            actor_tenant_id=tenant_id,
+            actor_user_id=user_id,
+            action="attachment_acl_backfill",
+            target_type="tenant",
+            target_id=tenant_id,
+            status="ok" if bool(res.get("ok")) else "error",
+            detail=res,
+        )
+        return res
 
     @chat.post("/sessions/{session_id}/messages")
     def api_chat_send(
@@ -1507,6 +1634,20 @@ def include_chat_routes(router: APIRouter, *, resolve_auth: Callable[[SqliteStor
         text = _effective_user_text(text=text_raw, attachments=attachments, store=store)
         if not _is_administrator_chat_viewer(ctx) and tenant_id and user_id:
             store.ensure_ui_session_owner(session_id=session_id, tenant_id=tenant_id, user_id=user_id)
+        # Record attachment ownership for access control (download endpoint).
+        if attachments and tenant_id and user_id:
+            for a in attachments:
+                if not isinstance(a, dict):
+                    continue
+                aid = str(a.get("attachment_id") or "").strip().lower()
+                if aid and _is_valid_attachment_id(aid):
+                    store.link_attachment_acl(
+                        tenant_id=tenant_id,
+                        user_id=user_id,
+                        session_id=str(session_id),
+                        attachment_id=aid,
+                        source="user_upload",
+                    )
         lang = _api_lang(store)
         apply_gateway_mcp_env_to_os()
         manager_agent = _init_gateway_executor(
@@ -1611,6 +1752,19 @@ def include_chat_routes(router: APIRouter, *, resolve_auth: Callable[[SqliteStor
         text = _effective_user_text(text=text_raw, attachments=attachments, store=store)
         if not _is_administrator_chat_viewer(ctx) and tenant_id and user_id:
             store.ensure_ui_session_owner(session_id=session_id, tenant_id=tenant_id, user_id=user_id)
+        if attachments and tenant_id and user_id:
+            for a in attachments:
+                if not isinstance(a, dict):
+                    continue
+                aid = str(a.get("attachment_id") or "").strip().lower()
+                if aid and _is_valid_attachment_id(aid):
+                    store.link_attachment_acl(
+                        tenant_id=tenant_id,
+                        user_id=user_id,
+                        session_id=str(session_id),
+                        attachment_id=aid,
+                        source="user_upload",
+                    )
         lang = _api_lang(store)
         apply_gateway_mcp_env_to_os()
         manager_agent = _init_gateway_executor(

@@ -889,6 +889,28 @@ class ToolExecutor:
                 event_type="tool_result",
                 event_payload={"tool_name": tc.name, "observed_rows": int(observed_rows_this_call)},
             )
+            try:
+                owner = ctx.store.get_ui_session_owner(session_id=ctx.session_id) or {}
+                tid = str(owner.get("tenant_id") or "").strip()
+                uid = str(owner.get("user_id") or "").strip()
+                atts = msg_row.attachments
+                if tid and uid and atts:
+                    raw = json.loads(atts) if isinstance(atts, str) else atts
+                    items = raw if isinstance(raw, list) else ([raw] if isinstance(raw, dict) else [])
+                    for a in items:
+                        if not isinstance(a, dict):
+                            continue
+                        aid = str(a.get("attachment_id") or "").strip().lower()
+                        if aid:
+                            ctx.store.link_attachment_acl(
+                                tenant_id=tid,
+                                user_id=uid,
+                                session_id=ctx.session_id,
+                                attachment_id=aid,
+                                source=f"tool:{str(tc.name or '')}",
+                            )
+            except Exception:
+                pass
             tool_msg_write_ms = int((time.perf_counter() - t_db2) * 1000)
             tool_messages.append({"role": "tool", "tool_call_id": tc.id, "content": tool_content, "name": tc.name})
             _trace(

@@ -6,7 +6,8 @@ $ErrorActionPreference = "Stop"
 
 function Resolve-RepoRoot {
   $here = Split-Path -Parent $PSCommandPath
-  return (Resolve-Path (Join-Path $here "..")).Path
+  # runtime/operations/scripts -> repo root
+  return (Resolve-Path (Join-Path $here "..\\..\\..")).Path
 }
 
 $oclawRoot = Resolve-RepoRoot
@@ -14,7 +15,7 @@ $sidecarRoot = Join-Path $oclawRoot "data\\channel_sidecar\\$ChannelId"
 $stateDir = Join-Path $sidecarRoot "state"
 
 if (-not (Test-Path $sidecarRoot)) {
-  throw "sidecar not installed: run .\\scripts\\weixin_install.ps1 first"
+  New-Item -ItemType Directory -Force -Path $sidecarRoot | Out-Null
 }
 
 New-Item -ItemType Directory -Force -Path $stateDir | Out-Null
@@ -22,10 +23,19 @@ New-Item -ItemType Directory -Force -Path $stateDir | Out-Null
 Push-Location $sidecarRoot
 try {
   $env:OCLAW_STATE_DIR = $stateDir
-  if (-not (Test-Path (Join-Path $sidecarRoot "login.ts"))) {
-    throw "missing login.ts"
+  if (Test-Path (Join-Path $sidecarRoot "login.ts")) {
+    npm.cmd exec -- tsx login.ts
+    exit 0
   }
-  npm.cmd exec -- tsx login.ts
+  $openclawCmd = Get-Command openclaw -ErrorAction SilentlyContinue
+  if (-not $openclawCmd) {
+    throw "official mode requires openclaw command. Install first: npm install -g openclaw"
+  }
+  $systemNodeDir = "C:\\Program Files\\nodejs"
+  if (Test-Path (Join-Path $systemNodeDir "node.exe")) {
+    $env:PATH = "$systemNodeDir;$env:PATH"
+  }
+  openclaw channels login --channel openclaw-weixin
 } finally {
   Pop-Location
 }

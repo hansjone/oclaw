@@ -356,6 +356,26 @@ npm install images-mcp
 powershell -ExecutionPolicy Bypass -File .\scripts\weixin_install.ps1
 ```
 
+注意：
+
+- 脚本支持两种模式：
+  - 官方插件模式：`-UseOpenclawCli`（不校验 `runner.ts/login.ts`）
+  - 本地 sidecar 模式：`-LocalSourcePath`（会强校验 `runner.ts/login.ts`）
+
+- 默认按本地 sidecar 模式处理：必须传 `-LocalSourcePath`（指向你们自研 weixin sidecar 源码目录）。
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\weixin_install.ps1 -LocalSourcePath "D:\path\to\your-weixin-module"
+```
+
+- 若你要临时切回官方链路，可显式指定：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\weixin_install.ps1 -UseOpenclawCli
+```
+
+- 仅本地 sidecar 模式会强校验 `runner.ts` / `login.ts` 是否存在；官方插件模式不做该校验。
+
 安装目录：
 
 - `data/channel_sidecar/oclaw-weixin/`

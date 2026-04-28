@@ -4,6 +4,7 @@ import base64
 import hashlib
 import json
 import os
+import re
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -11,6 +12,7 @@ from typing import Any, Optional
 
 from oclaw.platform.config.paths import attachments_dir
 _META_SUFFIX: Final[str] = ".meta.json"
+_ATTACHMENT_ID_RE: Final[re.Pattern[str]] = re.compile(r"^[a-f0-9]{64}$")
 
 
 def _utc_ts() -> int:
@@ -96,16 +98,23 @@ class AttachmentAssetStore:
         self.root = Path(root_dir) if root_dir is not None else attachments_dir()
         self.root.mkdir(parents=True, exist_ok=True)
 
+    @staticmethod
+    def _normalize_attachment_id(attachment_id: str) -> str:
+        aid = str(attachment_id or "").strip().lower()
+        if not _ATTACHMENT_ID_RE.fullmatch(aid):
+            raise ValueError("attachment_id_invalid")
+        return aid
+
     def _data_path(self, attachment_id: str, *, ext: str) -> Path:
         # bucket to avoid huge single dir
-        aid = (attachment_id or "").strip()
+        aid = self._normalize_attachment_id(attachment_id)
         p1, p2 = (aid[:2] or "xx"), (aid[2:4] or "yy")
         d = self.root / p1 / p2
         d.mkdir(parents=True, exist_ok=True)
         return d / f"{aid}{ext}"
 
     def _meta_path(self, attachment_id: str) -> Path:
-        aid = (attachment_id or "").strip()
+        aid = self._normalize_attachment_id(attachment_id)
         p1, p2 = (aid[:2] or "xx"), (aid[2:4] or "yy")
         d = self.root / p1 / p2
         d.mkdir(parents=True, exist_ok=True)
@@ -158,7 +167,10 @@ class AttachmentAssetStore:
         return meta
 
     def get_meta(self, attachment_id: str) -> Optional[AttachmentMeta]:
-        mp = self._meta_path(attachment_id)
+        try:
+            mp = self._meta_path(attachment_id)
+        except Exception:
+            return None
         if not mp.exists():
             return None
         try:
@@ -170,7 +182,10 @@ class AttachmentAssetStore:
             return None
 
     def touch(self, attachment_id: str) -> None:
-        mp = self._meta_path(attachment_id)
+        try:
+            mp = self._meta_path(attachment_id)
+        except Exception:
+            return
         if not mp.exists():
             return
         try:
@@ -183,12 +198,16 @@ class AttachmentAssetStore:
             return
 
     def load_bytes(self, attachment_id: str) -> tuple[bytes, Optional[AttachmentMeta]]:
-        meta = self.get_meta(attachment_id)
+        try:
+            aid = self._normalize_attachment_id(attachment_id)
+        except Exception:
+            return b"", None
+        meta = self.get_meta(aid)
         # try find data file by scanning common extensions
         exts = (".png", ".jpg", ".jpeg", ".webp", ".gif", "")
         data_path = None
         for ext in exts:
-            p = self._data_path(attachment_id, ext=ext)
+            p = self._data_path(aid, ext=ext)
             if p.exists():
                 data_path = p
                 break
@@ -198,15 +217,19 @@ class AttachmentAssetStore:
             blob = data_path.read_bytes()
         except Exception:
             return b"", meta
-        self.touch(attachment_id)
+        self.touch(aid)
         return blob, meta
 
     def get_local_path(self, attachment_id: str) -> Path | None:
+        try:
+            aid = self._normalize_attachment_id(attachment_id)
+        except Exception:
+            return None
         exts = (".png", ".jpg", ".jpeg", ".webp", ".gif", "")
         for ext in exts:
-            p = self._data_path(attachment_id, ext=ext)
+            p = self._data_path(aid, ext=ext)
             if p.exists():
-                self.touch(attachment_id)
+                self.touch(aid)
                 return p
         return None
 

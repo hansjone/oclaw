@@ -148,6 +148,11 @@ const I18N = {
     "chat.attachment.previewLoading": "加载中…",
     "chat.attachment.previewError": "预览失败",
     "chat.attachment.previewEmpty": "（空内容）",
+    "chat.attachmentAcl": "附件 ACL",
+    "chat.attachmentAclBackfill": "回填 ACL",
+    "chat.attachmentAclBackfillPrompt": "回填 attachment_acl（扫描历史消息 attachments）？建议先在低峰期执行。",
+    "chat.attachmentAclBackfillOk": "回填完成：插入 {inserted} 条（扫描 {scanned_messages} 条消息）",
+    "chat.attachmentAclBackfillFail": "回填失败：{error}",
   },
   en: {
     "chat.pageTitle": "oliver",
@@ -294,6 +299,11 @@ const I18N = {
     "chat.attachment.previewLoading": "Loading…",
     "chat.attachment.previewError": "Preview failed",
     "chat.attachment.previewEmpty": "(empty)",
+    "chat.attachmentAcl": "Attachment ACL",
+    "chat.attachmentAclBackfill": "Backfill ACL",
+    "chat.attachmentAclBackfillPrompt": "Backfill attachment_acl by scanning historical message attachments? Recommended during off-peak hours.",
+    "chat.attachmentAclBackfillOk": "Backfill done: inserted {inserted} rows (scanned {scanned_messages} messages)",
+    "chat.attachmentAclBackfillFail": "Backfill failed: {error}",
   },
 };
 
@@ -2164,6 +2174,9 @@ function syncAuthUserLabel() {
   if (!user) return;
   user.innerHTML = "";
   const name = String((authSession && (authSession.display_name || authSession.username || authSession.user_id)) || "");
+  const isAdminViewer = String((authSession && authSession.username) || "")
+    .trim()
+    .toLowerCase() === "administrator";
   if (!name) return;
   const nameBtn = el("button", {
     type: "button",
@@ -2179,7 +2192,7 @@ function syncAuthUserLabel() {
     onclick: (ev) => {
       ev.stopPropagation();
       document.querySelectorAll(".chat-sess-menu-pop").forEach((n) => n.remove());
-      const menu = el("div", { class: "chat-sess-menu-pop", style: "position:fixed;" }, [
+      const items = [
         el("button", {
           type: "button",
           class: "chat-sess-menu-item",
@@ -2198,13 +2211,28 @@ function syncAuthUserLabel() {
           "data-menu-action": "dispatchLabels",
           text: t("chat.dispatchLabelsEdit"),
         }),
+      ];
+      if (isAdminViewer) {
+        items.push(el("div", { class: "chat-sess-menu-sep" }));
+        items.push(
+          el("button", {
+            type: "button",
+            class: "chat-sess-menu-item",
+            "data-menu-action": "attachmentAclBackfill",
+            text: t("chat.attachmentAclBackfill"),
+          }),
+        );
+      }
+      items.push(el("div", { class: "chat-sess-menu-sep" }));
+      items.push(
         el("button", {
           type: "button",
           class: "chat-sess-menu-item",
           "data-menu-action": "logout",
           text: t("auth.logout"),
         }),
-      ]);
+      );
+      const menu = el("div", { class: "chat-sess-menu-pop", style: "position:fixed;" }, items);
       const rect = moreBtn.getBoundingClientRect();
       menu.style.left = `${Math.min(rect.left, window.innerWidth - 220)}px`;
       menu.style.top = `${Math.max(8, rect.top - 92)}px`;
@@ -4392,6 +4420,23 @@ document.body.addEventListener("click", async (e) => {
     if (action === "dispatchLabels") {
       const status = document.querySelector(".chat-status");
       await openDispatchLabelsEditor(status);
+      return;
+    }
+    if (action === "attachmentAclBackfill") {
+      const status = document.querySelector(".chat-status");
+      if (!(await confirmChatAction(t("chat.attachmentAclBackfillPrompt")))) return;
+      try {
+        const res = await apiPost("/admin/api/chat/admin/attachments/acl/backfill", {});
+        const ok = !!(res && (res.ok === true || res.ok === 1));
+        if (ok) {
+          if (status) status.textContent = t("chat.attachmentAclBackfillOk", res);
+        } else {
+          const err = String((res && (res.error || res.detail)) || "backfill_failed");
+          if (status) status.textContent = t("chat.attachmentAclBackfillFail", { error: err });
+        }
+      } catch (err) {
+        if (status) status.textContent = t("chat.attachmentAclBackfillFail", { error: String(err) });
+      }
       return;
     }
   }
