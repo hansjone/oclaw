@@ -15,10 +15,26 @@ function Resolve-RepoRoot {
 $oclawRoot = Resolve-RepoRoot
 $sidecarRoot = Join-Path $oclawRoot "data\\channel_sidecar\\$ChannelId"
 $stateDir = Join-Path $sidecarRoot "state"
+$pluginRoot = Join-Path $env:USERPROFILE ".openclaw\\extensions\\openclaw-weixin"
 
 New-Item -ItemType Directory -Force -Path $sidecarRoot | Out-Null
 New-Item -ItemType Directory -Force -Path (Join-Path $sidecarRoot "logs") | Out-Null
 New-Item -ItemType Directory -Force -Path $stateDir | Out-Null
+
+function Ensure-OfficialPluginRuntimeDeps {
+  if (-not (Test-Path (Join-Path $pluginRoot "package.json"))) {
+    throw "official plugin root not found at $pluginRoot"
+  }
+  Push-Location $pluginRoot
+  try {
+    npm.cmd install openclaw@latest --no-save
+    if ($LASTEXITCODE -ne 0) {
+      throw "npm install official plugin runtime deps failed with exit code $LASTEXITCODE"
+    }
+  } finally {
+    Pop-Location
+  }
+}
 
 if ($UseOpenclawCli) {
   $openclawCmd = Get-Command openclaw -ErrorAction SilentlyContinue
@@ -29,6 +45,7 @@ if ($UseOpenclawCli) {
   if ($LASTEXITCODE -ne 0) {
     throw "openclaw-weixin-cli install failed with exit code $LASTEXITCODE"
   }
+  Ensure-OfficialPluginRuntimeDeps
   Push-Location $sidecarRoot
   try {
     if (-not (Test-Path (Join-Path $sidecarRoot "package.json"))) {
@@ -37,17 +54,18 @@ if ($UseOpenclawCli) {
         throw "npm init failed with exit code $LASTEXITCODE"
       }
     }
-    npm.cmd install --save-exact tsx@4.21.0 typescript@6.0.3
+    npm.cmd install openclaw@latest --save tsx@4.21.0 typescript@6.0.3
     if ($LASTEXITCODE -ne 0) {
       throw "npm install bridge runtime deps failed with exit code $LASTEXITCODE"
     }
     $bridgeSrc = Join-Path $oclawRoot "runtime\\operations\\weixin_bridge"
     Copy-Item -Path (Join-Path $bridgeSrc "runner.ts") -Destination (Join-Path $sidecarRoot "runner.ts") -Force
+    Copy-Item -Path (Join-Path $bridgeSrc "official_runner.ts") -Destination (Join-Path $sidecarRoot "official_runner.ts") -Force
     Copy-Item -Path (Join-Path $bridgeSrc "login.ts") -Destination (Join-Path $sidecarRoot "login.ts") -Force
   } finally {
     Pop-Location
   }
-  Write-Host "[ok] installed official openclaw-weixin plugin + local bridge runtime"
+  Write-Host "[ok] installed official openclaw-weixin plugin + native/fallback sidecar runtime"
   exit 0
 }
 

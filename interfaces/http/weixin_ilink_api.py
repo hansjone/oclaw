@@ -9,10 +9,18 @@ from typing import Any
 
 from fastapi import APIRouter, Header, HTTPException, Request
 
-from oclaw.runtime.application.gateway import process_inbound_payload_usecase
+def _process_inbound_payload_usecase(payload: dict[str, Any]) -> dict[str, Any]:
+    # Lazy import to avoid circular imports during FastAPI app bootstrap.
+    from oclaw.runtime.application.gateway import process_inbound_payload_usecase
+
+    return process_inbound_payload_usecase(payload)
 
 
 router = APIRouter()
+
+# Historical iLink-compatible fallback endpoints. The primary path is now
+# `/weixin/native/reply` + `official_runner.ts`, but these routes remain for
+# short-term rollback compatibility.
 
 
 def _require_ilink_auth(
@@ -121,6 +129,48 @@ def _extract_inbound_identity(body: dict[str, Any]) -> tuple[str, str]:
     if not chat_id:
         chat_id = user_id
     return user_id, chat_id
+
+
+def _build_native_reply_payload(body: dict[str, Any]) -> dict[str, Any]:
+    channel = _normalize_channel(body.get("channel"))
+    account_id = _resolve_account_id(body)
+    ctx = body.get("ctx") if isinstance(body.get("ctx"), dict) else {}
+    metadata = body.get("metadata") if isinstance(body.get("metadata"), dict) else {}
+    attachments = body.get("attachments") if isinstance(body.get("attachments"), list) else []
+
+    user_id = str(
+        body.get("user_id")
+        or ctx.get("From")
+        or ctx.get("To")
+        or body.get("external_user_id")
+        or ""
+    ).strip()
+    chat_id = str(
+        body.get("chat_id")
+        or ctx.get("To")
+        or ctx.get("From")
+        or body.get("external_chat_id")
+        or user_id
+        or ""
+    ).strip()
+    text = str(body.get("text") or ctx.get("Body") or ctx.get("CommandBody") or "").strip()
+    if not metadata:
+        metadata = {"source": "weixin_official_native"}
+    else:
+        metadata = dict(metadata)
+        metadata.setdefault("source", "weixin_official_native")
+    if ctx:
+        metadata["weixin_ctx"] = ctx
+
+    return {
+        "channel": channel,
+        "account_id": account_id,
+        "user_id": user_id,
+        "chat_id": chat_id or user_id,
+        "text": text,
+        "attachments": [a for a in attachments if isinstance(a, dict)],
+        "metadata": metadata,
+    }
 
 
 class _IlinkBridge:
@@ -236,7 +286,7 @@ async def _process_inbound_and_enqueue(
         return ""
 
     try:
-        out = await asyncio.wait_for(asyncio.to_thread(process_inbound_payload_usecase, payload), timeout=60.0)
+        out = await asyncio.wait_for(asyncio.to_thread(_process_inbound_payload_usecase, payload), timeout=60.0)
     except asyncio.TimeoutError:
         ctx_token = _extract_context_token(payload)
         _BRIDGE.enqueue_reply(
@@ -404,6 +454,28 @@ async def ilink_sendtyping(
     _require_ilink_auth(authorization_type=authorizationtype, authorization=authorization)
     _ = body
     return {"ret": 0}
+
+
+@router.post("/weixin/native/reply")
+async def weixin_native_reply(
+    body: dict[str, Any],
+    authorizationtype: str | None = Header(default=None, alias="AuthorizationType"),
+    authorization: str | None = Header(default=None, alias="Authorization"),
+) -> dict[str, Any]:
+    _require_ilink_auth(authorization_type=authorizationtype, authorization=authorization)
+    payload = _build_native_reply_payload(body)
+    if not str(payload.get("user_id") or "").strip():
+        return {"ok": False, "error": "missing user_id", "replies": []}
+    if not str(payload.get("account_id") or "").strip():
+        return {"ok": False, "error": "missing account_id", "replies": []}
+    out = await asyncio.to_thread(_process_inbound_payload_usecase, payload)
+    replies = out.get("replies") if isinstance(out, dict) else []
+    if not isinstance(replies, list):
+        replies = []
+    return {
+        "ok": bool((out or {}).get("ok", True)) if isinstance(out, dict) else True,
+        "replies": [r for r in replies if isinstance(r, dict)],
+    }
 
 
 __all__ = ["router"]

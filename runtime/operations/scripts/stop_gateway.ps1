@@ -37,9 +37,15 @@ if (Test-Path $pidFile) {
         $ok = Kill-ProcId -procId $procId
         if ($ok) {
             Remove-Item $pidFile -Force -ErrorAction SilentlyContinue
-            exit 0
+            # Keep going to also clean up any orphan listeners on $Port.
+        } else {
+            # Stale pid file is common after crashes; fall back to stop-by-port.
+            if ($Force) {
+                Remove-Item $pidFile -Force -ErrorAction SilentlyContinue
+            } else {
+                Warn "PID file kill failed; falling back to stop-by-port. Re-run with -Force to also clear pid file."
+            }
         }
-        if (-not $Force) { exit 1 }
     }
 }
 

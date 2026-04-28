@@ -24,6 +24,7 @@ function Get-SidecarProcesses {
   $patterns = @(
     "*$ChannelId*",
     "*runner.ts*",
+    "*official_runner.ts*",
     "*$escapedSidecarRoot*"
   )
   Get-CimInstance Win32_Process | Where-Object {

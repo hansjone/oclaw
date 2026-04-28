@@ -30,6 +30,90 @@
 
 ---
 
+## 1.1 开源快速安装（从零到跑起来）
+
+本节面向“第一次拿到开源仓库的用户”，目标是 **15 分钟内跑通**：
+
+- 网关（Admin + Chat）
+- 微信（Personal WeChat）收消息、回消息（官方插件 + 本地原生宿主 `/weixin/native/reply`）
+
+### 1.1.1 前置依赖
+
+- **Windows 10/11**
+- **Python**：建议 `3.11+`（仓库脚本默认会创建 `.venv/`）
+- **Node.js**：要求 `>=22`（官方微信插件声明 `engines.node >=22`）
+- **npm**：随 Node 安装
+- （可选）Git：用于拉取仓库
+
+> 注意：Node 版本过低会导致微信插件/sidecar 无法运行。
+
+### 1.1.2 初始化 Python venv（Windows）
+
+在仓库根目录执行：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\bootstrap_venv.ps1
+```
+
+### 1.1.3 启动网关（建议后台）
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\start_gateway.ps1 -SkipInstall -Background
+```
+
+访问：
+
+- Admin：`http://127.0.0.1:8787/admin`
+- Chat：`http://127.0.0.1:8787/chat`
+
+停止网关（如果遇到“端口被占用 / 重启不生效”，务必加 `-Force`）：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\stop_gateway.ps1 -Force
+```
+
+### 1.1.4 安装官方微信插件（Personal WeChat）
+
+> 这一步会安装/更新官方插件到：`%USERPROFILE%\.openclaw\extensions\openclaw-weixin\`
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\runtime\operations\scripts\weixin_install.ps1 -UseOpenclawCli
+```
+
+### 1.1.5 扫码登录（绑定账号）
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\runtime\operations\scripts\weixin_login.ps1
+```
+
+按提示扫码完成绑定（会写入账号 ID / token 等状态到 `%USERPROFILE%\.openclaw\openclaw-weixin\`）。
+
+### 1.1.6 启动微信 sidecar（原生模式）
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\runtime\operations\scripts\weixin_start.ps1
+```
+
+检查状态：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\runtime\operations\scripts\weixin_status.ps1
+```
+
+### 1.1.7 常见问题
+
+- **发消息无回复**
+  - 先确认网关活着：访问 `http://127.0.0.1:8787/health` 应返回 `{"ok":"1"}`
+  - 再看微信 sidecar 日志：
+    - `data/channel_sidecar/oclaw-weixin/logs/weixin_sidecar.log`
+    - `data/channel_sidecar/oclaw-weixin/logs/weixin_sidecar.err.log`
+- **启动网关提示端口占用 / 你以为重启了但没生效**
+  - 用 `stop_gateway.ps1 -Force` 强制按端口清理旧监听进程，然后再启动。
+- **Node 版本不对**
+  - 官方插件要求 `node >=22`；请升级 Node 后重新执行 `weixin_install.ps1 -UseOpenclawCli`。
+
+---
+
 ## 2. 首次初始化
 
 Windows:
@@ -95,6 +179,36 @@ Linux/macOS:
 - `stack up` 不会启动 Streamlit
 - 聊天页面统一使用 `http://127.0.0.1:8787/chat`
 - `--with-ui` 为历史参数，不再生效
+
+### 4.1 微信（Personal WeChat）当前接入模式
+
+当前默认链路已经切到“官方插件优先”：
+
+- 官方插件模块负责：
+  - 扫码登录
+  - 持久化账号 ID / bot token / context token
+  - 直接调用微信云端 `ilink/bot/getupdates`、`ilink/bot/sendmessage`
+  - 复用官方媒体下载/上传实现
+- 本仓库宿主适配负责：
+  - 把官方入站消息转换成 `oclaw` 可消费的本地 payload
+  - 通过本地 `/weixin/native/reply` 同步生成回复
+  - 保留一个历史 `runner.ts` fallback，便于短期回滚
+
+对应脚本行为：
+
+- `runtime/operations/scripts/weixin_install.ps1 -UseOpenclawCli`
+  - 安装官方 `openclaw-weixin` 插件
+  - 安装运行官方模块所需的本地 Node 依赖
+  - 同步 `runtime/operations/weixin_bridge/official_runner.ts` / `runner.ts` / `login.ts`
+- `runtime/operations/scripts/weixin_start.ps1`
+  - 默认启动 `official_runner.ts`
+  - 设置 `AIA_WEIXIN_RUNNER_MODE=legacy` 时，临时回退到历史 `runner.ts`
+
+现阶段主路径建议：
+
+- 官方登录态
+- 官方收发与媒体模块
+- 本仓库本地 reply 宿主适配
 
 ---
 

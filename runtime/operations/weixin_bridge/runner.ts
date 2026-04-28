@@ -1,3 +1,5 @@
+// Legacy fallback bridge. The default startup path now uses `official_runner.ts`,
+// which drives the official openclaw-weixin modules directly.
 import fs from "node:fs";
 import crypto from "node:crypto";
 import os from "node:os";

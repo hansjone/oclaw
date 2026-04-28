@@ -16,12 +16,18 @@ $sidecarRoot = Join-Path $oclawRoot "data\\channel_sidecar\\$ChannelId"
 $stateDir = Join-Path $sidecarRoot "state"
 $logDir = Join-Path $sidecarRoot "logs"
 $pidFile = Join-Path $sidecarRoot "pid.txt"
+$bridgeSrc = Join-Path $oclawRoot "runtime\\operations\\weixin_bridge"
+$pluginRoot = Join-Path $env:USERPROFILE ".openclaw\\extensions\\openclaw-weixin"
+$runnerMode = [string]($env:AIA_WEIXIN_RUNNER_MODE)
+if (-not $runnerMode) { $runnerMode = "official" }
+$runnerMode = $runnerMode.Trim().ToLowerInvariant()
 
 function Get-SidecarProcesses {
   $escapedSidecarRoot = $sidecarRoot.Replace("\", "\\")
   $patterns = @(
     "*$ChannelId*",
     "*runner.ts*",
+    "*official_runner.ts*",
     "*$escapedSidecarRoot*"
   )
   Get-CimInstance Win32_Process | Where-Object {
@@ -46,38 +52,21 @@ function Stop-SidecarProcesses {
   return $procs.Count
 }
 
-function Set-OfficialWeixinBaseUrl([string]$BaseUrl) {
-  $weixinRoot = Join-Path $env:USERPROFILE ".openclaw\\openclaw-weixin"
-  $accountsListPath = Join-Path $weixinRoot "accounts.json"
-  if (-not (Test-Path $accountsListPath)) {
-    Write-Host "[warn] official mode: accounts.json not found, skip baseUrl rewrite"
+function Ensure-OfficialPluginRuntimeDeps {
+  if (-not (Test-Path (Join-Path $pluginRoot "package.json"))) {
+    throw "official plugin root not found at $pluginRoot"
+  }
+  if (Test-Path (Join-Path $pluginRoot "node_modules\\openclaw\\package.json")) {
     return
   }
-  $ids = @()
+  Push-Location $pluginRoot
   try {
-    $parsed = Get-Content -Path $accountsListPath -Raw | ConvertFrom-Json
-    if ($parsed -is [System.Array]) {
-      $ids = @($parsed)
+    npm.cmd install openclaw@latest --no-save
+    if ($LASTEXITCODE -ne 0) {
+      throw "npm install official plugin runtime deps failed with exit code $LASTEXITCODE"
     }
-  } catch {
-    Write-Host "[warn] official mode: failed to parse accounts.json"
-    return
-  }
-  foreach ($aid in $ids) {
-    $idText = [string]$aid
-    if (-not $idText) { continue }
-    $accPath = Join-Path (Join-Path $weixinRoot "accounts") "$idText.json"
-    if (-not (Test-Path $accPath)) { continue }
-    try {
-      $obj = Get-Content -Path $accPath -Raw | ConvertFrom-Json
-      $obj.baseUrl = $BaseUrl
-      $json = $obj | ConvertTo-Json -Depth 8
-      $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
-      [System.IO.File]::WriteAllText($accPath, $json + "`n", $utf8NoBom)
-      Write-Host "[ok] official mode: set baseUrl for $idText -> $BaseUrl"
-    } catch {
-      Write-Host "[warn] official mode: failed to rewrite $accPath"
-    }
+  } finally {
+    Pop-Location
   }
 }
 
@@ -90,17 +79,36 @@ New-Item -ItemType Directory -Force -Path $stateDir | Out-Null
 $cleaned = Stop-SidecarProcesses
 Remove-Item -Force $pidFile -ErrorAction SilentlyContinue
 
+if (Test-Path $bridgeSrc) {
+  foreach ($name in @("runner.ts", "official_runner.ts", "login.ts")) {
+    $srcPath = Join-Path $bridgeSrc $name
+    if (Test-Path $srcPath) {
+      Copy-Item -Path $srcPath -Destination (Join-Path $sidecarRoot $name) -Force
+    }
+  }
+}
+
 $logPath = Join-Path $logDir "weixin_sidecar.log"
 $errPath = Join-Path $logDir "weixin_sidecar.err.log"
-if (Test-Path (Join-Path $sidecarRoot "runner.ts")) {
+if ((Test-Path (Join-Path $sidecarRoot "runner.ts")) -or (Test-Path (Join-Path $sidecarRoot "official_runner.ts"))) {
+  $runnerFile = "official_runner.ts"
+  if ($runnerMode -eq "legacy") {
+    $runnerFile = "runner.ts"
+  }
+  if ($runnerMode -eq "official") {
+    Ensure-OfficialPluginRuntimeDeps
+  }
+  if (-not (Test-Path (Join-Path $sidecarRoot $runnerFile))) {
+    throw "selected runner file missing: $runnerFile"
+  }
   $cmd = "cmd.exe"
   $args = @(
     "/c",
-    "cd /d $sidecarRoot && set OCLAW_STATE_DIR=$stateDir&& set AIA_GATEWAY_BASE_URL=$GatewayBaseUrl&& npm.cmd exec -- tsx runner.ts"
+    "cd /d $sidecarRoot && set OCLAW_STATE_DIR=$stateDir&& set AIA_GATEWAY_BASE_URL=$GatewayBaseUrl&& set NODE_PATH=$sidecarRoot\node_modules&& npm.cmd exec -- tsx $runnerFile"
   )
   $p = Start-Process -FilePath $cmd -ArgumentList $args -WorkingDirectory $sidecarRoot -PassThru -WindowStyle Hidden -RedirectStandardOutput $logPath -RedirectStandardError $errPath
   Set-Content -Path $pidFile -Value $p.Id
-  Write-Host "[ok] started weixin sidecar pid=$($p.Id) cleaned=$cleaned out=$logPath err=$errPath"
+  Write-Host "[ok] started weixin sidecar pid=$($p.Id) mode=$runnerMode cleaned=$cleaned out=$logPath err=$errPath"
   exit 0
 }
 
@@ -113,9 +121,8 @@ $systemNodeDir = "C:\\Program Files\\nodejs"
 if (Test-Path (Join-Path $systemNodeDir "node.exe")) {
   $env:PATH = "$systemNodeDir;$env:PATH"
 }
-Set-OfficialWeixinBaseUrl -BaseUrl $GatewayBaseUrl
 $args = @("/c", "openclaw gateway --allow-unconfigured")
 $p = Start-Process -FilePath "cmd.exe" -ArgumentList $args -WorkingDirectory $oclawRoot -PassThru -WindowStyle Hidden -RedirectStandardOutput $logPath -RedirectStandardError $errPath
 Set-Content -Path $pidFile -Value $p.Id
-Write-Host "[ok] started openclaw gateway bridge pid=$($p.Id) cleaned=$cleaned out=$logPath err=$errPath"
+Write-Host "[ok] started openclaw gateway pid=$($p.Id) cleaned=$cleaned out=$logPath err=$errPath"
 

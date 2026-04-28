@@ -2,6 +2,44 @@
 
 This repository is fully consolidated under `oclaw/`.
 
+## Quickstart (Open Source)
+
+### Prerequisites
+- Python 3.11+
+- Node.js 22+ (required by the official Weixin plugin)
+
+### 1) Bootstrap venv (Windows)
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\bootstrap_venv.ps1
+```
+
+### 2) Start gateway (background)
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\start_gateway.ps1 -SkipInstall -Background
+```
+
+Open:
+- Admin: `http://127.0.0.1:8787/admin`
+- Chat:  `http://127.0.0.1:8787/chat`
+
+If port 8787 is stuck/occupied, force-stop:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\stop_gateway.ps1 -Force
+```
+
+### 3) Weixin (Personal WeChat): install → login → start
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\runtime\operations\scripts\weixin_install.ps1 -UseOpenclawCli
+powershell -ExecutionPolicy Bypass -File .\runtime\operations\scripts\weixin_login.ps1
+powershell -ExecutionPolicy Bypass -File .\runtime\operations\scripts\weixin_start.ps1
+```
+
+Full runbook (recommended): see `docs/RUNBOOK.md` → “开源快速安装（从零到跑起来）”.
+
 ## Layers
 - `runtime/`: core execution loop, routing, skill runtime, hook runtime
 - `interfaces/`: transport adapters (HTTP/WS)
