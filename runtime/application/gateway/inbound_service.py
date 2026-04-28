@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 from typing import Any
 
 from oclaw.interfaces.channels.base import InboundMessage, OutboundMessage
@@ -307,9 +308,19 @@ def _should_suppress_channel_reply(*, channel: str, text: str) -> bool:
     if not t:
         return True
     low = t.lower()
-    if 'missing api key for provider "openai"' in low:
+    # Silence gateway/provider credential errors for weixin user-facing channel.
+    # Match variants like:
+    # - Missing API key for provider "openai"
+    # - Missing API key for provider 'openai'
+    # - Missing API key ... provider openai
+    if (
+        ("missing api key" in low and "provider" in low and "openai" in low)
+        or bool(re.search(r'missing\s+api\s+key.*provider\s+[\'"]?openai[\'"]?', low))
+    ):
         return True
-    if "openai / 兼容 api" in t and "api key" in low:
+    if ("openai / 兼容 api" in t or "openai 兼容 api" in t) and "api key" in low:
+        return True
+    if "configure the gateway auth for that provider" in low and "openai" in low:
         return True
     return False
 
