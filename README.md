@@ -33,13 +33,13 @@ powershell -ExecutionPolicy Bypass -File .\scripts\stop_gateway.ps1 -Force
 ### 3) Weixin (Personal WeChat): install → login → start
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\runtime\operations\scripts\weixin_install.ps1 -UseOpenclawCli
+powershell -ExecutionPolicy Bypass -File .\runtime\operations\scripts\weixin_install.ps1
 powershell -ExecutionPolicy Bypass -File .\runtime\operations\scripts\weixin_login.ps1
 powershell -ExecutionPolicy Bypass -File .\runtime\operations\scripts\weixin_start.ps1
 ```
 
 Notes:
-- `weixin_install.ps1 -UseOpenclawCli` does **not** require global `openclaw` CLI installation; runtime deps are installed locally in sidecar workspace.
+- `weixin_install.ps1` does **not** require global `openclaw` CLI installation; runtime deps are installed locally in sidecar workspace.
 - `.\scripts\start_all.ps1 -Background` now skips missing Weixin/WhatsApp sidecars gracefully (warn + continue), so Admin/Chat can still boot on fresh installs.
 - Admin supports channel dispatch controls for Weixin/WhatsApp (bind specialist / comprehensive), with default `generalist`.
 

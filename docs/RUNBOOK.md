@@ -78,7 +78,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\stop_gateway.ps1 -Force
 > 这一步会安装/更新官方插件到：`%USERPROFILE%\.openclaw\extensions\openclaw-weixin\`
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\runtime\operations\scripts\weixin_install.ps1 -UseOpenclawCli
+powershell -ExecutionPolicy Bypass -File .\runtime\operations\scripts\weixin_install.ps1
 ```
 
 ### 1.1.5 扫码登录（绑定账号）
@@ -89,8 +89,8 @@ powershell -ExecutionPolicy Bypass -File .\runtime\operations\scripts\weixin_log
 
 按提示扫码完成绑定（会写入账号 ID / token 等状态到 `%USERPROFILE%\.openclaw\openclaw-weixin\`）。
 
-> 说明：这里的 `-UseOpenclawCli` **不要求你全局安装 openclaw**（不需要 `npm install -g openclaw`）。
-> 脚本会在 `data/channel_sidecar/oclaw-weixin/` 下本地安装 `openclaw` npm 包，并用 `npx openclaw ...` 驱动官方插件完成扫码与状态写入。
+> 说明：`weixin_install.ps1` **不要求你全局安装 openclaw**（不需要 `npm install -g openclaw`）。
+> 脚本会在 `data/channel_sidecar/oclaw-weixin/` 下安装本地运行时依赖，并完成官方插件安装。
 
 ### 1.1.6 启动微信 sidecar（原生模式）
 
@@ -114,7 +114,7 @@ powershell -ExecutionPolicy Bypass -File .\runtime\operations\scripts\weixin_sta
 - **启动网关提示端口占用 / 你以为重启了但没生效**
   - 用 `stop_gateway.ps1 -Force` 强制按端口清理旧监听进程，然后再启动。
 - **Node 版本不对**
-  - 官方插件要求 `node >=22`；请升级 Node 后重新执行 `weixin_install.ps1 -UseOpenclawCli`。
+  - 官方插件要求 `node >=22`；请升级 Node 后重新执行 `weixin_install.ps1`。
 
 ---
 
@@ -222,17 +222,15 @@ Linux/macOS:
 - 本仓库宿主适配负责：
   - 把官方入站消息转换成 `oclaw` 可消费的本地 payload
   - 通过本地 `/weixin/native/reply` 同步生成回复
-  - 保留一个历史 `runner.ts` fallback，便于短期回滚
 
 对应脚本行为：
 
-- `runtime/operations/scripts/weixin_install.ps1 -UseOpenclawCli`
+- `runtime/operations/scripts/weixin_install.ps1`
   - 安装官方 `openclaw-weixin` 插件
   - 安装运行官方模块所需的本地 Node 依赖
-  - 同步 `runtime/operations/weixin_bridge/official_runner.ts` / `runner.ts` / `login.ts`
+  - 同步 `runtime/operations/weixin_bridge/official_runner.ts` / `login.ts`
 - `runtime/operations/scripts/weixin_start.ps1`
-  - 默认启动 `official_runner.ts`
-  - 设置 `AIA_WEIXIN_RUNNER_MODE=legacy` 时，临时回退到历史 `runner.ts`
+  - 仅启动 `official_runner.ts`（官方单链路）
 
 现阶段主路径建议：
 
@@ -549,25 +547,7 @@ npm install images-mcp
 powershell -ExecutionPolicy Bypass -File .\scripts\weixin_install.ps1
 ```
 
-注意：
-
-- 脚本支持两种模式：
-  - 官方插件模式：`-UseOpenclawCli`（不校验 `runner.ts/login.ts`）
-  - 本地 sidecar 模式：`-LocalSourcePath`（会强校验 `runner.ts/login.ts`）
-
-- 默认按本地 sidecar 模式处理：必须传 `-LocalSourcePath`（指向你们自研 weixin sidecar 源码目录）。
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\weixin_install.ps1 -LocalSourcePath "D:\path\to\your-weixin-module"
-```
-
-- 若你要临时切回官方链路，可显式指定：
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\weixin_install.ps1 -UseOpenclawCli
-```
-
-- 仅本地 sidecar 模式会强校验 `runner.ts` / `login.ts` 是否存在；官方插件模式不做该校验。
+注意：当前仅保留官方插件单链路，直接执行 `weixin_install.ps1` 即可。
 
 安装目录：
 

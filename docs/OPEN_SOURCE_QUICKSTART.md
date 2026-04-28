@@ -35,7 +35,7 @@ Notes:
 ## Path B: Enable Weixin (Personal WeChat)
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\runtime\operations\scripts\weixin_install.ps1 -UseOpenclawCli
+powershell -ExecutionPolicy Bypass -File .\runtime\operations\scripts\weixin_install.ps1
 powershell -ExecutionPolicy Bypass -File .\runtime\operations\scripts\weixin_login.ps1
 powershell -ExecutionPolicy Bypass -File .\runtime\operations\scripts\weixin_start.ps1
 ```

@@ -27,7 +27,7 @@ try {
     npm.cmd exec -- tsx login.ts
     exit 0
   }
-  throw "login.ts missing. Re-run weixin_install.ps1 -UseOpenclawCli to install sidecar runtime."
+  throw "login.ts missing. Re-run weixin_install.ps1 to install sidecar runtime."
 } finally {
   Pop-Location
 }

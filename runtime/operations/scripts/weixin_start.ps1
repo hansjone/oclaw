@@ -18,15 +18,11 @@ $logDir = Join-Path $sidecarRoot "logs"
 $pidFile = Join-Path $sidecarRoot "pid.txt"
 $bridgeSrc = Join-Path $oclawRoot "runtime\\operations\\weixin_bridge"
 $pluginRoot = Join-Path $env:USERPROFILE ".openclaw\\extensions\\openclaw-weixin"
-$runnerMode = [string]($env:AIA_WEIXIN_RUNNER_MODE)
-if (-not $runnerMode) { $runnerMode = "official" }
-$runnerMode = $runnerMode.Trim().ToLowerInvariant()
 
 function Get-SidecarProcesses {
   $escapedSidecarRoot = $sidecarRoot.Replace("\", "\\")
   $patterns = @(
     "*$ChannelId*",
-    "*runner.ts*",
     "*official_runner.ts*",
     "*$escapedSidecarRoot*"
   )
@@ -82,7 +78,7 @@ $cleaned = Stop-SidecarProcesses
 Remove-Item -Force $pidFile -ErrorAction SilentlyContinue
 
 if (Test-Path $bridgeSrc) {
-  foreach ($name in @("runner.ts", "official_runner.ts", "login.ts")) {
+  foreach ($name in @("official_runner.ts", "login.ts")) {
     $srcPath = Join-Path $bridgeSrc $name
     if (Test-Path $srcPath) {
       Copy-Item -Path $srcPath -Destination (Join-Path $sidecarRoot $name) -Force
@@ -92,27 +88,18 @@ if (Test-Path $bridgeSrc) {
 
 $logPath = Join-Path $logDir "weixin_sidecar.log"
 $errPath = Join-Path $logDir "weixin_sidecar.err.log"
-if ((Test-Path (Join-Path $sidecarRoot "runner.ts")) -or (Test-Path (Join-Path $sidecarRoot "official_runner.ts"))) {
-  $runnerFile = "official_runner.ts"
-  if ($runnerMode -eq "legacy") {
-    $runnerFile = "runner.ts"
-  }
-  if ($runnerMode -eq "official") {
-    Ensure-OfficialPluginRuntimeDeps
-  }
-  if (-not (Test-Path (Join-Path $sidecarRoot $runnerFile))) {
-    throw "selected runner file missing: $runnerFile"
-  }
+if (Test-Path (Join-Path $sidecarRoot "official_runner.ts")) {
+  Ensure-OfficialPluginRuntimeDeps
   $cmd = "cmd.exe"
   $args = @(
     "/c",
-    "cd /d $sidecarRoot && set OCLAW_STATE_DIR=$stateDir&& set AIA_GATEWAY_BASE_URL=$GatewayBaseUrl&& set NODE_PATH=$sidecarRoot\node_modules&& npm.cmd exec -- tsx $runnerFile"
+    "cd /d $sidecarRoot && set OCLAW_STATE_DIR=$stateDir&& set AIA_GATEWAY_BASE_URL=$GatewayBaseUrl&& set NODE_PATH=$sidecarRoot\node_modules&& npm.cmd exec -- tsx official_runner.ts"
   )
   $p = Start-Process -FilePath $cmd -ArgumentList $args -WorkingDirectory $sidecarRoot -PassThru -WindowStyle Hidden -RedirectStandardOutput $logPath -RedirectStandardError $errPath
   Set-Content -Path $pidFile -Value $p.Id
-  Write-Host "[ok] started weixin sidecar pid=$($p.Id) mode=$runnerMode cleaned=$cleaned out=$logPath err=$errPath"
+  Write-Host "[ok] started weixin sidecar pid=$($p.Id) mode=official cleaned=$cleaned out=$logPath err=$errPath"
   exit 0
 }
 
-throw "No runner.ts/official_runner.ts found in sidecar root. Re-run weixin_install.ps1 -UseOpenclawCli."
+throw "official_runner.ts missing in sidecar root. Re-run weixin_install.ps1."
 

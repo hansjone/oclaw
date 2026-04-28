@@ -10,12 +10,11 @@ def _read(rel: str) -> str:
     return (REPO_ROOT / rel).read_text(encoding="utf-8")
 
 
-def test_weixin_start_defaults_to_official_runner() -> None:
+def test_weixin_start_official_only_runner() -> None:
     text = _read("runtime/operations/scripts/weixin_start.ps1")
-    assert '$runnerMode = "official"' in text
-    assert '$runnerFile = "official_runner.ts"' in text
-    assert 'AIA_WEIXIN_RUNNER_MODE' in text
+    assert "mode=official" in text
     assert 'official_runner.ts' in text
+    assert "AIA_WEIXIN_RUNNER_MODE" not in text
 
 
 def test_weixin_status_and_stop_track_official_runner() -> None:
@@ -27,8 +26,10 @@ def test_weixin_status_and_stop_track_official_runner() -> None:
 
 def test_weixin_install_copies_official_runner() -> None:
     text = _read("runtime/operations/scripts/weixin_install.ps1")
-    assert 'Copy-Item -Path (Join-Path $bridgeSrc "official_runner.ts")' in text
+    assert "Sync-WeixinBridgeRunners" in text
+    assert '"official_runner.ts"' in text
     assert "Ensure-OfficialPluginRuntimeDeps" in text
+    assert "LocalSourcePath" not in text
 
 
 def test_weixin_start_ensures_plugin_runtime_deps() -> None:
