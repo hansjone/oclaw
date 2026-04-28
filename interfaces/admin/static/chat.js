@@ -21,6 +21,11 @@ const I18N = {
     "chat.sessionMenu": "会话操作",
     "chat.rename": "重命名",
     "chat.delete": "删除",
+    "chat.copy": "复制",
+    "chat.deleteMessage": "删除消息",
+    "chat.deleteMessageConfirm": "删除这条消息？",
+    "chat.copyOk": "已复制",
+    "chat.copyFail": "复制失败",
     "chat.deleteConfirm": "删除此会话？",
     "chat.exportMd": "导出 Markdown",
     "chat.exportJson": "导出 JSON",
@@ -138,6 +143,11 @@ const I18N = {
     "chat.specialistImageShort": "图像",
     "chat.specialistMemoryShort": "记忆",
     "chat.specialistManagerSelfShort": "全能者",
+    "chat.attachment.download": "下载",
+    "chat.attachment.preview": "预览",
+    "chat.attachment.previewLoading": "加载中…",
+    "chat.attachment.previewError": "预览失败",
+    "chat.attachment.previewEmpty": "（空内容）",
   },
   en: {
     "chat.pageTitle": "oliver",
@@ -157,6 +167,11 @@ const I18N = {
     "chat.sessionMenu": "Session actions",
     "chat.rename": "Rename",
     "chat.delete": "Delete",
+    "chat.copy": "Copy",
+    "chat.deleteMessage": "Delete message",
+    "chat.deleteMessageConfirm": "Delete this message?",
+    "chat.copyOk": "Copied",
+    "chat.copyFail": "Copy failed",
     "chat.deleteConfirm": "Delete this session?",
     "chat.exportMd": "Export Markdown",
     "chat.exportJson": "Export JSON",
@@ -274,6 +289,11 @@ const I18N = {
     "chat.specialistImageShort": "Image",
     "chat.specialistMemoryShort": "Memory",
     "chat.specialistManagerSelfShort": "Manager",
+    "chat.attachment.download": "Download",
+    "chat.attachment.preview": "Preview",
+    "chat.attachment.previewLoading": "Loading…",
+    "chat.attachment.previewError": "Preview failed",
+    "chat.attachment.previewEmpty": "(empty)",
   },
 };
 
@@ -490,8 +510,10 @@ function _buildRenderRows(msgs) {
           timestamp: (m && m.timestamp) != null ? m.timestamp : "",
           attachments: null,
           _items: [],
+          _message_ids: [],
         };
       }
+      if (m && m.id != null) agg._message_ids.push(m.id);
       if (role === "assistant") {
         if (eventType === "reasoning") {
           if (String(content || "").trim()) {
@@ -1035,6 +1057,134 @@ function openChatImageLightbox(src, alt) {
   document.body.appendChild(backdrop);
 }
 
+function openChatMermaidLightbox(svg) {
+  const raw = String(svg || "").trim();
+  if (!raw) return;
+  closeChatImageLightbox();
+  _chatLightboxPrevOverflow = document.body.style.overflow;
+  document.body.style.overflow = "hidden";
+  _chatLightboxKeyHandler = (ev) => {
+    if (ev.key === "Escape") closeChatImageLightbox();
+  };
+  document.addEventListener("keydown", _chatLightboxKeyHandler);
+
+  const backdrop = el("div", {
+    class: "chat-img-lightbox",
+    role: "dialog",
+    "aria-modal": "true",
+    "aria-label": "Mermaid diagram viewer",
+  });
+  const inner = el("div", { class: "chat-img-lightbox__inner" });
+  let scale = 1.0;
+  const clamp = (v) => Math.max(0.2, Math.min(3.0, Number(v || 1)));
+  const applyScale = () => {
+    scale = clamp(scale);
+    viewport.style.transform = `scale(${scale})`;
+    zoomText.textContent = `${Math.round(scale * 100)}%`;
+  };
+  const closeBtn = el("button", {
+    type: "button",
+    class: "chat-img-lightbox__close",
+    text: "×",
+    "aria-label": t("chat.imageViewerClose"),
+    onclick: (e) => {
+      e.stopPropagation();
+      closeChatImageLightbox();
+    },
+  });
+  const toolbar = el("div", { class: "chat-mermaid-lightbox__toolbar" });
+  const btnMinus = el("button", {
+    type: "button",
+    class: "chat-mermaid-lightbox__btn",
+    text: "−",
+    onclick: (e) => {
+      e.stopPropagation();
+      scale = clamp(scale - 0.1);
+      applyScale();
+    },
+  });
+  const btnPlus = el("button", {
+    type: "button",
+    class: "chat-mermaid-lightbox__btn",
+    text: "+",
+    onclick: (e) => {
+      e.stopPropagation();
+      scale = clamp(scale + 0.1);
+      applyScale();
+    },
+  });
+  const btnReset = el("button", {
+    type: "button",
+    class: "chat-mermaid-lightbox__btn",
+    text: "100%",
+    onclick: (e) => {
+      e.stopPropagation();
+      scale = 1.0;
+      applyScale();
+    },
+  });
+  const zoomText = el("span", { class: "chat-mermaid-lightbox__zoom", text: "100%" });
+  toolbar.appendChild(btnMinus);
+  toolbar.appendChild(btnReset);
+  toolbar.appendChild(btnPlus);
+  toolbar.appendChild(zoomText);
+
+  const wrap = el("div", { class: "chat-mermaid-lightbox__svg" });
+  const viewport = el("div", { class: "chat-mermaid-lightbox__viewport" });
+  viewport.innerHTML = raw;
+  wrap.appendChild(viewport);
+  // Drag-to-pan (scroll) inside the zoomable viewport.
+  let dragging = false;
+  let dragStartX = 0;
+  let dragStartY = 0;
+  let dragScrollLeft = 0;
+  let dragScrollTop = 0;
+  const onDragStart = (e) => {
+    // Ignore drags started on toolbar/buttons.
+    if (e && e.target && e.target.closest && e.target.closest(".chat-mermaid-lightbox__toolbar")) return;
+    dragging = true;
+    wrap.classList.add("chat-mermaid-lightbox__svg--dragging");
+    dragStartX = Number(e.clientX || 0);
+    dragStartY = Number(e.clientY || 0);
+    dragScrollLeft = wrap.scrollLeft;
+    dragScrollTop = wrap.scrollTop;
+  };
+  const onDragMove = (e) => {
+    if (!dragging) return;
+    const x = Number(e.clientX || 0);
+    const y = Number(e.clientY || 0);
+    wrap.scrollLeft = dragScrollLeft - (x - dragStartX);
+    wrap.scrollTop = dragScrollTop - (y - dragStartY);
+  };
+  const onDragEnd = () => {
+    dragging = false;
+    wrap.classList.remove("chat-mermaid-lightbox__svg--dragging");
+  };
+  wrap.addEventListener("mousedown", (e) => onDragStart(e));
+  window.addEventListener("mousemove", (e) => onDragMove(e));
+  window.addEventListener("mouseup", () => onDragEnd());
+  wrap.addEventListener(
+    "wheel",
+    (e) => {
+      e.preventDefault();
+      const dy = Number(e.deltaY || 0);
+      const step = dy > 0 ? -0.08 : 0.08;
+      scale = clamp(scale + step);
+      applyScale();
+    },
+    { passive: false },
+  );
+  inner.appendChild(closeBtn);
+  inner.appendChild(toolbar);
+  inner.appendChild(wrap);
+  backdrop.appendChild(inner);
+  backdrop.addEventListener("click", (e) => {
+    if (e.target === backdrop) closeChatImageLightbox();
+  });
+  document.body.appendChild(backdrop);
+  applyScale();
+}
+
 function bindChatImageViewer(messagesEl) {
   messagesEl.addEventListener("click", (ev) => {
     const img = ev.target && ev.target.closest && ev.target.closest("img");
@@ -1044,6 +1194,16 @@ function bindChatImageViewer(messagesEl) {
     ev.preventDefault();
     ev.stopPropagation();
     openChatImageLightbox(src, img.getAttribute("alt") || "");
+  });
+}
+
+function bindChatMermaidViewer(messagesEl) {
+  messagesEl.addEventListener("click", (ev) => {
+    const svg = ev.target && ev.target.closest && ev.target.closest(".mermaid svg");
+    if (!svg || !messagesEl.contains(svg)) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    openChatMermaidLightbox(svg.outerHTML || "");
   });
 }
 
@@ -1066,6 +1226,103 @@ function renderMarkdownHtml(src) {
     }
   }
   return `<div class="chat-msg__plain">${escapeHtml(raw).replace(/\n/g, "<br/>")}</div>`;
+}
+
+let _mermaidBootstrapped = false;
+let _mermaidRetryTimer = null;
+window.__oclawHydrateMermaidAll = () => {
+  try {
+    const root = document.getElementById("app") || document.body;
+    hydrateMermaidIn(root);
+  } catch (_) {}
+};
+function hydrateMermaidIn(root) {
+  const host = root && root.querySelectorAll ? root : null;
+  if (!host) return;
+  const codeNodes = host.querySelectorAll("pre > code.language-mermaid, pre > code.lang-mermaid");
+  for (const code of codeNodes) {
+    const pre = code.parentElement;
+    if (!pre || !pre.parentElement) continue;
+    const txt = String(code.textContent || "").trim();
+    if (!txt) continue;
+    const box = document.createElement("div");
+    box.className = "mermaid";
+    box.setAttribute("data-mermaid-raw", txt);
+    box.textContent = txt;
+    pre.parentElement.replaceChild(box, pre);
+  }
+  const _attachFallback = (node, errText = "") => {
+    if (!node || node.querySelector(".mermaid-fallback")) return;
+    const raw = String(node.getAttribute("data-mermaid-raw") || "").trim() || String(node.textContent || "").trim();
+    const msg = String(errText || "").trim();
+    node.innerHTML = `<div class="mermaid-fallback">${msg ? `<div class="mermaid-fallback__err">${escapeHtml(msg)}</div>` : ""}<pre>${escapeHtml(raw)}</pre></div>`;
+  };
+  if (typeof mermaid === "undefined") {
+    if (_mermaidRetryTimer != null) return;
+    _mermaidRetryTimer = setTimeout(() => {
+      _mermaidRetryTimer = null;
+      try {
+        window.__oclawHydrateMermaidAll();
+      } catch (_) {}
+    }, 350);
+    return;
+  }
+  try {
+    if (!_mermaidBootstrapped && typeof mermaid.initialize === "function") {
+      mermaid.initialize({
+        startOnLoad: false,
+        securityLevel: "loose",
+        theme: "base",
+        themeVariables: {
+          background: "transparent",
+          primaryColor: "#1f2937",
+          primaryBorderColor: "#94a3b8",
+          primaryTextColor: "#e5e7eb",
+          lineColor: "#94a3b8",
+          textColor: "#e5e7eb",
+          fontFamily: "Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif",
+        },
+      });
+      _mermaidBootstrapped = true;
+    }
+    const nodes = Array.from(host.querySelectorAll(".mermaid")).filter((n) => n && n.isConnected);
+    if (!nodes.length) return;
+    // Mermaid skips already processed nodes. In streaming / rerender scenarios, DOM can be replaced.
+    // Remove the marker so Mermaid treats these nodes as fresh.
+    for (const n of nodes) {
+      try {
+        n.removeAttribute("data-processed");
+      } catch (_) {}
+    }
+    if (typeof mermaid.run === "function") {
+      Promise.resolve(mermaid.run({ nodes }))
+        .then(() => {
+          for (const n of nodes) {
+            if (!n || !n.isConnected) continue;
+            if (!n.querySelector("svg")) _attachFallback(n, "Mermaid render failed (no svg output)");
+          }
+        })
+        .catch((e) => {
+          const msg = String((e && e.message) || e || "Mermaid render failed");
+          for (const n of nodes) _attachFallback(n, msg);
+        });
+    } else if (typeof mermaid.init === "function") {
+      try {
+        mermaid.init(undefined, nodes);
+        for (const n of nodes) {
+          if (!n || !n.isConnected) continue;
+          if (!n.querySelector("svg")) _attachFallback(n, "Mermaid render failed (no svg output)");
+        }
+      } catch (e) {
+        const msg = String((e && e.message) || e || "Mermaid render failed");
+        for (const n of nodes) _attachFallback(n, msg);
+      }
+    }
+  } catch (e) {
+    const msg = String((e && e.message) || e || "Mermaid render failed");
+    const nodes = host.querySelectorAll(".mermaid");
+    for (const n of nodes) _attachFallback(n, msg);
+  }
 }
 
 const RE_REDACTED_THINKING = new RegExp("<redacted_thinking>\\s*([\\s\\S]*?)\\s*</redacted_thinking>", "i");
@@ -1611,6 +1868,7 @@ async function buildMessageBubble(role, content, tsIso) {
 }
 
 const _blobUrlCache = new Map();
+const _attachmentTextPreviewCache = new Map();
 
 async function fetchAttachmentBlobUrl(attachmentId) {
   const aid = String(attachmentId || "").trim();
@@ -1625,6 +1883,22 @@ async function fetchAttachmentBlobUrl(attachmentId) {
   const url = URL.createObjectURL(blob);
   _blobUrlCache.set(aid, url);
   return url;
+}
+
+async function fetchAttachmentTextPreview(attachmentId, maxChars = 1800) {
+  const aid = String(attachmentId || "").trim();
+  if (!aid) return "";
+  if (_attachmentTextPreviewCache.has(aid)) return _attachmentTextPreviewCache.get(aid) || "";
+  const token = localStorage.getItem(AUTH_TOKEN_KEY) || "";
+  const res = await fetch(`/admin/api/chat/attachments/${encodeURIComponent(aid)}`, {
+    headers: token ? { authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) throw new Error(`preview_http_${res.status}`);
+  const blob = await res.blob();
+  const txt = String(await blob.text());
+  const out = txt.length > maxChars ? `${txt.slice(0, maxChars)}\n…` : txt;
+  _attachmentTextPreviewCache.set(aid, out);
+  return out;
 }
 
 function parseAttachments(raw) {
@@ -1651,6 +1925,77 @@ async function renderAttachmentsEl(raw) {
   const list = parseAttachments(raw);
   if (!list.length) return null;
   const wrap = el("div", { class: "chat-att-wrap" });
+  const isTextLikeMime = (mime) => {
+    const m = String(mime || "").trim().toLowerCase();
+    if (!m) return false;
+    if (m.startsWith("text/")) return true;
+    return (
+      m.includes("json") ||
+      m.includes("xml") ||
+      m.includes("yaml") ||
+      m.includes("yml") ||
+      m.includes("csv") ||
+      m.includes("javascript") ||
+      m.includes("typescript")
+    );
+  };
+  const buildRefCard = async (att, typ) => {
+    const aid = String(att.attachment_id || att.attachmentId || "").trim();
+    const mime = String(att.mime || att.mime_type || "application/octet-stream").trim();
+    const name = String(att.name || `${typ || "attachment"}`).trim();
+    const bytes = Number(att.bytes || 0);
+    const sizeLabel = bytes > 0 ? `${Math.round((bytes / 1024) * 10) / 10} KB` : "";
+    const card = el("div", { class: "chat-att-ref" });
+    card.appendChild(el("div", { class: "chat-att-ref__name", text: name }));
+    card.appendChild(el("div", { class: "chat-att-ref__meta", text: `${typ} · ${mime}${sizeLabel ? ` · ${sizeLabel}` : ""}` }));
+    if (aid) card.appendChild(el("div", { class: "chat-att-ref__meta", text: `id: ${aid.slice(0, 16)}...` }));
+    if (aid) {
+      const url = await fetchAttachmentBlobUrl(aid);
+      if (url) {
+        card.appendChild(
+          el("a", {
+            class: "chat-att-ref__link",
+            href: url,
+            target: "_blank",
+            rel: "noopener noreferrer",
+            download: name || undefined,
+            text: t("chat.attachment.download"),
+          }),
+        );
+      }
+    }
+    const canPreviewText = !!aid && (String(typ || "") === "text_ref" || isTextLikeMime(mime));
+    if (canPreviewText) {
+      const preview = el("button", {
+        type: "button",
+        class: "chat-att-ref__btn",
+        text: t("chat.attachment.preview"),
+      });
+      const pre = el("pre", { class: "chat-att-ref__preview" });
+      preview.addEventListener("click", async () => {
+        if (!pre.hidden) {
+          pre.hidden = true;
+          preview.textContent = t("chat.attachment.preview");
+          return;
+        }
+        preview.disabled = true;
+        preview.textContent = t("chat.attachment.previewLoading");
+        try {
+          const txt = await fetchAttachmentTextPreview(aid);
+          pre.textContent = txt || t("chat.attachment.previewEmpty");
+        } catch (_) {
+          pre.textContent = t("chat.attachment.previewError");
+        } finally {
+          pre.hidden = false;
+          preview.disabled = false;
+          preview.textContent = t("chat.attachment.preview");
+        }
+      });
+      card.appendChild(preview);
+      card.appendChild(pre);
+    }
+    return card;
+  };
   for (const att of list) {
     if (!att || typeof att !== "object") continue;
     const typ = String(att.type || "");
@@ -1683,6 +2028,8 @@ async function renderAttachmentsEl(raw) {
       const src = String(att.url || att.image_url || "").trim();
       const img = el("img", { class: "chat-att-img", src, alt: "" });
       wrap.appendChild(img);
+    } else if (typ === "video_ref" || typ === "text_ref" || typ === "binary_ref") {
+      wrap.appendChild(await buildRefCard(att, typ));
     } else if (typ === "image" || typ === "input_image") {
       const b64 = att.image_base64 || att.data;
       const mime = String(att.mime || "image/jpeg");
@@ -1693,13 +2040,15 @@ async function renderAttachmentsEl(raw) {
         wrap.appendChild(el("span", { class: "chat-att-chip", text: String(att.name || "image") }));
       }
     } else {
-      wrap.appendChild(el("span", { class: "chat-att-chip", text: `📄 ${String(att.name || "file")}` }));
+      const maybeAid = String(att.attachment_id || att.attachmentId || "").trim();
+      if (maybeAid) wrap.appendChild(await buildRefCard(att, typ || "attachment_ref"));
+      else wrap.appendChild(el("span", { class: "chat-att-chip", text: `📄 ${String(att.name || "file")}` }));
     }
   }
   return wrap.children.length ? wrap : null;
 }
 
-async function appendMessageRow(messagesEl, m) {
+async function appendMessageRow(messagesEl, m, options = {}) {
   const role = String(m.role || "");
   const content = String(m.content || "");
   const ts = m.timestamp != null ? m.timestamp : "";
@@ -1714,7 +2063,67 @@ async function appendMessageRow(messagesEl, m) {
     if (innerBubble) innerBubble.appendChild(att);
     else bubble.appendChild(att);
   }
+  const colNode = bubble.querySelector(".chat-msg-col");
+  const innerBubble = bubble.querySelector(".chat-msg-col .chat-msg");
+  if (innerBubble) {
+    const copyText = (() => {
+      const v = String(innerBubble.innerText || "").trim();
+      return v;
+    })();
+    const ids = Array.isArray(m._message_ids) ? m._message_ids.filter((x) => x != null) : (m.id != null ? [m.id] : []);
+    const canDelete = ids.length === 1 && typeof options.onDeleteMessage === "function";
+    if (copyText || canDelete) {
+      const bar = el("div", { class: "chat-msg__actions" });
+      if (copyText) {
+        bar.appendChild(
+          el("button", {
+            type: "button",
+            class: "chat-msg__action-btn",
+            text: "⧉",
+            title: t("chat.copy"),
+            "aria-label": t("chat.copy"),
+            onclick: async (e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              try {
+                await navigator.clipboard.writeText(copyText);
+                if (typeof options.onActionStatus === "function") options.onActionStatus(t("chat.copyOk"));
+              } catch (_) {
+                if (typeof options.onActionStatus === "function") options.onActionStatus(t("chat.copyFail"));
+              }
+            },
+          }),
+        );
+      }
+      if (canDelete) {
+        bar.appendChild(
+          el("button", {
+            type: "button",
+            class: "chat-msg__action-btn chat-msg__action-btn--danger",
+            text: "🗑",
+            title: t("chat.deleteMessage"),
+            "aria-label": t("chat.deleteMessage"),
+            onclick: async (e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              let ok = false;
+              if (typeof options.onConfirm === "function") {
+                ok = await options.onConfirm(t("chat.deleteMessageConfirm"));
+              } else {
+                ok = window.confirm(t("chat.deleteMessageConfirm"));
+              }
+              if (!ok) return;
+              await options.onDeleteMessage(ids[0]);
+            },
+          }),
+        );
+      }
+      if (colNode) colNode.appendChild(bar);
+      else innerBubble.appendChild(bar);
+    }
+  }
   messagesEl.appendChild(bubble);
+  hydrateMermaidIn(bubble);
 }
 
 function mount(node) {
@@ -1917,6 +2326,7 @@ async function renderChatUi() {
   const loadMoreWrap = el("div", { class: "chat-load-more" });
   const messagesEl = el("div", { class: "chat-messages" });
   bindChatImageViewer(messagesEl);
+  bindChatMermaidViewer(messagesEl);
   const AUTO_SCROLL_BOTTOM_GAP_PX = 56;
   let shouldFollowMessages = true;
   const isNearBottom = () => {
@@ -2471,6 +2881,22 @@ async function renderChatUi() {
     return Number.isFinite(n) ? n : d;
   }
 
+  const handleDeleteMessage = async (messageId) => {
+    const sid = String(activeId || "").trim();
+    const mid = parseInt(String(messageId || 0), 10);
+    if (!sid || !Number.isFinite(mid) || mid <= 0) return;
+    await apiDelete(`/admin/api/chat/sessions/${encodeURIComponent(sid)}/messages/${mid}`);
+    await loadMessagesForActive();
+  };
+
+  const rowRenderOptions = {
+    onDeleteMessage: handleDeleteMessage,
+    onConfirm: confirmChatAction,
+    onActionStatus: (msg) => {
+      statusBar.textContent = String(msg || "");
+    },
+  };
+
   const loadMessagesForActive = async () => {
     loadMessagesForActive._rid = (loadMessagesForActive._rid || 0) + 1;
     const rid = loadMessagesForActive._rid;
@@ -2501,7 +2927,7 @@ async function renderChatUi() {
         messagesEl.appendChild(el("div", { class: "muted", text: t("chat.empty") }));
       } else {
         for (const m of renderRows) {
-          await appendMessageRow(messagesEl, m);
+          await appendMessageRow(messagesEl, m, rowRenderOptions);
         }
       }
       statusBar.textContent = "";
@@ -2917,6 +3343,7 @@ async function renderChatUi() {
     let streamDisplayShown = "";
     let streamTextBuffer = "";
     const streamStitcher = createStreamStitcher();
+    let streamMermaidTimerId = null;
     let perCharNewlineMode = false;
     let perCharNewlineScore = 0;
     let toolSeq = 0;
@@ -3178,6 +3605,25 @@ ${autoLimit ? `<div style="margin-top:8px;"><span class="muted">auto-added claus
       }
       scrollMessagesToBottom();
     };
+    const _maybeScheduleStreamMermaidHydrate = () => {
+      // Mermaid render is expensive and can crash if DOM is re-written mid-run.
+      // For streaming, only hydrate when we see a complete mermaid fence block.
+      const bubble = streamBubble;
+      if (!bubble) return;
+      const md = bubble.querySelector(".chat-msg__md");
+      if (!md) return;
+      const raw = String(streamDisplayShown || "");
+      if (!raw.includes("```mermaid")) return;
+      // Require a closed fence to avoid parsing partial streams.
+      if (!/```mermaid[\s\S]*?\n```/m.test(raw)) return;
+      if (streamMermaidTimerId != null) clearTimeout(streamMermaidTimerId);
+      streamMermaidTimerId = setTimeout(() => {
+        streamMermaidTimerId = null;
+        try {
+          hydrateMermaidIn(md);
+        } catch (_) {}
+      }, 180);
+    };
     const renderStreamComposite = () => {
       if (renderPending) return;
       renderPending = true;
@@ -3185,6 +3631,7 @@ ${autoLimit ? `<div style="margin-top:8px;"><span class="muted">auto-added claus
         renderPending = false;
         renderRafId = null;
         _renderStreamCompositeNow();
+        _maybeScheduleStreamMermaidHydrate();
       });
     };
     const _scheduleTypingTick = () => {
@@ -3270,7 +3717,7 @@ ${autoLimit ? `<div style="margin-top:8px;"><span class="muted">auto-added claus
         const last = rows && rows.length ? rows[rows.length - 1] : null;
         if (last) {
           if (streamRow && streamRow.parentNode) streamRow.remove();
-          await appendMessageRow(messagesEl, last);
+          await appendMessageRow(messagesEl, last, rowRenderOptions);
           scrollMessagesToBottom(true);
           return true;
         }
@@ -3282,7 +3729,7 @@ ${autoLimit ? `<div style="margin-top:8px;"><span class="muted">auto-added claus
           role: "assistant",
           content: decodeEscapedNewlines(t0),
           timestamp: new Date().toISOString(),
-        });
+        }, rowRenderOptions);
         scrollMessagesToBottom(true);
         return true;
       }
@@ -3423,6 +3870,10 @@ ${autoLimit ? `<div style="margin-top:8px;"><span class="muted">auto-added claus
               turnFinalized = true;
               turnStreamedEnough = streamedEnough;
               chatStreamSegments = [];
+              if (streamMermaidTimerId != null) {
+                clearTimeout(streamMermaidTimerId);
+                streamMermaidTimerId = null;
+              }
               // Avoid end-of-turn flash: only reload history when stream had no usable content.
               if (!streamedEnough) {
                 setTimeout(() => {
@@ -3444,6 +3895,10 @@ ${autoLimit ? `<div style="margin-top:8px;"><span class="muted">auto-added claus
               streamTextBuffer = "";
               chatRunId = null;
               chatStreamSegments = [];
+              if (streamMermaidTimerId != null) {
+                clearTimeout(streamMermaidTimerId);
+                streamMermaidTimerId = null;
+              }
               return;
             }
             if (state === "error") {
@@ -3456,6 +3911,10 @@ ${autoLimit ? `<div style="margin-top:8px;"><span class="muted">auto-added claus
               streamTextBuffer = "";
               chatRunId = null;
               chatStreamSegments = [];
+              if (streamMermaidTimerId != null) {
+                clearTimeout(streamMermaidTimerId);
+                streamMermaidTimerId = null;
+              }
               statusBar.textContent = `${t("chat.error")}: ${String(payload.errorMessage || "chat error")}`;
             }
           },

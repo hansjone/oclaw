@@ -14,6 +14,7 @@ import re
 from typing import Any
 
 from oclaw.platform.llm.chat_models import _normalize_image_b64_payload, gemini_openai_compat_client, ChatModel
+from oclaw.runtime.chat.media_redact import redact_embedded_image_blobs
 from oclaw.runtime.chat.tool_runtime import tool_llm_message_max_chars, truncate_tool_result_for_llm_messages
 from oclaw.prompts import render_prompt
 from oclaw.platform.files.attachment_assets import attachment_id_to_data_url
@@ -196,8 +197,18 @@ def build_llm_messages(
     model: ChatModel,
     lang: str,
     tool_context_truncate_enabled: bool = True,
+    active_turn_uuid: str | None = None,
 ) -> list[dict[str, Any]]:
-    """把 DB 中的消息序列转换为 LLM messages。"""
+    """把 DB 中的消息序列转换为 LLM messages。
+
+    When ``active_turn_uuid`` matches a tool/user row ``turn_uuid``, that turn is treated as the
+    in-flight MCP turn: tool JSON is not stripped of nested image payloads here (see also
+    :func:`~oclaw.runtime.direct_loop._guard_tool_results_for_llm_context`). Omit or leave empty
+    to apply image-blob stripping for every tool row (safe default for callers without turn context).
+
+    Only the **last** user message may expand attachments into native multimodal ``input_image``;
+    older user attachments are replayed as text metadata only.
+    """
     out: list[dict[str, Any]] = [{"role": "system", "content": (system_prompt or "").strip()}]
     thinking_mode_enabled = bool(getattr(model, "thinking_mode_enabled", False))
     allow_signature_replay = _allow_reasoning_signature_replay(model)
@@ -239,6 +250,15 @@ def build_llm_messages(
                 seen_tool_ids.add(tcid)
         tool_ids_after.append(set(seen_tool_ids))
     tool_ids_after.reverse()
+
+    last_user_msg_idx = -1
+    for _ui, _um in enumerate(store_messages or []):
+        if str(getattr(_um, "role", "") or "") != "user":
+            continue
+        if str(getattr(_um, "event_type", "") or "").strip().lower() == "reasoning":
+            continue
+        last_user_msg_idx = _ui
+
     def _attach_reasoning_content(row: dict[str, Any], m: Any) -> dict[str, Any]:
         if not thinking_mode_enabled:
             return row
@@ -291,34 +311,53 @@ def build_llm_messages(
                 if not isinstance(att, dict):
                     continue
                 att_type = att.get("type")
+                expand_user_image_for_model = bool(i == last_user_msg_idx)
                 if att_type in ("image", "input_image"):
-                    b64 = _normalize_image_b64_payload(att.get("image_base64") or att.get("data"))
-                    if not b64:
-                        continue
-                    content_list.append(
-                        {
-                            "type": "input_image",
-                            "image_base64": b64,
-                            "mime": att.get("mime") or "image/jpeg",
-                        }
-                    )
+                    if expand_user_image_for_model:
+                        b64 = _normalize_image_b64_payload(att.get("image_base64") or att.get("data"))
+                        if not b64:
+                            continue
+                        content_list.append(
+                            {
+                                "type": "input_image",
+                                "image_base64": b64,
+                                "mime": att.get("mime") or "image/jpeg",
+                            }
+                        )
+                    else:
+                        name = str(att.get("name") or "image")
+                        mime = str(att.get("mime") or "image/jpeg")
+                        hs = "(historical attachment; pixels not replayed into model)"
+                        hs_zh = "（历史附件；不向模型回放像素）"
+                        hint = hs_zh if not str(lang or "").startswith("en") else hs
+                        meta_line = f"- name={name} mime={mime} {hint}"
+                        content_list.append(
+                            {
+                                "type": "text",
+                                "text": render_prompt(
+                                    "tools/image_attachment_meta.md",
+                                    variables={"meta_line": meta_line},
+                                    strict=True,
+                                ),
+                            }
+                        )
                 elif att_type == "image_ref":
-                    # Prefer actual image bytes so multi-agent/image specialist can truly "see" history images.
                     name = str(att.get("name") or "image")
                     mime = str(att.get("mime") or "image/jpeg")
                     aid = str(att.get("attachment_id") or "")
-                    data_url = attachment_id_to_data_url(aid, mime=mime) if aid else ""
-                    if data_url:
-                        if ";base64," in data_url:
-                            b64 = data_url.split(";base64,", 1)[1]
-                            content_list.append(
-                                {
-                                    "type": "input_image",
-                                    "image_base64": b64,
-                                    "mime": mime,
-                                }
-                            )
-                            continue
+                    if expand_user_image_for_model:
+                        data_url = attachment_id_to_data_url(aid, mime=mime) if aid else ""
+                        if data_url:
+                            if ";base64," in data_url:
+                                b64 = data_url.split(";base64,", 1)[1]
+                                content_list.append(
+                                    {
+                                        "type": "input_image",
+                                        "image_base64": b64,
+                                        "mime": mime,
+                                    }
+                                )
+                                continue
                     w = att.get("width")
                     h = att.get("height")
                     sz = att.get("bytes")
@@ -423,7 +462,7 @@ def build_llm_messages(
                             aid = str(_fid or "").strip()
                         except Exception:
                             aid = ""
-                    if aid and mime.startswith("image/"):
+                    if expand_user_image_for_model and aid and mime.startswith("image/"):
                         data_url = attachment_id_to_data_url(aid, mime=mime)
                         if data_url and ";base64," in data_url:
                             b64 = data_url.split(";base64,", 1)[1]
@@ -575,6 +614,15 @@ def build_llm_messages(
                     )
                     continue
                 raw_tc_content = getattr(m, "content", "") or ""
+                _tun = str(getattr(m, "turn_uuid", "") or "").strip()
+                _aus = str(active_turn_uuid or "").strip()
+                if (not _aus) or (_tun != _aus):
+                    try:
+                        _p = json.loads(raw_tc_content)
+                        _p2 = redact_embedded_image_blobs(_p)
+                        raw_tc_content = json.dumps(_p2, ensure_ascii=False, default=str)
+                    except Exception:
+                        pass
                 tool_content_out = raw_tc_content
                 cap = tool_llm_message_max_chars()
                 if str(tool_call_id) in historical_tool_ids:

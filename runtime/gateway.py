@@ -35,6 +35,7 @@ from oclaw.runtime.router import decide_route
 from oclaw.runtime.worker import ensure_worker_started
 from oclaw.runtime.orchestration.trace import new_span_id, new_trace_id
 from oclaw.runtime.chat.tool_runtime import compact_turn_tool_messages_for_storage
+from oclaw.runtime.chat.model_path_audit import ensure_no_tool_or_embedded_image_payload
 
 _OC_STAGE_BY_EVENT: dict[str, str] = {
     "gateway_received": "ingress",
@@ -203,11 +204,9 @@ class OclawGateway:
                 else "仅基于以下用户正文生成简短会话标题。请使用对话内容主体语言命名。"
                 "只返回标题文本，不要引号，不要markdown，最多18个字。"
             )
-            resp = model.chat(
-                [{"role": "system", "content": sys}, {"role": "user", "content": body}],
-                [],
-                on_token=None,
-            )
+            messages = [{"role": "system", "content": sys}, {"role": "user", "content": body}]
+            ensure_no_tool_or_embedded_image_payload(messages=messages, path="gateway.auto_title")
+            resp = model.chat(messages, [], on_token=None)
             title = str(getattr(resp, "content", "") or "").strip().replace("\n", " ")
             title = title.strip("\"'` ").strip()
             if not title:
@@ -317,6 +316,7 @@ class OclawGateway:
                     ),
                 },
             ]
+            ensure_no_tool_or_embedded_image_payload(messages=messages, path="gateway.manager_select")
             resp = model.chat(messages, [], on_token=None)
             obj = self._parse_json_object(str(getattr(resp, "content", "") or ""))
             if not isinstance(obj, dict):
@@ -404,11 +404,9 @@ class OclawGateway:
                 f"专家结果:\n{str(specialist_reply or '').strip()}\n\n"
                 "要求：保持简洁、准确，不要暴露内部流程。"
             )
-            resp = model.chat(
-                [{"role": "system", "content": manager_context}, {"role": "user", "content": user_text}],
-                [],
-                on_token=on_token,
-            )
+            messages = [{"role": "system", "content": manager_context}, {"role": "user", "content": user_text}]
+            ensure_no_tool_or_embedded_image_payload(messages=messages, path="gateway.manager_finalize")
+            resp = model.chat(messages, [], on_token=on_token)
             final_text = str(getattr(resp, "content", "") or "").strip()
             return final_text or str(specialist_reply or "")
         except Exception:

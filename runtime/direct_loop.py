@@ -13,6 +13,7 @@ from types import SimpleNamespace
 from typing import Any, Callable, Optional
 
 from oclaw.runtime.chat.agent_messages import build_llm_messages
+from oclaw.runtime.chat.media_redact import redact_embedded_image_blobs
 from oclaw.runtime.chat.tool_runtime import ToolExecutionConfig
 from oclaw.runtime.chat.turn_types import TurnRunOutcome
 from oclaw.runtime.skill_executor import SkillExecutionContext, SkillExecutor
@@ -269,6 +270,21 @@ def _json_dumps_safe(obj: Any) -> str:
         return json.dumps({"ok": False, "error": "not_json_serializable"}, ensure_ascii=False)
 
 
+def _tool_message_with_content(m: Any, content: str, *, sid: str = "") -> SimpleNamespace:
+    return SimpleNamespace(
+        id=getattr(m, "id", 0),
+        session_id=str(getattr(m, "session_id", None) or sid or ""),
+        role="tool",
+        content=content,
+        tool_calls=getattr(m, "tool_calls", None),
+        timestamp=getattr(m, "timestamp", ""),
+        attachments=getattr(m, "attachments", None),
+        turn_uuid=getattr(m, "turn_uuid", None),
+        event_type=getattr(m, "event_type", None),
+        event_payload=getattr(m, "event_payload", None),
+    )
+
+
 def _split_reasoning_and_body(text: str, *, explicit_reasoning: str | None = None) -> tuple[list[str], str]:
     explicit = str(explicit_reasoning or "").strip()
     raw = str(text or "")
@@ -317,6 +333,12 @@ def _guard_tool_results_for_llm_context(
             out.append(m)
             continue
         raw = str(getattr(m, "content", "") or "")
+        try:
+            _parsed0 = json.loads(raw)
+            _parsed1 = redact_embedded_image_blobs(_parsed0)
+            raw = _json_dumps_safe(_parsed1)
+        except Exception:
+            pass
         # Best-effort parse tool JSON for image-query specific guard and overflow metadata.
         ok = None
         error_code = ""
@@ -350,17 +372,7 @@ def _guard_tool_results_for_llm_context(
                     "图片分析结果在上下文回放中已截断，请缩小 query_image_attachment 的问题范围。"
                 )
                 guarded = _json_dumps_safe(guarded_obj)
-                out.append(
-                    SimpleNamespace(
-                        id=getattr(m, "id", 0),
-                        session_id=getattr(m, "session_id", session_id),
-                        role="tool",
-                        content=guarded,
-                        tool_calls=getattr(m, "tool_calls", None),
-                        timestamp=getattr(m, "timestamp", ""),
-                        attachments=getattr(m, "attachments", None),
-                    )
-                )
+                out.append(_tool_message_with_content(m, guarded, sid=session_id))
                 continue
             # Guard video transcript replay similarly (usually long).
             if str(obj.get("task") or "").strip().lower() == "transcript" and has_attachment_id and len(text) > video_cap:
@@ -371,20 +383,10 @@ def _guard_tool_results_for_llm_context(
                 guarded_obj["video_result_original_chars"] = len(text)
                 guarded_obj["video_result_replay_cap_chars"] = video_cap
                 guarded = _json_dumps_safe(guarded_obj)
-                out.append(
-                    SimpleNamespace(
-                        id=getattr(m, "id", 0),
-                        session_id=getattr(m, "session_id", session_id),
-                        role="tool",
-                        content=guarded,
-                        tool_calls=getattr(m, "tool_calls", None),
-                        timestamp=getattr(m, "timestamp", ""),
-                        attachments=getattr(m, "attachments", None),
-                    )
-                )
+                out.append(_tool_message_with_content(m, guarded, sid=session_id))
                 continue
         if len(raw) <= cap:
-            out.append(m)
+            out.append(_tool_message_with_content(m, raw, sid=session_id))
             continue
         preview = raw[: max(1, min(4000, cap - 400))] + "\n...<tool_result_guard_truncated>"
         guarded_obj = {
@@ -402,17 +404,7 @@ def _guard_tool_results_for_llm_context(
             ),
         }
         guarded = _json_dumps_safe(guarded_obj)
-        out.append(
-            SimpleNamespace(
-                id=getattr(m, "id", 0),
-                session_id=getattr(m, "session_id", session_id),
-                role="tool",
-                content=guarded,
-                tool_calls=getattr(m, "tool_calls", None),
-                timestamp=getattr(m, "timestamp", ""),
-                attachments=getattr(m, "attachments", None),
-            )
-        )
+        out.append(_tool_message_with_content(m, guarded, sid=session_id))
         if trace_id:
             _emit_direct_loop_trace(
                 store=store,
@@ -631,6 +623,7 @@ def _build_model_context(
         model=model,
         lang=lang,
         tool_context_truncate_enabled=tool_context_truncate_enabled,
+        active_turn_uuid=active_turn_uuid,
     )
 
 

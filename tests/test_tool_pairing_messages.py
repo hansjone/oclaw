@@ -138,7 +138,13 @@ def test_signature_metadata_not_replayed_by_default_for_non_whitelist_model() ->
                 ensure_ascii=False,
             ),
             event_type="tool_call",
-        )
+        ),
+        _Msg(
+            "tool",
+            json.dumps({"ok": True}),
+            tool_calls=json.dumps({"tool_call_id": "call_1", "name": "t"}, ensure_ascii=False),
+            event_type="tool_result",
+        ),
     ]
     msgs = build_llm_messages(store_messages=rows, system_prompt="s", model=model, lang="zh")
     assistant = [m for m in msgs if m.get("role") == "assistant"][0]
@@ -158,7 +164,13 @@ def test_signature_metadata_can_be_forced_on_via_env(monkeypatch) -> None:
                 ensure_ascii=False,
             ),
             event_type="tool_call",
-        )
+        ),
+        _Msg(
+            "tool",
+            json.dumps({"ok": True}),
+            tool_calls=json.dumps({"tool_call_id": "call_1", "name": "t"}, ensure_ascii=False),
+            event_type="tool_result",
+        ),
     ]
     msgs = build_llm_messages(store_messages=rows, system_prompt="s", model=model, lang="zh")
     assistant = [m for m in msgs if m.get("role") == "assistant"][0]

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from oclaw.runtime.direct_loop import _OCLAW_TOOL_RESULT_HARD_CAP_CHARS, _build_model_context
@@ -77,4 +78,43 @@ def test_oclaw_tool_result_context_guard_skips_active_turn_tool_messages(tmp_pat
     assert tool_msgs, msgs
     raw = str(tool_msgs[-1].get("content") or "")
     assert "_tool_result_guarded" not in raw
+
+
+def test_guard_redacts_mcp_nested_image_for_non_active_turn(tmp_path: Path) -> None:
+    store = SqliteStore(str(tmp_path / "ops.sqlite"))
+    sess = store.create_session("t")
+    past_turn = "turn-old"
+    blob = "/9j/" + "a" * 1200
+    body = {"ok": True, "result": {"content": [{"type": "image", "mime": "image/jpeg", "data": blob}]}}
+    store.add_message(
+        session_id=sess.id,
+        role="assistant",
+        content="",
+        tool_calls=[{"id": "c_hist", "name": "mcp", "arguments": {}}],
+        turn_uuid=past_turn,
+    )
+    store.add_message(
+        session_id=sess.id,
+        role="tool",
+        content=json.dumps(body, ensure_ascii=False),
+        tool_calls={"tool_call_id": "c_hist", "name": "mcp", "assistant_message_id": 1},
+        turn_uuid=past_turn,
+    )
+    msgs = _build_model_context(
+        store=store,
+        session_id=sess.id,
+        max_messages=50,
+        system_prompt="sys",
+        model=RuleBasedChatModel(),
+        lang="zh",
+        memory_context=None,
+        trace_id="t1",
+        parent_span_id=None,
+        active_turn_uuid="different-active-turn",
+    )
+    tm = next(m for m in msgs if m.get("role") == "tool")
+    inner = json.loads(str(tm.get("content") or ""))
+    block = inner["result"]["content"][0]
+    assert block.get("_image_payload_redacted") is True
+    assert "data" not in block
 

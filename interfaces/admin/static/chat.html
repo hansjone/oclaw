@@ -243,6 +243,68 @@
         font-size: 12px;
         opacity: 0.9;
       }
+      .chat-att-ref {
+        min-width: 180px;
+        max-width: 260px;
+        border: 1px solid var(--ds-border, rgba(255, 255, 255, 0.14));
+        border-radius: 8px;
+        background: rgba(255, 255, 255, 0.03);
+        padding: 8px 10px;
+        box-sizing: border-box;
+      }
+      .chat-att-ref__name {
+        font-size: 12px;
+        font-weight: 600;
+        line-height: 1.35;
+        margin-bottom: 4px;
+        word-break: break-all;
+      }
+      .chat-att-ref__meta {
+        font-size: 11px;
+        line-height: 1.35;
+        opacity: 0.75;
+        word-break: break-all;
+      }
+      .chat-att-ref__link {
+        display: inline-block;
+        margin-top: 6px;
+        font-size: 12px;
+        color: var(--ds-accent, #5eb3ff);
+        text-decoration: none;
+      }
+      .chat-att-ref__link:hover {
+        text-decoration: underline;
+      }
+      .chat-att-ref__btn {
+        margin-top: 6px;
+        border: 1px solid var(--ds-border, rgba(255, 255, 255, 0.14));
+        background: rgba(255, 255, 255, 0.04);
+        color: inherit;
+        border-radius: 6px;
+        font-size: 12px;
+        line-height: 1.2;
+        padding: 4px 8px;
+        cursor: pointer;
+      }
+      .chat-att-ref__btn:hover {
+        background: rgba(255, 255, 255, 0.08);
+      }
+      .chat-att-ref__preview {
+        margin: 6px 0 0;
+        padding: 8px;
+        border-radius: 6px;
+        border: 1px solid var(--ds-border, rgba(255, 255, 255, 0.14));
+        background: rgba(0, 0, 0, 0.26);
+        max-height: 180px;
+        overflow: auto;
+        white-space: pre-wrap;
+        word-break: break-word;
+        font-size: 11px;
+        line-height: 1.35;
+      }
+      .chat-att-ref__preview:empty {
+        display: none;
+      }
       .chat-composer-shell {
         border-radius: 12px;
         border: 1px solid var(--ds-border, rgba(255, 255, 255, 0.12));
@@ -484,13 +546,19 @@
         white-space: pre-wrap;
       }
     </style>
-    <!-- Keep markdown helpers non-blocking. chat.js already falls back when they are unavailable. -->
-    <script async src="https://cdn.jsdelivr.net/npm/marked@11.1.1/marked.min.js" crossorigin="anonymous"></script>
-    <script async src="https://cdn.jsdelivr.net/npm/dompurify@3.0.8/dist/purify.min.js" crossorigin="anonymous"></script>
+    <!-- Load markdown/mermaid helpers before chat.js (avoid raw ``` fences render). -->
+    <script defer src="https://cdn.jsdelivr.net/npm/marked@11.1.1/marked.min.js" crossorigin="anonymous"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/dompurify@3.0.8/dist/purify.min.js" crossorigin="anonymous"></script>
+    <script
+      defer
+      src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"
+      crossorigin="anonymous"
+      onload="(function(){try{ if (window.__oclawHydrateMermaidAll) window.__oclawHydrateMermaidAll(); }catch(e){}})()"
+    ></script>
     <!-- Cache-bust for desktop webview: avoid stale chat.js -->
     <script
       defer
-      src="/admin/assets/chat.js?v=20260425-4"
+      src="/admin/assets/chat.js?v=20260428-2"
       onerror="(function(){var s=document.getElementById('chat-boot-splash');if(s){s.querySelector('.chat-boot-splash__title span:last-child').textContent='无法加载 chat.js';s.querySelector('.chat-boot-splash__muted').textContent='请确认网关已启动且 /admin/assets/chat.js 可访问。';}})()"
     ></script>
   </head>

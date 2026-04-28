@@ -877,6 +877,22 @@ def include_chat_routes(router: APIRouter, *, resolve_auth: Callable[[SqliteStor
             "messages": [_serialize_message(m) for m in msgs],
         }
 
+    @chat.delete("/sessions/{session_id}/messages/{message_id}")
+    def api_chat_delete_message(
+        session_id: str,
+        message_id: int,
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        store = SqliteStore(db_path())
+        ctx = resolve_auth(store, authorization)
+        sess = _resolve_chat_session(store, ctx, session_id)
+        if not sess:
+            raise HTTPException(status_code=404, detail="session_not_found")
+        ok = store.delete_message(session_id=str(session_id), message_id=int(message_id))
+        if not ok:
+            raise HTTPException(status_code=404, detail="message_not_found")
+        return {"ok": True, "deleted": 1}
+
     @chat.get("/sessions/{session_id}/wiki-events")
     def api_chat_wiki_events(
         session_id: str,

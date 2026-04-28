@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import json
 from pathlib import Path
 
@@ -87,6 +88,94 @@ def test_repeated_tool_results_are_compacted_in_history(tmp_path: Path) -> None:
     assert int(payloads[2].get("_tool_observed_rows_this_call") or 0) == 200
     assert int(payloads[2].get("_tool_observed_rows_cumulative_in_turn") or 0) == 600
     assert "audit_note" in payloads[2]
+
+
+def test_tool_result_image_blob_persisted_as_attachment_ref(tmp_path: Path) -> None:
+    store = SqliteStore(str(tmp_path / "img.sqlite"))
+    sess = store.create_session("t")
+
+    def _handler(_args):
+        raw = base64.b64encode(b"\x89PNGtest-image").decode("ascii")
+        return {
+            "ok": True,
+            "result": {"content": [{"type": "image", "mime": "image/png", "data": raw, "name": "mcp.png"}]},
+        }
+
+    reg = ToolRegistry(
+        [
+            ToolSpec(
+                name="mcp_image_tool",
+                description="returns image payload",
+                parameters={"type": "object", "properties": {}},
+                handler=_handler,
+                read_only=True,
+            )
+        ]
+    )
+    tool_uses = [LLMToolCall(id="c1", name="mcp_image_tool", arguments={})]
+    ToolExecutor().execute_tool_uses(
+        ctx=ToolExecutionContext(store=store, tools=reg, session_id=sess.id, turn_uuid="turn-img"),
+        assistant_msg_id=1,
+        tool_uses=tool_uses,
+    )
+    rows = store.get_messages(session_id=sess.id, limit=20)
+    tool_rows = [m for m in rows if str(getattr(m, "role", "") or "") == "tool"]
+    assert len(tool_rows) == 1
+    payload = json.loads(str(getattr(tool_rows[0], "content", "") or "{}"))
+    blk = (((payload.get("result") or {}).get("content") or [{}])[0]) if isinstance(payload, dict) else {}
+    assert isinstance(blk, dict)
+    assert str(blk.get("type") or "") == "image_ref"
+    assert str(blk.get("attachment_id") or "")
+    assert "data" not in blk
+    atts = json.loads(str(getattr(tool_rows[0], "attachments", "") or "[]"))
+    assert isinstance(atts, list) and atts
+    assert str((atts[0] or {}).get("type") or "") == "image_ref"
+    assert str((atts[0] or {}).get("attachment_id") or "")
+    logs = store.get_tool_logs(sess.id, limit=10)
+    assert logs and isinstance(logs[0], dict)
+    body = logs[0].get("result") or {}
+    blk2 = (((body.get("result") or {}).get("content") or [{}])[0]) if isinstance(body, dict) else {}
+    assert isinstance(blk2, dict)
+    assert str(blk2.get("type") or "") == "image_ref"
+    assert "data" not in blk2
+
+
+def test_tool_result_non_image_base64_persisted_as_binary_ref(tmp_path: Path) -> None:
+    store = SqliteStore(str(tmp_path / "bin.sqlite"))
+    sess = store.create_session("t")
+
+    def _handler(_args):
+        raw = base64.b64encode(b"PK\x03\x04fake-zip-bytes").decode("ascii")
+        return {"ok": True, "result": {"content": [{"type": "file", "mime": "application/zip", "base64": raw, "name": "a.zip"}]}}
+
+    reg = ToolRegistry(
+        [
+            ToolSpec(
+                name="mcp_file_tool",
+                description="returns file payload",
+                parameters={"type": "object", "properties": {}},
+                handler=_handler,
+                read_only=True,
+            )
+        ]
+    )
+    ToolExecutor().execute_tool_uses(
+        ctx=ToolExecutionContext(store=store, tools=reg, session_id=sess.id, turn_uuid="turn-bin"),
+        assistant_msg_id=1,
+        tool_uses=[LLMToolCall(id="c1", name="mcp_file_tool", arguments={})],
+    )
+    rows = store.get_messages(session_id=sess.id, limit=20)
+    tool_rows = [m for m in rows if str(getattr(m, "role", "") or "") == "tool"]
+    assert len(tool_rows) == 1
+    payload = json.loads(str(getattr(tool_rows[0], "content", "") or "{}"))
+    blk = (((payload.get("result") or {}).get("content") or [{}])[0]) if isinstance(payload, dict) else {}
+    assert isinstance(blk, dict)
+    assert str(blk.get("type") or "") == "binary_ref"
+    assert str(blk.get("attachment_id") or "")
+    assert "base64" not in blk
+    atts = json.loads(str(getattr(tool_rows[0], "attachments", "") or "[]"))
+    assert isinstance(atts, list) and atts
+    assert str((atts[0] or {}).get("type") or "") == "binary_ref"
 
 
 def test_repeated_non_sql_tools_are_not_compacted(tmp_path: Path) -> None:
@@ -429,6 +518,11 @@ def test_tool_result_image_payload_persisted_as_attachments(tmp_path: Path) -> N
     tool_rows = [m for m in rows if str(getattr(m, "role", "") or "") == "tool"]
     assert len(tool_rows) == 1
     attachments = json.loads(str(getattr(tool_rows[0], "attachments", "") or "[]"))
-    assert any(str(a.get("type") or "") == "image" and str(a.get("data") or "") == "YWJj" for a in attachments)
+    assert any(str(a.get("type") or "") == "image_ref" and str(a.get("attachment_id") or "") for a in attachments)
     assert any(str(a.get("type") or "") == "image_url" and str(a.get("url") or "").endswith("/a.png") for a in attachments)
+    body = json.loads(str(getattr(tool_rows[0], "content", "") or "{}"))
+    content_items = ((body.get("result") or {}).get("content") or []) if isinstance(body, dict) else []
+    image_block = next((x for x in content_items if isinstance(x, dict) and str(x.get("type") or "") == "image_ref"), {})
+    assert str(image_block.get("attachment_id") or "")
+    assert "data" not in image_block
 

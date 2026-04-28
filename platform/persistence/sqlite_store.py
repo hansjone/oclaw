@@ -1613,6 +1613,29 @@ class SqliteStore:
             conn.execute("DELETE FROM chat_session WHERE id = ?", (str(session_id),))
         return True
 
+    def delete_message(self, *, session_id: str, message_id: int) -> bool:
+        sid = str(session_id or "").strip()
+        mid = int(message_id or 0)
+        if not sid or mid <= 0:
+            return False
+        with self._connect() as conn:
+            cur = conn.execute(
+                "DELETE FROM chat_message WHERE session_id = ? AND id = ?",
+                (sid, mid),
+            )
+            if int(cur.rowcount or 0) <= 0:
+                return False
+            last_row = conn.execute(
+                "SELECT MAX(timestamp) AS ts FROM chat_message WHERE session_id = ?",
+                (sid,),
+            ).fetchone()
+            last_ts = str((last_row["ts"] if last_row else "") or "").strip() or None
+            conn.execute(
+                "UPDATE chat_session SET last_message_at = ? WHERE id = ?",
+                (last_ts, sid),
+            )
+        return True
+
     def add_message(
         self,
         session_id: str,

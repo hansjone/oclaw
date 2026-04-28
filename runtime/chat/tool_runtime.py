@@ -21,6 +21,7 @@ from oclaw.platform.persistence.sqlite_store import SqliteStore
 from oclaw.runtime.tools.base import ToolRegistry
 from oclaw.platform.llm.chat_models import LLMToolCall
 from oclaw.runtime.tools.tool_validation import validate_tool_arguments
+from oclaw.runtime.chat.media_redact import ingest_embedded_image_blobs_as_refs
 from oclaw.runtime.tools.experts.workspace.workspace_base import (
     workspace_path_access_scope,
     workspace_write_namespace_scope,
@@ -58,13 +59,15 @@ def _attachments_from_tool_result(result: Any) -> list[dict[str, Any]]:
         return []
     out: list[dict[str, Any]] = []
     aid = str(result.get("attachment_id") or "").strip()
+    root_mime = str(result.get("mime") or "").strip()
     if aid:
+        ref_type = _ref_type_for_mime(root_mime)
         out.append(
             {
-                "type": "image_ref",
+                "type": ref_type,
                 "attachment_id": aid,
                 "name": str(result.get("name") or "generated-image"),
-                "mime": str(result.get("mime") or "image/png"),
+                "mime": root_mime or "application/octet-stream",
                 "bytes": result.get("bytes"),
                 "width": result.get("width"),
                 "height": result.get("height"),
@@ -91,12 +94,16 @@ def _attachments_from_tool_result(result: Any) -> list[dict[str, Any]]:
                 continue
             r_aid = str(r.get("attachment_id") or "").strip()
             if r_aid:
+                r_typ = str(r.get("type") or "").strip().lower()
+                r_mime = str(r.get("mime_type") or r.get("mime") or "").strip()
+                if r_typ not in {"image_ref", "video_ref", "text_ref", "binary_ref"}:
+                    r_typ = _ref_type_for_mime(r_mime)
                 out.append(
                     {
-                        "type": "image_ref",
+                        "type": r_typ,
                         "attachment_id": r_aid,
                         "name": str(r.get("name") or "generated-image"),
-                        "mime": str(r.get("mime") or "image/png"),
+                        "mime": r_mime or "application/octet-stream",
                         "bytes": r.get("bytes"),
                         "width": r.get("width"),
                         "height": r.get("height"),
@@ -110,15 +117,18 @@ def _attachments_from_tool_result(result: Any) -> list[dict[str, Any]]:
                 if not isinstance(item, dict):
                     continue
                 typ = str(item.get("type") or "").strip().lower()
-                if typ in {"image", "input_image"}:
-                    b64 = item.get("image_base64") or item.get("data")
-                    if isinstance(b64, str) and b64.strip():
+                if typ in {"image_ref", "video_ref", "text_ref", "binary_ref"}:
+                    a_id = str(item.get("attachment_id") or "").strip()
+                    if a_id:
                         out.append(
                             {
-                                "type": "image",
-                                "data": b64.strip(),
-                                "mime": str(item.get("mime_type") or item.get("mime") or "image/png"),
-                                "name": str(item.get("name") or "tool-image"),
+                                "type": typ,
+                                "attachment_id": a_id,
+                                "mime": str(item.get("mime_type") or item.get("mime") or "application/octet-stream"),
+                                "name": str(item.get("name") or "tool-attachment"),
+                                "bytes": item.get("bytes"),
+                                "width": item.get("width"),
+                                "height": item.get("height"),
                             }
                         )
                 elif typ == "image_url":
@@ -132,7 +142,7 @@ def _attachments_from_tool_result(result: Any) -> list[dict[str, Any]]:
             a.get("attachment_id")
             or a.get("pointer_uri")
             or a.get("url")
-            or (f"b64:{a.get('mime')}:{len(str(a.get('data') or ''))}" if a.get("data") else "")
+            or ""
         ).strip()
         if not k or k in seen:
             continue
@@ -828,6 +838,10 @@ class ToolExecutor:
             )
             result, duration_ms = results_by_id[tc.id]
             result = normalize_tool_result(result)
+            persisted_result, ingested_refs = ingest_embedded_image_blobs_as_refs(
+                result,
+                filename_prefix=f"{str(tc.name or 'tool')}-{str(tc.id or '')}",
+            )
             logger.info(
                 "tool_runtime tool session=%s name=%s duration_ms=%d ok=%s",
                 ctx.session_id[:12],
@@ -840,7 +854,7 @@ class ToolExecutor:
                 session_id=ctx.session_id,
                 tool_name=tc.name,
                 args=tc.arguments,
-                result=result,
+                result=persisted_result,
                 specialist=ctx.specialist,
                 duration_ms=duration_ms,
             )
@@ -849,7 +863,7 @@ class ToolExecutor:
             # until the turn finishes, so current-round model context remains lossless.
             t_trunc = time.perf_counter()
             observed_rows_this_call = int(_estimate_observed_rows(result))
-            result_for_llm = dict(result or {})
+            result_for_llm = dict(persisted_result or {})
             if tc.name in _SQL_REPLAY_COMPACT_TOOL_NAMES:
                 current = int(local_turn_tool_name_counts.get(tc.name, 0))
                 current_rows = int(local_turn_tool_observed_rows.get(tc.name, 0))
@@ -870,7 +884,7 @@ class ToolExecutor:
                 role="tool",
                 content=tool_content,
                 tool_calls={"tool_call_id": tc.id, "name": tc.name, "assistant_message_id": assistant_msg_id},
-                attachments=_attachments_from_tool_result(result) or None,
+                attachments=(_merge_attachments(_attachments_from_tool_result(persisted_result), ingested_refs) or None),
                 turn_uuid=ctx.turn_uuid,
                 event_type="tool_result",
                 event_payload={"tool_name": tc.name, "observed_rows": int(observed_rows_this_call)},
@@ -971,3 +985,29 @@ __all__ = [
     "truncate_tool_result_for_llm_messages",
     "compact_turn_tool_messages_for_storage",
 ]
+
+
+def _merge_attachments(*parts: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for part in parts:
+        for a in part or []:
+            if not isinstance(a, dict):
+                continue
+            k = str(a.get("attachment_id") or a.get("pointer_uri") or a.get("url") or "").strip()
+            if not k or k in seen:
+                continue
+            seen.add(k)
+            out.append(a)
+    return out
+
+
+def _ref_type_for_mime(mime: str) -> str:
+    m = str(mime or "").strip().lower()
+    if m.startswith("image/"):
+        return "image_ref"
+    if m.startswith("video/"):
+        return "video_ref"
+    if m.startswith("text/"):
+        return "text_ref"
+    return "binary_ref"

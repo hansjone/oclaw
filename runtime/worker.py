@@ -11,6 +11,7 @@ from oclaw.runtime.agent_core_run import AgentCoreRunInput, run_agent_core
 from oclaw.runtime.memory_stage import build_memory_context
 from oclaw.runtime.relay_pointer import build_acp_relay_result, validate_relay_share_envelope
 from oclaw.runtime.types import StandardMessage
+from oclaw.runtime.chat.model_path_audit import ensure_no_tool_or_embedded_image_payload
 
 _LOCK = threading.Lock()
 _THREAD: threading.Thread | None = None
@@ -120,11 +121,9 @@ def _maybe_generate_title_on_third_round(*, store: Any, msg: StandardMessage, mo
             else "仅基于以下用户正文生成简短会话标题。请使用对话内容主体语言命名。"
             "只返回标题文本，不要引号，不要markdown，最多18个字。"
         )
-        resp = model.chat(
-            [{"role": "system", "content": sys}, {"role": "user", "content": body}],
-            [],
-            on_token=None,
-        )
+        messages = [{"role": "system", "content": sys}, {"role": "user", "content": body}]
+        ensure_no_tool_or_embedded_image_payload(messages=messages, path="worker.auto_title")
+        resp = model.chat(messages, [], on_token=None)
         title = str(getattr(resp, "content", "") or "").strip().replace("\n", " ")
         title = title.strip("\"'` ").strip()
         if not title:
