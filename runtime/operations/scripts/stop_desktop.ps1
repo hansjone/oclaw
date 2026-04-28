@@ -32,8 +32,15 @@ if ($procId -le 0) {
 }
 
 try {
-    # Kill the whole process tree (cmd -> npm -> electron/node)
-    & taskkill /PID $procId /T /F | Out-Null
+    # Kill the whole process tree (cmd -> npm -> electron/node).
+    # Some shells promote native command non-zero exit codes to terminating errors.
+    $oldNativePref = $PSNativeCommandUseErrorActionPreference
+    try {
+        $PSNativeCommandUseErrorActionPreference = $false
+        & taskkill /PID $procId /T /F 2>$null | Out-Null
+    } finally {
+        $PSNativeCommandUseErrorActionPreference = $oldNativePref
+    }
     Write-Host "Stopped PID=$procId (tree)" -ForegroundColor Green
     Remove-Item $pidFile -Force -ErrorAction SilentlyContinue
     exit 0

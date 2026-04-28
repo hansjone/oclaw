@@ -27,15 +27,7 @@ try {
     npm.cmd exec -- tsx login.ts
     exit 0
   }
-  $openclawCmd = Get-Command openclaw -ErrorAction SilentlyContinue
-  if (-not $openclawCmd) {
-    throw "official mode requires openclaw command. Install first: npm install -g openclaw"
-  }
-  $systemNodeDir = "C:\\Program Files\\nodejs"
-  if (Test-Path (Join-Path $systemNodeDir "node.exe")) {
-    $env:PATH = "$systemNodeDir;$env:PATH"
-  }
-  openclaw channels login --channel openclaw-weixin
+  throw "login.ts missing. Re-run weixin_install.ps1 -UseOpenclawCli to install sidecar runtime."
 } finally {
   Pop-Location
 }

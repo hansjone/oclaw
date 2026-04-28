@@ -108,6 +108,23 @@ _DISPATCH_REASON_LABELS: dict[str, dict[str, str]] = {
 }
 _DISPATCH_REASON_LABELS_SETTING_KEY = "AIA_DISPATCH_REASON_LABELS_JSON"
 _SPECIALIST_FLAGS_SETTING_KEY = "AIA_CHAT_SPECIALIST_FLAGS_JSON"
+_CHANNEL_DISPATCH_INTERACTION_KEY_PREFIX = "channel.dispatch.interaction_mode."
+_CHANNEL_DISPATCH_SPECIALIST_KEY_PREFIX = "channel.dispatch.specialist."
+
+
+def _channel_dispatch_interaction_key(channel: str) -> str:
+    return f"{_CHANNEL_DISPATCH_INTERACTION_KEY_PREFIX}{str(channel or '').strip().lower()}"
+
+
+def _channel_dispatch_specialist_key(channel: str) -> str:
+    return f"{_CHANNEL_DISPATCH_SPECIALIST_KEY_PREFIX}{str(channel or '').strip().lower()}"
+
+
+def _normalize_channel_dispatch_channel(raw: Any) -> str:
+    ch = str(raw or "").strip().lower()
+    if ch not in {"weixin", "whatsapp"}:
+        raise HTTPException(status_code=400, detail="invalid_channel")
+    return ch
 def _chat_specialist_ids() -> tuple[str, ...]:
     return tuple(str(x) for x in specialist_ids() if str(x).strip())
 DEFAULT_TABULAR_SQL_TIMEOUT_MS = 8_000
@@ -1288,6 +1305,53 @@ def include_chat_routes(router: APIRouter, *, resolve_auth: Callable[[SqliteStor
         store.set_setting(_SPECIALIST_FLAGS_SETTING_KEY, json.dumps(clean, ensure_ascii=False))
         flags = _specialist_flags_with_overrides(store)
         return {"ok": True, "saved": clean, "flags": flags}
+
+    @chat.get("/settings/channel-dispatch/{channel}")
+    def api_chat_get_channel_dispatch(
+        channel: str,
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        store = SqliteStore(db_path())
+        ctx = resolve_auth(store, authorization)
+        _require_administrator_chat_viewer(ctx)
+        ch = _normalize_channel_dispatch_channel(channel)
+        interaction_mode = normalize_interaction_mode(
+            store.get_setting(_channel_dispatch_interaction_key(ch)) or "expert"
+        )
+        specialist = normalize_requested_specialist(
+            store.get_setting(_channel_dispatch_specialist_key(ch)) or "generalist"
+        )
+        specialist = _apply_specialist_flags(store, specialist)
+        return {
+            "ok": True,
+            "channel": ch,
+            "interaction_mode": interaction_mode,
+            "specialist": specialist,
+            "available_specialists": [sid for sid in _chat_specialist_ids() if bool(_specialist_flags_with_overrides(store).get(sid, True))],
+        }
+
+    @chat.post("/settings/channel-dispatch/{channel}")
+    def api_chat_set_channel_dispatch(
+        channel: str,
+        payload: dict[str, Any] | None = Body(default=None),
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        body = payload or {}
+        store = SqliteStore(db_path())
+        ctx = resolve_auth(store, authorization)
+        _require_administrator_chat_viewer(ctx)
+        ch = _normalize_channel_dispatch_channel(channel)
+        interaction_mode = normalize_interaction_mode(body.get("interaction_mode") or "expert")
+        specialist = normalize_requested_specialist(body.get("specialist") or "generalist")
+        specialist = _apply_specialist_flags(store, specialist)
+        store.set_setting(_channel_dispatch_interaction_key(ch), interaction_mode)
+        store.set_setting(_channel_dispatch_specialist_key(ch), specialist)
+        return {
+            "ok": True,
+            "channel": ch,
+            "interaction_mode": interaction_mode,
+            "specialist": specialist,
+        }
 
     @chat.get("/settings/attachment-limits")
     def api_chat_get_attachment_limits(

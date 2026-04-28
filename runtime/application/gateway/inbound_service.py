@@ -1,24 +1,53 @@
 from __future__ import annotations
 
 import hashlib
-import threading
 from typing import Any
 
 from oclaw.interfaces.channels.base import InboundMessage, OutboundMessage
 from oclaw.interfaces.channels.wecom.wecom_bridge import WeComAdapter
+from oclaw.runtime.types import normalize_interaction_mode, normalize_requested_specialist
 
-_GATEWAY_AGENT_LOCK = threading.Lock()
-_GATEWAY_AGENT: Any | None = None
+_CHANNEL_DISPATCH_INTERACTION_KEY_PREFIX = "channel.dispatch.interaction_mode."
+_CHANNEL_DISPATCH_SPECIALIST_KEY_PREFIX = "channel.dispatch.specialist."
 
 
-def _get_gateway_agent(store: Any) -> Any:
-    global _GATEWAY_AGENT
-    with _GATEWAY_AGENT_LOCK:
-        if _GATEWAY_AGENT is None:
-            from oclaw.runtime.agents.factory import build_gateway_executor
+def _channel_dispatch_interaction_key(channel: str) -> str:
+    return f"{_CHANNEL_DISPATCH_INTERACTION_KEY_PREFIX}{str(channel or '').strip().lower()}"
 
-            _GATEWAY_AGENT = build_gateway_executor(store)
-        return _GATEWAY_AGENT
+
+def _channel_dispatch_specialist_key(channel: str) -> str:
+    return f"{_CHANNEL_DISPATCH_SPECIALIST_KEY_PREFIX}{str(channel or '').strip().lower()}"
+
+
+def _resolve_channel_dispatch(store: Any, *, channel: str, account: dict[str, Any] | None) -> tuple[str, str]:
+    ch = str(channel or "").strip().lower()
+    interaction_mode = normalize_interaction_mode(store.get_setting(_channel_dispatch_interaction_key(ch)) or "expert")
+    specialist = normalize_requested_specialist(store.get_setting(_channel_dispatch_specialist_key(ch)) or "generalist")
+    cfg = (account or {}).get("config")
+    if isinstance(cfg, dict):
+        cfg_mode = cfg.get("interaction_mode")
+        cfg_specialist = cfg.get("specialist")
+        if cfg_mode is not None:
+            interaction_mode = normalize_interaction_mode(cfg_mode)
+        if cfg_specialist is not None:
+            specialist = normalize_requested_specialist(cfg_specialist)
+    return interaction_mode, specialist
+
+
+def _build_admin_gateway_executor(store: Any, *, tenant_id: str, specialist: str, session_id: str) -> Any:
+    from oclaw.runtime.agents.factory import build_gateway_executor
+
+    return build_gateway_executor(
+        store,
+        lang="zh",
+        specialist=specialist,
+        viewer_user_id=None,
+        viewer_username="administrator",
+        viewer_tenant_id=(tenant_id or None),
+        policy_session_id=session_id,
+        path_policy_tenant_id=(tenant_id or None),
+        path_policy_user_id=None,
+    )
 
 
 def _menu_text() -> str:
@@ -270,6 +299,21 @@ def _parse_generic_inbound(channel_name: str, payload: dict[str, Any]) -> Inboun
     )
 
 
+def _should_suppress_channel_reply(*, channel: str, text: str) -> bool:
+    ch = str(channel or "").strip().lower()
+    if ch not in {"wechat", "weixin"}:
+        return False
+    t = str(text or "").strip()
+    if not t:
+        return True
+    low = t.lower()
+    if 'missing api key for provider "openai"' in low:
+        return True
+    if "openai / 兼容 api" in t and "api key" in low:
+        return True
+    return False
+
+
 def process_inbound_payload(payload: dict[str, Any]) -> dict[str, Any]:
     from oclaw.runtime.operations.mcp_env import apply_gateway_mcp_env_to_os
 
@@ -408,7 +452,9 @@ def process_inbound_payload(payload: dict[str, Any]) -> dict[str, Any]:
                                 from oclaw.runtime.gateway import OclawGateway
                                 from oclaw.runtime.types import StandardMessage
 
-                                agent = _get_gateway_agent(store)
+                                interaction_mode, selected_specialist = _resolve_channel_dispatch(
+                                    store, channel=inbound.channel, account=account
+                                )
                                 gw = OclawGateway(store=store)
                                 msg = StandardMessage(
                                     session_id=str(session_id),
@@ -424,9 +470,31 @@ def process_inbound_payload(payload: dict[str, Any]) -> dict[str, Any]:
                                         "channel": inbound.channel,
                                         "role": role,
                                         "account_id": account_id,
+                                        "interaction_mode": interaction_mode,
+                                        "selected_specialist": selected_specialist,
                                     },
                                 )
-                                reply = str(gw.handle_turn(msg=msg, lang="zh", executor=agent).reply_text or "").strip()
+                                manager = _build_admin_gateway_executor(
+                                    store,
+                                    tenant_id=tenant_id,
+                                    specialist="generalist",
+                                    session_id=str(session_id),
+                                )
+                                specialist_factory = lambda sid: _build_admin_gateway_executor(
+                                    store,
+                                    tenant_id=tenant_id,
+                                    specialist=sid,
+                                    session_id=str(session_id),
+                                )
+                                reply = str(
+                                    gw.handle_turn(
+                                        msg=msg,
+                                        lang="zh",
+                                        executor=manager,
+                                        specialist_executor_factory=specialist_factory,
+                                    ).reply_text
+                                    or ""
+                                ).strip()
                             except Exception as e:
                                 reply = f"抱歉，处理消息时出错：{type(e).__name__}: {e}"
                         else:
@@ -436,6 +504,9 @@ def process_inbound_payload(payload: dict[str, Any]) -> dict[str, Any]:
                 reply = f"{preface}\n\n{reply}"
             else:
                 reply = f"{preface}\n\n{_menu_text()}"
+
+    if _should_suppress_channel_reply(channel=inbound.channel, text=reply):
+        return {"ok": True, "replies": []}
 
     if adapter is not None:
         replies = [adapter.format_outbound(OutboundMessage(external_chat_id=inbound.external_chat_id, text=reply))]

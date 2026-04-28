@@ -42,16 +42,22 @@ function Stop-SidecarProcesses {
     [switch]$ForceKill
   )
   $procs = @(Get-SidecarProcesses | Sort-Object ProcessId -Descending)
-  foreach ($proc in $procs) {
-    try {
+  $oldNativePref = $PSNativeCommandUseErrorActionPreference
+  try {
+    $PSNativeCommandUseErrorActionPreference = $false
+    foreach ($proc in $procs) {
       if ($ForceKill) {
-        taskkill.exe /PID $proc.ProcessId /T /F | Out-Null
-      } else {
-        taskkill.exe /PID $proc.ProcessId /T | Out-Null
+        taskkill.exe /PID $proc.ProcessId /T /F 2>$null | Out-Null
+        continue
       }
-    } catch {
-      # Ignore already-exited processes and continue best-effort cleanup.
+      taskkill.exe /PID $proc.ProcessId /T 2>$null | Out-Null
+      if ($LASTEXITCODE -ne 0) {
+        # Some process trees require force kill on Windows.
+        taskkill.exe /PID $proc.ProcessId /T /F 2>$null | Out-Null
+      }
     }
+  } finally {
+    $PSNativeCommandUseErrorActionPreference = $oldNativePref
   }
   return $procs.Count
 }
@@ -73,21 +79,23 @@ if (-not $procId) {
   exit 0
 }
 
+$oldNativePref = $PSNativeCommandUseErrorActionPreference
 try {
+  $PSNativeCommandUseErrorActionPreference = $false
   if ($Force) {
-    taskkill.exe /PID $procId /T /F | Out-Null
+    taskkill.exe /PID $procId /T /F 2>$null | Out-Null
   } else {
-    taskkill.exe /PID $procId /T | Out-Null
+    taskkill.exe /PID $procId /T 2>$null | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+      # Retry with /F to avoid noisy parent/child kill failures.
+      taskkill.exe /PID $procId /T /F 2>$null | Out-Null
+    }
   }
-} catch {
-  # Ignore if already dead.
+} finally {
+  $PSNativeCommandUseErrorActionPreference = $oldNativePref
 }
 
 $killed = Stop-SidecarProcesses -ForceKill:$Force
 Remove-Item -Force $pidFile -ErrorAction SilentlyContinue
-$openclawCmd = Get-Command openclaw -ErrorAction SilentlyContinue
-if ($openclawCmd) {
-  try { openclaw gateway stop | Out-Null } catch {}
-}
 Write-Host "[ok] stopped pid=$procId extra_cleaned=$killed"
 

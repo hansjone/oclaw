@@ -2584,6 +2584,49 @@ async function renderChatUi() {
       backdrop.appendChild(card);
       document.body.appendChild(backdrop);
     });
+  const promptChatText = (message, initialValue = "") =>
+    new Promise((resolve) => {
+      const backdrop = el("div", { class: "chat-confirm-backdrop" });
+      const card = el("div", { class: "chat-confirm-card" });
+      const text = el("div", { class: "chat-confirm-text", text: String(message || "") });
+      const input = el("input", {
+        class: "input",
+        type: "text",
+        value: String(initialValue || ""),
+        style: "width:100%;margin-top:10px;",
+      });
+      const btnCancel = el("button", { type: "button", class: "btn", text: t("chat.dispatchLabelsCancel") });
+      const btnOk = el("button", { type: "button", class: "btn btn--primary", text: t("chat.dispatchLabelsSave") });
+      const close = (ok) => {
+        if (backdrop.parentNode) backdrop.parentNode.removeChild(backdrop);
+        resolve(ok ? String(input.value || "") : null);
+      };
+      btnCancel.addEventListener("click", () => close(false));
+      btnOk.addEventListener("click", () => close(true));
+      input.addEventListener("keydown", (ev) => {
+        if (ev.key === "Enter") {
+          ev.preventDefault();
+          close(true);
+        } else if (ev.key === "Escape") {
+          ev.preventDefault();
+          close(false);
+        }
+      });
+      backdrop.addEventListener("click", (ev) => {
+        if (ev.target === backdrop) close(false);
+      });
+      card.appendChild(text);
+      card.appendChild(input);
+      card.appendChild(el("div", { class: "row", style: "gap:8px;justify-content:flex-end;margin-top:10px;" }, [btnCancel, btnOk]));
+      backdrop.appendChild(card);
+      document.body.appendChild(backdrop);
+      setTimeout(() => {
+        try {
+          input.focus();
+          input.select();
+        } catch (_) {}
+      }, 0);
+    });
 
   const adoptCreatedSession = (resp) => {
     const s = resp && resp.session ? resp.session : {};
@@ -2748,7 +2791,7 @@ async function renderChatUi() {
       });
     menu.appendChild(
       mk(t("chat.rename"), async () => {
-        const nv = window.prompt(t("chat.rename"), title);
+        const nv = await promptChatText(t("chat.rename"), title);
         if (nv == null) return;
         try {
           await apiPatch(`/admin/api/chat/sessions/${encodeURIComponent(sid)}`, { title: nv.trim() });

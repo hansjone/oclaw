@@ -2,8 +2,10 @@ param(
     [int]$Port = 8787,
     [switch]$Force = $false,
     [switch]$WithoutWeixin = $false,
+    [switch]$WithoutWhatsApp = $false,
     [switch]$WithWikiWorker = $false,
-    [string]$WeixinChannelId = "oclaw-weixin"
+    [string]$WeixinChannelId = "oclaw-weixin",
+    [string]$WhatsAppChannelId = "whatsapp"
 )
 
 $ErrorActionPreference = "Stop"
@@ -30,6 +32,14 @@ if (-not $WithoutWeixin) {
     Write-Step "Stopping weixin sidecar"
     try {
         & "$PSScriptRoot/weixin_stop.ps1" -ChannelId $WeixinChannelId -Force:$Force
+    } catch {
+        if (-not $Force) { throw }
+    }
+}
+if (-not $WithoutWhatsApp) {
+    Write-Step "Stopping whatsapp sidecar"
+    try {
+        & "$PSScriptRoot/whatsapp_stop.ps1" -ChannelId $WhatsAppChannelId -Force:$Force
     } catch {
         if (-not $Force) { throw }
     }

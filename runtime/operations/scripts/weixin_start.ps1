@@ -42,12 +42,14 @@ function Get-SidecarProcesses {
 
 function Stop-SidecarProcesses {
   $procs = @(Get-SidecarProcesses | Sort-Object ProcessId -Descending)
-  foreach ($proc in $procs) {
-    try {
-      taskkill.exe /PID $proc.ProcessId /T /F | Out-Null
-    } catch {
-      # Best-effort cleanup; keep going if a process already exited.
+  $oldNativePref = $PSNativeCommandUseErrorActionPreference
+  try {
+    $PSNativeCommandUseErrorActionPreference = $false
+    foreach ($proc in $procs) {
+      taskkill.exe /PID $proc.ProcessId /T /F 2>$null | Out-Null
     }
+  } finally {
+    $PSNativeCommandUseErrorActionPreference = $oldNativePref
   }
   return $procs.Count
 }
@@ -112,17 +114,5 @@ if ((Test-Path (Join-Path $sidecarRoot "runner.ts")) -or (Test-Path (Join-Path $
   exit 0
 }
 
-$openclawCmd = Get-Command openclaw -ErrorAction SilentlyContinue
-if (-not $openclawCmd) {
-  throw "official mode requires openclaw command. Install first: npm install -g openclaw"
-}
-# Ensure OpenClaw runs on the real Node.js runtime (includes npm layout).
-$systemNodeDir = "C:\\Program Files\\nodejs"
-if (Test-Path (Join-Path $systemNodeDir "node.exe")) {
-  $env:PATH = "$systemNodeDir;$env:PATH"
-}
-$args = @("/c", "openclaw gateway --allow-unconfigured")
-$p = Start-Process -FilePath "cmd.exe" -ArgumentList $args -WorkingDirectory $oclawRoot -PassThru -WindowStyle Hidden -RedirectStandardOutput $logPath -RedirectStandardError $errPath
-Set-Content -Path $pidFile -Value $p.Id
-Write-Host "[ok] started openclaw gateway pid=$($p.Id) cleaned=$cleaned out=$logPath err=$errPath"
+throw "No runner.ts/official_runner.ts found in sidecar root. Re-run weixin_install.ps1 -UseOpenclawCli."
 

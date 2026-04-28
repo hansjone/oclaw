@@ -4,15 +4,21 @@
     [switch]$SkipInstall = $false,
     [switch]$Background = $false,
     [switch]$WithoutWeixin = $false,
+    [switch]$WithoutWhatsApp = $false,
     [bool]$WithWikiWorker = $true,
     [string]$WeixinChannelId = "oclaw-weixin",
-    [string]$WeixinGatewayBaseUrl = ""
+    [string]$WeixinGatewayBaseUrl = "",
+    [string]$WhatsAppChannelId = "whatsapp"
 )
 
 $ErrorActionPreference = "Stop"
 
 function Write-Step([string]$msg) {
     Write-Host "==> $msg" -ForegroundColor Cyan
+}
+
+function Warn([string]$msg) {
+    Write-Host "[WARN] $msg" -ForegroundColor Yellow
 }
 
 $repoRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))
@@ -43,7 +49,20 @@ if (-not $WithoutWeixin) {
         $gwBase = "http://$BindHost`:$Port"
     }
     Write-Step "Starting weixin sidecar"
-    & "$PSScriptRoot/weixin_start.ps1" -ChannelId $WeixinChannelId -GatewayBaseUrl $gwBase
+    try {
+        & "$PSScriptRoot/weixin_start.ps1" -ChannelId $WeixinChannelId -GatewayBaseUrl $gwBase
+    } catch {
+        Warn "weixin sidecar skipped: $($_.Exception.Message)"
+    }
+}
+if (-not $WithoutWhatsApp) {
+    $waBase = "http://$BindHost`:$Port"
+    Write-Step "Starting whatsapp sidecar"
+    try {
+        & "$PSScriptRoot/whatsapp_start.ps1" -ChannelId $WhatsAppChannelId -GatewayBaseUrl $waBase
+    } catch {
+        Warn "whatsapp sidecar skipped: $($_.Exception.Message)"
+    }
 }
 Write-Host ""
 Write-Host "All started." -ForegroundColor Green

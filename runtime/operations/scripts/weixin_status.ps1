@@ -69,16 +69,6 @@ if ($exists) {
     Write-Host "status=orphaned stale_pid=$procId count=$($sidecarProcs.Count) pids=$pids"
     exit 0
   }
-  $openclawCmd = Get-Command openclaw -ErrorAction SilentlyContinue
-  if ($openclawCmd) {
-    try {
-      $txt = (& openclaw channels status --probe) -join "`n"
-      if ($txt -match "openclaw-weixin .*running") {
-        Write-Host "status=running mode=official"
-        exit 0
-      }
-    } catch {}
-  }
   Write-Host "status=stale_pid pid=$procId"
 }
 

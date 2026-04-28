@@ -131,8 +131,8 @@ def _extract_inbound_identity(body: dict[str, Any]) -> tuple[str, str]:
     return user_id, chat_id
 
 
-def _build_native_reply_payload(body: dict[str, Any]) -> dict[str, Any]:
-    channel = _normalize_channel(body.get("channel"))
+def _build_native_reply_payload(body: dict[str, Any], *, default_channel: str, source: str) -> dict[str, Any]:
+    channel = _normalize_channel(body.get("channel") or default_channel)
     account_id = _resolve_account_id(body)
     ctx = body.get("ctx") if isinstance(body.get("ctx"), dict) else {}
     metadata = body.get("metadata") if isinstance(body.get("metadata"), dict) else {}
@@ -155,10 +155,10 @@ def _build_native_reply_payload(body: dict[str, Any]) -> dict[str, Any]:
     ).strip()
     text = str(body.get("text") or ctx.get("Body") or ctx.get("CommandBody") or "").strip()
     if not metadata:
-        metadata = {"source": "weixin_official_native"}
+        metadata = {"source": source}
     else:
         metadata = dict(metadata)
-        metadata.setdefault("source", "weixin_official_native")
+        metadata.setdefault("source", source)
     if ctx:
         metadata["weixin_ctx"] = ctx
 
@@ -463,7 +463,29 @@ async def weixin_native_reply(
     authorization: str | None = Header(default=None, alias="Authorization"),
 ) -> dict[str, Any]:
     _require_ilink_auth(authorization_type=authorizationtype, authorization=authorization)
-    payload = _build_native_reply_payload(body)
+    payload = _build_native_reply_payload(body, default_channel="wechat", source="weixin_official_native")
+    if not str(payload.get("user_id") or "").strip():
+        return {"ok": False, "error": "missing user_id", "replies": []}
+    if not str(payload.get("account_id") or "").strip():
+        return {"ok": False, "error": "missing account_id", "replies": []}
+    out = await asyncio.to_thread(_process_inbound_payload_usecase, payload)
+    replies = out.get("replies") if isinstance(out, dict) else []
+    if not isinstance(replies, list):
+        replies = []
+    return {
+        "ok": bool((out or {}).get("ok", True)) if isinstance(out, dict) else True,
+        "replies": [r for r in replies if isinstance(r, dict)],
+    }
+
+
+@router.post("/whatsapp/native/reply")
+async def whatsapp_native_reply(
+    body: dict[str, Any],
+    authorizationtype: str | None = Header(default=None, alias="AuthorizationType"),
+    authorization: str | None = Header(default=None, alias="Authorization"),
+) -> dict[str, Any]:
+    _require_ilink_auth(authorization_type=authorizationtype, authorization=authorization)
+    payload = _build_native_reply_payload(body, default_channel="whatsapp", source="whatsapp_official_native")
     if not str(payload.get("user_id") or "").strip():
         return {"ok": False, "error": "missing user_id", "replies": []}
     if not str(payload.get("account_id") or "").strip():

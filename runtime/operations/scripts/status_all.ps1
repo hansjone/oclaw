@@ -2,8 +2,10 @@ param(
     [string]$BindHost = "127.0.0.1",
     [int]$Port = 8787,
     [switch]$WithoutWeixin = $false,
+    [switch]$WithoutWhatsApp = $false,
     [switch]$WithWikiWorker = $false,
-    [string]$WeixinChannelId = "oclaw-weixin"
+    [string]$WeixinChannelId = "oclaw-weixin",
+    [string]$WhatsAppChannelId = "whatsapp"
 )
 
 $ErrorActionPreference = "Stop"
@@ -125,6 +127,15 @@ if (-not $WithoutWeixin) {
         & "$PSScriptRoot/weixin_status.ps1" -ChannelId $WeixinChannelId
     } catch {
         Warn "weixin status failed: $($_.Exception.Message)"
+    }
+}
+if (-not $WithoutWhatsApp) {
+    Write-Host ""
+    Write-Step "WhatsApp sidecar"
+    try {
+        & "$PSScriptRoot/whatsapp_status.ps1" -ChannelId $WhatsAppChannelId
+    } catch {
+        Warn "whatsapp status failed: $($_.Exception.Message)"
     }
 }
 

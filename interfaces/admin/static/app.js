@@ -1424,12 +1424,15 @@ function markPrewarmReminder(reason) {
 }
 
 async function renderStack() {
-  const [st, anomaliesResp, scanResp, prewarmStatusResp, prewarmPromptsResp] = await Promise.all([
+  const [st, anomaliesResp, scanResp, prewarmStatusResp, prewarmPromptsResp, channelSpecResp, weixinDispatchResp, whatsappDispatchResp] = await Promise.all([
     apiGet("/admin/api/stack/status"),
     apiGet("/admin/api/runtime/anomalies"),
     apiGet("/admin/api/runtime/scan-artifacts"),
     apiGet("/admin/api/runtime/prewarm/status"),
     apiGet("/admin/api/runtime/prewarm/prompts?role=manager"),
+    apiGet("/admin/api/chat/settings/specialist-flags"),
+    apiGet("/admin/api/chat/settings/channel-dispatch/weixin"),
+    apiGet("/admin/api/chat/settings/channel-dispatch/whatsapp"),
   ]);
   const requiredServices = ["gateway", "channel:wecom"];
   const runningNames = new Set(
@@ -1471,6 +1474,54 @@ async function renderStack() {
     await apiPost("/admin/api/stack/down", {});
     router();
   }});
+  const availableDispatchSpecialists = Array.isArray(channelSpecResp && channelSpecResp.available_specialists) && channelSpecResp.available_specialists.length
+    ? channelSpecResp.available_specialists.map((x) => String(x || "").trim()).filter(Boolean)
+    : ["generalist"];
+  const createChannelDispatchCard = (channel, title, initial) => {
+    const curMode = String((initial && initial.interaction_mode) || "expert").trim() || "expert";
+    const curSpecialist = String((initial && initial.specialist) || "generalist").trim() || "generalist";
+    const specialistSel = el("select", { class: "input" }, availableDispatchSpecialists.map((sid) =>
+      el("option", { value: sid, text: sid, selected: sid === curSpecialist ? "selected" : undefined }),
+    ));
+    const status = el("div", { class: "muted", text: `mode=${curMode} specialist=${curSpecialist}` });
+    const saveExpertBtn = el("button", {
+      class: "btn",
+      text: currentLang === "zh" ? "绑定专家" : "Bind specialist",
+      onclick: async () => {
+        const specialist = String(specialistSel.value || "generalist").trim() || "generalist";
+        const resp = await apiPost(`/admin/api/chat/settings/channel-dispatch/${encodeURIComponent(channel)}`, {
+          interaction_mode: "expert",
+          specialist,
+        });
+        status.textContent = `mode=${String(resp.interaction_mode || "expert")} specialist=${String(resp.specialist || specialist)}`;
+      },
+    });
+    const saveComprehensiveBtn = el("button", {
+      class: "btn btn--primary",
+      text: currentLang === "zh" ? "综合" : "Comprehensive",
+      onclick: async () => {
+        const specialist = String(specialistSel.value || "generalist").trim() || "generalist";
+        const resp = await apiPost(`/admin/api/chat/settings/channel-dispatch/${encodeURIComponent(channel)}`, {
+          interaction_mode: "comprehensive",
+          specialist,
+        });
+        status.textContent = `mode=${String(resp.interaction_mode || "comprehensive")} specialist=${String(resp.specialist || specialist)}`;
+      },
+    });
+    return el("div", { class: "card" }, [
+      el("div", { class: "card__title", text: title }),
+      el("div", { class: "row" }, [
+        el("label", { text: currentLang === "zh" ? "专家" : "Specialist" }),
+        specialistSel,
+        saveExpertBtn,
+        saveComprehensiveBtn,
+      ]),
+      status,
+      el("div", { class: "muted", text: currentLang === "zh" ? "默认绑定通用专家；综合模式下由全能者分派。" : "Defaults to generalist; comprehensive mode lets manager dispatch." }),
+    ]);
+  };
+  const weixinDispatchCard = createChannelDispatchCard("weixin", "Weixin dispatch", weixinDispatchResp || {});
+  const whatsappDispatchCard = createChannelDispatchCard("whatsapp", "WhatsApp dispatch", whatsappDispatchResp || {});
   const cleanupStatus = el("div", { class: "muted", text: "" });
   const btnCleanup = el("button", { class: "btn btn--danger", text: t("stack.cleanup"), onclick: async () => {
     const resp = await apiPost("/admin/api/runtime/cleanup", {});
@@ -1643,6 +1694,8 @@ async function renderStack() {
         el("tbody", {}, items),
       ]),
     ]),
+    weixinDispatchCard,
+    whatsappDispatchCard,
     el("div", { class: "card" }, [
       el("div", { class: "card__title", text: currentLang === "zh" ? "提示词/工具预热" : "Prompt/Tool Prewarm" }),
       el("div", { class: "muted", text: prewarmSummary }),
@@ -1815,15 +1868,24 @@ async function renderUserManagement() {
     placeholder: t("users.wecomUserEmpty"),
   });
   const accountBody = el("tbody");
+  const accountChannelInput = el("select", { class: "input" }, [
+    el("option", { value: "wecom", text: "wecom" }),
+    el("option", { value: "weixin", text: "weixin" }),
+    el("option", { value: "whatsapp", text: "whatsapp" }),
+  ]);
   const accountIdInput = el("input", { class: "input", placeholder: t("users.wecomBotId") });
   const accountNameInput = el("input", { class: "input", placeholder: t("users.wecomInstanceName") });
   const botSecretInput = el("input", { class: "input", type: "password", placeholder: t("users.wecomBotSecret") });
+  const botSecretField = el("div", { class: "row--wecom-form__field" }, [el("div", { class: "muted", text: t("users.wecomBotSecret") }), botSecretInput]);
   const clearBotChk = el("input", { type: "checkbox" });
+  const clearBotField = el("label", { class: "kv row--wecom-form__chk" }, [clearBotChk, document.createTextNode(" " + t("users.clearBotSecret"))]);
   const accountActiveInput = el("input", { type: "checkbox" });
+  const accountSpecialistInput = el("select", { class: "input" }, [el("option", { value: "generalist", text: "generalist" })]);
   accountActiveInput.checked = true;
   let selectedUserId = "";
   let selectedUsername = "";
   let selectedDisplayName = "";
+  let availableAccountSpecialists = ["generalist"];
 
   const refreshSelectedUserField = () => {
     if (!selectedUserId) {
@@ -1840,6 +1902,26 @@ async function renderUserManagement() {
     botSecretInput.value = "";
     clearBotChk.checked = false;
     accountActiveInput.checked = true;
+    accountSpecialistInput.value = "generalist";
+  };
+  const currentAccountChannel = () => String(accountChannelInput.value || "wecom").trim().toLowerCase() || "wecom";
+  const refreshAccountFormByChannel = () => {
+    const isWecom = currentAccountChannel() === "wecom";
+    botSecretField.style.display = isWecom ? "" : "none";
+    clearBotField.style.display = isWecom ? "" : "none";
+  };
+  const setAccountSpecialistOptions = (specialists) => {
+    const opts = Array.isArray(specialists) && specialists.length
+      ? specialists.map((x) => String(x || "").trim()).filter(Boolean)
+      : ["generalist"];
+    const uniq = Array.from(new Set(["generalist", ...opts]));
+    availableAccountSpecialists = uniq;
+    const old = String(accountSpecialistInput.value || "generalist").trim() || "generalist";
+    accountSpecialistInput.innerHTML = "";
+    uniq.forEach((sid) => {
+      accountSpecialistInput.appendChild(el("option", { value: sid, text: sid, selected: sid === old ? "selected" : undefined }));
+    });
+    if (!uniq.includes(old)) accountSpecialistInput.value = "generalist";
   };
 
   const newUserName = el("input", { class: "input", placeholder: t("users.createNamePlaceholder") });
@@ -1888,6 +1970,12 @@ async function renderUserManagement() {
     } else {
       accountActiveInput.checked = true;
     }
+    const mode = String(((inst && inst.config) || {}).interaction_mode || "expert").trim().toLowerCase();
+    const specialist = String(((inst && inst.config) || {}).specialist || "generalist").trim().toLowerCase() || "generalist";
+    accountSpecialistInput.value = availableAccountSpecialists.includes(specialist) ? specialist : "generalist";
+    if (mode === "comprehensive") {
+      accountStatus.textContent = currentLang === "zh" ? "当前账号模式：综合" : "Current account mode: comprehensive";
+    }
     botSecretInput.value = "";
     clearBotChk.checked = false;
   };
@@ -1898,18 +1986,19 @@ async function renderUserManagement() {
     const tenantId = getTenantId();
     if (!selectedUserId) {
       accountStatus.textContent = "";
-      accountBody.appendChild(el("tr", {}, [el("td", { text: t("audit.empty"), colspan: "8" })]));
+      accountBody.appendChild(el("tr", {}, [el("td", { text: t("audit.empty"), colspan: "10" })]));
       return;
     }
-    const bindUrl = `/admin/api/bindings?tenant_id=${encodeURIComponent(tenantId)}&channel=wecom&user_id=${encodeURIComponent(selectedUserId)}`;
-    const accUrl = `/admin/api/user-channel-accounts?tenant_id=${encodeURIComponent(tenantId)}&user_id=${encodeURIComponent(selectedUserId)}&channel=wecom&include_inactive=1`;
-    const [bindResp, accResp] = await Promise.all([apiGet(bindUrl), apiGet(accUrl)]);
-    const bindings = Array.isArray(bindResp.bindings) ? bindResp.bindings : [];
+    const ch = currentAccountChannel();
+    const bindUrl = `/admin/api/bindings?tenant_id=${encodeURIComponent(tenantId)}&channel=${encodeURIComponent(ch)}&user_id=${encodeURIComponent(selectedUserId)}`;
+    const accUrl = `/admin/api/user-channel-accounts?tenant_id=${encodeURIComponent(tenantId)}&user_id=${encodeURIComponent(selectedUserId)}&channel=${encodeURIComponent(ch)}&include_inactive=1`;
+    const [bindResp, accResp] = await Promise.all([ch === "wecom" ? apiGet(bindUrl) : Promise.resolve({ bindings: [] }), apiGet(accUrl)]);
+    const bindings = Array.isArray(bindResp && bindResp.bindings) ? bindResp.bindings : [];
     const items = Array.isArray(accResp.items) ? accResp.items : [];
-    const merged = mergeWecomBindingAndInstances(bindings, items);
+    const merged = ch === "wecom" ? mergeWecomBindingAndInstances(bindings, items) : items.map((it) => ({ binding: null, instance: it }));
     accountStatus.textContent = "";
     if (!merged.length) {
-      accountBody.appendChild(el("tr", {}, [el("td", { text: t("users.noBindingsForUser"), colspan: "8" })]));
+      accountBody.appendChild(el("tr", {}, [el("td", { text: t("users.noBindingsForUser"), colspan: "10" })]));
       return;
     }
     merged.forEach((m) => {
@@ -1919,6 +2008,9 @@ async function renderUserManagement() {
       const displayName = (inst && String(inst.name || "").trim()) || (bind && String(bind.account_name || "").trim()) || "";
       const extUid = bind ? String(bind.external_user_id || "") : "";
       const ts = (inst && String(inst.updated_at || "").trim()) || (bind && String(bind.created_at || "").trim()) || "";
+      const cfg = (inst && inst.config && typeof inst.config === "object") ? inst.config : {};
+      const modeText = String(cfg.interaction_mode || "expert");
+      const specialistText = String(cfg.specialist || "generalist");
       const btnFill = el("button", {
         class: "btn",
         text: t("users.loadForm"),
@@ -1929,16 +2021,54 @@ async function renderUserManagement() {
       });
       const deleteCell = el("td", {});
       if (inst) {
+        const btnBindExpert = el("button", {
+          class: "btn",
+          text: currentLang === "zh" ? "绑定专家" : "Bind specialist",
+          onclick: async (e) => {
+            e.stopPropagation();
+            const specialist = String(accountSpecialistInput.value || "generalist").trim() || "generalist";
+            await apiPost("/admin/api/user-channel-accounts/upsert", {
+              tenant_id: tenantId,
+              user_id: selectedUserId,
+              channel: ch,
+              account_id: accountId,
+              name: displayName,
+              is_active: !!inst.is_active,
+              config: { interaction_mode: "expert", specialist },
+            });
+            await loadAccounts();
+          },
+        });
+        const btnComprehensive = el("button", {
+          class: "btn btn--primary",
+          text: currentLang === "zh" ? "综合" : "Comprehensive",
+          onclick: async (e) => {
+            e.stopPropagation();
+            const specialist = String(accountSpecialistInput.value || "generalist").trim() || "generalist";
+            await apiPost("/admin/api/user-channel-accounts/upsert", {
+              tenant_id: tenantId,
+              user_id: selectedUserId,
+              channel: ch,
+              account_id: accountId,
+              name: displayName,
+              is_active: !!inst.is_active,
+              config: { interaction_mode: "comprehensive", specialist },
+            });
+            await loadAccounts();
+          },
+        });
         const btnDeleteAccount = el("button", { class: "btn btn--danger", text: t("users.accountDelete"), onclick: async (e) => {
           e.stopPropagation();
           await apiPost("/admin/api/user-channel-accounts/delete", {
             tenant_id: tenantId,
             user_id: selectedUserId,
-            channel: "wecom",
+            channel: ch,
             account_id: accountId,
           });
           await loadAccounts();
         }});
+        deleteCell.appendChild(btnBindExpert);
+        deleteCell.appendChild(btnComprehensive);
         deleteCell.appendChild(btnDeleteAccount);
       } else {
         deleteCell.appendChild(document.createTextNode("—"));
@@ -1947,8 +2077,10 @@ async function renderUserManagement() {
         tdCell(accountId, 22),
         tdCell(displayName, 16),
         tdCell(extUid || "—", 18),
-        tdCell(inst ? (inst.has_bot_secret ? "Y" : "-") : "—", 4),
+        tdCell(inst ? (ch === "wecom" ? (inst.has_bot_secret ? "Y" : "-") : "-") : "—", 4),
         tdCell(inst ? (inst.is_active ? "1" : "0") : "—", 4),
+        tdCell(modeText || "expert", 8),
+        tdCell(specialistText || "generalist", 10),
         tdCell(ts, 20),
         el("td", {}, [btnFill]),
         deleteCell,
@@ -1967,16 +2099,22 @@ async function renderUserManagement() {
       return;
     }
     const tenantId = getTenantId();
+    const ch = currentAccountChannel();
+    const specialist = String(accountSpecialistInput.value || "generalist").trim() || "generalist";
     const resp = await apiPost("/admin/api/user-channel-accounts/upsert", {
       tenant_id: tenantId,
       user_id: selectedUserId,
-      channel: "wecom",
+      channel: ch,
       account_id: aid,
       name: accountNameInput.value.trim(),
-      wecom_mode: "bot_api",
+      wecom_mode: ch === "wecom" ? "bot_api" : undefined,
       bot_secret: botSecretInput.value.trim(),
       clear_bot_secret: !!clearBotChk.checked,
       is_active: !!accountActiveInput.checked,
+      config: {
+        interaction_mode: "expert",
+        specialist,
+      },
     });
     accountStatus.textContent = resp.ok ? "ok" : String(resp.error || "error");
     if (resp.ok) {
@@ -1986,6 +2124,11 @@ async function renderUserManagement() {
       await loadList();
     }
   }});
+  accountChannelInput.addEventListener("change", async () => {
+    clearWecomForm();
+    refreshAccountFormByChannel();
+    await loadAccounts();
+  });
 
   const loadList = async () => {
     if (!hasPermission("admin:user:read")) {
@@ -2201,8 +2344,15 @@ async function renderUserManagement() {
     });
   });
   await loadBindingsAndCodes();
+  try {
+    const sf = await apiGet("/admin/api/chat/settings/specialist-flags");
+    setAccountSpecialistOptions(sf.available_specialists || ["generalist"]);
+  } catch (_) {
+    setAccountSpecialistOptions(["generalist"]);
+  }
   await loadList();
   refreshSelectedUserField();
+  refreshAccountFormByChannel();
   await loadAccounts();
 
   const tenantsListHint = allTenants.length > 1
@@ -2250,11 +2400,13 @@ async function renderUserManagement() {
       el("div", {}, [el("div", { class: "muted", text: t("users.wecomUserLabel") }), selectedUserField]),
       el("div", { class: "muted", style: "margin-bottom:8px", text: t("users.accountLoadHint") }),
       el("div", { class: "row row--wecom-form" }, [
+        el("div", { class: "row--wecom-form__field" }, [el("div", { class: "muted", text: "channel" }), accountChannelInput]),
         el("div", { class: "row--wecom-form__field" }, [el("div", { class: "muted", text: t("users.wecomBotId") }), accountIdInput]),
         el("div", { class: "row--wecom-form__field" }, [el("div", { class: "muted", text: t("users.wecomInstanceName") }), accountNameInput]),
-        el("div", { class: "row--wecom-form__field" }, [el("div", { class: "muted", text: t("users.wecomBotSecret") }), botSecretInput]),
+        el("div", { class: "row--wecom-form__field" }, [el("div", { class: "muted", text: currentLang === "zh" ? "专家" : "Specialist" }), accountSpecialistInput]),
+        botSecretField,
         el("label", { class: "kv row--wecom-form__chk" }, [accountActiveInput, document.createTextNode(" " + t("users.accountActive"))]),
-        el("label", { class: "kv row--wecom-form__chk" }, [clearBotChk, document.createTextNode(" " + t("users.clearBotSecret"))]),
+        clearBotField,
         btnSaveAccount,
       ]),
       accountStatus,
@@ -2265,6 +2417,8 @@ async function renderUserManagement() {
           el("th", { text: t("table.externalUserId") }),
           el("th", { text: t("users.hasBotSecret") }),
           el("th", { text: t("users.accountActive") }),
+          el("th", { text: currentLang === "zh" ? "模式" : "Mode" }),
+          el("th", { text: t("table.specialist") }),
           el("th", { text: t("table.timestamp") }),
           el("th", { text: t("users.loadForm") }),
           el("th", { text: t("users.accountActions") }),

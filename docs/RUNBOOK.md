@@ -36,6 +36,7 @@
 
 - 网关（Admin + Chat）
 - 微信（Personal WeChat）收消息、回消息（官方插件 + 本地原生宿主 `/weixin/native/reply`）
+- WhatsApp（实验）：收消息、回消息（本仓库 Baileys sidecar + 本地 `/inbound/whatsapp`）
 
 ### 1.1.1 前置依赖
 
@@ -87,6 +88,9 @@ powershell -ExecutionPolicy Bypass -File .\runtime\operations\scripts\weixin_log
 ```
 
 按提示扫码完成绑定（会写入账号 ID / token 等状态到 `%USERPROFILE%\.openclaw\openclaw-weixin\`）。
+
+> 说明：这里的 `-UseOpenclawCli` **不要求你全局安装 openclaw**（不需要 `npm install -g openclaw`）。
+> 脚本会在 `data/channel_sidecar/oclaw-weixin/` 下本地安装 `openclaw` npm 包，并用 `npx openclaw ...` 驱动官方插件完成扫码与状态写入。
 
 ### 1.1.6 启动微信 sidecar（原生模式）
 
@@ -142,6 +146,8 @@ Linux/macOS:
 
 `powershell -ExecutionPolicy Bypass -File .\scripts\start_all.ps1 -Background`
 
+> 开源默认友好行为：若本机尚未安装微信/WhatsApp sidecar，`start_all.ps1` 会自动跳过对应通道并打印 `[WARN] ... sidecar skipped`，不会中断 gateway + desktop 启动。
+
 默认即包含微信 sidecar：
 
 `powershell -ExecutionPolicy Bypass -File .\scripts\start_all.ps1 -Background`
@@ -149,6 +155,10 @@ Linux/macOS:
 不启动微信 sidecar（可选）：
 
 `powershell -ExecutionPolicy Bypass -File .\scripts\start_all.ps1 -Background -WithoutWeixin`
+
+不启动 WhatsApp sidecar（可选）：
+
+`powershell -ExecutionPolicy Bypass -File .\scripts\start_all.ps1 -Background -WithoutWhatsApp`
 
 （含 wiki worker）：
 
@@ -166,6 +176,10 @@ Linux/macOS:
 
 `powershell -ExecutionPolicy Bypass -File .\scripts\status_all.ps1 -WithoutWeixin`
 
+不检查 WhatsApp sidecar（可选）：
+
+`powershell -ExecutionPolicy Bypass -File .\scripts\status_all.ps1 -WithoutWhatsApp`
+
 （含 wiki worker）：
 
 `powershell -ExecutionPolicy Bypass -File .\scripts\status_all.ps1 -WithWikiWorker`
@@ -181,6 +195,10 @@ Linux/macOS:
 不停止微信 sidecar（可选）：
 
 `powershell -ExecutionPolicy Bypass -File .\scripts\stop_all.ps1 -WithoutWeixin`
+
+不停止 WhatsApp sidecar（可选）：
+
+`powershell -ExecutionPolicy Bypass -File .\scripts\stop_all.ps1 -WithoutWhatsApp`
 
 （含 wiki worker）：
 
@@ -221,6 +239,55 @@ Linux/macOS:
 - 官方登录态
 - 官方收发与媒体模块
 - 本仓库本地 reply 宿主适配
+
+Admin 可视化调度（新增）：
+
+- `Stack` 页面提供 `Weixin dispatch` 控制卡。
+- 可直接选择专家并执行：
+  - `绑定专家`（写入 `expert + specialist`）
+  - `综合`（写入 `comprehensive + specialist`）
+- 通道默认值：`expert + generalist`。
+
+账号级调度（新增）：
+
+- 在 `用户/渠道绑定` 页面选择 `channel=weixin` 后，可按账号配置：
+  - 专家（默认 `generalist`）
+  - 模式：`绑定专家` / `综合`
+- 生效优先级：**账号级配置 > 通道全局配置 > 默认值**。
+
+注意：当模型侧返回“OpenAI key 缺失”兜底文本时，微信通道会静默抑制该类回复（不向微信用户下发错误文案）。
+
+### 4.2 WhatsApp（实验接入）
+
+当前默认链路为 **本仓库自研 WhatsApp Web（Baileys）sidecar**（不依赖 openclaw）：
+
+- `runtime/operations/scripts/whatsapp_install.ps1`
+- `runtime/operations/scripts/whatsapp_login.ps1`
+- `runtime/operations/scripts/whatsapp_start.ps1`
+- `runtime/operations/scripts/whatsapp_status.ps1`
+- `runtime/operations/scripts/whatsapp_stop.ps1`
+
+常用命令：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\runtime\operations\scripts\whatsapp_install.ps1
+powershell -ExecutionPolicy Bypass -File .\runtime\operations\scripts\whatsapp_login.ps1
+powershell -ExecutionPolicy Bypass -File .\runtime\operations\scripts\whatsapp_start.ps1
+powershell -ExecutionPolicy Bypass -File .\runtime\operations\scripts\whatsapp_status.ps1
+powershell -ExecutionPolicy Bypass -File .\runtime\operations\scripts\whatsapp_stop.ps1
+```
+
+说明：
+
+- `whatsapp_login.ps1` 会在控制台打印二维码，请用 WhatsApp 手机端的“关联设备”扫码完成绑定。
+- 登录态会落盘在 `data/channel_sidecar/whatsapp/state/auth/`，重启后无需重复扫码。
+- sidecar 收到消息后会调用本地网关 `POST /inbound/whatsapp` 获取 `replies[]` 并回发。
+
+Admin 可视化调度（新增）：
+
+- `Stack` 页面提供 `WhatsApp dispatch` 控制卡（`绑定专家` / `综合`）。
+- `用户/渠道绑定` 页面选择 `channel=whatsapp` 后可按账号单独配置专家/模式。
+- 默认值同微信：`expert + generalist`。
 
 ---
 

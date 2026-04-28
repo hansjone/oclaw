@@ -37,15 +37,9 @@ function Ensure-OfficialPluginRuntimeDeps {
 }
 
 if ($UseOpenclawCli) {
-  $openclawCmd = Get-Command openclaw -ErrorAction SilentlyContinue
-  if (-not $openclawCmd) {
-    throw "openclaw command not found. Install first: npm install -g openclaw"
-  }
-  npx -y @tencent-weixin/openclaw-weixin-cli@latest install
-  if ($LASTEXITCODE -ne 0) {
-    throw "openclaw-weixin-cli install failed with exit code $LASTEXITCODE"
-  }
-  Ensure-OfficialPluginRuntimeDeps
+  # Do not require a globally-installed openclaw CLI.
+  # We install openclaw into the sidecar runtime and put node_modules/.bin on PATH
+  # so the official installer can run `openclaw ...` commands.
   Push-Location $sidecarRoot
   try {
     if (-not (Test-Path (Join-Path $sidecarRoot "package.json"))) {
@@ -54,6 +48,21 @@ if ($UseOpenclawCli) {
         throw "npm init failed with exit code $LASTEXITCODE"
       }
     }
+    npm.cmd install openclaw@latest --save
+    if ($LASTEXITCODE -ne 0) {
+      throw "npm install openclaw failed with exit code $LASTEXITCODE"
+    }
+    $env:PATH = (Join-Path $sidecarRoot "node_modules\\.bin") + ";" + $env:PATH
+    npx.cmd -y @tencent-weixin/openclaw-weixin-cli@latest install
+    if ($LASTEXITCODE -ne 0) {
+      throw "openclaw-weixin-cli install failed with exit code $LASTEXITCODE"
+    }
+  } finally {
+    Pop-Location
+  }
+  Ensure-OfficialPluginRuntimeDeps
+  Push-Location $sidecarRoot
+  try {
     npm.cmd install openclaw@latest --save tsx@4.21.0 typescript@6.0.3
     if ($LASTEXITCODE -ne 0) {
       throw "npm install bridge runtime deps failed with exit code $LASTEXITCODE"
