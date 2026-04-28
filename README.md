@@ -45,6 +45,8 @@ Notes:
 
 Full runbook (recommended): see `docs/RUNBOOK.md` → “开源快速安装（从零到跑起来）”.
 
+Minimal onboarding guide: `docs/OPEN_SOURCE_QUICKSTART.md`.
+
 ## Layers
 - `runtime/`: core execution loop, routing, skill runtime, hook runtime
 - `interfaces/`: transport adapters (HTTP/WS)
