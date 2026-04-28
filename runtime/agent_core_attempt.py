@@ -65,6 +65,7 @@ class AttemptRunnerInput:
     wire_policy_role: str | None = None
     prompt_build_context: dict[str, Any] | None = None
     turn_uuid: str | None = None
+    persisted_user_text: str | None = None
 
 
 @dataclass(frozen=True)
@@ -133,6 +134,7 @@ def run_attempt(*, store: Any, data: AttemptRunnerInput) -> AttemptRunnerOutput:
             workspace_dir=data.workspace_dir,
             memory_context=data.memory_context,
             persist_user_message=bool(data.persist_user_message),
+            persisted_user_text=data.persisted_user_text,
             skill_binding_role=data.skill_binding_role,
             wire_policy_role=data.wire_policy_role,
             prompt_build_context=data.prompt_build_context,
@@ -144,7 +146,7 @@ def run_attempt(*, store: Any, data: AttemptRunnerInput) -> AttemptRunnerOutput:
                 session_id=data.msg.session_id,
                 tenant_id=data.msg.tenant_id,
                 user_id=data.msg.user_id,
-                user_text=data.msg.text,
+                user_text=str(data.persisted_user_text if data.persisted_user_text is not None else data.msg.text or ""),
                 assistant_text=outcome.final_text,
                 turn_uuid=outcome.turn_uuid,
             )

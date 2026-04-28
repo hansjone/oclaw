@@ -222,6 +222,40 @@ def _serialize_message(m: Any) -> dict[str, Any]:
     }
 
 
+def _extract_manager_instruction_text(reasoning_content: str) -> str | None:
+    text = str(reasoning_content or "")
+    marker = "instruction:\n"
+    idx = text.find(marker)
+    if idx < 0:
+        return None
+    instr = text[idx + len(marker) :].strip()
+    return instr or None
+
+
+def _filter_internal_instruction_user_messages(msgs: list[Any]) -> list[Any]:
+    """Hide legacy polluted user rows that equal manager dispatch instruction text."""
+    instruction_texts: set[str] = set()
+    for m in msgs:
+        role = str(getattr(m, "role", "") or "")
+        event_type = str(getattr(m, "event_type", "") or "")
+        if role != "assistant" or event_type != "reasoning":
+            continue
+        instr = _extract_manager_instruction_text(str(getattr(m, "content", "") or ""))
+        if instr:
+            instruction_texts.add(instr)
+    if not instruction_texts:
+        return msgs
+    filtered: list[Any] = []
+    for m in msgs:
+        role = str(getattr(m, "role", "") or "")
+        event_type = str(getattr(m, "event_type", "") or "")
+        content = str(getattr(m, "content", "") or "").strip()
+        if role == "user" and event_type == "user_text" and content in instruction_texts:
+            continue
+        filtered.append(m)
+    return filtered
+
+
 def _register_stop(session_id: str) -> threading.Event:
     with _CHAT_STOP_LOCK:
         ev = threading.Event()
@@ -947,9 +981,10 @@ def include_chat_routes(router: APIRouter, *, resolve_auth: Callable[[SqliteStor
             raise HTTPException(status_code=404, detail="session_not_found")
         meta = store.get_session_messages_meta(session_id)
         msgs = store.get_messages(session_id=session_id, limit=_CHAT_MSG_LIMIT)
+        msgs = _filter_internal_instruction_user_messages(msgs)
         return {
             "ok": True,
-            "message_count": int(meta.message_count or 0),
+            "message_count": len(msgs),
             "messages": [_serialize_message(m) for m in msgs],
         }
 

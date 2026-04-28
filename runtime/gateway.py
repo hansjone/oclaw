@@ -106,6 +106,26 @@ class OclawGateway:
         self.store = store
 
     @staticmethod
+    def _looks_like_manager_instruction(reply: str, instruction: str) -> bool:
+        r = str(reply or "").strip()
+        ins = str(instruction or "").strip()
+        if not r or not ins:
+            return False
+        if r == ins:
+            return True
+        if len(ins) >= 16 and ins in r:
+            return True
+        # Heuristic: prefix overlap is usually enough for instruction leakage.
+        a = r[:120]
+        b = ins[:120]
+        common = 0
+        for x, y in zip(a, b):
+            if x != y:
+                break
+            common += 1
+        return common >= 24
+
+    @staticmethod
     def _parse_json_object(text: str) -> dict[str, Any] | None:
         t = str(text or "").strip()
         start = t.find("{")
@@ -1178,6 +1198,7 @@ class OclawGateway:
                 store=self.store,
                 data=AgentCoreRunInput(
                     msg=exec_msg,
+                    persisted_user_text=str(msg.text or ""),
                     lang=lang,
                     system_prompt=sys_prompt,
                     model=model,
@@ -1202,15 +1223,12 @@ class OclawGateway:
             executed_turn_uuid = str(getattr(core_out.outcome, "turn_uuid", "") or "")
             specialist_reply = str(core_out.outcome.final_text or "")
             if manager_memory_mode:
-                # manager_memory: write memory silently, but keep dialog output independent.
-                # User-facing reply comes from manager dispatch instruction_text.
-                reply = str(manager_instruction_text or "").strip()
-                if not reply:
-                    reply = (
-                        "已执行记忆写入。"
-                        if not str(lang or "").startswith("en")
-                        else "Memory write executed."
-                    )
+                # manager_memory: never expose manager dispatch instruction_text to end users.
+                reply = (
+                    "已执行记忆写入。"
+                    if not str(lang or "").startswith("en")
+                    else "Memory write executed."
+                )
             elif interaction_mode == "comprehensive":
                 reply = self._manager_finalize_output(
                     msg=msg,
@@ -1221,6 +1239,15 @@ class OclawGateway:
                     memory_enabled=memory_enabled,
                     on_token=on_token,
                 )
+                if self._looks_like_manager_instruction(reply, manager_instruction_text):
+                    if not self._looks_like_manager_instruction(specialist_reply, manager_instruction_text):
+                        reply = str(specialist_reply or "").strip()
+                    else:
+                        reply = (
+                            "抱歉，我暂时无法给出可展示的结果，请稍后再试。"
+                            if not str(lang or "").startswith("en")
+                            else "Sorry, no user-safe result is available right now. Please try again later."
+                        )
             else:
                 reply = specialist_reply
         except Exception as exc:

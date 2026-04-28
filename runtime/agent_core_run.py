@@ -47,6 +47,7 @@ class AgentCoreRunInput:
     oclaw_worker_id: str | None = None
     skill_binding_role: str | None = None
     wire_policy_role: str | None = None
+    persisted_user_text: str | None = None
 
 
 @dataclass(frozen=True)
@@ -218,6 +219,7 @@ def run_agent_core(*, store: Any, data: AgentCoreRunInput) -> AgentCoreRunOutput
                 wire_policy_role=data.wire_policy_role,
                 prompt_build_context=(dict(data.msg.metadata or {}) if isinstance(data.msg.metadata, dict) else None),
                 turn_uuid=user_turn_uuid,
+                persisted_user_text=data.persisted_user_text,
             ),
         )
         attempts.append(out.state)

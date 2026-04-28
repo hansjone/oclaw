@@ -920,6 +920,7 @@ def run_oclaw_direct_loop(
     workspace_dir: str | None = None,
     memory_context: OclawMemoryContext | None = None,
     persist_user_message: bool = True,
+    persisted_user_text: str | None = None,
     tool_signature_budget: int = 2,
     skill_binding_role: str | None = None,
     wire_policy_role: str | None = None,
@@ -929,11 +930,12 @@ def run_oclaw_direct_loop(
     """A minimal oclaw-style loop: model -> tool_uses -> execute -> tool_results -> continue."""
     _check_stop(should_stop)
     turn_uuid = str(turn_uuid or "").strip() or str(uuid.uuid4())
+    persisted_text = str(user_text if persisted_user_text is None else persisted_user_text or "")
     if persist_user_message:
         store.add_message(
             session_id=session_id,
             role="user",
-            content=str(user_text or ""),
+            content=persisted_text,
             attachments=attachments,
             turn_uuid=turn_uuid,
             event_type="user_text",
