@@ -3,7 +3,7 @@
     [int]$Port = 8787,
     [switch]$SkipInstall = $false,
     [switch]$Background = $false,
-    [switch]$WithWeixin = $false,
+    [switch]$WithoutWeixin = $false,
     [bool]$WithWikiWorker = $true,
     [string]$WeixinChannelId = "oclaw-weixin",
     [string]$WeixinGatewayBaseUrl = ""
@@ -37,7 +37,7 @@ if (-not $Background) {
 
 & "$PSScriptRoot/start_desktop.ps1" -SkipInstall:$SkipInstall -Background -WithWikiWorker:$WithWikiWorker
 
-if ($WithWeixin) {
+if (-not $WithoutWeixin) {
     $gwBase = ($WeixinGatewayBaseUrl | ForEach-Object { "$_".Trim() })
     if (-not $gwBase) {
         $gwBase = "http://$BindHost`:$Port"

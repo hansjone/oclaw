@@ -1,7 +1,7 @@
 param(
     [string]$BindHost = "127.0.0.1",
     [int]$Port = 8787,
-    [switch]$WithWeixin = $false,
+    [switch]$WithoutWeixin = $false,
     [switch]$WithWikiWorker = $false,
     [string]$WeixinChannelId = "oclaw-weixin"
 )
@@ -118,7 +118,7 @@ try {
     Warn "Get-NetTCPConnection failed: $($_.Exception.Message)"
 }
 
-if ($WithWeixin) {
+if (-not $WithoutWeixin) {
     Write-Host ""
     Write-Step "Weixin sidecar"
     try {

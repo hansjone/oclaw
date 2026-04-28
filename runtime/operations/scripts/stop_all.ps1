@@ -1,7 +1,7 @@
 param(
     [int]$Port = 8787,
     [switch]$Force = $false,
-    [switch]$WithWeixin = $false,
+    [switch]$WithoutWeixin = $false,
     [switch]$WithWikiWorker = $false,
     [string]$WeixinChannelId = "oclaw-weixin"
 )
@@ -26,7 +26,7 @@ try {
     if (-not $Force) { throw }
 }
 
-if ($WithWeixin) {
+if (-not $WithoutWeixin) {
     Write-Step "Stopping weixin sidecar"
     try {
         & "$PSScriptRoot/weixin_stop.ps1" -ChannelId $WeixinChannelId -Force:$Force

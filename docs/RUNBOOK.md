@@ -142,37 +142,49 @@ Linux/macOS:
 
 `powershell -ExecutionPolicy Bypass -File .\scripts\start_all.ps1 -Background`
 
-（含微信 sidecar）：
+默认即包含微信 sidecar：
 
-`powershell -ExecutionPolicy Bypass -File .\scripts\start_all.ps1 -Background -WithWeixin`
+`powershell -ExecutionPolicy Bypass -File .\scripts\start_all.ps1 -Background`
 
-（含微信 sidecar + wiki worker）：
+不启动微信 sidecar（可选）：
 
-`powershell -ExecutionPolicy Bypass -File .\scripts\start_all.ps1 -Background -WithWeixin -WithWikiWorker`
+`powershell -ExecutionPolicy Bypass -File .\scripts\start_all.ps1 -Background -WithoutWeixin`
+
+（含 wiki worker）：
+
+`powershell -ExecutionPolicy Bypass -File .\scripts\start_all.ps1 -Background -WithWikiWorker`
 
 查看状态：
 
 `powershell -ExecutionPolicy Bypass -File .\scripts\status_all.ps1`
 
-（含微信 sidecar）：
+默认即包含微信 sidecar：
 
-`powershell -ExecutionPolicy Bypass -File .\scripts\status_all.ps1 -WithWeixin`
+`powershell -ExecutionPolicy Bypass -File .\scripts\status_all.ps1`
 
-（含微信 sidecar + wiki worker）：
+不检查微信 sidecar（可选）：
 
-`powershell -ExecutionPolicy Bypass -File .\scripts\status_all.ps1 -WithWeixin -WithWikiWorker`
+`powershell -ExecutionPolicy Bypass -File .\scripts\status_all.ps1 -WithoutWeixin`
+
+（含 wiki worker）：
+
+`powershell -ExecutionPolicy Bypass -File .\scripts\status_all.ps1 -WithWikiWorker`
 
 停止：
 
 `powershell -ExecutionPolicy Bypass -File .\scripts\stop_all.ps1`
 
-（含微信 sidecar）：
+默认即包含微信 sidecar：
 
-`powershell -ExecutionPolicy Bypass -File .\scripts\stop_all.ps1 -WithWeixin`
+`powershell -ExecutionPolicy Bypass -File .\scripts\stop_all.ps1`
 
-（含微信 sidecar + wiki worker）：
+不停止微信 sidecar（可选）：
 
-`powershell -ExecutionPolicy Bypass -File .\scripts\stop_all.ps1 -WithWeixin -WithWikiWorker`
+`powershell -ExecutionPolicy Bypass -File .\scripts\stop_all.ps1 -WithoutWeixin`
+
+（含 wiki worker）：
+
+`powershell -ExecutionPolicy Bypass -File .\scripts\stop_all.ps1 -WithWikiWorker`
 
 说明：
 
