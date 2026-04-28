@@ -2,7 +2,7 @@
 
 Complete setup and usage guide for integrating the self-improvement skill with Oclaw.
 
-## Overview
+## 概览
 
 Oclaw uses workspace-based prompt injection combined with event-driven hooks. Context is injected from workspace files at session start, and hooks can trigger on lifecycle events.
 
@@ -26,7 +26,7 @@ Oclaw uses workspace-based prompt injection combined with event-driven hooks. Co
         └── handler.ts
 ```
 
-## Quick Setup
+## 快速配置
 
 ### 1. Install the Skill
 
@@ -54,19 +54,13 @@ Enable the hook:
 oclaw hooks enable self-improvement
 ```
 
-### 3. Create Learning Files
+### 3. Ensure Wiki Improvement Notes Exist
 
-Create the `.learnings/` directory in your workspace:
+Create or initialize these Wiki notes under your configured wiki root:
 
-```bash
-mkdir -p ~/.oclaw/workspace/.learnings
-```
-
-Or in the skill directory:
-
-```bash
-mkdir -p ~/.oclaw/runtime/skills/self-improving-agent/.learnings
-```
+- `improvement/learnings.md`
+- `improvement/errors.md`
+- `improvement/feature-requests.md`
 
 ## Injected Prompt Files
 
@@ -114,8 +108,8 @@ Purpose: Tool capabilities, integration gotchas, local configuration.
 ```markdown
 # Tool Knowledge
 
-## Self-Improvement Skill
-Log learnings to `.learnings/` for continuous improvement.
+## 自我改进技能
+Log learnings to Wiki `improvement/*.md` notes for continuous improvement.
 
 ## Local Tools
 - Document tool-specific gotchas here
@@ -127,14 +121,14 @@ Log learnings to `.learnings/` for continuous improvement.
 
 ### Capturing Learnings
 
-1. **In-session**: Log to `.learnings/` as usual
+1. **In-session**: Log to Wiki improvement notes (`improvement/*.md`)
 2. **Cross-session**: Promote to workspace files
 
 ### Promotion Decision Tree
 
 ```
 Is the learning project-specific?
-├── Yes → Keep in .learnings/
+├── Yes → Keep in improvement/learnings.md
 └── No → Is it behavioral/style-related?
     ├── Yes → Promote to SOUL.md
     └── No → Is it tool-related?
@@ -217,7 +211,7 @@ sessions_spawn(task="Research X and report back", label="research")
 | Tool call error | Log to TOOLS.md with tool name |
 | Session handoff confusion | Log to AGENTS.md with delegation pattern |
 | Model behavior surprise | Log to SOUL.md with expected vs actual |
-| Skill issue | Log to .learnings/ or report upstream |
+| Skill issue | Log to `improvement/*.md` or report upstream |
 
 ## Verification
 
@@ -243,7 +237,7 @@ oclaw status
 
 ### Learnings not persisting
 
-1. Verify `.learnings/` directory exists
+1. Verify wiki `improvement/*.md` notes exist
 2. Check file permissions
 3. Ensure workspace path is configured correctly
 

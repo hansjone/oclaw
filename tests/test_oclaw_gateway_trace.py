@@ -336,6 +336,69 @@ def test_gateway_comprehensive_mode_writes_task_assignment_reasoning(monkeypatch
     assert "specialist=ops" in content
     assert "请检查并修复网关启动失败" in content
 
+
+def test_gateway_comprehensive_ignores_wiki_inject_flags(monkeypatch: pytest.MonkeyPatch) -> None:
+    class Store:
+        def get_setting(self, _k: str) -> str:
+            return ""
+
+        def add_trace_event(self, **_kwargs: object) -> None:
+            return None
+
+    class _ManagerModel:
+        def chat(self, _messages, _tools, *, on_token=None):
+            return LLMResponse(
+                content=(
+                    '{"route":{"specialist":"generalist","reason":"general",'
+                    '"need_wiki_inject":true,"wiki_query":"router issue"},'
+                    '"dispatch":{"instruction_text":"请先分析问题并给出结论。",'
+                    '"need_wiki_inject":true,"wiki_query":"router issue"}}'
+                ),
+                tool_calls=[],
+            )
+
+    class _Exec:
+        def __init__(self, model=None):
+            self.model = model
+            self.tools = object()
+            self.system_prompt = ""
+
+    monkeypatch.setattr(
+        "oclaw.runtime.gateway.get_manager_prompt_prebuild",
+        lambda **kwargs: {
+            "manager_context": "manager",
+            "allowed_fixed": ("generalist", "ops", "image", "memory"),
+            "allowed_fixed_quoted": '"generalist", "ops", "image", "memory"',
+        },
+    )
+    captured: dict[str, object] = {}
+
+    def _run_agent_core(**kwargs):
+        data = kwargs.get("data")
+        msg = getattr(data, "msg", None)
+        captured["metadata"] = dict(getattr(msg, "metadata", {}) or {})
+        return SimpleNamespace(outcome=SimpleNamespace(final_text="ok"))
+
+    monkeypatch.setattr("oclaw.runtime.gateway.run_agent_core", _run_agent_core)
+
+    gw = OclawGateway(store=Store())
+    msg = StandardMessage(
+        session_id="sid-wi-1",
+        tenant_id="t1",
+        user_id="u1",
+        role="user",
+        channel="admin_chat",
+        text="分析一下",
+        attachments=[],
+        metadata={"interaction_mode": "comprehensive"},
+    )
+    out = gw.handle_turn(msg=msg, lang="zh", executor=_Exec(model=_ManagerModel()))
+    assert out.interaction_mode == "comprehensive"
+    md = captured.get("metadata") or {}
+    assert isinstance(md, dict)
+    assert "need_wiki_inject" not in md
+    assert "wiki_query" not in md
+
 def test_gateway_comprehensive_mode_has_manager_final_pass(monkeypatch: pytest.MonkeyPatch) -> None:
     class Store:
         def get_setting(self, _k: str) -> str:
@@ -523,74 +586,6 @@ def test_gateway_comprehensive_mode_ignores_manager_self_and_dispatches_speciali
     assert out.selected_specialist == "generalist"
     assert captured.get("exec_text") == "请直接给用户简明答案。"
     assert out.reply_text == "manager_self_final"
-
-
-def test_gateway_manager_memory_mode_does_not_leak_instruction_text(monkeypatch: pytest.MonkeyPatch) -> None:
-    class Store:
-        def get_setting(self, _k: str) -> str:
-            return ""
-
-        def add_trace_event(self, **_kwargs: object) -> None:
-            return None
-
-    class _ManagerModel:
-        def __init__(self) -> None:
-            self.calls = 0
-
-        def chat(self, _messages, _tools, *, on_token=None):
-            self.calls += 1
-            if self.calls == 1:
-                return LLMResponse(
-                    content=(
-                        '{"route":{"kind":"manager_memory","specialist":"manager","reason":"memory write"},'
-                        '"dispatch":{"instruction_text":"内部指令：写入记忆库，不可对用户展示。",'
-                        '"memory_write_text":"请写入记忆：用户偏好咖啡。"}}'
-                    ),
-                    tool_calls=[],
-                )
-            return LLMResponse(content="manager_memory_internal_result", tool_calls=[])
-
-    class _Exec:
-        def __init__(self, model=None):
-            self.model = model
-            self.tools = object()
-            self.system_prompt = ""
-
-    monkeypatch.setattr(
-        "oclaw.runtime.gateway.get_manager_prompt_prebuild",
-        lambda **kwargs: {
-            "manager_context": "manager",
-            "allowed_fixed": ("generalist", "ops", "image", "memory"),
-            "allowed_fixed_quoted": '"generalist", "ops", "image", "memory"',
-        },
-    )
-
-    def _run_agent_core(**kwargs):
-        class _Outcome:
-            final_text = "manager_memory_internal_result"
-
-        class _Out:
-            outcome = _Outcome()
-
-        return _Out()
-
-    monkeypatch.setattr("oclaw.runtime.gateway.run_agent_core", _run_agent_core)
-
-    gw = OclawGateway(store=Store())
-    msg = StandardMessage(
-        session_id="sid-mm-1",
-        tenant_id="t1",
-        user_id="u1",
-        role="user",
-        channel="admin_chat",
-        text="帮我记住我喜欢咖啡",
-        attachments=[],
-        metadata={"interaction_mode": "comprehensive"},
-    )
-    out = gw.handle_turn(msg=msg, lang="zh", executor=_Exec(model=_ManagerModel()))
-    assert out.interaction_mode == "comprehensive"
-    assert out.reply_text == "已执行记忆写入。"
-    assert "内部指令" not in out.reply_text
 
 
 def test_gateway_comprehensive_mode_suppresses_instruction_echo(monkeypatch: pytest.MonkeyPatch) -> None:

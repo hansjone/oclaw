@@ -2,7 +2,7 @@
 
 Configure automatic self-improvement triggers for AI coding agents.
 
-## Overview
+## 概览
 
 Hooks enable proactive learning capture by injecting reminders at key moments:
 - **UserPromptSubmit**: Reminder after each prompt to evaluate learnings
@@ -114,7 +114,7 @@ Codex uses the same hook system as Claude Code. Create `.codex/settings.json`:
 Copilot doesn't support hooks directly. Instead, add guidance to `.github/copilot-instructions.md`:
 
 ```markdown
-## Self-Improvement
+## 自我改进
 
 After completing tasks that involved:
 - Debugging non-obvious issues
@@ -122,7 +122,7 @@ After completing tasks that involved:
 - Learning project-specific patterns
 - Resolving unexpected errors
 
-Consider logging the learning to `.learnings/` using the format from the self-improvement skill.
+Consider logging the learning to Wiki (`improvement/learnings.md`, `improvement/errors.md`, `improvement/feature-requests.md`) using the format from the self-improvement skill.
 
 For high-value learnings that would benefit other sessions, consider skill extraction.
 ```

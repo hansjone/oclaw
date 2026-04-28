@@ -5,30 +5,30 @@ from typing import Any
 REMINDER_NAME = "SELF_IMPROVEMENT_REMINDER.md"
 REMINDER_PATH = REMINDER_NAME
 
-REMINDER_CONTENT = """## Self-Improvement Reminder
+REMINDER_CONTENT = """## 自我改进提醒
 
-After completing tasks, evaluate whether any learnings should be captured.
+任务完成后，请评估是否产生可沉淀学习。
 
-Only log if this repo or workspace is using the self-improvement skill.
+仅在当前仓库/工作区启用 self-improvement 技能时记录。
 
-Before logging:
-- Create only missing `.learnings/` files; never overwrite existing content
-- Do not log secrets, tokens, private keys, environment variables, or raw transcripts
-- Prefer short summaries or redacted excerpts over full command output
+记录前：
+- 使用 memory_wiki_* 工具写入 `improvement/` 下的 Wiki 笔记
+- 不记录密钥、令牌、私钥、环境变量或原始对话全文
+- 优先使用简短摘要或脱敏片段，避免完整命令输出
 
-**Log when:**
-- User corrects you → `.learnings/LEARNINGS.md`
-- Command/operation fails → `.learnings/ERRORS.md`
-- User wants missing capability → `.learnings/FEATURE_REQUESTS.md`
-- You discover your knowledge was wrong → `.learnings/LEARNINGS.md`
-- You find a better approach → `.learnings/LEARNINGS.md`
+**以下情况应记录：**
+- 用户纠正你 → `improvement/learnings.md`
+- 命令/操作失败 → `improvement/errors.md`
+- 用户提出缺失能力 → `improvement/feature-requests.md`
+- 发现认知错误 → `improvement/learnings.md`
+- 发现更优做法 → `improvement/learnings.md`
 
-**Promote when pattern is proven:**
-- Behavioral patterns → `SOUL.md`
-- Workflow improvements → `AGENTS.md`
-- Tool gotchas → `TOOLS.md`
+**当模式被验证后进行提升：**
+- 行为模式 → `SOUL.md`
+- 工作流改进 → `AGENTS.md`
+- 工具易错点 → `TOOLS.md`
 
-Keep entries simple: date, title, what happened, and what to do differently."""
+条目保持简洁：时间、标题、发生了什么、后续应如何做。"""
 
 
 def _is_record(value: object) -> bool:

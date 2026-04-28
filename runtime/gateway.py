@@ -30,7 +30,6 @@ from oclaw.prompts import render_prompt
 
 from oclaw.runtime.command_parser import parse_internal_command
 from oclaw.runtime.core.agent_execution import AgentCoreRunInput, build_memory_context, run_agent_core
-from oclaw.runtime.memory_stage import after_turn_memory
 from oclaw.runtime.router import decide_route
 from oclaw.runtime.worker import ensure_worker_started
 from oclaw.runtime.orchestration.trace import new_span_id, new_trace_id
@@ -94,11 +93,6 @@ class GatewayDispatchPlan:
     specialist_input_msg: StandardMessage | None
     manager_exec_msg: StandardMessage | None
     manager_instruction_text: str
-    manager_memory_mode: bool
-    manager_need_wiki_inject: bool | None
-    manager_wiki_query: str
-    manager_memory_write_text: str
-    manager_post_reply_memory_write_text: str
 
 
 class OclawGateway:
@@ -298,15 +292,15 @@ class OclawGateway:
         lang: str,
         executor: Any,
         memory_enabled: bool,
-    ) -> tuple[str, str, dict[str, Any] | None, str, bool, bool | None, str, str, str]:
+    ) -> tuple[str, str, dict[str, Any] | None, str]:
         model = getattr(executor, "model", None)
         if model is None or not callable(getattr(model, "chat", None)):
-            return ("generalist", "manager_model_missing", None, "", False, None, "", "", "")
+            return ("generalist", "manager_model_missing", None, "")
         try:
             registry = getattr(executor, "tools", None)
             base_url = str(getattr(model, "base_url", "") or "")
             if registry is None:
-                return ("generalist", "manager_tools_missing", None, "", False, None, "", "", "")
+                return ("generalist", "manager_tools_missing", None, "")
             pack = get_manager_prompt_prebuild(
                 store=self.store,
                 registry=registry,
@@ -340,10 +334,10 @@ class OclawGateway:
             resp = model.chat(messages, [], on_token=None)
             obj = self._parse_json_object(str(getattr(resp, "content", "") or ""))
             if not isinstance(obj, dict):
-                return ("generalist", "manager_json_missing", None, "", False, None, "", "", "")
+                return ("generalist", "manager_json_missing", None, "")
             route = obj.get("route") if isinstance(obj, dict) else None
             if not isinstance(route, dict):
-                return ("generalist", "manager_route_missing", None, "", False, None, "", "", "")
+                return ("generalist", "manager_route_missing", None, "")
             route_kind = str(route.get("kind") or "").strip().lower()
             raw_specialist = str(route.get("specialist") or "").strip().lower()
             fixed_set = set([str(x).strip().lower() for x in allowed_fixed if str(x).strip()])
@@ -355,41 +349,17 @@ class OclawGateway:
             if isinstance(dispatch, dict):
                 instruction_text = str(dispatch.get("instruction_text") or "").strip()
             if not instruction_text:
-                return ("generalist", "manager_instruction_missing", None, "", False, None, "", "", "")
-            need_wiki_inject: bool | None = None
-            wiki_query = ""
-            memory_write_text = ""
-            post_reply_memory_write_text = ""
-            route_need = route.get("need_wiki_inject") if isinstance(route, dict) else None
-            if isinstance(route_need, bool):
-                need_wiki_inject = bool(route_need)
-            elif isinstance(dispatch, dict) and isinstance(dispatch.get("need_wiki_inject"), bool):
-                need_wiki_inject = bool(dispatch.get("need_wiki_inject"))
-            route_wq = route.get("wiki_query") if isinstance(route, dict) else None
-            if isinstance(route_wq, str):
-                wiki_query = str(route_wq).strip()
-            elif isinstance(dispatch, dict) and isinstance(dispatch.get("wiki_query"), str):
-                wiki_query = str(dispatch.get("wiki_query") or "").strip()
-            wiki_query = wiki_query[:300]
-            if isinstance(dispatch, dict) and isinstance(dispatch.get("memory_write_text"), str):
-                memory_write_text = str(dispatch.get("memory_write_text") or "").strip()[:4000]
-            if isinstance(dispatch, dict) and isinstance(dispatch.get("post_reply_memory_write_text"), str):
-                post_reply_memory_write_text = str(dispatch.get("post_reply_memory_write_text") or "").strip()[:4000]
-            if bool(need_wiki_inject) and not str(wiki_query or "").strip():
-                return ("generalist", "manager_wiki_query_missing", None, instruction_text, False, False, "", "", "")
-            # Allow manager to directly execute wiki/memory tasks.
-            if route_kind == "manager_memory":
-                if not memory_write_text:
-                    return ("generalist", "manager_memory_write_missing", None, instruction_text, False, need_wiki_inject, wiki_query, "", post_reply_memory_write_text)
-                return ("manager", reason or "manager_memory", None, instruction_text, True, need_wiki_inject, wiki_query, memory_write_text, post_reply_memory_write_text)
+                return ("generalist", "manager_instruction_missing", None, "")
+            if route_kind and route_kind != "specialist":
+                return ("generalist", "manager_route_kind_invalid", None, instruction_text)
             dynamic_agent = self._parse_dynamic_agent(obj.get("dynamic_agent") if isinstance(obj, dict) else None)
             if specialist == "memory" and not memory_enabled:
-                return ("generalist", "memory_disabled_fallback", None, instruction_text, False, need_wiki_inject, wiki_query, memory_write_text, post_reply_memory_write_text)
+                return ("generalist", "memory_disabled_fallback", None, instruction_text)
             if not fixed and dynamic_agent is None:
-                return ("generalist", "dynamic_agent_invalid_fallback", None, instruction_text, False, need_wiki_inject, wiki_query, memory_write_text, post_reply_memory_write_text)
-            return (specialist, reason, dynamic_agent, instruction_text, False, need_wiki_inject, wiki_query, memory_write_text, post_reply_memory_write_text)
+                return ("generalist", "dynamic_agent_invalid_fallback", None, instruction_text)
+            return (specialist, reason, dynamic_agent, instruction_text)
         except Exception:
-            return ("generalist", "manager_select_failed", None, "", False, None, "", "", "")
+            return ("generalist", "manager_select_failed", None, "")
 
     def _manager_finalize_output(
         self,
@@ -700,11 +670,6 @@ class OclawGateway:
         specialist_input_msg: StandardMessage | None = None
         manager_exec_msg: StandardMessage | None = None
         manager_instruction_text = ""
-        manager_memory_mode = False
-        manager_need_wiki_inject: bool | None = None
-        manager_wiki_query = ""
-        manager_memory_write_text = ""
-        manager_post_reply_memory_write_text = ""
         if interaction_mode == "expert" and callable(specialist_executor_factory):
             try:
                 selected_executor = specialist_executor_factory(requested_specialist)
@@ -717,11 +682,6 @@ class OclawGateway:
                 dispatch_reason,
                 dynamic_agent,
                 instruction_text,
-                manager_memory_mode,
-                manager_need_wiki_inject,
-                manager_wiki_query,
-                manager_memory_write_text,
-                manager_post_reply_memory_write_text,
             ) = self._manager_select_specialist(msg=msg, lang=lang, executor=executor, memory_enabled=memory_enabled)
             manager_instruction_text = str(instruction_text or "").strip()
             trace_local(
@@ -729,13 +689,10 @@ class OclawGateway:
                 payload={
                     "interaction_mode": interaction_mode,
                     "manager_selected_specialist": str(manager_specialist or ""),
-                    "manager_memory_mode": bool(manager_memory_mode),
                     "dispatch_reason": str(dispatch_reason or ""),
                     "instruction_chars": int(len(manager_instruction_text or "")),
                     "dynamic_agent_used": bool(dynamic_agent is not None),
                     "dynamic_agent_name": str((dynamic_agent or {}).get("name") or "") if isinstance(dynamic_agent, dict) else "",
-                    "memory_write_chars": int(len(manager_memory_write_text or "")),
-                    "post_reply_memory_write_chars": int(len(manager_post_reply_memory_write_text or "")),
                 },
                 started_at=started_at,
             )
@@ -749,11 +706,6 @@ class OclawGateway:
             specialist_input_msg=specialist_input_msg,
             manager_exec_msg=manager_exec_msg,
             manager_instruction_text=manager_instruction_text,
-            manager_memory_mode=manager_memory_mode,
-            manager_need_wiki_inject=manager_need_wiki_inject,
-            manager_wiki_query=manager_wiki_query,
-            manager_memory_write_text=manager_memory_write_text,
-            manager_post_reply_memory_write_text=manager_post_reply_memory_write_text,
         )
 
     def handle_turn(
@@ -913,13 +865,8 @@ class OclawGateway:
         specialist_input_msg = plan.specialist_input_msg
         manager_exec_msg = plan.manager_exec_msg
         manager_instruction_text = plan.manager_instruction_text
-        manager_memory_mode = plan.manager_memory_mode
-        manager_need_wiki_inject = plan.manager_need_wiki_inject
-        manager_wiki_query = plan.manager_wiki_query
-        manager_memory_write_text = plan.manager_memory_write_text
-        manager_post_reply_memory_write_text = plan.manager_post_reply_memory_write_text
         if interaction_mode == "comprehensive":
-            if str(manager_instruction_text or "").strip() and not bool(manager_memory_mode):
+            if str(manager_instruction_text or "").strip():
                 try:
                     assignment_title = "Task assignment" if str(lang or "").startswith("en") else "任务分配"
                     assignment_text = (
@@ -947,21 +894,7 @@ class OclawGateway:
                 channel=msg.channel,
                 text=str(manager_instruction_text or "").strip(),
                 attachments=list(msg.attachments or []),
-                metadata=(
-                    {
-                        **dict(base_metadata),
-                        **(
-                            {"need_wiki_inject": bool(manager_need_wiki_inject)}
-                            if isinstance(manager_need_wiki_inject, bool)
-                            else {}
-                        ),
-                        **(
-                            {"wiki_query": str(manager_wiki_query or "")}
-                            if str(manager_wiki_query or "").strip()
-                            else {}
-                        ),
-                    }
-                ),
+                metadata=dict(base_metadata),
             )
             manager_exec_msg = StandardMessage(
                 session_id=msg.session_id,
@@ -971,27 +904,9 @@ class OclawGateway:
                 channel=msg.channel,
                 text=msg.text,
                 attachments=list(msg.attachments or []),
-                metadata=(
-                    {
-                        **dict(base_metadata),
-                        **(
-                            {"need_wiki_inject": bool(manager_need_wiki_inject)}
-                            if isinstance(manager_need_wiki_inject, bool)
-                            else {}
-                        ),
-                        **(
-                            {"wiki_query": str(manager_wiki_query or "")}
-                            if str(manager_wiki_query or "").strip()
-                            else {}
-                        ),
-                    }
-                ),
+                metadata=dict(base_metadata),
             )
-            if manager_memory_mode:
-                manager_specialist = "manager"
-                selected_executor = executor
-                dispatch_reason = dispatch_reason or "manager_memory"
-            elif manager_specialist in {"ops", "generalist", "image", "memory"}:
+            if manager_specialist in {"ops", "generalist", "image", "memory"}:
                 if callable(specialist_executor_factory):
                     try:
                         selected_executor = specialist_executor_factory(manager_specialist)
@@ -1023,51 +938,37 @@ class OclawGateway:
                             selected_executor = executor
 
         route_mode = "sync_direct"
-        if manager_memory_mode:
-            _trace_local(
-                event_type="router_decision",
-                payload={
-                    "mode": route_mode,
-                    "reason": "manager_memory_direct",
-                    "interaction_mode": interaction_mode,
-                    "requested_specialist": requested_specialist,
-                    "manager_selected_specialist": manager_specialist,
-                    "dispatch_reason": dispatch_reason,
-                },
-                started_at=t0,
-            )
-        else:
-            route_msg = StandardMessage(
-                session_id=msg.session_id,
-                tenant_id=msg.tenant_id,
-                user_id=msg.user_id,
-                role=msg.role,
-                channel=msg.channel,
-                text=msg.text,
-                attachments=list(msg.attachments or []),
-                metadata={
-                    **base_metadata,
-                    "skills_total": int(skill_stats.get("skills_total") or 0),
-                    "interaction_mode": interaction_mode,
-                    "requested_specialist": requested_specialist,
-                    "manager_selected_specialist": manager_specialist,
-                },
-            )
-            route = decide_route(route_msg, store=self.store, model=getattr(selected_executor, "model", None))
-            route_mode = str(route.mode or "sync_direct")
-            route_reason = str(route.reason or "")
-            _trace_local(
-                event_type="router_decision",
-                payload={
-                    "mode": route_mode,
-                    "reason": route_reason,
-                    "interaction_mode": interaction_mode,
-                    "requested_specialist": requested_specialist,
-                    "manager_selected_specialist": manager_specialist,
-                    "dispatch_reason": dispatch_reason,
-                },
-                started_at=t0,
-            )
+        route_msg = StandardMessage(
+            session_id=msg.session_id,
+            tenant_id=msg.tenant_id,
+            user_id=msg.user_id,
+            role=msg.role,
+            channel=msg.channel,
+            text=msg.text,
+            attachments=list(msg.attachments or []),
+            metadata={
+                **base_metadata,
+                "skills_total": int(skill_stats.get("skills_total") or 0),
+                "interaction_mode": interaction_mode,
+                "requested_specialist": requested_specialist,
+                "manager_selected_specialist": manager_specialist,
+            },
+        )
+        route = decide_route(route_msg, store=self.store, model=getattr(selected_executor, "model", None))
+        route_mode = str(route.mode or "sync_direct")
+        route_reason = str(route.reason or "")
+        _trace_local(
+            event_type="router_decision",
+            payload={
+                "mode": route_mode,
+                "reason": route_reason,
+                "interaction_mode": interaction_mode,
+                "requested_specialist": requested_specialist,
+                "manager_selected_specialist": manager_specialist,
+                "dispatch_reason": dispatch_reason,
+            },
+            started_at=t0,
+        )
         if on_progress:
             on_progress("oclaw: running…")
         if route_mode == "async_task":
@@ -1177,22 +1078,7 @@ class OclawGateway:
                 started_at=t0,
             )
             exec_msg = (
-                (
-                    StandardMessage(
-                        session_id=msg.session_id,
-                        tenant_id=msg.tenant_id,
-                        user_id=msg.user_id,
-                        role=msg.role,
-                        channel=msg.channel,
-                        text=str(manager_memory_write_text or manager_instruction_text or msg.text or ""),
-                        attachments=list(msg.attachments or []),
-                        metadata=(manager_exec_msg.metadata if manager_exec_msg is not None else dict(base_metadata)),
-                    )
-                    if manager_memory_mode
-                    else (manager_exec_msg if manager_exec_msg is not None else msg)
-                )
-                if manager_memory_mode
-                else (specialist_input_msg if (interaction_mode == "comprehensive" and specialist_input_msg is not None) else msg)
+                specialist_input_msg if (interaction_mode == "comprehensive" and specialist_input_msg is not None) else msg
             )
             core_out = run_agent_core(
                 store=self.store,
@@ -1211,8 +1097,7 @@ class OclawGateway:
                     max_tool_workers=_get_int_setting("AIA_TURN_MAX_TOOL_WORKERS", 8, 1, 32),
                     max_attempts=_get_int_setting("AIA_OCLAW_MAX_ATTEMPTS", 2, 1, 5),
                     memory_context=memory_context,
-                    # manager_memory writes to wiki/memory store; do not stream body to frontend.
-                    on_token=(None if manager_memory_mode else (None if interaction_mode == "comprehensive" else on_token)),
+                    on_token=(None if interaction_mode == "comprehensive" else on_token),
                     on_progress=on_progress,
                     on_tool_ui=on_tool_ui,
                     should_stop=should_stop,
@@ -1222,14 +1107,7 @@ class OclawGateway:
             )
             executed_turn_uuid = str(getattr(core_out.outcome, "turn_uuid", "") or "")
             specialist_reply = str(core_out.outcome.final_text or "")
-            if manager_memory_mode:
-                # manager_memory: never expose manager dispatch instruction_text to end users.
-                reply = (
-                    "已执行记忆写入。"
-                    if not str(lang or "").startswith("en")
-                    else "Memory write executed."
-                )
-            elif interaction_mode == "comprehensive":
+            if interaction_mode == "comprehensive":
                 reply = self._manager_finalize_output(
                     msg=msg,
                     lang=lang,
@@ -1259,27 +1137,6 @@ class OclawGateway:
             reply = f"{base}\n(detail: {detail})" if detail else base
 
         elapsed_ms = int((time.perf_counter() - t0) * 1000)
-        if interaction_mode == "comprehensive" and str(manager_post_reply_memory_write_text or "").strip():
-            try:
-                after_turn_memory(
-                    store=self.store,
-                    session_id=msg.session_id,
-                    tenant_id=msg.tenant_id,
-                    user_id=msg.user_id,
-                    user_text=str(msg.text or ""),
-                    assistant_text=str(manager_post_reply_memory_write_text or ""),
-                    turn_uuid="",
-                )
-                _trace_local(
-                    event_type="after_turn_memory",
-                    payload={
-                        "source": "manager_post_reply",
-                        "post_reply_memory_write_chars": int(len(manager_post_reply_memory_write_text or "")),
-                    },
-                    started_at=t0,
-                )
-            except Exception:
-                pass
         if str(executed_turn_uuid or "").strip():
             try:
                 compact_turn_tool_messages_for_storage(
