@@ -13,3 +13,9 @@ def test_agent_role_ids_uses_runtime_discovery(monkeypatch) -> None:
     got = specialists_mod.agent_role_ids()
     assert got[0] == specialists_mod.MANAGER_AGENT_ID
     assert "qa" in set(got)
+
+
+def test_builtin_specialists_include_memory_tools() -> None:
+    assert "memory" in specialists_mod.expert_name_for_specialist("generalist")
+    assert "memory" in specialists_mod.expert_name_for_specialist("ops")
+    assert "memory" in specialists_mod.expert_name_for_specialist("image")

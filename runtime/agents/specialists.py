@@ -24,19 +24,19 @@ class SpecialistConfig:
 SPECIALISTS: dict[SpecialistId, SpecialistConfig] = {
     "ops": SpecialistConfig(
         specialist_id="ops",
-        expert_name="network_ops",
+        expert_name="network_ops+memory",
         default_tool_tags=None,
     ),
     "generalist": SpecialistConfig(
         specialist_id="generalist",
-        expert_name="generalist+workspace+productivity",
+        expert_name="generalist+workspace+productivity+memory",
         default_tool_tags=None,
     ),
     "image": SpecialistConfig(
         specialist_id="image",
         # image specialist currently reuses generalist expert tool registry,
         # including image_edit tool.
-        expert_name="generalist",
+        expert_name="generalist+memory",
         default_tool_tags=None,
     ),
     "memory": SpecialistConfig(
