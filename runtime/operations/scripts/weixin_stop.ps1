@@ -37,27 +37,33 @@ function Get-SidecarProcesses {
   }
 }
 
+function Invoke-TaskKillQuiet {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$ProcessId,
+    [switch]$ForceKill
+  )
+  $forceArg = ""
+  if ($ForceKill) { $forceArg = " /F" }
+  cmd.exe /c "taskkill /PID $ProcessId /T$forceArg 1>nul 2>nul" | Out-Null
+  return $LASTEXITCODE
+}
+
 function Stop-SidecarProcesses {
   param(
     [switch]$ForceKill
   )
   $procs = @(Get-SidecarProcesses | Sort-Object ProcessId -Descending)
-  $oldNativePref = $PSNativeCommandUseErrorActionPreference
-  try {
-    $PSNativeCommandUseErrorActionPreference = $false
-    foreach ($proc in $procs) {
-      if ($ForceKill) {
-        taskkill.exe /PID $proc.ProcessId /T /F 2>$null | Out-Null
-        continue
-      }
-      taskkill.exe /PID $proc.ProcessId /T 2>$null | Out-Null
-      if ($LASTEXITCODE -ne 0) {
-        # Some process trees require force kill on Windows.
-        taskkill.exe /PID $proc.ProcessId /T /F 2>$null | Out-Null
-      }
+  foreach ($proc in $procs) {
+    if ($ForceKill) {
+      [void](Invoke-TaskKillQuiet -ProcessId ([string]$proc.ProcessId) -ForceKill)
+      continue
     }
-  } finally {
-    $PSNativeCommandUseErrorActionPreference = $oldNativePref
+    $code = Invoke-TaskKillQuiet -ProcessId ([string]$proc.ProcessId)
+    if ($code -ne 0) {
+      # Some process trees require force kill on Windows.
+      [void](Invoke-TaskKillQuiet -ProcessId ([string]$proc.ProcessId) -ForceKill)
+    }
   }
   return $procs.Count
 }
@@ -79,20 +85,14 @@ if (-not $procId) {
   exit 0
 }
 
-$oldNativePref = $PSNativeCommandUseErrorActionPreference
-try {
-  $PSNativeCommandUseErrorActionPreference = $false
-  if ($Force) {
-    taskkill.exe /PID $procId /T /F 2>$null | Out-Null
-  } else {
-    taskkill.exe /PID $procId /T 2>$null | Out-Null
-    if ($LASTEXITCODE -ne 0) {
-      # Retry with /F to avoid noisy parent/child kill failures.
-      taskkill.exe /PID $procId /T /F 2>$null | Out-Null
-    }
+if ($Force) {
+  [void](Invoke-TaskKillQuiet -ProcessId ([string]$procId) -ForceKill)
+} else {
+  $code = Invoke-TaskKillQuiet -ProcessId ([string]$procId)
+  if ($code -ne 0) {
+    # Retry with /F to avoid noisy parent/child kill failures.
+    [void](Invoke-TaskKillQuiet -ProcessId ([string]$procId) -ForceKill)
   }
-} finally {
-  $PSNativeCommandUseErrorActionPreference = $oldNativePref
 }
 
 $killed = Stop-SidecarProcesses -ForceKill:$Force

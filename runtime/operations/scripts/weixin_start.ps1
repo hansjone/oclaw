@@ -36,16 +36,19 @@ function Get-SidecarProcesses {
   }
 }
 
+function Invoke-TaskKillQuiet {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$ProcessId
+  )
+  cmd.exe /c "taskkill /PID $ProcessId /T /F 1>nul 2>nul" | Out-Null
+  return $LASTEXITCODE
+}
+
 function Stop-SidecarProcesses {
   $procs = @(Get-SidecarProcesses | Sort-Object ProcessId -Descending)
-  $oldNativePref = $PSNativeCommandUseErrorActionPreference
-  try {
-    $PSNativeCommandUseErrorActionPreference = $false
-    foreach ($proc in $procs) {
-      taskkill.exe /PID $proc.ProcessId /T /F 2>$null | Out-Null
-    }
-  } finally {
-    $PSNativeCommandUseErrorActionPreference = $oldNativePref
+  foreach ($proc in $procs) {
+    [void](Invoke-TaskKillQuiet -ProcessId ([string]$proc.ProcessId))
   }
   return $procs.Count
 }
