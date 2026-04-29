@@ -59,16 +59,61 @@ def _resolve_runtime(api: Any) -> WikiRuntime:
 
 
 def _safe_path(rt: WikiRuntime, rel_path: str) -> Path:
-    rp = str(rel_path or "").strip().replace("\\", "/")
-    rp = rp.lstrip("./")
-    if not rp:
+    raw = str(rel_path or "").strip()
+    raw = raw.replace("\\", "/")
+    raw = raw.lstrip("./")
+    if not raw:
         raise ValueError("path_required")
-    p = (rt.wiki_root / rp).resolve()
+
     root = rt.wiki_root.resolve()
-    if p != root and root not in p.parents:
-        raise ValueError("path_outside_wiki_root")
+
+    # 1) Absolute path: accept if it's under wiki_root.
+    try:
+        cand = Path(raw)
+        if cand.is_absolute():
+            p = cand.resolve()
+            if p.suffix.lower() != ".md":
+                raise ValueError("only_markdown_supported")
+            if p != root and root not in p.parents:
+                raise ValueError("path_outside_wiki_root")
+            return p
+    except Exception:
+        # fall through to relative/normalized handling
+        pass
+
+    # 2) Relative path: normalize common "data/wiki/..." prefixes to wiki_root-relative paths.
+    rp = raw.lstrip("/")
+
+    prefixes: list[str] = []
+    # Legacy/default prefix.
+    prefixes.append("data/wiki/")
+
+    # If wiki_root is configured under project root, allow stripping its relative prefix too.
+    try:
+        root_rel = rt.wiki_root.resolve().relative_to(_project_root().resolve()).as_posix()
+        if root_rel:
+            prefixes.append(str(root_rel).lstrip("/") + "/")
+    except Exception:
+        pass
+
+    # Allow stripping the wiki_root folder name (e.g., "wiki/xxx.md") if user passes it.
+    prefixes.append(f"{root.name}/")
+
+    rp_lower = rp.lower()
+    stripped = rp
+    for pref in prefixes:
+        pref_l = str(pref or "").strip().lower()
+        if not pref_l:
+            continue
+        if rp_lower.startswith(pref_l):
+            stripped = rp[len(pref) :]
+            break
+
+    p = (rt.wiki_root / stripped).resolve()
     if p.suffix.lower() != ".md":
         raise ValueError("only_markdown_supported")
+    if p != root and root not in p.parents:
+        raise ValueError("path_outside_wiki_root")
     return p
 
 

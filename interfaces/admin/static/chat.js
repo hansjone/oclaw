@@ -2357,16 +2357,30 @@ async function renderChatUi() {
   bindChatMermaidViewer(messagesEl);
   const AUTO_SCROLL_BOTTOM_GAP_PX = 56;
   let shouldFollowMessages = true;
+  let autoScrollRaf = 0;
+  let autoScrollTimer = 0;
   const isNearBottom = () => {
     const remaining = messagesEl.scrollHeight - (messagesEl.scrollTop + messagesEl.clientHeight);
     return remaining <= AUTO_SCROLL_BOTTOM_GAP_PX;
   };
-  const scrollMessagesToBottom = (force = false) => {
+  const scheduleFollowScroll = (force = false) => {
     if (!force && !shouldFollowMessages) return;
-    messagesEl.scrollTop = messagesEl.scrollHeight;
-    requestAnimationFrame(() => {
-      if (force || shouldFollowMessages) messagesEl.scrollTop = messagesEl.scrollHeight;
+    if (autoScrollRaf) cancelAnimationFrame(autoScrollRaf);
+    if (autoScrollTimer) clearTimeout(autoScrollTimer);
+    autoScrollRaf = requestAnimationFrame(() => {
+      messagesEl.scrollTop = messagesEl.scrollHeight;
+      autoScrollRaf = requestAnimationFrame(() => {
+        if (force || shouldFollowMessages) messagesEl.scrollTop = messagesEl.scrollHeight;
+      });
     });
+    // Some async markdown/image/UI post-processing happens after RAF.
+    autoScrollTimer = setTimeout(() => {
+      if (force || shouldFollowMessages) messagesEl.scrollTop = messagesEl.scrollHeight;
+      autoScrollTimer = 0;
+    }, 60);
+  };
+  const scrollMessagesToBottom = (force = false) => {
+    scheduleFollowScroll(force);
   };
   messagesEl.addEventListener("scroll", () => {
     shouldFollowMessages = isNearBottom();
@@ -2380,6 +2394,14 @@ async function renderChatUi() {
     },
     true,
   );
+  const messagesMutationObserver = new MutationObserver(() => {
+    scheduleFollowScroll(false);
+  });
+  messagesMutationObserver.observe(messagesEl, {
+    childList: true,
+    subtree: true,
+    characterData: true,
+  });
   const textarea = el("textarea", {
     class: "chat-composer__field",
     rows: "1",
