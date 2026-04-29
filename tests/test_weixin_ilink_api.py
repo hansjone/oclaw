@@ -92,6 +92,14 @@ class WeixinIlinkApiTests(unittest.TestCase):
                     {
                         "chat_id": str(payload.get("chat_id") or ""),
                         "text": f"native:{text}",
+                        "attachments": [
+                            {
+                                "type": "image_ref",
+                                "name": "demo.png",
+                                "mime_type": "image/png",
+                                "data_base64": "aGVsbG8=",
+                            }
+                        ],
                     }
                 ],
             }
@@ -118,6 +126,9 @@ class WeixinIlinkApiTests(unittest.TestCase):
             replies = data.get("replies") if isinstance(data.get("replies"), list) else []
             self.assertEqual(len(replies), 1, data)
             self.assertEqual(str((replies[0] or {}).get("text") or ""), "native:hello native")
+            atts = (replies[0] or {}).get("attachments") if isinstance((replies[0] or {}).get("attachments"), list) else []
+            self.assertEqual(len(atts), 1, data)
+            self.assertEqual(str((atts[0] or {}).get("name") or ""), "demo.png")
         finally:
             weixin_ilink_api._process_inbound_payload_usecase = old_usecase  # type: ignore[assignment]
 
@@ -134,6 +145,14 @@ class WeixinIlinkApiTests(unittest.TestCase):
                     {
                         "chat_id": str(payload.get("chat_id") or ""),
                         "text": f"wa:{text}",
+                        "attachments": [
+                            {
+                                "type": "binary_ref",
+                                "name": "demo.txt",
+                                "mime_type": "text/plain",
+                                "data_base64": "d2E=",
+                            }
+                        ],
                     }
                 ],
             }
@@ -158,6 +177,9 @@ class WeixinIlinkApiTests(unittest.TestCase):
             replies = data.get("replies") if isinstance(data.get("replies"), list) else []
             self.assertEqual(len(replies), 1, data)
             self.assertEqual(str((replies[0] or {}).get("text") or ""), "wa:hello whatsapp")
+            atts = (replies[0] or {}).get("attachments") if isinstance((replies[0] or {}).get("attachments"), list) else []
+            self.assertEqual(len(atts), 1, data)
+            self.assertEqual(str((atts[0] or {}).get("name") or ""), "demo.txt")
         finally:
             weixin_ilink_api._process_inbound_payload_usecase = old_usecase  # type: ignore[assignment]
 

@@ -300,6 +300,49 @@ def _parse_generic_inbound(channel_name: str, payload: dict[str, Any]) -> Inboun
     )
 
 
+def _parse_message_attachments(raw: Any) -> list[dict[str, Any]]:
+    if raw is None:
+        return []
+    obj = raw
+    if isinstance(raw, str):
+        s = str(raw or "").strip()
+        if not s:
+            return []
+        try:
+            import json
+
+            obj = json.loads(s)
+        except Exception:
+            return []
+    if not isinstance(obj, list):
+        return []
+    return [x for x in obj if isinstance(x, dict)]
+
+
+def _collect_reply_attachments_from_history(*, store: Any, session_id: str, reply_text: str) -> list[dict[str, Any]]:
+    sid = str(session_id or "").strip()
+    if not sid:
+        return []
+    try:
+        rows = store.get_messages(session_id=sid, limit=120)
+    except Exception:
+        rows = []
+    target = str(reply_text or "").strip()
+    fallback: list[dict[str, Any]] = []
+    matched: list[dict[str, Any]] = []
+    for row in rows or []:
+        role = str(getattr(row, "role", "") or "").strip().lower()
+        if role != "assistant":
+            continue
+        atts = _parse_message_attachments(getattr(row, "attachments", None))
+        if atts:
+            fallback = atts
+        content = str(getattr(row, "content", "") or "").strip()
+        if target and content == target and atts:
+            matched = atts
+    return matched or fallback
+
+
 def _should_suppress_channel_reply(*, channel: str, text: str) -> bool:
     ch = str(channel or "").strip().lower()
     if ch not in {"wechat", "weixin"}:
@@ -364,6 +407,7 @@ def process_inbound_payload(payload: dict[str, Any]) -> dict[str, Any]:
         reply = ("绑定成功。\n\n" + _menu_text()) if info else "绑定失败：无效或已使用的绑定码。"
     else:
         reply = ""
+        reply_attachments: list[dict[str, Any]] = []
         ident = store.resolve_user_by_channel_identity_v2(
             channel=inbound.channel,
             account_id=account_id,
@@ -506,10 +550,17 @@ def process_inbound_payload(payload: dict[str, Any]) -> dict[str, Any]:
                                     ).reply_text
                                     or ""
                                 ).strip()
+                                reply_attachments = _collect_reply_attachments_from_history(
+                                    store=store,
+                                    session_id=str(session_id),
+                                    reply_text=reply,
+                                )
                             except Exception as e:
                                 reply = f"抱歉，处理消息时出错：{type(e).__name__}: {e}"
+                                reply_attachments = []
                         else:
                             reply = "收到消息，但内容为空。请直接发送文本。"
+                            reply_attachments = []
         if preface:
             if reply:
                 reply = f"{preface}\n\n{reply}"
@@ -527,7 +578,7 @@ def process_inbound_payload(payload: dict[str, Any]) -> dict[str, Any]:
                 "channel": inbound.channel,
                 "chat_id": inbound.external_chat_id,
                 "text": reply,
-                "attachments": [],
+                "attachments": list(reply_attachments or []),
                 "metadata": {},
             }
         ]

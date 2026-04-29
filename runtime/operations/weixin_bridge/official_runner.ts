@@ -281,6 +281,32 @@ function buildAttachmentsFromMedia(mediaOpts: Json): Json[] {
   return out;
 }
 
+function _decodeReplyBase64Attachment(att: Json): { filePath: string; mime: string } | null {
+  const b64Raw = String(
+    att.data_base64 || att.media_base64 || att.image_base64 || att.video_base64 || att.audio_base64 || att.data || "",
+  ).trim();
+  if (!b64Raw) return null;
+  let mime = String(att.media_type || att.mime_type || att.mime || "application/octet-stream").trim();
+  let payload = b64Raw;
+  const m = b64Raw.match(/^data:([^;,]+);base64,(.*)$/i);
+  if (m) {
+    mime = String(m[1] || mime).trim() || mime;
+    payload = String(m[2] || "").trim();
+  }
+  try {
+    const buf = Buffer.from(payload.replace(/\s+/g, ""), "base64");
+    if (!buf.length) return null;
+    const dir = path.join(STATE_DIR, "media", "outbound");
+    ensureDir(dir);
+    const ext = inferExtension(mime || "application/octet-stream", String(att.name || att.filename || "").trim());
+    const filePath = path.join(dir, `${Date.now()}-${Math.random().toString(16).slice(2, 10)}${ext}`);
+    fs.writeFileSync(filePath, buf);
+    return { filePath, mime };
+  } catch {
+    return null;
+  }
+}
+
 async function handleInboundMessage(
   modules: OfficialModules,
   params: {
@@ -349,8 +375,18 @@ async function handleInboundMessage(
     const replyContextToken = String(
       reply.context_token || modules.getContextToken(params.accountId, deliverTo) || contextToken || "",
     ).trim();
-    if (mediaPath || mediaUrl) {
-      const filePath = mediaPath || mediaUrl;
+    const replyAtts = Array.isArray(reply.attachments) ? (reply.attachments as Json[]) : [];
+    let inlineMediaPath = "";
+    for (const att of replyAtts) {
+      if (!att || typeof att !== "object") continue;
+      const decoded = _decodeReplyBase64Attachment(att);
+      if (decoded?.filePath) {
+        inlineMediaPath = decoded.filePath;
+        break;
+      }
+    }
+    if (mediaPath || mediaUrl || inlineMediaPath) {
+      const filePath = mediaPath || mediaUrl || inlineMediaPath;
       await modules.sendWeixinMediaFile({
         filePath,
         to: deliverTo,

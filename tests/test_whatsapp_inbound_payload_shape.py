@@ -15,7 +15,23 @@ def test_inbound_whatsapp_accepts_basic_payload_and_returns_replies() -> None:
         assert str(payload.get("account_id") or "") == "wa-default"
         assert str(payload.get("user_id") or "") == "111@s.whatsapp.net"
         assert str(payload.get("chat_id") or "") == "111@s.whatsapp.net"
-        return {"ok": True, "replies": [{"chat_id": payload.get("chat_id"), "text": "ok"}]}
+        return {
+            "ok": True,
+            "replies": [
+                {
+                    "chat_id": payload.get("chat_id"),
+                    "text": "ok",
+                    "attachments": [
+                        {
+                            "type": "binary_ref",
+                            "name": "hello.txt",
+                            "mime_type": "text/plain",
+                            "data_base64": "aGVsbG8=",
+                        }
+                    ],
+                }
+            ],
+        }
 
     try:
         fastapi_app.process_inbound_payload_usecase = _fake_usecase  # type: ignore[assignment]
@@ -35,6 +51,9 @@ def test_inbound_whatsapp_accepts_basic_payload_and_returns_replies() -> None:
         replies = data.get("replies") if isinstance(data.get("replies"), list) else []
         assert replies and isinstance(replies[0], dict)
         assert str(replies[0].get("text") or "") == "ok"
+        atts = replies[0].get("attachments") if isinstance(replies[0].get("attachments"), list) else []
+        assert len(atts) == 1
+        assert str(atts[0].get("name") or "") == "hello.txt"
     finally:
         fastapi_app.process_inbound_payload_usecase = old_usecase  # type: ignore[assignment]
 

@@ -37,3 +37,12 @@ def test_start_all_gracefully_skips_missing_channel_sidecars() -> None:
     text = _read("runtime/operations/scripts/start_all.ps1")
     assert 'Warn "weixin sidecar skipped:' in text
     assert 'Warn "whatsapp sidecar skipped:' in text
+
+
+def test_whatsapp_runner_supports_reply_attachments_base64() -> None:
+    text = _read("runtime/operations/whatsapp_bridge/baileys_runner.ts")
+    assert "sendReplyWithAttachments" in text
+    assert "data_base64" in text
+    assert "media_base64" in text
+    assert "media_path" in text
+    assert "media_url" in text

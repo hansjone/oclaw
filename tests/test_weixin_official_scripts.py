@@ -49,3 +49,11 @@ def test_official_runner_logs_active_bridge_path() -> None:
     text = _read("runtime/operations/weixin_bridge/official_runner.ts")
     assert "official runner started account=" in text
     assert "native reply failed; no fallback enabled" in text
+
+
+def test_official_runner_supports_reply_attachments_base64() -> None:
+    text = _read("runtime/operations/weixin_bridge/official_runner.ts")
+    assert "_decodeReplyBase64Attachment" in text
+    assert "data_base64" in text
+    assert "media_base64" in text
+    assert "reply.attachments" in text

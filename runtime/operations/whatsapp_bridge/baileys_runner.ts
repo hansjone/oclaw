@@ -76,6 +76,72 @@ function buildInboundPayload(params: {
   };
 }
 
+function decodeBase64Payload(raw: string): { mime: string; data: Buffer } | null {
+  const s = String(raw || "").trim();
+  if (!s) return null;
+  let mime = "application/octet-stream";
+  let payload = s;
+  const m = s.match(/^data:([^;,]+);base64,(.*)$/i);
+  if (m) {
+    mime = String(m[1] || mime).trim() || mime;
+    payload = String(m[2] || "").trim();
+  }
+  try {
+    const data = Buffer.from(payload.replace(/\s+/g, ""), "base64");
+    if (!data.length) return null;
+    return { mime, data };
+  } catch {
+    return null;
+  }
+}
+
+async function sendReplyWithAttachments(params: {
+  sock: ReturnType<typeof makeWASocket> | null;
+  deliverTo: string;
+  text: string;
+  reply: Json;
+}): Promise<void> {
+  const s = params.sock;
+  if (!s) return;
+  const reply = params.reply || {};
+  const outText = String(params.text || "").trim();
+  const mediaPath = String((reply as any).media_path || (reply as any).mediaPath || "").trim();
+  const mediaUrl = String((reply as any).media_url || (reply as any).mediaUrl || "").trim();
+  const attachments = Array.isArray((reply as any).attachments) ? ((reply as any).attachments as Json[]) : [];
+
+  const sendMediaRef = async (source: string): Promise<boolean> => {
+    if (!source) return false;
+    const msg: Json = { document: source as any };
+    if (outText) (msg as any).caption = outText;
+    await s.sendMessage(params.deliverTo, msg as any);
+    return true;
+  };
+
+  if (await sendMediaRef(mediaPath || mediaUrl)) return;
+
+  for (const att of attachments) {
+    if (!att || typeof att !== "object") continue;
+    const raw = String(
+      (att as any).data_base64 || (att as any).media_base64 || (att as any).image_base64 || (att as any).data || "",
+    ).trim();
+    if (!raw) continue;
+    const decoded = decodeBase64Payload(raw);
+    if (!decoded) continue;
+    const msg: Json = {
+      document: decoded.data as any,
+      mimetype: decoded.mime,
+      fileName: String((att as any).name || (att as any).filename || "attachment.bin"),
+    };
+    if (outText) (msg as any).caption = outText;
+    await s.sendMessage(params.deliverTo, msg as any);
+    return;
+  }
+
+  if (outText) {
+    await s.sendMessage(params.deliverTo, { text: outText });
+  }
+}
+
 async function postInbound(payload: Json): Promise<Json> {
   const url = `${LOCAL_BASE_URL.replace(/\/+$/, "")}/inbound/whatsapp`;
   const res = await fetch(url, {
@@ -250,9 +316,8 @@ async function main(): Promise<void> {
           if (VERBOSE) log(`inbound ok replies=${replies.length}`);
           for (const r of replies) {
             const outText = String((r as any).text || "").trim();
-            if (!outText) continue;
             const deliverTo = String((r as any).chat_id || chatId).trim() || chatId;
-            await sock?.sendMessage(deliverTo, { text: outText });
+            await sendReplyWithAttachments({ sock, deliverTo, text: outText, reply: r });
           }
         } catch (err) {
           log(`handle message error: ${String(err)}`);
