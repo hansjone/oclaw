@@ -416,7 +416,7 @@ function _appendAssistantTextSegments(inner, rawText, collapsedItems) {
   }
 }
 
-function _buildAggregatedAssistantBubble(tsIso, items) {
+async function _buildAggregatedAssistantBubble(tsIso, items) {
   const inner = el("div", { class: "chat-msg chat-msg--assistant chat-msg--rich" });
   const collapsedItems = [];
   const _inlineImageHtmlFromAttachments = (raw) => {
@@ -453,8 +453,10 @@ function _buildAggregatedAssistantBubble(tsIso, items) {
       if (adminChatShowToolOutput) collapsedItems.push({ title: _toolSummaryTitle("tool_call"), text });
     } else if (kind === "tool_result") {
       if (adminChatShowToolOutput) collapsedItems.push({ title: _toolSummaryTitle("tool"), text });
-      const inlineImages = _inlineImageHtmlFromAttachments(it && it.attachments);
-      if (inlineImages) inner.appendChild(el("div", { class: "chat-msg__md", html: inlineImages }));
+      // 支持两类附件：base64（image/input_image）和引用型（image_ref）。
+      // image_ref 需要异步拉取 blob，因此改为走 renderAttachmentsEl()。
+      const attsEl = await renderAttachmentsEl(it && it.attachments);
+      if (attsEl) inner.appendChild(attsEl);
     } else {
       inner.appendChild(el("div", { class: "chat-msg__md", html: renderMarkdownHtml(text) }));
     }
@@ -2063,7 +2065,7 @@ async function appendMessageRow(messagesEl, m, options = {}) {
   const content = String(m.content || "");
   const ts = m.timestamp != null ? m.timestamp : "";
   const bubble = Array.isArray(m._items)
-    ? _buildAggregatedAssistantBubble(ts, m._items)
+    ? await _buildAggregatedAssistantBubble(ts, m._items)
     : await buildMessageBubble(role, content, ts);
   // For aggregated assistant bubbles, attachments should be rendered inline
   // at tool_result positions, not appended at bubble tail.

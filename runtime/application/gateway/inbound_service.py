@@ -319,6 +319,132 @@ def _parse_message_attachments(raw: Any) -> list[dict[str, Any]]:
     return [x for x in obj if isinstance(x, dict)]
 
 
+def _first_attachment_id(atts: list[dict[str, Any]]) -> str:
+    for a in atts or []:
+        if not isinstance(a, dict):
+            continue
+        aid = str(a.get("attachment_id") or a.get("attachmentId") or "").strip().lower()
+        if aid:
+            return aid
+    return ""
+
+
+def _collect_recent_tool_attachments(*, store: Any, session_id: str) -> list[dict[str, Any]]:
+    """Fallback for channel delivery: if assistant attachments are missing, reuse recent tool attachments.
+
+    This is intentionally conservative: only returns attachments when they look like media or refs.
+    """
+    sid = str(session_id or "").strip()
+    if not sid:
+        return []
+    try:
+        rows = store.get_messages(session_id=sid, limit=80)
+    except Exception:
+        rows = []
+    # Prefer newest tool attachments.
+    for row in reversed(list(rows or [])):
+        role = str(getattr(row, "role", "") or "").strip().lower()
+        if role != "tool":
+            continue
+        atts = _parse_message_attachments(getattr(row, "attachments", None))
+        if not atts:
+            continue
+        # Only accept common media/ref shapes.
+        ok = False
+        for a in atts:
+            if not isinstance(a, dict):
+                continue
+            t = str(a.get("type") or "").strip().lower()
+            if t in {"image_ref", "video_ref", "binary_ref", "text_ref", "image", "input_image", "image_url"}:
+                ok = True
+                break
+        if ok:
+            return atts
+    return []
+
+
+def _maybe_add_media_path_for_wechat_reply(reply: dict[str, Any]) -> None:
+    """For wechat/weixin sidecar, prefer a local file path for media send."""
+    try:
+        from oclaw.platform.files.attachment_assets import AttachmentAssetStore
+    except Exception:
+        return
+    if not isinstance(reply, dict):
+        return
+    if str(reply.get("media_path") or reply.get("mediaPath") or "").strip():
+        return
+    if str(reply.get("media_url") or reply.get("mediaUrl") or "").strip():
+        return
+    atts = reply.get("attachments") if isinstance(reply.get("attachments"), list) else []
+    aid = _first_attachment_id([a for a in atts if isinstance(a, dict)])
+    if not aid:
+        return
+    p = AttachmentAssetStore().get_local_path(aid)
+    if not p:
+        return
+    # use the existing runner field name
+    reply["media_path"] = str(p)
+
+
+def _maybe_expand_reply_attachments_for_channel(reply: dict[str, Any]) -> None:
+    """For chat sidecar delivery, convert attachment refs to base64 payloads.
+
+    The runner supports base64 keys like data_base64/media_base64/image_base64/data.
+    This avoids relying on sidecar being able to access gateway-local disk paths.
+    """
+    if not isinstance(reply, dict):
+        return
+    raw = reply.get("attachments")
+    if not isinstance(raw, list) or not raw:
+        return
+    # If already has base64 payloads, keep as-is.
+    for a in raw:
+        if not isinstance(a, dict):
+            continue
+        if str(
+            a.get("data_base64")
+            or a.get("media_base64")
+            or a.get("image_base64")
+            or a.get("video_base64")
+            or a.get("audio_base64")
+            or a.get("data")
+            or ""
+        ).strip():
+            return
+    # Expand first attachment ref only (avoid large payload).
+    a0 = next((a for a in raw if isinstance(a, dict)), None)
+    if not isinstance(a0, dict):
+        return
+    aid = str(a0.get("attachment_id") or a0.get("attachmentId") or "").strip().lower()
+    if not aid:
+        return
+    try:
+        import base64
+
+        from oclaw.platform.files.attachment_assets import AttachmentAssetStore
+    except Exception:
+        return
+    ast = AttachmentAssetStore()
+    blob, meta = ast.load_bytes(aid)
+    if not blob:
+        return
+    # Conservative cap to avoid blowing up channel payload.
+    max_bytes = 8 * 1024 * 1024
+    if len(blob) > max_bytes:
+        return
+    mime = (meta.mime if meta else "") or str(a0.get("mime") or a0.get("mime_type") or "application/octet-stream")
+    name = (meta.name if meta else "") or str(a0.get("name") or "attachment")
+    b64 = base64.b64encode(blob).decode("ascii")
+    reply["attachments"] = [
+        {
+            "name": name,
+            "mime": mime,
+            "media_type": mime,
+            "data_base64": b64,
+        }
+    ]
+
+
 def _collect_reply_attachments_from_history(*, store: Any, session_id: str, reply_text: str) -> list[dict[str, Any]]:
     sid = str(session_id or "").strip()
     if not sid:
@@ -573,6 +699,9 @@ def process_inbound_payload(payload: dict[str, Any]) -> dict[str, Any]:
     if adapter is not None:
         replies = [adapter.format_outbound(OutboundMessage(external_chat_id=inbound.external_chat_id, text=reply))]
     else:
+        if not reply_attachments:
+            # If assistant didn't persist attachments, fall back to recent tool-produced media.
+            reply_attachments = _collect_recent_tool_attachments(store=store, session_id=str(session_id))
         replies = [
             {
                 "channel": inbound.channel,
@@ -582,6 +711,14 @@ def process_inbound_payload(payload: dict[str, Any]) -> dict[str, Any]:
                 "metadata": {},
             }
         ]
+    # For wechat/weixin sidecar delivery, add a local media_path when reply attachments refer to attachment_id.
+    for r in replies or []:
+        if not isinstance(r, dict):
+            continue
+        ch = str(r.get("channel") or inbound.channel or "").strip().lower()
+        if ch in {"wechat", "weixin", "whatsapp"}:
+            _maybe_expand_reply_attachments_for_channel(r)
+            _maybe_add_media_path_for_wechat_reply(r)
     out = {"ok": True, "replies": replies}
     return out
 
