@@ -10,6 +10,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from oclaw.interfaces.http.fastapi_app import create_app
+from oclaw.interfaces.admin import routes as admin_routes
 from oclaw.platform.config.paths import db_path
 from oclaw.platform.persistence.sqlite_store import SqliteStore
 
@@ -160,6 +161,38 @@ class McpAdminApiTests(unittest.TestCase):
         self.assertTrue(data.get("ok"), data)
         self.assertEqual(str(data.get("server_id") or ""), "dummy-reinstall")
 
+    def test_update_from_saved_manifest_single_and_batch(self) -> None:
+        script = self._write_mcp_server()
+        store = SqliteStore(db_path())
+        store.upsert_mcp_server(
+            server_id="dummy-update",
+            source_type="npm",
+            source_ref="mcp-fetch-server",
+            entry_command="python",
+            entry_args=[script],
+            enabled=True,
+        )
+        single = self.client.post(
+            "/admin/api/mcp/update",
+            json={"server_id": "dummy-update", "dry_run": True, "update_to_latest": True},
+            headers=self._headers(),
+        )
+        self.assertEqual(single.status_code, 200)
+        d1 = single.json()
+        self.assertTrue(d1.get("ok"), d1)
+        self.assertEqual(int(d1.get("total") or 0), 1)
+        self.assertEqual(str((d1.get("items") or [{}])[0].get("server_id") or ""), "dummy-update")
+
+        batch = self.client.post(
+            "/admin/api/mcp/update",
+            json={"enabled_only": True, "dry_run": True, "update_to_latest": True},
+            headers=self._headers(),
+        )
+        self.assertEqual(batch.status_code, 200)
+        d2 = batch.json()
+        self.assertTrue(d2.get("ok"), d2)
+        self.assertGreaterEqual(int(d2.get("total") or 0), 1)
+
     def test_check_all_enabled_servers(self) -> None:
         script = self._write_mcp_server()
         store = SqliteStore(db_path())
@@ -256,6 +289,46 @@ class McpAdminApiTests(unittest.TestCase):
         row = next((x for x in items if str(x.get("server_id") or "") == "dummy-repair-disabled"), None)
         self.assertTrue(isinstance(row, dict))
         self.assertTrue(bool((row or {}).get("ok")), row)
+
+    def test_check_updates_reports_update_candidates(self) -> None:
+        store = SqliteStore(db_path())
+        store.upsert_mcp_server(
+            server_id="update-s1",
+            source_type="npm",
+            source_ref="demo-mcp",
+            version="1.0.0",
+            entry_command="python",
+            entry_args=["-V"],
+            enabled=True,
+        )
+        old_checker = admin_routes._check_mcp_update_row
+
+        def _fake_checker(row: dict[str, object]) -> dict[str, object]:
+            sid = str(row.get("server_id") or "")
+            return {
+                "server_id": sid,
+                "source_type": "npm",
+                "source_ref": "demo-mcp",
+                "current_version": "1.0.0",
+                "latest_version": "1.1.0",
+                "has_update": True,
+                "check_error": "",
+                "check_source": "npm:dist-tags.latest",
+            }
+
+        try:
+            admin_routes._check_mcp_update_row = _fake_checker  # type: ignore[assignment]
+            resp = self.client.post("/admin/api/mcp/check-updates", json={"enabled_only": True}, headers=self._headers())
+            self.assertEqual(resp.status_code, 200)
+            data = resp.json()
+            self.assertTrue(data.get("ok"), data)
+            self.assertGreaterEqual(int(data.get("update_count") or 0), 1)
+            items = data.get("items") or []
+            row = next((x for x in items if str(x.get("server_id") or "") == "update-s1"), None)
+            self.assertTrue(isinstance(row, dict))
+            self.assertTrue(bool((row or {}).get("has_update")), row)
+        finally:
+            admin_routes._check_mcp_update_row = old_checker  # type: ignore[assignment]
 
     def test_mcp_specialists_config(self) -> None:
         get_resp = self.client.get("/admin/api/mcp/specialists", headers=self._headers())

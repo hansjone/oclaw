@@ -4269,6 +4269,7 @@ async function renderPlugins() {
   let depStatus = { items: [] };
   let mcpBinding = { available_specialists: ["generalist"], servers: [], mapping: {} };
   let mcpUsage = { summary: [], calls: [] };
+  let mcpUpdateState = { byServer: {} };
   let mcpActionMenuEl = null;
   const closeMcpActionMenu = () => {
     if (mcpActionMenuEl && mcpActionMenuEl.parentNode) {
@@ -4344,6 +4345,53 @@ async function renderPlugins() {
       router();
     },
   });
+  const checkUpdatesBtn = el("button", {
+    class: "btn",
+    text: "Check Updates",
+    onclick: async () => {
+      const r = await apiPost("/admin/api/mcp/check-updates", { enabled_only: true });
+      const items = Array.isArray(r.items) ? r.items : [];
+      const next = {};
+      items.forEach((x) => {
+        const sid = String(x.server_id || "").trim();
+        if (!sid) return;
+        next[sid] = x;
+      });
+      mcpUpdateState.byServer = next;
+      const updates = items.filter((x) => !!x.has_update).map((x) => String(x.server_id || "-"));
+      installStatus.textContent =
+        `[check-updates] total=${Number(r.total || 0)} updates=${Number(r.update_count || 0)} ` +
+        (updates.length ? `(${updates.join(", ")})` : "(none)");
+      repaintMcpInstalled();
+    },
+  });
+  const updateOutdatedBtn = el("button", {
+    class: "btn",
+    text: "Update Outdated Only",
+    onclick: async () => {
+      const byServer = mcpUpdateState.byServer && typeof mcpUpdateState.byServer === "object" ? mcpUpdateState.byServer : {};
+      const outdated = Object.keys(byServer).filter((sid) => !!(byServer[sid] && byServer[sid].has_update));
+      if (!outdated.length) {
+        installStatus.textContent = "[update-outdated] no outdated MCPs. Click Check Updates first.";
+        return;
+      }
+      const results = [];
+      for (const sid of outdated) {
+        const r = await apiPost("/admin/api/mcp/update", {
+          server_id: sid,
+          update_to_latest: true,
+          sync_tools: true,
+        });
+        results.push({ server_id: sid, ok: !!r.ok, raw: r });
+      }
+      const okCount = results.filter((x) => x.ok).length;
+      installStatus.textContent =
+        `[update-outdated] total=${results.length} ok=${okCount} err=${results.length - okCount} ` +
+        results.map((x) => `${x.server_id}:${x.ok ? "ok" : "err"}`).join(" | ");
+      markPrewarmReminder("mcp_updated");
+      router();
+    },
+  });
   const e2eCheckBtn = el("button", {
     class: "btn",
     text: "E2E Check",
@@ -4355,6 +4403,27 @@ async function renderPlugins() {
         return `${sid}:${x.ok ? "ok" : ("err(" + String(x.error || "unknown") + ")")}`;
       });
       installStatus.textContent = `[e2e] ok=${Number(r.ok_count || 0)} err=${Number(r.error_count || 0)} session=${String(r.session_id || "-")} ${parts.join(" | ")}`;
+      router();
+    },
+  });
+  const updateAllBtn = el("button", {
+    class: "btn",
+    text: "Update Installed",
+    onclick: async () => {
+      const r = await apiPost("/admin/api/mcp/update", {
+        enabled_only: true,
+        update_to_latest: true,
+        sync_tools: true,
+      });
+      const items = Array.isArray(r.items) ? r.items : [];
+      const parts = items.map((x) => {
+        const sid = String(x.server_id || "-");
+        if (x.ok) return `${sid}:ok(sync=${Number(x.tools_synced || 0)})`;
+        return `${sid}:err(${String(x.error_code || "unknown")})`;
+      });
+      installStatus.textContent =
+        `[update-all] total=${Number(r.total || 0)} ok=${Number(r.ok_count || 0)} err=${Number(r.error_count || 0)} ${parts.join(" | ")}`;
+      markPrewarmReminder("mcp_updated");
       router();
     },
   });
@@ -5071,6 +5140,21 @@ async function renderPlugins() {
         router();
       },
     });
+    const updateBtn = el("button", {
+      class: "chat-sess-menu-item",
+      text: "Update",
+      onclick: async () => {
+        closeMcpActionMenu();
+        const r = await apiPost("/admin/api/mcp/update", {
+          server_id: sid,
+          update_to_latest: true,
+          sync_tools: true,
+        });
+        installStatus.textContent = `[update:${sid}] ` + JSON.stringify(r);
+        markPrewarmReminder("mcp_updated");
+        router();
+      },
+    });
     const uninstallBtn = el("button", {
       class: "chat-sess-menu-item",
       text: "Uninstall",
@@ -5109,6 +5193,7 @@ async function renderPlugins() {
           toggleBtn,
           healthBtn,
           syncBtn,
+          updateBtn,
           reinstallBtn,
           uninstallBtn,
           deleteBtn,
@@ -5137,6 +5222,14 @@ async function renderPlugins() {
       },
     });
     const tools = Array.isArray(x.tools) ? x.tools.map((t) => String(t.tool_name || "")).join(", ") : "";
+    const upd = (mcpUpdateState.byServer && mcpUpdateState.byServer[sid]) || null;
+    const updText = upd
+      ? (upd.check_error
+        ? `err:${String(upd.check_error || "").slice(0, 80)}`
+        : (upd.has_update
+          ? `update ${String(upd.current_version || "-")} -> ${String(upd.latest_version || "-")}`
+          : "up-to-date"))
+      : "-";
     const healthObj = x.health && typeof x.health === "object" ? x.health : {};
     const healthStatus = String(healthObj.status || "-");
     const healthDetail = healthObj.detail && typeof healthObj.detail === "object" ? healthObj.detail : {};
@@ -5153,6 +5246,7 @@ async function renderPlugins() {
       tdCell(String(x.version || ""), 16),
       tdCell(String(x.entry_command || ""), 24),
       tdCell(tools || "-", 48),
+      tdCell(updText, 28),
       tdCell(String(x.enabled ? 1 : 0), 8),
       el("td", { text: healthText, title: healthTitle }),
       el("td", { class: "table__cell-actions" }, [actionMenuBtn]),
@@ -5859,8 +5953,11 @@ pip install git+https://github.com/philschmid/code-sandbox-mcp.git && python -m 
     jsonInstallInput,
     el("div", { class: "row" }, [jsonInstallBtn]),
     el("div", { class: "row", style: "flex-wrap:wrap;align-items:center;gap:8px;" }, [
+      checkUpdatesBtn,
+      updateOutdatedBtn,
       checkAllBtn,
       e2eCheckBtn,
+      updateAllBtn,
       repairWeakBtn,
       repairWeakScopeLabel,
     ]),
@@ -5911,6 +6008,7 @@ pip install git+https://github.com/philschmid/code-sandbox-mcp.git && python -m 
           el("th", { text: "version" }),
           el("th", { text: "entry" }),
           el("th", { text: "tools" }),
+          el("th", { text: "update" }),
           el("th", { text: "enabled" }),
           el("th", { text: "health" }),
           el("th", { text: "actions" }),

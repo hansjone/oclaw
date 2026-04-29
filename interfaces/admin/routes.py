@@ -5,7 +5,10 @@ import hashlib
 import hmac
 import json
 import os
+import re
 import secrets
+from urllib import parse as urllib_parse
+from urllib import request as urllib_request
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -153,6 +156,106 @@ def _mcp_health_and_sync_one(store: SqliteStore, row: dict[str, Any]) -> dict[st
         return {"server_id": sid, "ok": True, "health": health, "tools_synced": len(tools)}
     finally:
         rt.stop()
+
+
+def _http_get_json(url: str, *, timeout: float = 8.0) -> dict[str, Any]:
+    req = urllib_request.Request(
+        url,
+        headers={
+            "accept": "application/json",
+            "user-agent": "oclaw-admin-mcp-check/1.0",
+        },
+        method="GET",
+    )
+    with urllib_request.urlopen(req, timeout=timeout) as resp:
+        raw = resp.read().decode("utf-8", errors="ignore")
+    data = json.loads(raw) if raw else {}
+    return data if isinstance(data, dict) else {}
+
+
+def _github_repo_from_source_ref(source_ref: str) -> str:
+    s = str(source_ref or "").strip()
+    if not s:
+        return ""
+    m = re.search(r"github\.com[:/]+([^/]+)/([^/#]+)", s, re.I)
+    if m:
+        owner = str(m.group(1) or "").strip()
+        repo = str(m.group(2) or "").strip().removesuffix(".git")
+        return f"{owner}/{repo}" if owner and repo else ""
+    if re.fullmatch(r"[^/\s]+/[^/\s]+", s):
+        return s
+    return ""
+
+
+def _detect_mcp_latest_version(source_type: str, source_ref: str) -> tuple[str, str]:
+    st = str(source_type or "").strip().lower()
+    sr = str(source_ref or "").strip()
+    if st == "npm":
+        pkg = urllib_parse.quote(sr, safe="@/")
+        data = _http_get_json(f"https://registry.npmjs.org/{pkg}")
+        tags = data.get("dist-tags") if isinstance(data.get("dist-tags"), dict) else {}
+        latest = str(tags.get("latest") or "").strip()
+        return latest, "npm:dist-tags.latest"
+    if st == "pypi":
+        pkg = urllib_parse.quote(sr, safe="")
+        data = _http_get_json(f"https://pypi.org/pypi/{pkg}/json")
+        info = data.get("info") if isinstance(data.get("info"), dict) else {}
+        latest = str(info.get("version") or "").strip()
+        return latest, "pypi:info.version"
+    if st == "github":
+        repo = _github_repo_from_source_ref(sr)
+        if not repo:
+            return "", "github:repo_parse_failed"
+        try:
+            data = _http_get_json(f"https://api.github.com/repos/{repo}/releases/latest")
+            latest = str(data.get("tag_name") or data.get("name") or "").strip()
+            if latest:
+                return latest, "github:releases.latest"
+        except Exception:
+            pass
+        data2 = _http_get_json(f"https://api.github.com/repos/{repo}/tags?per_page=1")
+        if isinstance(data2, list):  # defensive; _http_get_json returns dict for objects
+            return "", "github:tags_empty"
+        # GitHub tags endpoint returns list; if parse failed to dict, try raw fetch.
+        req = urllib_request.Request(
+            f"https://api.github.com/repos/{repo}/tags?per_page=1",
+            headers={"accept": "application/json", "user-agent": "oclaw-admin-mcp-check/1.0"},
+            method="GET",
+        )
+        with urllib_request.urlopen(req, timeout=8.0) as resp:
+            arr_raw = resp.read().decode("utf-8", errors="ignore")
+        arr = json.loads(arr_raw) if arr_raw else []
+        if isinstance(arr, list) and arr:
+            top = arr[0] if isinstance(arr[0], dict) else {}
+            return str(top.get("name") or "").strip(), "github:tags[0]"
+        return "", "github:no_release_or_tag"
+    return "", "unsupported_source_type"
+
+
+def _check_mcp_update_row(row: dict[str, Any]) -> dict[str, Any]:
+    sid = str(row.get("server_id") or "").strip()
+    source_type = str(row.get("source_type") or "").strip().lower()
+    source_ref = str(row.get("source_ref") or "").strip()
+    current_version = str(row.get("version") or "").strip()
+    out = {
+        "server_id": sid,
+        "source_type": source_type,
+        "source_ref": source_ref,
+        "current_version": current_version,
+        "latest_version": "",
+        "has_update": False,
+        "check_error": "",
+        "check_source": "",
+    }
+    try:
+        latest, src = _detect_mcp_latest_version(source_type, source_ref)
+        out["latest_version"] = latest
+        out["check_source"] = src
+        if latest and current_version and current_version not in {"latest", "*"} and current_version != latest:
+            out["has_update"] = True
+    except Exception as exc:
+        out["check_error"] = f"{type(exc).__name__}: {exc}"
+    return out
 
 
 def _enrich_wecom_channel_account(store: SqliteStore, tenant_id: str, user_id: str, item: dict[str, Any]) -> dict[str, Any]:
@@ -2772,6 +2875,127 @@ def build_admin_router() -> APIRouter:
             "mcp_migrated_saved": str(mcp_migrated_json_path()),
         }
 
+    @router.post("/admin/api/mcp/update")
+    def api_mcp_update(
+        payload: dict[str, Any] | None = Body(default=None),
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        payload = payload or {}
+        store = SqliteStore(db_path())
+        ctx = _resolve_auth(store, authorization)
+        _require_permission(ctx, "admin:tenant:write")
+        server_id = str(payload.get("server_id") or "").strip()
+        enabled_only = bool(payload.get("enabled_only", True))
+        dry_run = bool(payload.get("dry_run", False))
+        sync_tools = bool(payload.get("sync_tools", True))
+        version_override = str(payload.get("version") or "").strip()
+        update_to_latest = bool(payload.get("update_to_latest", True))
+
+        rows = store.list_mcp_servers(enabled_only=enabled_only if not server_id else False)
+        if server_id:
+            rows = [x for x in rows if str(x.get("server_id") or "").strip() == server_id]
+        if not rows:
+            return {"ok": False, "error": "server_not_found"}
+
+        apply_gateway_mcp_env_to_os()
+        out: list[dict[str, Any]] = []
+        for row in rows:
+            sid = str(row.get("server_id") or "").strip()
+            req_version = version_override
+            if not req_version:
+                req_version = "" if update_to_latest else str(row.get("version") or "").strip()
+            manifest = McpServerManifest(
+                server_id=sid,
+                source_type=str(row.get("source_type") or ""),
+                source_ref=str(row.get("source_ref") or ""),
+                version=req_version,
+                entry_command=str(row.get("entry_command") or ""),
+                entry_args=[str(x) for x in (row.get("entry_args") or []) if str(x).strip()],
+                env_schema=row.get("env_schema") if isinstance(row.get("env_schema"), dict) else {},
+                permissions=[str(x) for x in (row.get("required_permissions") or [])],
+                risk_level=str(row.get("risk_level") or "high"),
+                enabled=bool(row.get("enabled")),
+                timeout_s=float(row.get("timeout_s") or 30.0),
+            )
+            install = install_mcp_server(manifest, dry_run=dry_run)
+            store.upsert_mcp_server(
+                server_id=manifest.server_id,
+                source_type=manifest.source_type,
+                source_ref=manifest.source_ref,
+                version=manifest.version,
+                entry_command=manifest.entry_command,
+                entry_args=manifest.entry_args,
+                env_schema=manifest.env_schema,
+                required_permissions=manifest.permissions,
+                risk_level=manifest.risk_level,
+                timeout_s=manifest.timeout_s,
+                enabled=manifest.enabled if install.ok else False,
+            )
+            item: dict[str, Any] = {
+                "server_id": manifest.server_id,
+                "ok": bool(install.ok),
+                "error_code": str(install.error_code or ""),
+                "error": str(install.error or ""),
+                "install_command": str(install.install_command or ""),
+                "requested_version": req_version,
+                "tools_synced": 0,
+            }
+            if install.ok and sync_tools and (not dry_run):
+                latest_row = next(
+                    (x for x in store.list_mcp_servers(enabled_only=False) if str(x.get("server_id") or "") == sid),
+                    None,
+                )
+                if isinstance(latest_row, dict):
+                    hs = _mcp_health_and_sync_one(store, latest_row)
+                    if isinstance(hs, dict):
+                        item["tools_synced"] = int(hs.get("tools_synced") or 0)
+                        if not bool(hs.get("ok")):
+                            item["ok"] = False
+                            item["error_code"] = str(hs.get("error_code") or "mcp_sync_failed")
+                            item["error"] = str(hs.get("error") or "sync_failed")
+            store.add_mcp_installation_log(
+                server_id=manifest.server_id,
+                status="ok" if item["ok"] else "error",
+                error_code=str(item["error_code"] or None),
+                detail={
+                    "error": item["error"],
+                    "update": True,
+                    "requested_version": req_version,
+                    "tools_synced": int(item.get("tools_synced") or 0),
+                },
+                install_command=install.install_command,
+            )
+            out.append(item)
+
+        ok_count = len([x for x in out if bool(x.get("ok"))])
+        store.add_admin_audit_log(
+            actor_tenant_id=ctx["tenant_id"],
+            actor_user_id=ctx["user_id"],
+            action="mcp_update" if server_id else "mcp_update_batch",
+            target_type="mcp_server",
+            target_id=server_id or "batch",
+            status="ok" if ok_count == len(out) else "error",
+            detail={
+                "enabled_only": enabled_only,
+                "dry_run": dry_run,
+                "sync_tools": sync_tools,
+                "update_to_latest": update_to_latest,
+                "requested_version": version_override,
+                "ok_count": ok_count,
+                "error_count": len(out) - ok_count,
+            },
+        )
+        if ok_count > 0:
+            persist_mcp_migrated_file(store)
+        return {
+            "ok": ok_count == len(out),
+            "total": len(out),
+            "ok_count": ok_count,
+            "error_count": len(out) - ok_count,
+            "items": out,
+            "mcp_migrated_saved": str(mcp_migrated_json_path()),
+        }
+
     @router.post("/admin/api/mcp/uninstall")
     def api_mcp_uninstall(
         payload: dict[str, Any] | None = Body(default=None),
@@ -3032,6 +3256,27 @@ def build_admin_router() -> APIRouter:
                 out.append(item)
         ok_count = len([x for x in out if bool(x.get("ok"))])
         return {"ok": True, "total": len(out), "ok_count": ok_count, "error_count": len(out) - ok_count, "items": out}
+
+    @router.post("/admin/api/mcp/check-updates")
+    def api_mcp_check_updates(
+        payload: dict[str, Any] | None = Body(default=None),
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        payload = payload or {}
+        store = SqliteStore(db_path())
+        ctx = _resolve_auth(store, authorization)
+        _require_permission(ctx, "admin:tenant:write")
+        enabled_only = bool(payload.get("enabled_only", True))
+        rows = store.list_mcp_servers(enabled_only=enabled_only)
+        items = [_check_mcp_update_row(row) for row in rows]
+        update_count = len([x for x in items if bool(x.get("has_update"))])
+        return {
+            "ok": True,
+            "total": len(items),
+            "update_count": update_count,
+            "up_to_date_count": len(items) - update_count,
+            "items": items,
+        }
 
     @router.post("/admin/api/mcp/repair-weak")
     def api_mcp_repair_weak(
