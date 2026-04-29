@@ -42,6 +42,7 @@ def _unified_skill_policy_guidance() -> str:
         "- 不要为了“列出技能”而去读取 SKILL.md。只有在你确实需要某个技能的详细使用说明时，才读取对应 SKILL.md。\n"
         "- 当你需要技能细节时，请按目录中给出的 path 读取对应的 SKILL.md。\n"
         "- 当对话涉及长期记忆、用户身份/偏好、项目背景延续、复发问题沉淀时，优先启用 wiki-first-autonomy 技能，并优先使用 memory_wiki_search/memory_wiki_get 检索上下文，再执行与回复。\n"
+        "- memory wiki 默认根路径为 `data/wiki`（例如 `data/wiki/improvement/learnings.md`）；未被用户明确覆盖时，统一按该路径读写与检索。\n"
         "- 当新增事实会影响后续决策时，完成当前任务后使用 memory_wiki_apply 写入结构化记忆，并用 memory_wiki_lint 做质量检查。\n"
         "- 技能包由说明文档和可选文件组成。运行时不会自动执行技能 `scripts/` 目录下的文件；\n"
         "- internal hooks 是独立系统，也不会自动执行这些脚本。\n"

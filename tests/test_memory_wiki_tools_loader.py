@@ -1,0 +1,37 @@
+from __future__ import annotations
+
+from oclaw.runtime.tools.experts.memory.wiki_tools import (
+    memory_wiki_apply_tool,
+    memory_wiki_get_tool,
+    memory_wiki_lint_tool,
+    memory_wiki_search_tool,
+    memory_wiki_status_tool,
+)
+
+
+def test_memory_wiki_tools_handlers_load_without_dataclass_module_error() -> None:
+    status = memory_wiki_status_tool().handler({})
+    assert isinstance(status, dict)
+    assert "AttributeError" not in str(status.get("error", ""))
+    assert "__dict__" not in str(status.get("error", ""))
+
+    search = memory_wiki_search_tool().handler({"query": "test"})
+    assert isinstance(search, dict)
+    assert "AttributeError" not in str(search.get("error", ""))
+    assert "__dict__" not in str(search.get("error", ""))
+
+    get_res = memory_wiki_get_tool().handler({"path": "improvement/learnings.md"})
+    assert isinstance(get_res, dict)
+    assert "AttributeError" not in str(get_res.get("error", ""))
+    assert "__dict__" not in str(get_res.get("error", ""))
+
+    lint = memory_wiki_lint_tool().handler({})
+    assert isinstance(lint, dict)
+    assert "AttributeError" not in str(lint.get("error", ""))
+    assert "__dict__" not in str(lint.get("error", ""))
+
+    apply_res = memory_wiki_apply_tool().handler({"action": "delete", "path": "improvement/_nonexistent_test_.md"})
+    assert isinstance(apply_res, dict)
+    assert "AttributeError" not in str(apply_res.get("error", ""))
+    assert "__dict__" not in str(apply_res.get("error", ""))
+

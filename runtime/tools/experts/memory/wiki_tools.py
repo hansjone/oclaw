@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import sys
 from types import SimpleNamespace
 from typing import Any, Callable
 
@@ -30,6 +31,9 @@ def _wiki_handlers() -> dict[str, Callable[[dict[str, Any]], dict[str, Any]]]:
     if spec is None or spec.loader is None:
         return {}
     mod = importlib.util.module_from_spec(spec)
+    # Register module before exec so decorators (e.g., @dataclass) can resolve
+    # cls.__module__ via sys.modules during import-time processing.
+    sys.modules[spec.name] = mod
     spec.loader.exec_module(mod)  # type: ignore[assignment]
     fn = getattr(mod, "build_wiki_tool_specs", None)
     if not callable(fn):
