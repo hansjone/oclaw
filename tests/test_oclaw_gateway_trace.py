@@ -225,7 +225,7 @@ def test_gateway_comprehensive_mode_manager_first_selects_specialist(monkeypatch
     class _ManagerModel:
         def chat(self, _messages, _tools, *, on_token=None):
             return LLMResponse(
-                content='{"route":{"specialist":"image","reason":"needs image edits"},"dispatch":{"instruction_text":"Please edit the image background."}}',
+                content='{"route":{"specialist":"generalist","reason":"needs image edits"},"dispatch":{"instruction_text":"Please edit the image background."}}',
                 tool_calls=[],
             )
 
@@ -239,8 +239,8 @@ def test_gateway_comprehensive_mode_manager_first_selects_specialist(monkeypatch
         "oclaw.runtime.gateway.get_manager_prompt_prebuild",
         lambda **kwargs: {
             "manager_context": "manager",
-            "allowed_fixed": ("generalist", "ops", "image", "memory"),
-            "allowed_fixed_quoted": '"generalist", "ops", "image", "memory"',
+            "allowed_fixed": ("generalist", "ops", "memory"),
+            "allowed_fixed_quoted": '"generalist", "ops", "memory"',
         },
     )
     captured: dict = {}
@@ -272,8 +272,8 @@ def test_gateway_comprehensive_mode_manager_first_selects_specialist(monkeypatch
     )
     out = gw.handle_turn(msg=msg, lang="en", executor=_Exec(model=_ManagerModel()), specialist_executor_factory=_factory)
     assert out.interaction_mode == "comprehensive"
-    assert out.selected_specialist == "image"
-    assert chosen.get("sid") == "image"
+    assert out.selected_specialist == "generalist"
+    assert chosen.get("sid") == "generalist"
     assert captured.get("exec_text") == "Please edit the image background."
     assert captured.get("persisted_user_text") == "edit this image background"
 
@@ -308,8 +308,8 @@ def test_gateway_comprehensive_mode_writes_task_assignment_reasoning(monkeypatch
         "oclaw.runtime.gateway.get_manager_prompt_prebuild",
         lambda **kwargs: {
             "manager_context": "manager",
-            "allowed_fixed": ("generalist", "ops", "image", "memory"),
-            "allowed_fixed_quoted": '"generalist", "ops", "image", "memory"',
+            "allowed_fixed": ("generalist", "ops", "memory"),
+            "allowed_fixed_quoted": '"generalist", "ops", "memory"',
         },
     )
     monkeypatch.setattr(
@@ -367,8 +367,8 @@ def test_gateway_comprehensive_ignores_wiki_inject_flags(monkeypatch: pytest.Mon
         "oclaw.runtime.gateway.get_manager_prompt_prebuild",
         lambda **kwargs: {
             "manager_context": "manager",
-            "allowed_fixed": ("generalist", "ops", "image", "memory"),
-            "allowed_fixed_quoted": '"generalist", "ops", "image", "memory"',
+            "allowed_fixed": ("generalist", "ops", "memory"),
+            "allowed_fixed_quoted": '"generalist", "ops", "memory"',
         },
     )
     captured: dict[str, object] = {}
@@ -430,8 +430,8 @@ def test_gateway_comprehensive_mode_has_manager_final_pass(monkeypatch: pytest.M
         "oclaw.runtime.gateway.get_manager_prompt_prebuild",
         lambda **kwargs: {
             "manager_context": "manager",
-            "allowed_fixed": ("generalist", "ops", "image", "memory"),
-            "allowed_fixed_quoted": '"generalist", "ops", "image", "memory"',
+            "allowed_fixed": ("generalist", "ops", "memory"),
+            "allowed_fixed_quoted": '"generalist", "ops", "memory"',
         },
     )
     monkeypatch.setattr(
@@ -486,8 +486,8 @@ def test_gateway_comprehensive_mode_dynamic_agent_dispatches_instruction_only(mo
         "oclaw.runtime.gateway.get_manager_prompt_prebuild",
         lambda **kwargs: {
             "manager_context": "manager",
-            "allowed_fixed": ("generalist", "ops", "image", "memory"),
-            "allowed_fixed_quoted": '"generalist", "ops", "image", "memory"',
+            "allowed_fixed": ("generalist", "ops", "memory"),
+            "allowed_fixed_quoted": '"generalist", "ops", "memory"',
         },
     )
     monkeypatch.setattr("oclaw.runtime.gateway.build_ephemeral_executor", lambda *args, **kwargs: _Exec(model=object()))
@@ -549,8 +549,8 @@ def test_gateway_comprehensive_mode_ignores_manager_self_and_dispatches_speciali
         "oclaw.runtime.gateway.get_manager_prompt_prebuild",
         lambda **kwargs: {
             "manager_context": "manager",
-            "allowed_fixed": ("generalist", "ops", "image", "memory"),
-            "allowed_fixed_quoted": '"generalist", "ops", "image", "memory"',
+            "allowed_fixed": ("generalist", "ops", "memory"),
+            "allowed_fixed_quoted": '"generalist", "ops", "memory"',
         },
     )
 
@@ -626,8 +626,8 @@ def test_gateway_comprehensive_mode_suppresses_instruction_echo(monkeypatch: pyt
         "oclaw.runtime.gateway.get_manager_prompt_prebuild",
         lambda **kwargs: {
             "manager_context": "manager",
-            "allowed_fixed": ("generalist", "ops", "image", "memory"),
-            "allowed_fixed_quoted": '"generalist", "ops", "image", "memory"',
+            "allowed_fixed": ("generalist", "ops", "memory"),
+            "allowed_fixed_quoted": '"generalist", "ops", "memory"',
         },
     )
 

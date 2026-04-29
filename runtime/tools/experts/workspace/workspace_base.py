@@ -19,7 +19,8 @@ def _env_truthy(name: str) -> bool:
 
 def workspace_root() -> Path:
     # Allow explicit override (recommended when running as a packaged app)
-    override = (os.getenv("AIA_WORKSPACE_ROOT") or os.getenv("OPS_WORKSPACE_ROOT") or "").strip()
+    # Prefer legacy OPS_* overrides when explicitly provided (tests + backwards compatibility).
+    override = (os.getenv("OPS_WORKSPACE_ROOT") or os.getenv("AIA_WORKSPACE_ROOT") or "").strip()
     if override:
         p = Path(override).expanduser()
         return p.resolve()
@@ -50,9 +51,9 @@ class WorkspacePathAccess:
 
 
 def access_from_env() -> WorkspacePathAccess:
-    raw_extra = os.getenv("AIA_WORKSPACE_EXTRA_ROOTS") or os.getenv("OPS_WORKSPACE_EXTRA_ROOTS") or ""
+    raw_extra = os.getenv("OPS_WORKSPACE_EXTRA_ROOTS") or os.getenv("AIA_WORKSPACE_EXTRA_ROOTS") or ""
     extra = _parse_pipe_separated_roots(raw_extra)
-    allow = _env_truthy("AIA_WORKSPACE_ALLOW_ANY_PATH") or _env_truthy("OPS_WORKSPACE_ALLOW_ANY_PATH")
+    allow = _env_truthy("OPS_WORKSPACE_ALLOW_ANY_PATH") or _env_truthy("AIA_WORKSPACE_ALLOW_ANY_PATH")
     return WorkspacePathAccess(extra_roots=tuple(extra), allow_any_path=allow)
 
 

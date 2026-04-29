@@ -14,7 +14,7 @@ class _DummyStore:
 
 
 def test_get_manager_prompt_prebuild_includes_structured_skills(monkeypatch) -> None:
-    monkeypatch.setattr(pp, "discover_specialist_ids", lambda: ("generalist", "ops", "image", "memory"))
+    monkeypatch.setattr(pp, "discover_specialist_ids", lambda: ("generalist", "ops", "memory"))
     monkeypatch.setattr(
         pp,
         "list_experts",

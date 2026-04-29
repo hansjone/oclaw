@@ -471,7 +471,9 @@ body.theme-ds-body .card {
 
 /* 与 .chat-avatar-slot 48px + .chat-row gap 10px 一致 */
 .chat-msg-col--assistant {
-  width: min(max(0px, calc(50% + 2cm - 58px)), 100%);
+  /* 宽度随容器自适应，但最宽限制为 50% + 2cm（扣除头像轨 58px）。 */
+  flex: 1 1 auto;
+  width: auto;
   max-width: min(max(0px, calc(50% + 2cm - 58px)), 100%);
 }
 

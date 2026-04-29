@@ -28,6 +28,42 @@ Put hooks in any of:
 
 Each hook directory needs `HOOK.md` (YAML frontmatter with `metadata.oclaw.events`) plus one handler file as above.
 
+### Session-bootstrap integration (verified)
+
+`session-bootstrap` is wired into the hooks runtime and loads on `agent:bootstrap`.
+
+- Hook package path: `runtime/skills/session-bootstrap/hooks/runtime/`
+- Manifest: `HOOK.md` (`metadata.oclaw.events: ["agent:bootstrap"]`)
+- Handler: `handler.py` (`handle(event)`)
+- Runtime source type: `oclaw-managed` (skill `hooks/` dirs are merged into `hooks.internal.load.extraDirs`)
+
+#### End-to-end effect
+
+1. Runtime discovers the skill hook directory.
+2. Loader registers `session-bootstrap` on `agent:bootstrap`.
+3. Bootstrap event triggers `handle(event)`.
+4. Handler injects virtual `SESSION_BOOTSTRAP.md` into `event.context.bootstrapFiles`.
+5. Agent bootstrap context consumes that file for continuity (identity + recent memory + wiki signals).
+
+Current wiki inputs used by `session-bootstrap` include:
+
+- `data/wiki/core/*.md` (auto-discovered, sorted by filename; extensible for OSS contributors)
+- `data/wiki/experts/<role>/*.md` (role-scoped rules, loaded when current `agentId` matches `<role>`)
+- `data/wiki/improvement/learnings.md`
+- `data/wiki/improvement/errors.md`
+- `data/wiki/improvement/feature-requests.md`
+
+For open-source extensibility, contributors only need to add new Markdown files under `data/wiki/core/` (for example `tone-style.md`), and bootstrap will include them automatically.
+For role-specific behavior, contributors can add files under `data/wiki/experts/<role>/` (for example `experts/generalist/style.md`).
+
+#### Quick check
+
+```bash
+python -m oclaw.runtime.operations hooks info session-bootstrap --workspace "D:/project/chatgpt/oclaw" --json
+```
+
+Expected key fields: `enabled_by_config=true`, `eligible=true`, `loadable=true`.
+
 ### Remote eligibility on inbound messages
 
 Callers (e.g. gateway) may attach JSON metadata:

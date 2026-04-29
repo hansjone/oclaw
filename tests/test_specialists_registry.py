@@ -18,4 +18,3 @@ def test_agent_role_ids_uses_runtime_discovery(monkeypatch) -> None:
 def test_builtin_specialists_include_memory_tools() -> None:
     assert "memory" in specialists_mod.expert_name_for_specialist("generalist")
     assert "memory" in specialists_mod.expert_name_for_specialist("ops")
-    assert "memory" in specialists_mod.expert_name_for_specialist("image")

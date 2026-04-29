@@ -106,7 +106,7 @@ def test_interaction_mode_normalization_supports_legacy_values() -> None:
 
 def test_requested_specialist_normalization_defaults_to_generalist() -> None:
     assert normalize_requested_specialist("ops") == "ops"
-    assert normalize_requested_specialist("image") == "image"
+    assert normalize_requested_specialist("image") == "generalist"
     assert normalize_requested_specialist("memory") == "memory"
     assert normalize_requested_specialist("unknown") == "generalist"
 

@@ -3445,6 +3445,7 @@ async function renderChatUi() {
     let hasRealStreamText = false;
     let sawWsChatEvent = false;
     let sawWsTerminalEvent = false;
+    let sawStreamToolRefAttachments = false;
     let markerState = { p: 0, e: false, ep: 0, t: 0, s: 0, k: 0, reclaimed: 0 };
     let turnAcceptedAtMs = null;
     let phaseRunningAtMs = null;
@@ -3796,6 +3797,31 @@ ${autoLimit ? `<div style="margin-top:8px;"><span class="muted">auto-added claus
       const body = formatToolPanelText(name, rawPayload, { streamMode: true });
       const sqlAudit = extractSqlAuditPayload(rawPayload);
       const images = extractToolImageItems(rawPayload);
+      const _containsRefAttachments = (obj, depth = 0) => {
+        if (!obj || typeof obj !== "object" || depth > 4) return false;
+        // Common case: { attachments: [...] }
+        if (Array.isArray(obj.attachments)) {
+          for (const att of obj.attachments) {
+            if (!att || typeof att !== "object") continue;
+            const typ = String(att.type || "").toLowerCase();
+            if (!typ) continue;
+            if (typ.endsWith("_ref") || typ === "relay_pointer") return true;
+          }
+        }
+        // Recurse a few common container keys first.
+        const keys = ["result", "payload", "message", "data", "output"];
+        for (const k of keys) {
+          if (k in obj && _containsRefAttachments(obj[k], depth + 1)) return true;
+        }
+        // Shallow scan other object values (bounded).
+        let scanned = 0;
+        for (const v of Object.values(obj)) {
+          if (scanned++ > 12) break;
+          if (_containsRefAttachments(v, depth + 1)) return true;
+        }
+        return false;
+      };
+      if (_containsRefAttachments(rawPayload)) sawStreamToolRefAttachments = true;
       chatStreamSegments.push({ type: "tool", key, title: `${name} ${liveTag}`, body, sqlAudit, images });
     };
     const appendFinalAssistant = async (message, fallbackText) => {
@@ -3954,6 +3980,15 @@ ${autoLimit ? `<div style="margin-top:8px;"><span class="muted">auto-added claus
                 renderStreamComposite();
                 _markStreamTerminal("end", t("chat.status.end"));
                 ok = true;
+              } else if (sawStreamToolRefAttachments) {
+                // Streaming UI cannot render image_ref/relay_pointer; recover from persisted history so images appear
+                // without requiring a manual refresh.
+                try {
+                  if (streamRow && streamRow.parentNode) streamRow.remove();
+                } catch (_) {}
+                await loadMessagesForActive();
+                scrollMessagesToBottom(true);
+                ok = true;
               } else {
                 ok = await appendFinalAssistant(payload.message, chatStream || extractWsAssistantText(payload.message || {}));
               }
@@ -3961,6 +3996,7 @@ ${autoLimit ? `<div style="margin-top:8px;"><span class="muted">auto-added claus
               chatStream = "";
               streamTextBuffer = "";
               chatRunId = null;
+              sawStreamToolRefAttachments = false;
               const streamedEnough = hasRealStreamText || chatStreamSegments.length > 0 || sawWsChatEvent;
               turnFinalized = true;
               turnStreamedEnough = streamedEnough;

@@ -44,8 +44,6 @@ def normalize_requested_specialist(raw: Any) -> SpecialistId:
     specialist = str(raw or "").strip().lower()
     if specialist == "ops":
         return "ops"
-    if specialist == "image":
-        return "image"
     if specialist == "memory":
         return "memory"
     return "generalist"

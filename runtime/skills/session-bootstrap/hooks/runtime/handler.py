@@ -74,6 +74,36 @@ def _latest_memory_file(ws_dir: Path | None) -> Path | None:
     return files[0]
 
 
+def _core_markdown_files(wiki_root: Path) -> list[Path]:
+    core_dir = wiki_root / "core"
+    if not core_dir.exists() or not core_dir.is_dir():
+        return []
+    files = [p for p in core_dir.glob("*.md") if p.is_file()]
+    files.sort(key=lambda p: p.name.lower())
+    return files
+
+
+def _agent_role(event: Any) -> str:
+    ctx = getattr(event, "context", None)
+    if isinstance(ctx, dict):
+        rid = str(ctx.get("agentId") or "").strip().lower()
+        if rid:
+            return rid
+    return ""
+
+
+def _role_markdown_files(wiki_root: Path, role_id: str) -> list[Path]:
+    rid = str(role_id or "").strip().lower()
+    if not rid:
+        return []
+    role_dir = wiki_root / "experts" / rid
+    if not role_dir.exists() or not role_dir.is_dir():
+        return []
+    files = [p for p in role_dir.glob("*.md") if p.is_file()]
+    files.sort(key=lambda p: p.name.lower())
+    return files
+
+
 def _last_nonempty_line(text: str) -> str:
     lines = [ln.strip() for ln in str(text or "").splitlines() if ln.strip()]
     if not lines:
@@ -106,6 +136,9 @@ def _build_bootstrap_content(event: Any) -> str:
     ident = repo / "runtime" / "skills" / "session-bootstrap" / "IDENTITY.md"
     mem_file = _latest_memory_file(ws_dir)
 
+    role_id = _agent_role(event)
+    core_files = _core_markdown_files(wiki)
+    role_files = _role_markdown_files(wiki, role_id)
     learnings = wiki / "improvement" / "learnings.md"
     errors = wiki / "improvement" / "errors.md"
     feats = wiki / "improvement" / "feature-requests.md"
@@ -113,6 +146,16 @@ def _build_bootstrap_content(event: Any) -> str:
     soul_txt = _safe_read(soul, max_chars=800)
     ident_txt = _safe_read(ident, max_chars=800)
     mem_txt = _safe_read(mem_file, max_chars=900) if mem_file else ""
+    core_lines: list[str] = []
+    for p in core_files:
+        snap = _safe_read(p, max_chars=500)
+        core_lines.append(f"### {p.name}\n{snap or '(缺失)'}")
+    core_txt = "\n\n".join(core_lines).strip()
+    role_lines: list[str] = []
+    for p in role_files:
+        snap = _safe_read(p, max_chars=500)
+        role_lines.append(f"### {p.name}\n{snap or '(缺失)'}")
+    role_txt = "\n\n".join(role_lines).strip()
     lrn_txt = _safe_read(learnings, max_chars=900)
 
     topic = _extract_recent_topic(mem_txt) or "近期项目上下文"
@@ -121,6 +164,8 @@ def _build_bootstrap_content(event: Any) -> str:
     welcome = f"欢迎回来，{developer}。上次我们聊了{topic}，我学到了{learning}。"
 
     mem_path = str(mem_file) if mem_file else "(无)"
+    core_sources = ", ".join(str(p) for p in core_files) if core_files else "(无)"
+    role_sources = ", ".join(str(p) for p in role_files) if role_files else "(无)"
     return (
         "# 会话唤醒摘要\n\n"
         f"{welcome}\n\n"
@@ -128,11 +173,16 @@ def _build_bootstrap_content(event: Any) -> str:
         "1. SOUL.md\n"
         "2. IDENTITY.md\n"
         "3. memory 最新记录\n"
-        "4. Wiki 改进记录\n\n"
+        "4. Wiki core 行为规则\n"
+        "5. Wiki 角色规则（如存在）\n"
+        "6. Wiki 改进记录\n\n"
         "## 来源\n"
         f"- SOUL: {soul}\n"
         f"- IDENTITY: {ident}\n"
         f"- memory 最新记录: {mem_path}\n"
+        f"- 当前角色: {role_id or '(未知)'}\n"
+        f"- Wiki core 规则文件: {core_sources}\n"
+        f"- Wiki 角色规则文件: {role_sources}\n"
         f"- Wiki 学习记录: {learnings}\n"
         f"- Wiki 错误记录: {errors}\n"
         f"- Wiki 需求记录: {feats}\n\n"
@@ -142,6 +192,10 @@ def _build_bootstrap_content(event: Any) -> str:
         f"{ident_txt or '(缺失)'}\n\n"
         "## 最近会话快照\n"
         f"{mem_txt or '(缺失)'}\n\n"
+        "## Core 规则快照\n"
+        f"{core_txt or '(缺失)'}\n\n"
+        "## 角色规则快照\n"
+        f"{role_txt or '(缺失)'}\n\n"
         "## 最近学习快照\n"
         f"{lrn_txt or '(缺失)'}\n"
     )
