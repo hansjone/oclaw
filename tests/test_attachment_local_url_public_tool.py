@@ -36,11 +36,22 @@ def test_attachment_local_url_builds_absolute_url(monkeypatch) -> None:
     aid = "a" * 64
     out = spec.handler({"attachment_id": aid})
     assert out.get("ok") is True
+    assert str(out.get("file_url") or "").startswith("file:///")
+    assert out.get("mime") == "image/png"
+    assert "exists" not in out
+    assert "local_path" not in out
+    assert "preferred_url" not in out
+
+
+def test_attachment_local_url_verbose_includes_debug_fields(monkeypatch) -> None:
+    monkeypatch.setattr("oclaw.runtime.tools.public.attachment_local_url_tool.AttachmentAssetStore", _FakeStore)
+    spec = attachment_local_url_tool()
+    aid = "a" * 64
+    out = spec.handler({"attachment_id": aid, "verbose": True})
+    assert out.get("ok") is True
     assert out.get("exists") is True
     assert str(out.get("local_path") or "").endswith("cat.png")
-    assert str(out.get("file_url") or "").startswith("file:///")
     assert out.get("preferred_url") == out.get("file_url")
-    assert out.get("mime") == "image/png"
 
 
 def test_attachment_local_url_is_visible_in_public_registry() -> None:

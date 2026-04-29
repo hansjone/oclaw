@@ -13,6 +13,7 @@ _ATTACHMENT_ID_RE = re.compile(r"^[a-f0-9]{64}$")
 def attachment_local_url_tool() -> ToolSpec:
     def _handler(args: dict[str, Any]) -> dict[str, Any]:
         attachment_id = str(args.get("attachment_id") or "").strip().lower()
+        verbose = bool(args.get("verbose"))
         if not attachment_id:
             return {"ok": False, "error": "attachment_id_required"}
         if not _ATTACHMENT_ID_RE.fullmatch(attachment_id):
@@ -24,18 +25,20 @@ def attachment_local_url_tool() -> ToolSpec:
         local_path_text = str(local_path) if local_path else ""
         file_url = Path(local_path).resolve().as_uri() if local_path else ""
 
-        return {
+        out = {
             "ok": True,
             "attachment_id": attachment_id,
-            "exists": bool(meta or local_path),
-            # For direct rendering in desktop/electron contexts, prefer file URL first.
-            "preferred_url": file_url or local_path_text,
             "mime": str(getattr(meta, "mime", "") or ""),
             "name": str(getattr(meta, "name", "") or ""),
             "bytes": int(getattr(meta, "bytes", 0) or 0),
-            "local_path": local_path_text,
             "file_url": file_url,
         }
+        if verbose:
+            # Keep debug/context fields opt-in to reduce response noise.
+            out["exists"] = bool(meta or local_path)
+            out["local_path"] = local_path_text
+            out["preferred_url"] = file_url or local_path_text
+        return out
 
     return ToolSpec(
         name="attachment_local_url",
@@ -44,6 +47,10 @@ def attachment_local_url_tool() -> ToolSpec:
             "type": "object",
             "properties": {
                 "attachment_id": {"type": "string", "description": "Stored attachment id."},
+                "verbose": {
+                    "type": "boolean",
+                    "description": "When true, include extra debug fields (exists/local_path/preferred_url).",
+                },
             },
             "required": ["attachment_id"],
             "additionalProperties": False,
