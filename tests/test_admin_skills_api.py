@@ -210,6 +210,9 @@ class AdminSkillsApiTests(unittest.TestCase):
         self.assertEqual(c.status_code, 200, c.text)
         body = c.json() or {}
         self.assertTrue(body.get("ok"))
+        result_create = body.get("result") if isinstance(body.get("result"), dict) else {}
+        self.assertIn("auto_enabled", result_create)
+        self.assertIn("binding_applied_roles", result_create)
 
         r1 = self.client.post(
             "/admin/api/skills/test-run",

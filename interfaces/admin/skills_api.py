@@ -308,7 +308,18 @@ def include_skill_routes(
             status="ok" if out.ok else "fail",
             detail={"runtime_type": runtime_type, "detail": out.detail, "target_dir": out.target_dir},
         )
-        return {"ok": bool(out.ok), "result": {"name": out.name, "target_dir": out.target_dir, "detail": out.detail, "error_code": out.error_code, "retryable": bool(out.retryable)}}
+        return {
+            "ok": bool(out.ok),
+            "result": {
+                "name": out.name,
+                "target_dir": out.target_dir,
+                "detail": out.detail,
+                "error_code": out.error_code,
+                "retryable": bool(out.retryable),
+                "auto_enabled": bool(getattr(out, "auto_enabled", False)),
+                "binding_applied_roles": list(getattr(out, "binding_applied_roles", ()) or []),
+            },
+        }
 
     @sk.get("/binding")
     def api_skills_binding_get(authorization: str | None = Header(default=None)) -> dict[str, Any]:
@@ -489,6 +500,8 @@ def include_skill_routes(
                 "detail": out.detail,
                 "error_code": out.error_code,
                 "retryable": bool(out.retryable),
+                "auto_enabled": bool(getattr(out, "auto_enabled", False)),
+                "binding_applied_roles": list(getattr(out, "binding_applied_roles", ()) or []),
             },
         }
 
@@ -553,6 +566,8 @@ def include_skill_routes(
                 "detail": out.detail,
                 "error_code": out.error_code,
                 "retryable": bool(out.retryable),
+                "auto_enabled": bool(getattr(out, "auto_enabled", False)),
+                "binding_applied_roles": list(getattr(out, "binding_applied_roles", ()) or []),
             },
         }
 

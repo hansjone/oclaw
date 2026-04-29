@@ -12,6 +12,12 @@ from pathlib import Path
 from typing import Any
 
 from oclaw.runtime.skills_market import get_market_adapter
+from oclaw.runtime.skill_role_binding import (
+    SKILL_ROLE_BINDING_ENABLED_SETTING,
+    SKILL_ROLE_BINDING_KEY,
+    normalize_skill_role_binding,
+    ordered_binding_roles,
+)
 from oclaw.runtime.skills import (
     default_skills_root,
     discover_workspace_skill_manifests,
@@ -20,6 +26,7 @@ from oclaw.runtime.skills import (
 
 _DISABLED_SKILLS_KEY = "AIA_SKILL_DISABLED_NAMES"
 _AUTO_INSTALL_KEY = "AIA_SKILL_AUTO_INSTALL_ENABLED"
+_AUTO_ENABLE_TRUSTED_KEY = "AIA_SKILL_AUTO_ENABLE_TRUSTED"
 
 
 @dataclass(frozen=True)
@@ -30,6 +37,8 @@ class SkillInstallResult:
     detail: str = ""
     error_code: str = ""
     retryable: bool = False
+    auto_enabled: bool = False
+    binding_applied_roles: tuple[str, ...] = ()
 
 
 def _classify_install_detail(detail: str) -> tuple[str, bool]:
@@ -65,6 +74,17 @@ def skill_auto_install_enabled(store: Any) -> bool:
     return _truthy(raw)
 
 
+def skill_auto_enable_trusted_enabled(store: Any) -> bool:
+    try:
+        raw = str(store.get_setting(_AUTO_ENABLE_TRUSTED_KEY) or "").strip()
+    except Exception:
+        raw = ""
+    # Default ON for workspace/auto-install lane; tenant can disable explicitly.
+    if not raw:
+        return True
+    return _truthy(raw)
+
+
 def _get_disabled_names(store: Any) -> set[str]:
     try:
         raw = str(store.get_setting(_DISABLED_SKILLS_KEY) or "").strip()
@@ -84,6 +104,40 @@ def _get_disabled_names(store: Any) -> set[str]:
 def _set_disabled_names(store: Any, names: set[str]) -> None:
     vals = sorted({str(x).strip() for x in names if str(x).strip()})
     store.set_setting(_DISABLED_SKILLS_KEY, json.dumps(vals, ensure_ascii=False))
+
+
+def _apply_auto_enable_binding(*, store: Any, skill_name: str, skills_root: str | Path | None = None) -> tuple[bool, tuple[str, ...]]:
+    nm = str(skill_name or "").strip()
+    if not nm:
+        return False, ()
+    if not skill_auto_enable_trusted_enabled(store):
+        return False, ()
+    roles = ordered_binding_roles()
+    valid = {str(m.name).strip() for m in discover_workspace_skill_manifests(skills_root) if str(m.name or "").strip()}
+    # If discovery lags for any reason, still include the newly created skill as valid candidate.
+    valid.add(nm)
+    try:
+        raw = str(store.get_setting(SKILL_ROLE_BINDING_KEY) or "").strip()
+        mapping_raw = json.loads(raw) if raw else {}
+    except Exception:
+        mapping_raw = {}
+    mapping = normalize_skill_role_binding(
+        mapping_raw=mapping_raw if isinstance(mapping_raw, dict) else {},
+        valid_skill_names=valid,
+        available_roles=roles,
+    )
+    changed = False
+    for role in roles:
+        cur = list(mapping.get(role) or [])
+        if nm not in cur:
+            cur.append(nm)
+            mapping[role] = cur
+            changed = True
+    if changed:
+        store.set_setting(SKILL_ROLE_BINDING_KEY, json.dumps(mapping, ensure_ascii=False))
+    # Ensure role filter is active when we auto-attach to all roles.
+    store.set_setting(SKILL_ROLE_BINDING_ENABLED_SETTING, "1")
+    return True, tuple(roles)
 
 
 def list_skills_with_status(*, store: Any, skills_root: str | Path | None = None) -> list[dict[str, Any]]:
@@ -432,7 +486,7 @@ def create_workspace_skill(
             "permissions": {"fs_write": False, "net": False, "process": True},
         },
     }
-    return create_skill_from_template(
+    out = create_skill_from_template(
         store=store,
         name=nm,
         description=description,
@@ -440,6 +494,19 @@ def create_workspace_skill(
         metadata_oclaw=metadata_oclaw,
         skills_root=target.parent,
         overwrite=True,
+    )
+    if not out.ok:
+        return out
+    auto_enabled, roles = _apply_auto_enable_binding(store=store, skill_name=nm, skills_root=root)
+    return SkillInstallResult(
+        ok=out.ok,
+        name=out.name,
+        target_dir=out.target_dir,
+        detail=out.detail,
+        error_code=out.error_code,
+        retryable=out.retryable,
+        auto_enabled=auto_enabled,
+        binding_applied_roles=roles,
     )
 
 
@@ -458,7 +525,9 @@ def auto_install_skill_from_payload(
     md = payload.get("metadata_oclaw")
     md = dict(md) if isinstance(md, dict) else {}
     root = Path(skills_root).resolve() if skills_root else default_skills_root()
-    target = root / name
+    # Keep agent-authored/auto-installed skills isolated from primary managed skills.
+    workspace_root = root / "_workspace"
+    target = workspace_root / name
     before_disabled = _get_disabled_names(store)
     try:
         out = create_skill_from_template(
@@ -467,14 +536,24 @@ def auto_install_skill_from_payload(
             description=description,
             body_markdown=body,
             metadata_oclaw=md,
-            skills_root=skills_root,
+            skills_root=workspace_root,
             overwrite=False,
         )
         if bool(payload.get("force_error_for_test")):
             raise RuntimeError("forced_error_for_test")
         if not out.ok:
             return out
-        return out
+        auto_enabled, roles = _apply_auto_enable_binding(store=store, skill_name=name, skills_root=root)
+        return SkillInstallResult(
+            ok=out.ok,
+            name=out.name,
+            target_dir=out.target_dir,
+            detail=out.detail,
+            error_code=out.error_code,
+            retryable=out.retryable,
+            auto_enabled=auto_enabled,
+            binding_applied_roles=roles,
+        )
     except Exception as exc:
         try:
             if target.exists() and target.is_dir():

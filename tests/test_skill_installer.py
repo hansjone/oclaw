@@ -51,7 +51,33 @@ def test_auto_install_rollback_on_forced_error(tmp_path: Path) -> None:
     assert out.ok is False
     assert out.retryable is True
     assert out.error_code == "runtime_error"
-    assert not (root / "roll_me_back").exists()
+    assert not (root / "_workspace" / "roll_me_back").exists()
+
+
+def test_auto_install_enables_binding_for_all_roles(tmp_path: Path) -> None:
+    db = tmp_path / "ops.sqlite"
+    store = SqliteStore(str(db))
+    root = tmp_path / "skills"
+    out = auto_install_skill_from_payload(
+        store=store,
+        payload={
+            "name": "auto_bound_skill",
+            "description": "demo",
+            "body_markdown": "x",
+        },
+        skills_root=root,
+    )
+    assert out.ok is True
+    assert out.auto_enabled is True
+    assert len(out.binding_applied_roles) >= 1
+    assert (root / "_workspace" / "auto_bound_skill" / "SKILL.md").exists()
+    mapping_raw = str(store.get_setting("skill_role_binding") or "").strip()
+    assert mapping_raw
+    import json
+
+    mapping = json.loads(mapping_raw)
+    assert isinstance(mapping, dict)
+    assert any("auto_bound_skill" in (mapping.get(k) or []) for k in mapping.keys())
 
 
 def test_install_skill_from_registry_archive_file_url(tmp_path: Path) -> None:

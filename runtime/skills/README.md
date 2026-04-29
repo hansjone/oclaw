@@ -10,6 +10,16 @@
 ## 示例结构
 - `oclaw/runtime/skills/<skill_name>/SKILL.md`
 
+## 目录分层（重要）
+- **主目录**：`oclaw/runtime/skills/<skill_name>/`  
+  用于官方/手工管理的稳定技能（安装、维护、评审都在这层）。
+- **自写目录**：`oclaw/runtime/skills/_workspace/<skill_name>/`  
+  用于 agent 自写/自动安装技能，和主目录隔离，避免混放。
+
+说明：
+- `auto_install_skill_from_payload` 产物默认落在 `_workspace` 下。
+- 这样可以把“生产稳定技能”和“实验/自写技能”分开治理，便于审计与回滚。
+
 ## 兼容说明
 - 运行时优先读取 `oclaw/runtime/skills`。
 - 若设置了环境变量 `AIA_SKILLS_ROOT`，以该变量为准。
