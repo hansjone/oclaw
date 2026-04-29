@@ -21,7 +21,7 @@
                       成功? ──是──→ 展示结果 ──→ 用户确认 ──→ 下载安装 ──→ 完成
   │                      │否
   │                      ↓
-  │              clawhub install
+  │              Skills API install
   │                      │
                       成功? ──是──→ 完成
   │                      │否
@@ -44,22 +44,22 @@
 ```
 IF 环境变量 OPENCLAW_HOME 存在 或 /usr/local/openclaw 存在:
     平台 = OpenClaw
-    安装命令 = "openclaw skills install"
+    安装方式 = "POST /admin/api/skills/install 或 /admin/api/skills/install-registry"
     安装目录 = ~/.openclaw/skills/
 
 ELSE IF 环境变量 MOLILI_HOME 存在 或 /usr/local/molili 存在:
     平台 = Molili
-    安装命令 = "molili skills install"
+    安装方式 = "molili skills install"
     安装目录 = ~/.molili/skills/
 
 ELSE IF 环境变量 CLAUDE_CODE_HOME 存在 或 /usr/local/claude-code 存在:
     平台 = Claude Code
-    安装命令 = "claude skills install"
+    安装方式 = "claude skills install"
     安装目录 = ~/.claude/skills/
 
 ELSE:
     平台 = 通用 (clawhub fallback)
-    安装命令 = "npx clawhub@latest install"
+    安装方式 = "优先平台 Skills API，必要时再提示人工执行命令"
     安装目录 = ~/.claude/skills/ (或 clawhub 默认目录)
 ```
 
@@ -85,7 +85,7 @@ ELSE:
 
 4. **执行平台安装命令**
    ```bash
-   {platform.installCmd} /tmp/cocoloop-{timestamp}.skill
+   OpenClaw: 调用 /admin/api/skills/install（source_dir 或 archive_url）
    ```
 
 5. **清理与返回**
@@ -136,7 +136,7 @@ GET https://api.cocoloop.cn/search={encoded_query}
 
 执行：
 ```bash
-npx clawhub@latest install {skill_name}
+POST /admin/api/skills/market/install  { "slug": "{skill_name}" }
 ```
 
 处理：
