@@ -273,7 +273,21 @@ def materialize_tool_specs(
         # Optional safety gate for public tools.
         # Default: only allow low risk public tools to be visible to all roles.
         # Override via env: AIA_PUBLIC_TOOLS_ALLOW_HIGH=1 to allow high risk public tools.
-        allow_high = _is_truthy(os.getenv("AIA_PUBLIC_TOOLS_ALLOW_HIGH", "0"))
+        # If env is unset, fallback to per-user workspace path policy switch.
+        raw_env = str(os.getenv("AIA_PUBLIC_TOOLS_ALLOW_HIGH") or "").strip()
+        if raw_env:
+            allow_high = _is_truthy(raw_env)
+        else:
+            allow_high = False
+            try:
+                if store is not None and path_policy_tenant_id and path_policy_user_id:
+                    row = store.get_user_workspace_path_allowlist(
+                        tenant_id=str(path_policy_tenant_id),
+                        user_id=str(path_policy_user_id),
+                    )
+                    allow_high = bool((row or {}).get("allow_high_risk_public_tools"))
+            except Exception:
+                allow_high = False
         if allow_high:
             return True
         return str(getattr(spec, "risk_level", "") or "low").strip().lower() != "high"

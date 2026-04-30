@@ -1401,8 +1401,18 @@ def build_admin_router() -> APIRouter:
             raise HTTPException(status_code=403, detail="workspace_paths_self_only")
         row = store.get_user_workspace_path_allowlist(tenant_id=tid, user_id=uid)
         if not row:
-            return {"ok": True, "from_db": False, "policy": {"extra_roots": "", "allow_any_path": False}}
-        return {"ok": True, "from_db": True, "policy": row}
+            return {
+                "ok": True,
+                "from_db": False,
+                "policy": {"extra_roots": "", "allow_any_path": False},
+                "public_tools_allow_high": False,
+            }
+        return {
+            "ok": True,
+            "from_db": True,
+            "policy": row,
+            "public_tools_allow_high": bool(row.get("allow_high_risk_public_tools")),
+        }
 
     @router.post("/admin/api/users/workspace-path-policy")
     def api_users_workspace_path_policy_save(
@@ -1429,11 +1439,13 @@ def build_admin_router() -> APIRouter:
         if err:
             return {"ok": False, "error": err}
         allow_any = bool(payload.get("allow_any_path", False))
+        allow_high = bool(payload.get("public_tools_allow_high", False))
         store.upsert_user_workspace_path_allowlist(
             tenant_id=tid,
             user_id=uid,
             extra_roots=norm,
             allow_any_path=allow_any,
+            allow_high_risk_public_tools=allow_high,
         )
         store.add_admin_audit_log(
             actor_tenant_id=ctx["tenant_id"],
@@ -1442,10 +1454,15 @@ def build_admin_router() -> APIRouter:
             target_type="user",
             target_id=uid,
             status="ok",
-            detail={"tenant_id": tid, "allow_any_path": allow_any, "extra_roots_preview": norm[:500]},
+            detail={
+                "tenant_id": tid,
+                "allow_any_path": allow_any,
+                "public_tools_allow_high": bool(allow_high),
+                "extra_roots_preview": norm[:500],
+            },
         )
         row = store.get_user_workspace_path_allowlist(tenant_id=tid, user_id=uid)
-        return {"ok": True, "policy": row or {}}
+        return {"ok": True, "policy": row or {}, "public_tools_allow_high": bool((row or {}).get("allow_high_risk_public_tools"))}
 
     @router.post("/admin/api/users/delete-unbound")
     def api_users_delete_unbound(

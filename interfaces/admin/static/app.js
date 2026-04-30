@@ -208,6 +208,9 @@ const I18N = {
     "workspacePaths.allowAny": "允许任意路径（高风险）",
     "workspacePaths.allowAnyHint":
       "仅作用于内置工作区工具（read_file / glob 等）的路径校验；不会放开 MCP filesystem，也不会自动把整盘写进 MCP。需要 MCP 列目录的盘符/目录请填在「额外根路径」或环境变量 AIA_WORKSPACE_EXTRA_ROOTS。",
+    "workspacePaths.allowHighTools": "允许高风险 Public 工具（全局）",
+    "workspacePaths.allowHighToolsHint":
+      "开启后将放开 run_command / write_file / edit_file 等高风险 public 工具的模型可见性（等效 AIA_PUBLIC_TOOLS_ALLOW_HIGH=1）。",
     "workspacePaths.load": "加载",
     "workspacePaths.save": "保存",
     "workspacePaths.status": "状态",
@@ -624,6 +627,9 @@ const I18N = {
     "workspacePaths.allowAny": "Allow any path (high risk)",
     "workspacePaths.allowAnyHint":
       "Applies only to built-in workspace tools (read_file / glob, etc.); it does not unlock MCP filesystem or auto-mount whole disks for MCP. List directories you need in “Extra roots” or AIA_WORKSPACE_EXTRA_ROOTS.",
+    "workspacePaths.allowHighTools": "Allow high-risk public tools (global)",
+    "workspacePaths.allowHighToolsHint":
+      "When enabled, high-risk public tools (run_command / write_file / edit_file, etc.) become model-visible (equivalent to AIA_PUBLIC_TOOLS_ALLOW_HIGH=1).",
     "workspacePaths.load": "Load",
     "workspacePaths.save": "Save",
     "workspacePaths.status": "Status",
@@ -6856,8 +6862,13 @@ async function renderWorkspacePaths() {
     style: "min-height:88px;font-family:monospace;",
   });
   const allowAnyCb = el("input", { type: "checkbox" });
+  const allowHighToolsCb = el("input", { type: "checkbox" });
   const status = el("div", { class: "muted", text: "" });
   const canWrite = hasPermission("admin:user:write") || canWsWrite;
+  const canTogglePublicHigh = hasPermission("admin:user:write");
+  if (!canTogglePublicHigh) {
+    allowHighToolsCb.disabled = true;
+  }
 
   const getEffectiveTid = () => (selfService ? sessionTid : String(tenantSel.value || ""));
   const getEffectiveUid = () => (selfService ? sessionUid : String(userSel.value || ""));
@@ -6904,6 +6915,7 @@ async function renderWorkspacePaths() {
       const pol = r.policy || {};
       extraInput.value = String(pol.extra_roots || "");
       allowAnyCb.checked = !!pol.allow_any_path;
+      allowHighToolsCb.checked = !!r.public_tools_allow_high;
       status.textContent = (r.from_db ? t("workspacePaths.fromDb") + " · " : "") + JSON.stringify(pol);
     } catch (e) {
       status.textContent = String(e && e.message ? e.message : e);
@@ -6937,12 +6949,16 @@ async function renderWorkspacePaths() {
       if (!tid || !uid) return;
       status.textContent = "…";
       try {
-        const r = await apiPost("/admin/api/users/workspace-path-policy", {
+        const payload = {
           tenant_id: tid,
           user_id: uid,
           extra_roots: extraInput.value,
           allow_any_path: !!allowAnyCb.checked,
-        });
+        };
+        if (canTogglePublicHigh) {
+          payload.public_tools_allow_high = !!allowHighToolsCb.checked;
+        }
+        const r = await apiPost("/admin/api/users/workspace-path-policy", payload);
         if (!r.ok) {
           status.textContent = String(r.error || "error");
           return;
@@ -6979,6 +6995,11 @@ async function renderWorkspacePaths() {
       el("span", { text: t("workspacePaths.allowAny") }),
     ]),
     el("div", { class: "muted", style: "margin-top:6px;line-height:1.45;", text: t("workspacePaths.allowAnyHint") }),
+    el("label", { class: "row", style: "align-items:center;gap:8px;margin-top:10px;" }, [
+      allowHighToolsCb,
+      el("span", { text: t("workspacePaths.allowHighTools") }),
+    ]),
+    el("div", { class: "muted", style: "margin-top:6px;line-height:1.45;", text: t("workspacePaths.allowHighToolsHint") }),
     el("div", { class: "row", style: "margin-top:10px;gap:8px;" }, [loadBtn, saveBtn]),
     el("div", { class: "muted", style: "margin-top:8px;" }, [el("span", { text: t("workspacePaths.status") + ": " }), status]),
   );

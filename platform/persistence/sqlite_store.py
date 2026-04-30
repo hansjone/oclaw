@@ -544,6 +544,7 @@ class SqliteStore:
                     user_id TEXT NOT NULL,
                     extra_roots TEXT NOT NULL DEFAULT '',
                     allow_any_path INTEGER NOT NULL DEFAULT 0,
+                    allow_high_risk_public_tools INTEGER NOT NULL DEFAULT 0,
                     updated_at TEXT NOT NULL,
                     PRIMARY KEY (tenant_id, user_id),
                     FOREIGN KEY(tenant_id) REFERENCES tenant(id) ON DELETE CASCADE,
@@ -551,6 +552,11 @@ class SqliteStore:
                 );
                 """
             )
+            uw_cols = {row[1] for row in conn.execute("PRAGMA table_info(user_workspace_path_allowlist)").fetchall()}
+            if "allow_high_risk_public_tools" not in uw_cols:
+                conn.execute(
+                    "ALTER TABLE user_workspace_path_allowlist ADD COLUMN allow_high_risk_public_tools INTEGER NOT NULL DEFAULT 0"
+                )
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS auth_session (
@@ -4553,7 +4559,7 @@ class SqliteStore:
         with self._connect() as conn:
             row = conn.execute(
                 """
-                SELECT tenant_id, user_id, extra_roots, allow_any_path, updated_at
+                SELECT tenant_id, user_id, extra_roots, allow_any_path, allow_high_risk_public_tools, updated_at
                 FROM user_workspace_path_allowlist
                 WHERE tenant_id = ? AND user_id = ?
                 LIMIT 1
@@ -4567,6 +4573,7 @@ class SqliteStore:
             "user_id": str(row["user_id"] or ""),
             "extra_roots": str(row["extra_roots"] or ""),
             "allow_any_path": bool(int(row["allow_any_path"] or 0)),
+            "allow_high_risk_public_tools": bool(int(row["allow_high_risk_public_tools"] or 0)),
             "updated_at": str(row["updated_at"] or ""),
         }
 
@@ -4597,6 +4604,7 @@ class SqliteStore:
         user_id: str,
         extra_roots: str,
         allow_any_path: bool,
+        allow_high_risk_public_tools: bool = False,
     ) -> None:
         tid = str(tenant_id or "").strip()
         uid = str(user_id or "").strip()
@@ -4609,14 +4617,24 @@ class SqliteStore:
         with self._connect() as conn:
             conn.execute(
                 """
-                INSERT INTO user_workspace_path_allowlist (tenant_id, user_id, extra_roots, allow_any_path, updated_at)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO user_workspace_path_allowlist (
+                    tenant_id, user_id, extra_roots, allow_any_path, allow_high_risk_public_tools, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?)
                 ON CONFLICT(tenant_id, user_id) DO UPDATE SET
                     extra_roots = excluded.extra_roots,
                     allow_any_path = excluded.allow_any_path,
+                    allow_high_risk_public_tools = excluded.allow_high_risk_public_tools,
                     updated_at = excluded.updated_at
                 """,
-                (tid, uid, roots, 1 if allow_any_path else 0, ts),
+                (
+                    tid,
+                    uid,
+                    roots,
+                    1 if allow_any_path else 0,
+                    1 if allow_high_risk_public_tools else 0,
+                    ts,
+                ),
             )
 
     def create_auth_session(
