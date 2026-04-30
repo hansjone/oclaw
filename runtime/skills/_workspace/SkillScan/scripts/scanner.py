@@ -87,7 +87,7 @@ def skill_install_paths():
         home / ".vibe/skills",
         home / ".mux/skills",
         home / ".config/opencode/skills",
-        home / ".openhands/skills",
+        home / ".oh/skills",
         home / ".pi/agent/skills",
         home / ".qoder/skills",
         home / ".qwen/skills",

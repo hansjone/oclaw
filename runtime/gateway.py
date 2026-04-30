@@ -5,6 +5,7 @@ import os
 import time
 import uuid
 import threading
+import logging
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Optional
@@ -35,6 +36,9 @@ from oclaw.runtime.worker import ensure_worker_started
 from oclaw.runtime.orchestration.trace import new_span_id, new_trace_id
 from oclaw.runtime.chat.tool_runtime import compact_turn_tool_messages_for_storage
 from oclaw.runtime.chat.model_path_audit import ensure_no_tool_or_embedded_image_payload
+from oclaw.runtime.tools.local_sdk import local_adapter_startup_self_check
+
+logger = logging.getLogger(__name__)
 
 _OC_STAGE_BY_EVENT: dict[str, str] = {
     "gateway_received": "ingress",
@@ -98,6 +102,16 @@ class GatewayDispatchPlan:
 class OclawGateway:
     def __init__(self, *, store: Any):
         self.store = store
+        try:
+            check = local_adapter_startup_self_check()
+            if not bool(check.get("ok")):
+                logger.warning(
+                    "Local adapter startup self-check failed: %s (%s)",
+                    str(check.get("error_code") or ""),
+                    str(check.get("error") or ""),
+                )
+        except Exception:
+            pass
 
     @staticmethod
     def _looks_like_manager_instruction(reply: str, instruction: str) -> bool:
