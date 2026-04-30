@@ -15,6 +15,7 @@ from oclaw.runtime.skill_installer import (
     install_skill_from_local_dir,
     install_skill_from_registry_archive,
     list_skills_with_status,
+    repair_skill_dependencies,
     set_skill_enabled,
     uninstall_skill,
 )
@@ -29,10 +30,12 @@ from oclaw.runtime.skill_role_binding import (
 )
 from oclaw.runtime.skills_prompt import collect_skill_catalog_entries
 from oclaw.runtime.skills import _allowed_tool_names_after_wire_policy, discover_workspace_skill_manifests
-from oclaw.runtime.skills_market import get_market_adapter
+from oclaw.runtime.skills_market import get_market_adapter, normalize_skill_market_provider_setting
 from oclaw.runtime.tools.skills_runtime.subprocess_exec import run_skill_runtime_entry
 from oclaw.platform.config.paths import db_path
 from oclaw.platform.persistence.sqlite_store import SqliteStore
+
+_SKILL_MARKET_PROVIDER_KEY = "AIA_SKILL_MARKET_PROVIDER"
 
 
 def include_skill_routes(
@@ -95,7 +98,13 @@ def include_skill_routes(
         raw_toolcall = str(store.get_setting("AIA_SKILL_TOOLCALL_ENABLED") or "").strip().lower()
         prompt_in_system = raw_prompt not in {"0", "false", "no", "off"}
         toolcall_enabled = raw_toolcall in {"1", "true", "yes", "on"}
-        return {"ok": True, "prompt_in_system": bool(prompt_in_system), "toolcall_enabled": bool(toolcall_enabled)}
+        market_provider = normalize_skill_market_provider_setting(str(store.get_setting(_SKILL_MARKET_PROVIDER_KEY) or ""))
+        return {
+            "ok": True,
+            "prompt_in_system": bool(prompt_in_system),
+            "toolcall_enabled": bool(toolcall_enabled),
+            "market_provider": market_provider,
+        }
 
     @sk.post("/mode")
     def api_skills_mode_save(
@@ -110,19 +119,31 @@ def include_skill_routes(
             store.set_setting("AIA_SKILLS_PROMPT_IN_SYSTEM", "1" if bool(payload.get("prompt_in_system")) else "0")
         if "toolcall_enabled" in payload:
             store.set_setting("AIA_SKILL_TOOLCALL_ENABLED", "1" if bool(payload.get("toolcall_enabled")) else "0")
+        if "market_provider" in payload:
+            store.set_setting(_SKILL_MARKET_PROVIDER_KEY, normalize_skill_market_provider_setting(str(payload.get("market_provider") or "")))
         raw_prompt = str(store.get_setting("AIA_SKILLS_PROMPT_IN_SYSTEM") or "").strip().lower()
         raw_toolcall = str(store.get_setting("AIA_SKILL_TOOLCALL_ENABLED") or "").strip().lower()
         prompt_in_system = raw_prompt not in {"0", "false", "no", "off"}
         toolcall_enabled = raw_toolcall in {"1", "true", "yes", "on"}
+        market_provider = normalize_skill_market_provider_setting(str(store.get_setting(_SKILL_MARKET_PROVIDER_KEY) or ""))
         _audit(
             store,
             ctx,
             action="skill_mode_update",
             target_id="skill_mode",
             status="ok",
-            detail={"prompt_in_system": bool(prompt_in_system), "toolcall_enabled": bool(toolcall_enabled)},
+            detail={
+                "prompt_in_system": bool(prompt_in_system),
+                "toolcall_enabled": bool(toolcall_enabled),
+                "market_provider": market_provider,
+            },
         )
-        return {"ok": True, "prompt_in_system": bool(prompt_in_system), "toolcall_enabled": bool(toolcall_enabled)}
+        return {
+            "ok": True,
+            "prompt_in_system": bool(prompt_in_system),
+            "toolcall_enabled": bool(toolcall_enabled),
+            "market_provider": market_provider,
+        }
 
     @sk.post("/install")
     def api_skills_install(
@@ -204,7 +225,7 @@ def include_skill_routes(
         query = str(q or "").strip()
         lim = int(limit) if isinstance(limit, int) and limit > 0 else 20
         lim = max(1, min(lim, 200))
-        provider = str(store.get_setting("AIA_SKILL_MARKET_PROVIDER") or "clawhub").strip()
+        provider = normalize_skill_market_provider_setting(str(store.get_setting(_SKILL_MARKET_PROVIDER_KEY) or ""))
         items = get_market_adapter(provider).search(query, limit=lim)
         return {"ok": True, "items": items}
 
@@ -219,7 +240,7 @@ def include_skill_routes(
         s = str(slug or "").strip()
         if not s:
             raise HTTPException(status_code=400, detail="slug_required")
-        provider = str(store.get_setting("AIA_SKILL_MARKET_PROVIDER") or "clawhub").strip()
+        provider = normalize_skill_market_provider_setting(str(store.get_setting(_SKILL_MARKET_PROVIDER_KEY) or ""))
         detail = get_market_adapter(provider).detail(s)
         return {"ok": True, "detail": detail}
 
@@ -238,7 +259,7 @@ def include_skill_routes(
         requested_version = str(payload.get("version") or "").strip()
         overwrite = bool(payload.get("overwrite"))
 
-        provider = str(store.get_setting("AIA_SKILL_MARKET_PROVIDER") or "clawhub").strip()
+        provider = normalize_skill_market_provider_setting(str(store.get_setting(_SKILL_MARKET_PROVIDER_KEY) or ""))
         adapter = get_market_adapter(provider)
         archive_url, chosen_version = adapter.resolve_archive_url(slug=s, version=requested_version or None)
 
@@ -673,6 +694,98 @@ def include_skill_routes(
             },
         }
 
+    @sk.post("/repair-deps")
+    def api_skills_repair_deps(
+        payload: dict[str, Any] | None = Body(default=None),
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        payload = payload or {}
+        store = SqliteStore(db_path())
+        ctx = resolve_auth(store, authorization)
+        _require_admin(ctx)
+        name = str(payload.get("name") or "").strip()
+        if not name:
+            raise HTTPException(status_code=400, detail="name_required")
+        _audit(
+            store,
+            ctx,
+            action="skill_repair_deps_started",
+            target_id=name,
+            status="start",
+        )
+        out = repair_skill_dependencies(store=store, skill_name=name)
+        _audit(
+            store,
+            ctx,
+            action="skill_repair_deps_finished" if bool(out.get("ok")) else "skill_repair_deps_failed",
+            target_id=name,
+            status="ok" if bool(out.get("ok")) else "fail",
+            detail=out,
+        )
+        return {"ok": bool(out.get("ok")), "result": out}
+
+    @sk.post("/repair-deps-all")
+    def api_skills_repair_deps_all(
+        payload: dict[str, Any] | None = Body(default=None),
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        _payload = payload or {}
+        store = SqliteStore(db_path())
+        ctx = resolve_auth(store, authorization)
+        _require_admin(ctx)
+        items = list_skills_with_status(store=store)
+        results: list[dict[str, Any]] = []
+        ok_count = 0
+        warn_count = 0
+        fail_count = 0
+        for it in items:
+            name = str((it or {}).get("name") or "").strip()
+            if not name:
+                continue
+            _audit(
+                store,
+                ctx,
+                action="skill_repair_deps_started",
+                target_id=name,
+                status="start",
+                detail={"batch": True},
+            )
+            out = repair_skill_dependencies(store=store, skill_name=name)
+            warnings = list(out.get("warnings") or []) if isinstance(out, dict) else []
+            if bool(out.get("ok")):
+                if warnings:
+                    warn_count += 1
+                else:
+                    ok_count += 1
+            else:
+                fail_count += 1
+            _audit(
+                store,
+                ctx,
+                action="skill_repair_deps_finished" if bool(out.get("ok")) else "skill_repair_deps_failed",
+                target_id=name,
+                status="ok" if bool(out.get("ok")) else "fail",
+                detail={"batch": True, **(out if isinstance(out, dict) else {})},
+            )
+            results.append(
+                {
+                    "name": name,
+                    "ok": bool(out.get("ok")) if isinstance(out, dict) else False,
+                    "warnings": warnings,
+                    "detail": str((out or {}).get("detail") or "") if isinstance(out, dict) else "",
+                }
+            )
+        return {
+            "ok": True,
+            "summary": {
+                "total": len(results),
+                "ok_count": ok_count,
+                "warn_count": warn_count,
+                "fail_count": fail_count,
+            },
+            "items": results,
+        }
+
     @sk.post("/test-run")
     def api_skills_test_run(
         payload: dict[str, Any] | None = Body(default=None),
@@ -778,7 +891,7 @@ def include_skill_routes(
             "execution_checked_total": len(execution_checks),
             "execution_checks": execution_checks,
             "classification_counts": classification_counts,
-            "market_provider": str(store.get_setting("AIA_SKILL_MARKET_PROVIDER") or "clawhub"),
+            "market_provider": normalize_skill_market_provider_setting(str(store.get_setting(_SKILL_MARKET_PROVIDER_KEY) or "")),
         }
 
     router.include_router(sk)

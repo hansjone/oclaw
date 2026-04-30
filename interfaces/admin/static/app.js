@@ -1087,6 +1087,16 @@ async function apiPost(path, body) {
   return data ?? {};
 }
 
+/** Skills endpoints often return HTTP 200 with `{ ok: false, result: {...} }` on failure — treat as error for UX. */
+function assertSkillMutationOk(r, fallbackMessage) {
+  if (!r || r.ok !== false) return;
+  const res = r.result && typeof r.result === "object" ? r.result : {};
+  const code = res.error_code != null ? String(res.error_code).trim() : "";
+  const detail = res.detail != null ? String(res.detail).trim() : "";
+  const msg = [code, detail].filter(Boolean).join(": ") || String(fallbackMessage || "skill operation failed");
+  throw new Error(msg);
+}
+
 async function apiRequest(method, path, body) {
   const url = resolveAdminApiUrl(path);
   const token = getStoredAuthToken();
@@ -7363,7 +7373,11 @@ async function renderSkills() {
   const skillModeStatus = el("div", { class: "muted", text: "" });
   const skillPromptModeCb = el("input", { type: "checkbox" });
   const skillToolcallModeCb = el("input", { type: "checkbox" });
-  const marketQ = el("input", { class: "input", placeholder: "search ClawHub skills" });
+  const skillMarketProviderSelect = el("select", { class: "input", style: "min-width:160px;" }, [
+    el("option", { value: "clawhub", text: "clawhub (ClawHub)" }),
+    el("option", { value: "cocoloop", text: "cocoloop (CocoLoop)" }),
+  ]);
+  const marketQ = el("input", { class: "input", placeholder: "search skills (keyword)" });
   const marketLimitInp = el("input", { class: "input", placeholder: "limit", value: "40", style: "max-width:120px;" });
   const marketTbody = el("tbody");
   const marketDetailPre = el("pre", { class: "muted pre", text: "" });
@@ -7374,6 +7388,8 @@ async function renderSkills() {
       const r = await apiGet("/admin/api/skills/mode");
       skillPromptModeCb.checked = !!r.prompt_in_system;
       skillToolcallModeCb.checked = !!r.toolcall_enabled;
+      const mp = String(r.market_provider || "clawhub").trim().toLowerCase();
+      skillMarketProviderSelect.value = mp === "cocoloop" ? "cocoloop" : "clawhub";
       skillModeStatus.textContent = "";
     } catch (e) {
       skillModeStatus.textContent = `mode: ${String(e && e.message ? e.message : e)}`;
@@ -7385,10 +7401,13 @@ async function renderSkills() {
       const r = await apiPost("/admin/api/skills/mode", {
         prompt_in_system: !!skillPromptModeCb.checked,
         toolcall_enabled: !!skillToolcallModeCb.checked,
+        market_provider: String(skillMarketProviderSelect.value || "clawhub").trim(),
       });
       skillPromptModeCb.checked = !!r.prompt_in_system;
       skillToolcallModeCb.checked = !!r.toolcall_enabled;
-      skillModeStatus.textContent = `saved: prompt=${String(!!r.prompt_in_system)} toolcall=${String(!!r.toolcall_enabled)}`;
+      const mp = String(r.market_provider || "clawhub").trim().toLowerCase();
+      skillMarketProviderSelect.value = mp === "cocoloop" ? "cocoloop" : "clawhub";
+      skillModeStatus.textContent = `saved: prompt=${String(!!r.prompt_in_system)} toolcall=${String(!!r.toolcall_enabled)} market=${String(skillMarketProviderSelect.value)}`;
     } catch (e) {
       skillModeStatus.textContent = `mode: ${String(e && e.message ? e.message : e)}`;
     }
@@ -7429,7 +7448,8 @@ async function renderSkills() {
     openSkillInstallModal(`Installing ${s}...`);
     try {
       const r = await apiPost("/admin/api/skills/market/install", { slug: s, version: version ? String(version) : undefined, overwrite: false });
-      status.textContent = `install-clawhub success: ${JSON.stringify(r.result || {})}`;
+      assertSkillMutationOk(r, "Market install failed");
+      status.textContent = `install-market success: ${JSON.stringify(r.result || {})}`;
       marketStatus.textContent = `installed: ${s}`;
       await refreshSkillsState();
       finishSkillInstallModal(true, `${s} installed successfully.`);
@@ -7446,14 +7466,13 @@ async function renderSkills() {
       const slug = String(x.slug || "");
       const ver = String(x.version || "");
       const btnDetail = el("button", { class: "btn btn--small", text: "Detail", onclick: async () => await loadMarketDetail(slug) });
-      const btnInstall = el("button", { class: "btn btn--small btn--primary", text: "Install", onclick: async () => await installFromMarket(slug, ver || undefined) });
       marketTbody.appendChild(
         el("tr", {}, [
           el("td", { text: slug }),
           el("td", { text: String(x.name || "") }),
           el("td", { text: ver }),
           el("td", { text: shortText(String(x.description || ""), 80) }),
-          el("td", {}, [btnDetail, el("span", { style: "display:inline-block;width:6px" }), btnInstall]),
+          el("td", {}, [btnDetail]),
         ]),
       );
     });
@@ -7462,7 +7481,7 @@ async function renderSkills() {
   const btnMarketSearch = el("button", { class: "btn", text: "Search", onclick: async () => await loadMarket(marketQ.value) });
   const btnMarketLatest = el("button", { class: "btn", text: "Latest", onclick: async () => await loadMarket("") });
   const marketBox = el("details", { style: "margin:10px 0 14px 0;" }, [
-    el("summary", { text: "ClawHub Market", style: "cursor:pointer;user-select:none;" }),
+    el("summary", { text: "Skill market (ClawHub / CocoLoop)", style: "cursor:pointer;user-select:none;" }),
     el("div", { style: "height:8px" }),
     el("div", { class: "row", style: "gap:8px;flex-wrap:wrap;margin-bottom:8px;" }, [marketQ, marketLimitInp, btnMarketSearch, btnMarketLatest]),
     marketStatus,
@@ -8400,6 +8419,24 @@ async function renderSkills() {
           openSkillTestRunModal(name);
         },
       });
+      const repairDepsBtn = el("button", {
+        class: "chat-sess-menu-item",
+        text: "Repair deps",
+        onclick: async () => {
+          closeSkillActionMenu();
+          try {
+            status.textContent = `repair deps: ${name}...`;
+            const r = await apiPost("/admin/api/skills/repair-deps", { name });
+            assertSkillMutationOk(r, "Repair deps failed");
+            status.textContent = `repair deps: ${JSON.stringify((r && r.result) || {}, null, 0)}`;
+            await loadRows();
+            await loadAudits();
+            repaint();
+          } catch (e) {
+            status.textContent = `repair deps failed: ${String(e && e.message ? e.message : e)}`;
+          }
+        },
+      });
       const uninstallBtn = el("button", {
         class: "chat-sess-menu-item",
         text: "Uninstall",
@@ -8409,6 +8446,7 @@ async function renderSkills() {
           try {
             status.textContent = `uninstalling: ${name}...`;
             const r = await apiPost("/admin/api/skills/uninstall", { name });
+            assertSkillMutationOk(r, "Uninstall failed");
             status.textContent = `uninstall success: ${JSON.stringify((r && r.result) || {}, null, 0)}`;
             await loadRows();
             await loadAudits();
@@ -8428,6 +8466,7 @@ async function renderSkills() {
           const menu = el("div", { class: "chat-sess-menu-pop", style: "position:fixed;z-index:250;" }, [
             toggleBtn,
             testRunBtn,
+            repairDepsBtn,
             uninstallBtn,
           ]);
           const rect = ev.currentTarget.getBoundingClientRect();
@@ -8483,6 +8522,7 @@ async function renderSkills() {
               return;
             }
             const r = await apiPost("/admin/api/skills/retry-install", { source: src, target });
+            assertSkillMutationOk(r, "Retry install failed");
             status.textContent = `retry: ${JSON.stringify(r.result || {})}`;
             await loadRows();
             await loadAudits();
@@ -8544,6 +8584,7 @@ async function renderSkills() {
           description: String(descInp.value || "").trim(),
           body_markdown: String(bodyInp.value || ""),
         });
+        assertSkillMutationOk(r, "Create skill failed");
         status.textContent = `create: ${JSON.stringify(r.result || {})}`;
         await loadRows();
         await loadAudits();
@@ -8566,6 +8607,7 @@ async function renderSkills() {
         const r = await apiPost("/admin/api/skills/install-registry", {
           archive_url: String(regInp.value || "").trim(),
         });
+        assertSkillMutationOk(r, "Registry install failed");
         status.textContent = `install-registry success: ${JSON.stringify(r.result || {})}`;
         await refreshSkillsState();
         finishSkillInstallModal(true, "Registry skill installed successfully.");
@@ -8591,6 +8633,7 @@ async function renderSkills() {
         const r = await apiPost("/admin/api/skills/install", {
           source_dir: String(localDirInp.value || "").trim(),
         });
+        assertSkillMutationOk(r, "Local install failed");
         status.textContent = `install-local success: ${JSON.stringify(r.result || {})}`;
         await refreshSkillsState();
         finishSkillInstallModal(true, "Local skill installed successfully.");
@@ -8612,6 +8655,26 @@ async function renderSkills() {
         status.textContent = "refreshed";
       } catch (e) {
         status.textContent = String(e && e.message ? e.message : e);
+      }
+    },
+  });
+  const btnRepairDepsAll = el("button", {
+    class: "btn",
+    text: "Repair all deps",
+    onclick: async () => {
+      const prev = btnRepairDepsAll.textContent;
+      btnRepairDepsAll.disabled = true;
+      btnRepairDepsAll.textContent = "Repairing...";
+      try {
+        const r = await apiPost("/admin/api/skills/repair-deps-all", {});
+        const s = r && typeof r.summary === "object" ? r.summary : {};
+        status.textContent = `repair all deps: total=${Number(s.total || 0)} ok=${Number(s.ok_count || 0)} warn=${Number(s.warn_count || 0)} fail=${Number(s.fail_count || 0)}`;
+        await refreshSkillsState();
+      } catch (e) {
+        status.textContent = `repair all deps failed: ${String(e && e.message ? e.message : e)}`;
+      } finally {
+        btnRepairDepsAll.disabled = false;
+        btnRepairDepsAll.textContent = prev;
       }
     },
   });
@@ -8650,6 +8713,10 @@ async function renderSkills() {
     el("div", { class: "row", style: "gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px;" }, [
       el("label", { class: "row", style: "gap:6px;align-items:center;" }, [skillPromptModeCb, el("span", { text: "Prompt mode (inject SKILL.md)" })]),
       el("label", { class: "row", style: "gap:6px;align-items:center;" }, [skillToolcallModeCb, el("span", { text: "Toolcall mode (runtime as tools)" })]),
+      el("label", { class: "row", style: "gap:6px;align-items:center;flex-wrap:wrap;" }, [
+        el("span", { text: "Market (AIA_SKILL_MARKET_PROVIDER)" }),
+        skillMarketProviderSelect,
+      ]),
       el("button", { class: "btn", text: "Save skill mode", onclick: saveSkillMode }),
       skillModeStatus,
     ]),
@@ -8663,8 +8730,7 @@ async function renderSkills() {
     el("div", { class: "row", style: "gap:8px;flex-wrap:wrap;margin-bottom:8px;" }, [nameInp, descInp]),
     el("div", { style: "margin-bottom:8px;" }, [bodyInp]),
     el("div", { class: "row", style: "gap:8px;flex-wrap:wrap;margin-bottom:8px;" }, [btnCreate]),
-    el("div", { class: "row", style: "gap:8px;flex-wrap:wrap;margin-bottom:8px;" }, [regInp, btnInstallRegistry, btnRefresh]),
-    el("div", { class: "row", style: "gap:8px;flex-wrap:wrap;margin-bottom:8px;" }, [localDirInp, btnInstallLocal]),
+    el("div", { class: "row", style: "gap:8px;flex-wrap:wrap;margin-bottom:8px;" }, [btnRefresh, btnRepairDepsAll]),
     el("div", { class: "table-wrap" }, [
       el("table", { class: "table table--compact" }, [
         el("thead", {}, [el("tr", {}, [

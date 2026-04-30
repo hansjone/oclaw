@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import zipfile
+import subprocess
 
 from oclaw.runtime.skill_installer import (
     auto_install_skill_from_payload,
@@ -9,6 +10,7 @@ from oclaw.runtime.skill_installer import (
     install_skill_from_local_dir,
     install_skill_from_registry_archive,
     list_skills_with_status,
+    repair_skill_dependencies,
     set_skill_enabled,
 )
 from oclaw.platform.persistence.sqlite_store import SqliteStore
@@ -102,6 +104,33 @@ def test_install_skill_from_registry_archive_file_url(tmp_path: Path) -> None:
     assert out.name == "reg_demo"
 
 
+def test_install_skill_from_registry_archive_workspace_auto_bind(tmp_path: Path) -> None:
+    db = tmp_path / "ops.sqlite"
+    store = SqliteStore(str(db))
+    pkg_dir = tmp_path / "pkg_ws"
+    inner = pkg_dir / "demo"
+    inner.mkdir(parents=True, exist_ok=True)
+    (inner / "SKILL.md").write_text(
+        "---\nname: reg_ws_demo\ndescription: x\nmetadata: {\"oclaw\":{}}\n---\n",
+        encoding="utf-8",
+    )
+    archive = tmp_path / "reg_ws.zip"
+    with zipfile.ZipFile(archive, "w") as zf:
+        zf.write(inner / "SKILL.md", arcname="demo/SKILL.md")
+    root = tmp_path / "skills"
+    out = install_skill_from_registry_archive(
+        store=store,
+        archive_url=archive.resolve().as_uri(),
+        skills_root=root / "_workspace",
+        auto_bind=True,
+    )
+    assert out.ok
+    assert out.name == "reg_ws_demo"
+    assert out.auto_enabled is True
+    assert len(out.binding_applied_roles) >= 1
+    assert (root / "_workspace" / "reg_ws_demo" / "SKILL.md").exists()
+
+
 def test_install_skill_from_clawhub_page_url(tmp_path: Path, monkeypatch) -> None:
     db = tmp_path / "ops.sqlite"
     store = SqliteStore(str(db))
@@ -148,4 +177,104 @@ def test_install_local_allows_sh_files(tmp_path: Path) -> None:
     out = install_skill_from_local_dir(store=store, source_dir=src, skills_root=tmp_path / "skills")
     assert out.ok
     assert out.name == "local_with_sh"
+
+
+def test_install_local_auto_installs_python_requirements(tmp_path: Path, monkeypatch) -> None:
+    db = tmp_path / "ops.sqlite"
+    store = SqliteStore(str(db))
+    src = tmp_path / "skill_with_reqs"
+    src.mkdir(parents=True, exist_ok=True)
+    (src / "SKILL.md").write_text(
+        "---\nname: with_reqs\ndescription: x\nmetadata: {\"oclaw\":{}}\n---\n",
+        encoding="utf-8",
+    )
+    (src / "requirements.txt").write_text("requests>=2.0.0\n", encoding="utf-8")
+
+    calls: list[list[str]] = []
+
+    def _mock_run(cmd, **kwargs):  # noqa: ANN001
+        calls.append([str(x) for x in cmd])
+        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr("oclaw.runtime.skill_installer.subprocess.run", _mock_run)
+    out = install_skill_from_local_dir(store=store, source_dir=src, skills_root=tmp_path / "skills")
+    assert out.ok
+    assert any(("pip" in " ".join(c) and "-r" in c) for c in calls)
+
+
+def test_install_local_dependency_install_failure_returns_warning(tmp_path: Path, monkeypatch) -> None:
+    db = tmp_path / "ops.sqlite"
+    store = SqliteStore(str(db))
+    src = tmp_path / "skill_with_bad_reqs"
+    src.mkdir(parents=True, exist_ok=True)
+    (src / "SKILL.md").write_text(
+        "---\nname: with_bad_reqs\ndescription: x\nmetadata: {\"oclaw\":{}}\n---\n",
+        encoding="utf-8",
+    )
+    (src / "requirements.txt").write_text("not_a_real_pkg_zzz\n", encoding="utf-8")
+
+    def _mock_run(cmd, **kwargs):  # noqa: ANN001,ARG001
+        return subprocess.CompletedProcess(args=cmd, returncode=1, stdout="", stderr="install failed")
+
+    monkeypatch.setattr("oclaw.runtime.skill_installer.subprocess.run", _mock_run)
+    out = install_skill_from_local_dir(store=store, source_dir=src, skills_root=tmp_path / "skills")
+    assert out.ok
+    assert out.detail.startswith("installed_with_dependency_warnings:")
+
+
+def test_install_local_probe_missing_imports_and_install(tmp_path: Path, monkeypatch) -> None:
+    db = tmp_path / "ops.sqlite"
+    store = SqliteStore(str(db))
+    src = tmp_path / "skill_probe_imports"
+    src.mkdir(parents=True, exist_ok=True)
+    (src / "SKILL.md").write_text(
+        "---\nname: probe_imports\ndescription: x\nmetadata: {\"oclaw\":{}}\n---\n",
+        encoding="utf-8",
+    )
+    (src / "main.py").write_text(
+        "import json\nimport office\nimport pandas\nimport totally_missing_pkg_xyz\n",
+        encoding="utf-8",
+    )
+    office_dir = src / "office"
+    office_dir.mkdir(parents=True, exist_ok=True)
+    (office_dir / "__init__.py").write_text("", encoding="utf-8")
+
+    calls: list[list[str]] = []
+
+    def _mock_run(cmd, **kwargs):  # noqa: ANN001,ARG001
+        calls.append([str(x) for x in cmd])
+        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr("oclaw.runtime.skill_installer.subprocess.run", _mock_run)
+    out = install_skill_from_local_dir(store=store, source_dir=src, skills_root=tmp_path / "skills")
+    assert out.ok
+    pip_calls = [c for c in calls if ("pip" in " ".join(c))]
+    assert pip_calls
+    assert any("totally_missing_pkg_xyz" in c for c in pip_calls)
+
+
+def test_repair_skill_dependencies_for_installed_skill(tmp_path: Path, monkeypatch) -> None:
+    db = tmp_path / "ops.sqlite"
+    store = SqliteStore(str(db))
+    src = tmp_path / "skill_repair"
+    src.mkdir(parents=True, exist_ok=True)
+    (src / "SKILL.md").write_text(
+        "---\nname: skill_repair\ndescription: x\nmetadata: {\"oclaw\":{}}\n---\n",
+        encoding="utf-8",
+    )
+    (src / "main.py").write_text("import definitely_missing_pkg_abc\n", encoding="utf-8")
+
+    calls: list[list[str]] = []
+
+    def _mock_run(cmd, **kwargs):  # noqa: ANN001,ARG001
+        calls.append([str(x) for x in cmd])
+        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr("oclaw.runtime.skill_installer.subprocess.run", _mock_run)
+    out = install_skill_from_local_dir(store=store, source_dir=src, skills_root=tmp_path / "skills")
+    assert out.ok
+    calls.clear()
+    result = repair_skill_dependencies(store=store, skill_name="skill_repair", skills_root=tmp_path / "skills")
+    assert bool(result.get("ok")) is True
+    assert any("definitely_missing_pkg_abc" in c for c in calls)
 

@@ -17,6 +17,13 @@ from oclaw.runtime.tools.skills_runtime.materialize_skill_tools import materiali
 from oclaw.runtime.skills import SkillSpec, materialize_skills_from_tool_specs
 
 logger = logging.getLogger(__name__)
+# Tools hidden from model-facing registry to enforce auto-install only policy.
+_MODEL_TOOLS_DENYLIST = frozenset(
+    {
+        "skill_market_install",
+        "skill_registry_install",
+    }
+)
 
 # Legacy export: some modules still import TOOL_FACTORIES. Tools are now intentionally
 # restricted to a single safe builtin (`system_time`), so this is left empty.
@@ -114,6 +121,16 @@ def _resolve_tool_conflicts(collected: list[tuple[str, ToolSpec]]) -> list[ToolS
 
 
 def _skill_management_tools(store: SqliteStore) -> list[ToolSpec]:
+    # Lazy imports to avoid circular dependency at module import time.
+    from oclaw.runtime.skill_installer import (
+        auto_install_skill_from_payload,
+        create_skill_from_template,
+        install_skill_from_registry_archive,
+        list_skills_with_status,
+    )
+    from oclaw.runtime.skills import default_skills_root
+    from oclaw.runtime.skills_market import get_market_adapter, normalize_skill_market_provider_setting
+
     def _create_skill_handler(args: dict[str, Any]) -> dict[str, Any]:
         out = create_skill_from_template(
             store=store,
@@ -126,14 +143,60 @@ def _skill_management_tools(store: SqliteStore) -> list[ToolSpec]:
         return {"ok": bool(out.ok), "name": out.name, "target_dir": out.target_dir, "detail": out.detail}
 
     def _auto_install_skill_handler(args: dict[str, Any]) -> dict[str, Any]:
+        archive_url = str(args.get("archive_url") or "").strip()
+        slug = str(args.get("slug") or "").strip()
+        version = str(args.get("version") or "").strip() or None
+        overwrite = bool(args.get("overwrite"))
+        provider = normalize_skill_market_provider_setting(
+            str(args.get("provider") or store.get_setting("AIA_SKILL_MARKET_PROVIDER") or "")
+        )
+        if not archive_url and slug:
+            try:
+                adapter = get_market_adapter(provider)
+                archive_url, _chosen_version = adapter.resolve_archive_url(slug=slug, version=version)
+            except Exception:
+                archive_url = ""
+        if archive_url:
+            out = install_skill_from_registry_archive(
+                store=store,
+                archive_url=archive_url,
+                overwrite=overwrite,
+                skills_root=default_skills_root() / "_workspace",
+                auto_bind=True,
+            )
+            return {
+                "ok": bool(out.ok),
+                "name": out.name,
+                "target_dir": out.target_dir,
+                "detail": out.detail,
+                "error_code": out.error_code,
+                "retryable": bool(out.retryable),
+                "auto_enabled": bool(getattr(out, "auto_enabled", False)),
+                "binding_applied_roles": list(getattr(out, "binding_applied_roles", ()) or []),
+                "provider": provider,
+            }
+
         payload = {
             "name": str(args.get("name") or "").strip(),
             "description": str(args.get("description") or "").strip(),
             "body_markdown": str(args.get("body_markdown") or "").strip(),
             "metadata_oclaw": dict(args.get("metadata_oclaw") or {}) if isinstance(args.get("metadata_oclaw"), dict) else {},
         }
+        if not payload["name"]:
+            return {"ok": False, "error_code": "name_required", "error": "name_required"}
+        if not payload["description"]:
+            payload["description"] = f"{payload['name']} skill"
         out = auto_install_skill_from_payload(store=store, payload=payload)
-        return {"ok": bool(out.ok), "name": out.name, "target_dir": out.target_dir, "detail": out.detail}
+        return {
+            "ok": bool(out.ok),
+            "name": out.name,
+            "target_dir": out.target_dir,
+            "detail": out.detail,
+            "error_code": out.error_code,
+            "retryable": bool(out.retryable),
+            "auto_enabled": bool(getattr(out, "auto_enabled", False)),
+            "binding_applied_roles": list(getattr(out, "binding_applied_roles", ()) or []),
+        }
 
     def _list_skills_handler(args: dict[str, Any]) -> dict[str, Any]:
         del args
@@ -146,9 +209,13 @@ def _skill_management_tools(store: SqliteStore) -> list[ToolSpec]:
             "description": {"type": "string"},
             "body_markdown": {"type": "string"},
             "metadata_oclaw": {"type": "object"},
+                "slug": {"type": "string"},
+                "provider": {"type": "string"},
+                "version": {"type": "string"},
+                "archive_url": {"type": "string"},
             "overwrite": {"type": "boolean"},
         },
-        "required": ["name", "description"],
+        "required": [],
     }
     return [
         ToolSpec(
@@ -167,7 +234,7 @@ def _skill_management_tools(store: SqliteStore) -> list[ToolSpec]:
             handler=_auto_install_skill_handler,
             tags=frozenset({"skill", "oclaw", "installer"}),
             risk_level="high",
-            timeout_s=20.0,
+            timeout_s=120.0,
         ),
         ToolSpec(
             name="skill_list",
@@ -199,6 +266,9 @@ def materialize_tool_specs(
     _ = factories
     collected: list[tuple[str, ToolSpec]] = []
 
+    def _hidden_from_model(name: str) -> bool:
+        return str(name or "").strip() in _MODEL_TOOLS_DENYLIST
+
     def _risk_allowed(spec: ToolSpec) -> bool:
         # Optional safety gate for public tools.
         # Default: only allow low risk public tools to be visible to all roles.
@@ -213,6 +283,9 @@ def materialize_tool_specs(
         for spec in list(materialize_public_tools()):
             if not isinstance(spec, ToolSpec):
                 continue
+            if _hidden_from_model(str(spec.name or "")):
+                logger.info("public tool hidden from model registry: %s", str(spec.name or ""))
+                continue
             if not _risk_allowed(spec):
                 logger.warning("public tool blocked by risk gate: %s", str(spec.name or ""))
                 continue
@@ -225,6 +298,9 @@ def materialize_tool_specs(
         for spec in materialize_tools_for_expert(str(expert or "").strip() or None):
             if not isinstance(spec, ToolSpec):
                 continue
+            if _hidden_from_model(str(spec.name or "")):
+                logger.info("expert tool hidden from model registry: %s", str(spec.name or ""))
+                continue
             collected.append(("expert", spec))
     except Exception as exc:
         logger.warning("expert tool load skipped: %s", exc)
@@ -234,6 +310,9 @@ def materialize_tool_specs(
         try:
             for spec in materialize_executable_skill_tools(store=store):
                 if not isinstance(spec, ToolSpec):
+                    continue
+                if _hidden_from_model(str(spec.name or "")):
+                    logger.info("skill runtime tool hidden from model registry: %s", str(spec.name or ""))
                     continue
                 collected.append(("skill_runtime", spec))
         except Exception as exc:
@@ -260,6 +339,9 @@ def materialize_tool_specs(
                 path_policy_user_id=path_policy_user_id,
             ):
                 if isinstance(spec, ToolSpec):
+                    if _hidden_from_model(str(spec.name or "")):
+                        logger.info("mcp tool hidden from model registry: %s", str(spec.name or ""))
+                        continue
                     collected.append(("mcp", spec))
         except Exception as exc:
             logger.warning("mcp tool load skipped: %s", exc)
@@ -293,6 +375,9 @@ def materialize_tool_specs(
                 continue
             tags_raw = row.get("tags")
             tags = frozenset(str(x).strip() for x in (tags_raw or []) if str(x).strip())
+            if _hidden_from_model(name):
+                logger.info("plugin tool hidden from model registry: %s", name)
+                continue
             collected.append((
                 "plugin",
                 ToolSpec(

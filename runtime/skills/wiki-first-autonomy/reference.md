@@ -11,7 +11,7 @@
 - `tavily-search-pro`：搜索与深度研究覆盖面广，能力强。
 - `weather`：基础可用，但能力边界较窄。
 - `self-improvement`：框架不错，但过去依赖手动触发。
-- `cocoloop`：管理类能力实用，但使用场景相对集中。
+- `oclaw-skill-manager`：技能安装与运维说明，使用场景相对集中。
 
 核心缺口：
 

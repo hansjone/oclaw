@@ -41,9 +41,48 @@ def test_tool_loop_guard_blocks_repeated_signature(tmp_path: Path) -> None:
         tool_uses=tool_uses,
         signature_budget=2,
     )
-    assert calls["n"] == 2
+    # Same-round duplicate calls now hit cache; only the first executes.
+    assert calls["n"] == 1
+    second, _ = results["c2"]
+    assert bool(second.get("ok")) is True
     blocked, _ = results["c3"]
     assert blocked.get("error_code") == "tool_loop_guard"
+
+
+def test_same_round_duplicate_tool_call_reuses_cached_result(tmp_path: Path) -> None:
+    store = SqliteStore(str(tmp_path / "dup.sqlite"))
+    sess = store.create_session("t")
+    calls = {"n": 0}
+
+    def _handler(args):
+        calls["n"] += 1
+        return {"ok": True, "echo": args, "counter": calls["n"]}
+
+    reg = ToolRegistry(
+        [
+            ToolSpec(
+                name="echo",
+                description="echo",
+                parameters={"type": "object", "properties": {"x": {"type": "integer"}}},
+                handler=_handler,
+                read_only=True,
+            )
+        ]
+    )
+    tool_uses = [
+        LLMToolCall(id="c1", name="echo", arguments={"x": 1}),
+        LLMToolCall(id="c2", name="echo", arguments={"x": 1}),
+    ]
+    _, results = ToolExecutor().execute_tool_uses(
+        ctx=ToolExecutionContext(store=store, tools=reg, session_id=sess.id),
+        assistant_msg_id=1,
+        tool_uses=tool_uses,
+        signature_budget=2,
+    )
+    assert calls["n"] == 1
+    r1, _ = results["c1"]
+    r2, _ = results["c2"]
+    assert r1 == r2
 
 
 def test_repeated_tool_results_are_compacted_in_history(tmp_path: Path) -> None:

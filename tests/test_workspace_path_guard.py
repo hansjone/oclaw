@@ -256,6 +256,43 @@ class WorkspacePathGuardTests(unittest.TestCase):
             self.assertEqual(str(r.get("error_code") or ""), "command_exit_nonzero")
             self.assertFalse(bool(r.get("output_truncated")))
 
+    def test_run_command_blocks_cocoloop_install_cli(self) -> None:
+        with mock.patch.dict(
+            os.environ,
+            {
+                "OPS_WORKSPACE_ROOT": str(self.root),
+                "OPS_WORKSPACE_EXTRA_ROOTS": "",
+                "OPS_WORKSPACE_ALLOW_ANY_PATH": "",
+                "AIA_ENABLE_RUN_COMMAND": "1",
+            },
+            clear=False,
+        ):
+            clear_workspace_path_access_for_tests()
+            spec = run_command_tool()
+            with workspace_path_access_scope(None, None):
+                r = spec.handler({"command": "cocoloop install 7288"})
+            self.assertFalse(bool(r.get("ok")), r)
+            self.assertEqual("skill_install_cli_blocked", str(r.get("error_code") or ""))
+            self.assertIn("market/install", str(r.get("hint") or ""))
+
+    def test_run_command_blocks_npx_clawhub_install_pattern(self) -> None:
+        with mock.patch.dict(
+            os.environ,
+            {
+                "OPS_WORKSPACE_ROOT": str(self.root),
+                "OPS_WORKSPACE_EXTRA_ROOTS": "",
+                "OPS_WORKSPACE_ALLOW_ANY_PATH": "",
+                "AIA_ENABLE_RUN_COMMAND": "1",
+            },
+            clear=False,
+        ):
+            clear_workspace_path_access_for_tests()
+            spec = run_command_tool()
+            with workspace_path_access_scope(None, None):
+                r = spec.handler({"command": "npx -y clawhub@latest install foo"})
+            self.assertFalse(bool(r.get("ok")), r)
+            self.assertEqual("skill_install_cli_blocked", str(r.get("error_code") or ""))
+
     def test_run_command_rewrites_workspace_absolute_script_path_to_sandbox(self) -> None:
         with mock.patch.dict(
             os.environ,

@@ -1,6 +1,8 @@
-# Cocoloop Safe Check 安全检查流程指南
+> **Oclaw 说明**：本文件为**可选的人工安全审查**参考流程。Oclaw **不会**自动调用 Cocoloop BSS 或远程「Safe Check」服务；安装与运行以平台自带沙箱、工具策略与租户配置为准。执行审查前请确认符合本地合规要求。
 
-本文档详细描述 Cocoloop 安全检查的执行流程，基于 cocoloop-safe-check 安全认证体系。
+# Skill 安全检查流程指南（参考）
+
+本文档描述一套**可参考**的人工安全检查执行流程，可与 [skill-safety-rubric.md](skill-safety-rubric.md) 配合阅读。Oclaw 不保证与任何第三方「安全认证产品」行为一致。
 
 ## 检查触发时机
 

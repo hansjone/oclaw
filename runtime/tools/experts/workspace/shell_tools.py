@@ -172,6 +172,36 @@ def run_command_tool() -> ToolSpec:
         command, normalized_cd_removed = _strip_leading_cd_chain(command)
         command, command_rewritten = _rewrite_workspace_absolute_refs(command, workdir=workdir)
         command, script_path_rewritten = _rewrite_python_script_arg(command, workdir=workdir)
+
+        def _external_skill_install_cli_blocked(raw_cmd: str) -> bool:
+            s = str(raw_cmd or "").strip()
+            if not s:
+                return False
+            low = s.lower()
+            if re.match(r"^\s*cocoloop(?:\.cmd|\.exe)?\s+install(?:\s|$)", s, flags=re.IGNORECASE):
+                return True
+            if re.match(r"^\s*clawhub(?:\.cmd|\.exe)?\s+install(?:\s|$)", s, flags=re.IGNORECASE):
+                return True
+            if re.search(r"\bnpx\b", low) and "clawhub" in low:
+                return True
+            if re.match(r"^\s*npm(?:\.cmd|\.exe)?\s+install\b", low) and "clawhub" in low:
+                return True
+            return False
+
+        if _external_skill_install_cli_blocked(str(command or "")):
+            return {
+                "ok": False,
+                "error_code": "skill_install_cli_blocked",
+                "error": "skill_install_cli_blocked",
+                "hint": "Oclaw has no shell skill installer. Use Admin POST /admin/api/skills/market/install or install-registry, or skill_auto_install.",
+                "command": command,
+                "cwd": str(workdir),
+                "normalized_cd_removed": bool(normalized_cd_removed),
+                "cwd_redirected_to_sandbox": bool(cwd_redirected_to_sandbox),
+                "command_rewritten": bool(command_rewritten),
+                "script_path_rewritten": bool(script_path_rewritten),
+                "original_command": original_command,
+            }
         try:
             os.makedirs(workdir, exist_ok=True)
         except Exception:

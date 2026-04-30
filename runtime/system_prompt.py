@@ -50,6 +50,10 @@ def _unified_skill_policy_guidance() -> str:
         "- 如果脚本依赖相对路径（例如 `.learnings/`），请将工作目录设置为用户工作区。\n"
         "- 在没有显式工具调用成功结果前，不要假设脚本已经执行。\n"
         "- 在 Windows 上，`.sh` 可能需要 Git Bash、WSL 或等效环境。\n"
+        "- 当用户目标是“安装 skill/技能”时，必须遵循 `oclaw-skill-manager` 的安装策略，并以其为唯一规范来源。\n"
+        "- 安装路径强约束：仅允许 `skill_auto_install`（`_workspace` lane）；不得改用任何非 auto 路径或脚本绕过。\n"
+        "- 严禁臆测前置条件：不要把未在规范中声明的环境变量、端口、服务启动状态当作必需前提。\n"
+        "- 若安装失败，仅输出可验证事实（至少包含 `error_code` 与 `detail`）和最小下一步，不得编造基础设施依赖。\n"
     )
 
 

@@ -1,10 +1,16 @@
 from __future__ import annotations
 
+import ast
+import importlib.util
 import json
 import shutil
+import subprocess
+import sys
 import tarfile
 import tempfile
+import time
 import urllib.parse
+import urllib.error
 import urllib.request
 import zipfile
 from dataclasses import dataclass
@@ -27,6 +33,33 @@ from oclaw.runtime.skills import (
 _DISABLED_SKILLS_KEY = "AIA_SKILL_DISABLED_NAMES"
 _AUTO_INSTALL_KEY = "AIA_SKILL_AUTO_INSTALL_ENABLED"
 _AUTO_ENABLE_TRUSTED_KEY = "AIA_SKILL_AUTO_ENABLE_TRUSTED"
+_AUTO_INSTALL_DEPS_KEY = "AIA_SKILL_AUTO_INSTALL_DEPS_ENABLED"
+_ARCHIVE_DOWNLOAD_TIMEOUT_S = 45
+_ARCHIVE_DOWNLOAD_MAX_RETRIES = 3
+
+
+def _download_archive_bytes(url: str) -> bytes:
+    req = urllib.request.Request(
+        url,
+        headers={
+            "User-Agent": "Oclaw-SkillInstaller/1.0 (+https://clawhub.ai)",
+            "Accept": "*/*",
+        },
+    )
+    last_exc: Exception | None = None
+    for attempt in range(1, _ARCHIVE_DOWNLOAD_MAX_RETRIES + 1):
+        try:
+            with urllib.request.urlopen(req, timeout=_ARCHIVE_DOWNLOAD_TIMEOUT_S) as resp:
+                return resp.read()
+        except Exception as exc:
+            last_exc = exc
+            code = getattr(exc, "code", None)
+            retryable_http = isinstance(code, int) and code in {408, 429, 500, 502, 503, 504}
+            retryable_net = isinstance(exc, urllib.error.URLError) or isinstance(exc, TimeoutError)
+            if attempt >= _ARCHIVE_DOWNLOAD_MAX_RETRIES or not (retryable_http or retryable_net):
+                raise
+            time.sleep(0.8 * attempt)
+    raise last_exc or RuntimeError("download_failed_unknown")
 
 
 @dataclass(frozen=True)
@@ -83,6 +116,144 @@ def skill_auto_enable_trusted_enabled(store: Any) -> bool:
     if not raw:
         return True
     return _truthy(raw)
+
+
+def skill_auto_install_deps_enabled(store: Any) -> bool:
+    try:
+        raw = str(store.get_setting(_AUTO_INSTALL_DEPS_KEY) or "").strip()
+    except Exception:
+        raw = ""
+    # Default ON to reduce first-run dependency issues for newly installed skills.
+    if not raw:
+        return True
+    return _truthy(raw)
+
+
+def _scan_dependency_manifests(skill_dir: Path) -> dict[str, list[Path]]:
+    req_files: list[Path] = []
+    pkg_files: list[Path] = []
+    try:
+        for p in skill_dir.rglob("requirements.txt"):
+            if p.is_file():
+                req_files.append(p)
+        for p in skill_dir.rglob("package.json"):
+            if p.is_file():
+                pkg_files.append(p)
+    except Exception:
+        return {"requirements": [], "package_json": []}
+    req_files = sorted(req_files)
+    pkg_files = sorted(pkg_files)
+    return {"requirements": req_files, "package_json": pkg_files}
+
+
+def _run_dep_install(command: list[str], *, cwd: Path) -> tuple[bool, str]:
+    try:
+        cp = subprocess.run(
+            command,
+            cwd=str(cwd),
+            capture_output=True,
+            text=True,
+            timeout=600,
+            check=False,
+        )
+    except Exception as exc:
+        return False, f"{type(exc).__name__}"
+    if int(cp.returncode) == 0:
+        return True, ""
+    err = str(cp.stderr or cp.stdout or "").strip()
+    if err:
+        err = err[:160].replace("\n", " ")
+    return False, err or f"exit_{cp.returncode}"
+
+
+def _auto_install_skill_dependencies(*, store: Any, skill_dir: Path) -> tuple[bool, str]:
+    if not skill_auto_install_deps_enabled(store):
+        return True, ""
+    manifests = _scan_dependency_manifests(skill_dir)
+    req_files = manifests.get("requirements") or []
+    pkg_files = manifests.get("package_json") or []
+    if not req_files and not pkg_files:
+        return True, ""
+
+    failures: list[str] = []
+    # Python dependencies
+    for req in req_files:
+        ok, detail = _run_dep_install([sys.executable, "-m", "pip", "install", "-r", str(req)], cwd=req.parent)
+        if not ok:
+            failures.append(f"pip:{req.name}:{detail}")
+
+    # Node dependencies (only when package.json declares deps)
+    for pkg in pkg_files:
+        try:
+            obj = json.loads(pkg.read_text(encoding="utf-8"))
+        except Exception:
+            obj = {}
+        deps = obj.get("dependencies") if isinstance(obj, dict) else None
+        if not isinstance(deps, dict) or not deps:
+            continue
+        ok, detail = _run_dep_install(["npm", "install", "--omit=dev"], cwd=pkg.parent)
+        if not ok:
+            failures.append(f"npm:{pkg.name}:{detail}")
+    if failures:
+        return False, "; ".join(failures[:4])
+    return True, ""
+
+
+def _collect_python_import_roots(skill_dir: Path) -> set[str]:
+    names: set[str] = set()
+    for py in skill_dir.rglob("*.py"):
+        if not py.is_file():
+            continue
+        try:
+            tree = ast.parse(py.read_text(encoding="utf-8"), filename=str(py))
+        except Exception:
+            continue
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    root = str(alias.name or "").split(".", 1)[0].strip()
+                    if root:
+                        names.add(root)
+            elif isinstance(node, ast.ImportFrom):
+                if int(node.level or 0) > 0:
+                    continue
+                root = str(node.module or "").split(".", 1)[0].strip()
+                if root:
+                    names.add(root)
+    return names
+
+
+def _local_python_module_roots(skill_dir: Path) -> set[str]:
+    roots: set[str] = set()
+    for py in skill_dir.rglob("*.py"):
+        if py.is_file():
+            roots.add(py.stem)
+    for p in skill_dir.rglob("*"):
+        if p.is_dir() and (p / "__init__.py").exists():
+            roots.add(p.name)
+    return {x for x in roots if x and x != "__init__"}
+
+
+def _auto_probe_and_install_python_imports(*, store: Any, skill_dir: Path) -> tuple[bool, str]:
+    if not skill_auto_install_deps_enabled(store):
+        return True, ""
+    imports = _collect_python_import_roots(skill_dir)
+    if not imports:
+        return True, ""
+    local_roots = _local_python_module_roots(skill_dir)
+    stdlib = set(getattr(sys, "stdlib_module_names", set()) or set())
+    missing: list[str] = []
+    for name in sorted(imports):
+        if name in local_roots or name in stdlib:
+            continue
+        if importlib.util.find_spec(name) is None:
+            missing.append(name)
+    if not missing:
+        return True, ""
+    ok, detail = _run_dep_install([sys.executable, "-m", "pip", "install", *missing], cwd=skill_dir)
+    if not ok:
+        return False, f"probe_pip:{detail}"
+    return True, ""
 
 
 def _get_disabled_names(store: Any) -> set[str]:
@@ -296,6 +467,7 @@ def install_skill_from_local_dir(
     source_dir: str | Path,
     overwrite: bool = False,
     skills_root: str | Path | None = None,
+    auto_bind: bool = False,
 ) -> SkillInstallResult:
     src = Path(source_dir).resolve()
     ok, detail = scan_skill_source_dir(src)
@@ -317,8 +489,49 @@ def install_skill_from_local_dir(
         shutil.rmtree(target)
     shutil.copytree(src, target)
     set_skill_enabled(store=store, skill_name=manifest.name, enabled=True)
+    auto_enabled = False
+    binding_roles: tuple[str, ...] = ()
+    if auto_bind:
+        binding_root = root.parent if str(root.name).strip().lower() == "_workspace" else root
+        auto_enabled, binding_roles = _apply_auto_enable_binding(store=store, skill_name=manifest.name, skills_root=binding_root)
+    deps_ok, deps_detail = _auto_install_skill_dependencies(store=store, skill_dir=target)
+    if not deps_ok:
+        # Keep install successful; surface dependency warning for operator follow-up.
+        ec, rt = _classify_install_detail("installed")
+        return SkillInstallResult(
+            ok=True,
+            name=manifest.name,
+            target_dir=str(target),
+            detail=f"installed_with_dependency_warnings:{deps_detail}",
+            error_code=ec,
+            retryable=rt,
+            auto_enabled=auto_enabled,
+            binding_applied_roles=binding_roles,
+        )
+    probe_ok, probe_detail = _auto_probe_and_install_python_imports(store=store, skill_dir=target)
+    if not probe_ok:
+        ec, rt = _classify_install_detail("installed")
+        return SkillInstallResult(
+            ok=True,
+            name=manifest.name,
+            target_dir=str(target),
+            detail=f"installed_with_dependency_warnings:{probe_detail}",
+            error_code=ec,
+            retryable=rt,
+            auto_enabled=auto_enabled,
+            binding_applied_roles=binding_roles,
+        )
     ec, rt = _classify_install_detail("installed")
-    return SkillInstallResult(ok=True, name=manifest.name, target_dir=str(target), detail="installed", error_code=ec, retryable=rt)
+    return SkillInstallResult(
+        ok=True,
+        name=manifest.name,
+        target_dir=str(target),
+        detail="installed",
+        error_code=ec,
+        retryable=rt,
+        auto_enabled=auto_enabled,
+        binding_applied_roles=binding_roles,
+    )
 
 
 def install_skill_from_registry_archive(
@@ -327,6 +540,7 @@ def install_skill_from_registry_archive(
     archive_url: str,
     overwrite: bool = False,
     skills_root: str | Path | None = None,
+    auto_bind: bool = False,
 ) -> SkillInstallResult:
     url = str(archive_url or "").strip()
     if not url:
@@ -339,15 +553,7 @@ def install_skill_from_registry_archive(
         return SkillInstallResult(ok=False, name="", target_dir="", detail="unsupported_url_scheme", error_code=ec, retryable=rt)
     tmp_file = Path(tempfile.mkstemp(prefix="skill_pkg_", suffix=".bin")[1])
     try:
-        req = urllib.request.Request(
-            url,
-            headers={
-                "User-Agent": "Oclaw-SkillInstaller/1.0 (+https://clawhub.ai)",
-                "Accept": "*/*",
-            },
-        )
-        with urllib.request.urlopen(req, timeout=20) as resp:
-            data = resp.read()
+        data = _download_archive_bytes(url)
         if not data:
             ec, rt = _classify_install_detail("empty_archive")
             return SkillInstallResult(ok=False, name="", target_dir="", detail="empty_archive", error_code=ec, retryable=rt)
@@ -369,7 +575,13 @@ def install_skill_from_registry_archive(
             ec, rt = _classify_install_detail("skill_md_missing")
             return SkillInstallResult(ok=False, name="", target_dir="", detail="skill_md_missing", error_code=ec, retryable=rt)
         chosen = sorted(candidates, key=lambda x: len(x.parts))[0]
-        return install_skill_from_local_dir(store=store, source_dir=chosen, overwrite=overwrite, skills_root=skills_root)
+        return install_skill_from_local_dir(
+            store=store,
+            source_dir=chosen,
+            overwrite=overwrite,
+            skills_root=skills_root,
+            auto_bind=auto_bind,
+        )
     except Exception as exc:
         detail = f"download_failed:{type(exc).__name__}"
         code = getattr(exc, "code", None)
@@ -569,6 +781,36 @@ def auto_install_skill_from_payload(
         return SkillInstallResult(ok=False, name=name, target_dir=str(target), detail=detail, error_code=ec, retryable=rt)
 
 
+def repair_skill_dependencies(
+    *,
+    store: Any,
+    skill_name: str,
+    skills_root: str | Path | None = None,
+) -> dict[str, Any]:
+    nm = str(skill_name or "").strip()
+    if not nm:
+        return {"ok": False, "error_code": "name_required", "error": "name_required"}
+    manifests = list(discover_workspace_skill_manifests(skills_root))
+    mf = next((m for m in manifests if str(m.name or "").strip() == nm), None)
+    if mf is None:
+        return {"ok": False, "error_code": "skill_not_found", "error": "skill_not_found", "name": nm}
+    skill_dir = Path(str(mf.skill_dir or "")).resolve()
+    deps_ok, deps_detail = _auto_install_skill_dependencies(store=store, skill_dir=skill_dir)
+    probe_ok, probe_detail = _auto_probe_and_install_python_imports(store=store, skill_dir=skill_dir)
+    warnings: list[str] = []
+    if not deps_ok and deps_detail:
+        warnings.append(f"manifest:{deps_detail}")
+    if not probe_ok and probe_detail:
+        warnings.append(f"probe:{probe_detail}")
+    return {
+        "ok": True,
+        "name": nm,
+        "skill_dir": str(skill_dir),
+        "warnings": warnings,
+        "detail": "ok" if not warnings else f"warnings:{'; '.join(warnings[:4])}",
+    }
+
+
 __all__ = [
     "SkillInstallResult",
     "auto_install_skill_from_payload",
@@ -577,6 +819,7 @@ __all__ = [
     "install_skill_from_local_dir",
     "install_skill_from_registry_archive",
     "list_skills_with_status",
+    "repair_skill_dependencies",
     "set_skill_enabled",
     "skill_auto_install_enabled",
     "uninstall_skill",

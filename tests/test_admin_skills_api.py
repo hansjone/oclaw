@@ -140,9 +140,11 @@ class AdminSkillsApiTests(unittest.TestCase):
         self.assertEqual(g.status_code, 200, g.text)
         gb = g.json() or {}
         self.assertTrue(gb.get("ok"))
+        self.assertIn("market_provider", gb)
+        self.assertIn(str(gb.get("market_provider") or ""), {"clawhub", "cocoloop"})
         s = self.client.post(
             "/admin/api/skills/mode",
-            json={"prompt_in_system": True, "toolcall_enabled": False},
+            json={"prompt_in_system": True, "toolcall_enabled": False, "market_provider": "cocoloop"},
             headers=self._h(),
         )
         self.assertEqual(s.status_code, 200, s.text)
@@ -150,6 +152,9 @@ class AdminSkillsApiTests(unittest.TestCase):
         self.assertTrue(sb.get("ok"))
         self.assertTrue(bool(sb.get("prompt_in_system")))
         self.assertFalse(bool(sb.get("toolcall_enabled")))
+        self.assertEqual(str(sb.get("market_provider") or ""), "cocoloop")
+        g2 = self.client.get("/admin/api/skills/mode", headers=self._h())
+        self.assertEqual((g2.json() or {}).get("market_provider"), "cocoloop")
 
     def test_skills_effective_dashboard(self) -> None:
         c = self.client.post(

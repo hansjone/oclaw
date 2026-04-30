@@ -25,6 +25,12 @@
 - 若设置了环境变量 `AIA_SKILLS_ROOT`，以该变量为准。
 - 为兼容旧工程，仍可回退读取旧路径 `oclaw/runtime/skills/`（如存在）。
 
+## 技能市场（安装来源）
+
+- 租户设置 **`AIA_SKILL_MARKET_PROVIDER`**：`clawhub`（默认）或 **`cocoloop`**，由 `runtime/skills_market.get_market_adapter` 选择适配器；Admin「市场搜索 / 按 slug 安装」共用同一套路由。
+- ClawHub：见 `runtime/tools/skills/clawhub_client.py`（`AIA_CLAWHUB_*` / `CLAWHUB_*`）。公开 API 说明可参考 [openclaw/clawhub CLI 文档](https://github.com/openclaw/clawhub/blob/main/docs/cli.md)。
+- CocoLoop：`runtime/tools/skills/cocoloop_client.py`，默认 API 基址 `https://api.cocoloop.com`，可用 **`AIA_COCOLOOP_API_BASE`** 覆盖。
+
 ## 推荐实用 Skills（workspace）
 
 以下为当前已落地并可直接在 Admin `Test run` 使用的实用技能：

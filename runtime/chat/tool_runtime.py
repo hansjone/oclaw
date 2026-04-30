@@ -696,6 +696,8 @@ class ToolExecutor:
 
         results_by_id: dict[str, tuple[dict[str, Any], int]] = {}
         runnable_tool_uses: list[LLMToolCall] = []
+        dedupe_alias_to_source: dict[str, str] = {}
+        first_tool_call_id_by_signature: dict[str, str] = {}
         sig_seen: dict[str, int] = {}
         budget = max(1, min(int(signature_budget or 2), 8))
         for tc in tool_uses:
@@ -796,6 +798,19 @@ class ToolExecutor:
                 )
                 continue
             sig_seen[sig] = count + 1
+            source_tool_call_id = str(first_tool_call_id_by_signature.get(sig) or "").strip()
+            if source_tool_call_id:
+                dedupe_alias_to_source[str(tc.id or "")] = source_tool_call_id
+                _trace(
+                    "tool_cache_hit_same_round",
+                    {
+                        "tool_name": tc.name,
+                        "tool_call_id": str(tc.id or ""),
+                        "source_tool_call_id": source_tool_call_id,
+                    },
+                )
+                continue
+            first_tool_call_id_by_signature[sig] = str(tc.id or "")
             runnable_tool_uses.append(tc)
 
         for batch in partition_tool_use_batches(runnable_tool_uses, ctx.tools):
@@ -824,6 +839,10 @@ class ToolExecutor:
                     "tool_names": [str(getattr(x, "name", "") or "") for x in batch],
                 },
             )
+
+        for tool_call_id, source_tool_call_id in dedupe_alias_to_source.items():
+            if source_tool_call_id in results_by_id:
+                results_by_id[tool_call_id] = results_by_id[source_tool_call_id]
 
         tool_messages: list[dict[str, Any]] = []
         for tc in tool_uses:
