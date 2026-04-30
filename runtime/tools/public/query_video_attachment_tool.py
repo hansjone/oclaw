@@ -1,10 +1,10 @@
 from __future__ import annotations
 
+import io
+import json
 import os
 import subprocess
 import tempfile
-import io
-import json
 from pathlib import Path
 from typing import Any
 
@@ -144,7 +144,6 @@ def query_video_attachment_tool() -> ToolSpec:
         if p is None:
             return {"ok": False, "error": "attachment_not_found"}
 
-        # Basic metadata (no heavy deps). Prefer ffprobe if present.
         if task == "meta":
             fp = _ffprobe_json(p)
             norm = _normalized_video_meta(fp)
@@ -163,93 +162,88 @@ def query_video_attachment_tool() -> ToolSpec:
                 "note": "Use task=transcript to extract audio transcript (requires ffmpeg + OpenAI key).",
             }
 
-        # transcript: extract audio then transcribe via OpenAI, store as text chunks.
-        if task == "transcript":
-            if not _ffmpeg_exists():
+        if not _ffmpeg_exists():
+            return {
+                "ok": False,
+                "error": "ffmpeg_missing",
+                "hint": "Install ffmpeg (ffmpeg/ffprobe on PATH) to enable transcript extraction.",
+            }
+        api_key = str(os.getenv("OPENAI_API_KEY") or "").strip()
+        if not api_key:
+            return {"ok": False, "error": "OPENAI_API_KEY_missing"}
+
+        try:
+            with tempfile.TemporaryDirectory() as td:
+                wav = Path(td) / "audio.wav"
+                subprocess.run(
+                    ["ffmpeg", "-y", "-i", str(p), "-vn", "-ac", "1", "-ar", "16000", str(wav)],
+                    capture_output=True,
+                    text=True,
+                    timeout=60,
+                )
+                if not wav.exists() or wav.stat().st_size <= 0:
+                    return {"ok": False, "error": "audio_extract_failed"}
+                try:
+                    from openai import OpenAI
+                except Exception as e:
+                    return {"ok": False, "error": f"openai_package_missing: {type(e).__name__}: {e}"}
+
+                base_url = str(os.getenv("OPENAI_BASE_URL") or "").strip()
+                client_kwargs: dict[str, Any] = {"api_key": api_key}
+                if base_url:
+                    client_kwargs["base_url"] = base_url
+                client = OpenAI(**client_kwargs)
+
+                model = str(args.get("model") or os.getenv("OPENAI_AUDIO_TRANSCRIPTION_MODEL") or OPENAI_DEFAULT_AUDIO_TRANSCRIPTION_MODEL).strip()
+                prompt = str(args.get("prompt") or "").strip()
+                wav_bytes = wav.read_bytes()
+                f = io.BytesIO(wav_bytes)
+                f.name = "audio.wav"  # type: ignore[attr-defined]
+                try:
+                    resp = client.audio.transcriptions.create(  # type: ignore[attr-defined]
+                        model=model,
+                        file=f,
+                        **({"prompt": prompt} if prompt else {}),
+                    )
+                    text = str(getattr(resp, "text", "") or "")
+                except Exception as e:
+                    return {"ok": False, "error": f"transcription_failed: {type(e).__name__}: {e}"}
+
+                if not text.strip():
+                    return {"ok": False, "error": "empty_transcript"}
+
+                name = str(meta.name if meta else p.name)
+                text_name = f"{name}.transcript.txt"
+                cfg_chunk_size, cfg_chunk_overlap = _video_transcript_chunk_defaults()
+                chunk_size = int(args.get("chunk_size") or cfg_chunk_size)
+                chunk_overlap = int(args.get("chunk_overlap") or cfg_chunk_overlap)
+                text_meta = save_text_document(
+                    attachment_id=str(attachment_id),
+                    name=text_name,
+                    text=text,
+                    source_kind="video_transcript",
+                    chunk_size=chunk_size,
+                    chunk_overlap=chunk_overlap,
+                )
+                preview = text[:1200]
+                note = (
+                    "Use query_text_attachment(text_id=...) to retrieve exact evidence with offsets."
+                    if lang.startswith("en")
+                    else "后续请用 query_text_attachment(text_id=...) 按需检索证据（支持 offset/top_k/关键词）。"
+                )
                 return {
-                    "ok": False,
-                    "error": "ffmpeg_missing",
-                    "hint": "Install ffmpeg (ffmpeg/ffprobe on PATH) to enable transcript extraction.",
+                    "ok": True,
+                    "task": "transcript",
+                    "attachment_id": attachment_id,
+                    "name": text_name,
+                    "text_id": str(text_meta.get("text_id") or ""),
+                    "chars": int(text_meta.get("chars") or 0),
+                    "chunks": int(text_meta.get("chunks") or 0),
+                    "preview": preview,
+                    "note": note,
                 }
-            api_key = str(os.getenv("OPENAI_API_KEY") or "").strip()
-            if not api_key:
-                return {"ok": False, "error": "OPENAI_API_KEY_missing"}
-
-            try:
-                with tempfile.TemporaryDirectory() as td:
-                    wav = Path(td) / "audio.wav"
-                    subprocess.run(
-                        ["ffmpeg", "-y", "-i", str(p), "-vn", "-ac", "1", "-ar", "16000", str(wav)],
-                        capture_output=True,
-                        text=True,
-                        timeout=60,
-                    )
-                    if not wav.exists() or wav.stat().st_size <= 0:
-                        return {"ok": False, "error": "audio_extract_failed"}
-                    try:
-                        from openai import OpenAI
-                    except Exception as e:
-                        return {"ok": False, "error": f"openai_package_missing: {type(e).__name__}: {e}"}
-
-                    base_url = str(os.getenv("OPENAI_BASE_URL") or "").strip()
-                    client_kwargs: dict[str, Any] = {"api_key": api_key}
-                    if base_url:
-                        client_kwargs["base_url"] = base_url
-                    client = OpenAI(**client_kwargs)
-
-                    model = str(args.get("model") or os.getenv("OPENAI_AUDIO_TRANSCRIPTION_MODEL") or OPENAI_DEFAULT_AUDIO_TRANSCRIPTION_MODEL).strip()
-                    prompt = str(args.get("prompt") or "").strip()
-                    # OpenAI SDK expects a file-like object with a name.
-                    wav_bytes = wav.read_bytes()
-                    f = io.BytesIO(wav_bytes)
-                    f.name = "audio.wav"  # type: ignore[attr-defined]
-                    # Best-effort: different gateways may accept different param names; keep it minimal.
-                    try:
-                        resp = client.audio.transcriptions.create(  # type: ignore[attr-defined]
-                            model=model,
-                            file=f,
-                            **({"prompt": prompt} if prompt else {}),
-                        )
-                        text = str(getattr(resp, "text", "") or "")
-                    except Exception as e:
-                        return {"ok": False, "error": f"transcription_failed: {type(e).__name__}: {e}"}
-
-                    if not text.strip():
-                        return {"ok": False, "error": "empty_transcript"}
-
-                    # Persist transcript as a long text document so the model can query evidence by text_id.
-                    name = str(meta.name if meta else p.name)
-                    text_name = f"{name}.transcript.txt"
-                    cfg_chunk_size, cfg_chunk_overlap = _video_transcript_chunk_defaults()
-                    chunk_size = int(args.get("chunk_size") or cfg_chunk_size)
-                    chunk_overlap = int(args.get("chunk_overlap") or cfg_chunk_overlap)
-                    text_meta = save_text_document(
-                        attachment_id=str(attachment_id),
-                        name=text_name,
-                        text=text,
-                        source_kind="video_transcript",
-                        chunk_size=chunk_size,
-                        chunk_overlap=chunk_overlap,
-                    )
-                    preview = text[:1200]
-                    note = (
-                        "Use query_text_attachment(text_id=...) to retrieve exact evidence with offsets."
-                        if lang.startswith("en")
-                        else "后续请用 query_text_attachment(text_id=...) 按需检索证据（支持 offset/top_k/关键词）。"
-                    )
-                    return {
-                        "ok": True,
-                        "task": "transcript",
-                        "attachment_id": attachment_id,
-                        "name": text_name,
-                        "text_id": str(text_meta.get("text_id") or ""),
-                        "chars": int(text_meta.get("chars") or 0),
-                        "chunks": int(text_meta.get("chunks") or 0),
-                        "preview": preview,
-                        "note": note,
-                    }
-            except Exception as e:
-                return {"ok": False, "error": f"transcript_failed: {type(e).__name__}: {e}"}
+        except Exception as e:
+            return {"ok": False, "error": f"transcript_failed: {type(e).__name__}: {e}"}
 
     return ToolSpec(
         name="query_video_attachment",
@@ -275,4 +269,3 @@ def query_video_attachment_tool() -> ToolSpec:
 
 
 __all__ = ["query_video_attachment_tool"]
-

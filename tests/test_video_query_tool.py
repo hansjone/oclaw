@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import oclaw.runtime.tools.experts.generalist.video_query as vq
+import oclaw.runtime.tools.public.query_video_attachment_tool as vq
 
 
 def test_normalized_video_meta_extracts_top_level_fields() -> None:

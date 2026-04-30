@@ -72,4 +72,3 @@ def query_image_attachment_tool() -> ToolSpec:
 
 
 __all__ = ["query_image_attachment_tool"]
-

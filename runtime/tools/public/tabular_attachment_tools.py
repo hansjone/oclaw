@@ -36,7 +36,7 @@ def query_tabular_attachment_tool() -> ToolSpec:
             columns=cols,
             limit=int(args.get("limit") or 50),
             offset=int(args.get("offset") or 0),
-            where_contains=where_contains,  # {"column":"...", "keyword":"..."}
+            where_contains=where_contains,
             sheet=sheet,
         )
 
@@ -147,4 +147,3 @@ def analyze_tabular_attachment_full_scan_tool() -> ToolSpec:
 
 
 __all__ = ["query_tabular_attachment_tool", "run_tabular_sql_tool", "analyze_tabular_attachment_full_scan_tool"]
-

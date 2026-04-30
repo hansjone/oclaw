@@ -38,4 +38,3 @@ def query_text_attachment_tool() -> ToolSpec:
 
 
 __all__ = ["query_text_attachment_tool"]
-

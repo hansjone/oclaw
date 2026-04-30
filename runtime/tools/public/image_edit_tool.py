@@ -47,13 +47,11 @@ def image_edit_tool() -> ToolSpec:
             client_kwargs["base_url"] = base_url
         client = OpenAI(**client_kwargs)
 
-        # OpenAI SDK expects a file-like object for edits.
         img_file = io.BytesIO(blob)
         img_file.name = "input.png"  # type: ignore[attr-defined]
 
         b64_out: str | None = None
         try:
-            # Preferred: image edit endpoint (if supported by the gateway/model).
             resp = client.images.edit(  # type: ignore[attr-defined]
                 model=model,
                 image=img_file,
@@ -63,7 +61,6 @@ def image_edit_tool() -> ToolSpec:
             data0 = resp.data[0] if getattr(resp, "data", None) else None
             b64_out = getattr(data0, "b64_json", None) if data0 is not None else None
         except Exception:
-            # Fallback: generate a new image from prompt (still returns an image, but not true edit).
             try:
                 resp = client.images.generate(  # type: ignore[attr-defined]
                     model=model,
@@ -126,4 +123,3 @@ def image_edit_tool() -> ToolSpec:
 
 
 __all__ = ["image_edit_tool"]
-
