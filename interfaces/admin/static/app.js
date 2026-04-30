@@ -8743,6 +8743,16 @@ async function renderSkills() {
     ]),
     docsHint,
     marketBox,
+    el("details", { style: "margin:10px 0 14px 0;" }, [
+      el("summary", { text: "Skill installation (local / registry)", style: "cursor:pointer;user-select:none;" }),
+      el("div", { style: "height:8px" }),
+      el("div", { class: "muted", style: "margin-bottom:8px;line-height:1.5;" }, [
+        el("div", { text: "Local dir: 目录内必须包含 SKILL.md（支持绝对路径）。" }),
+        el("div", { text: "Registry: zip/tar 的 URL（支持 file:// 本地 URI）。" }),
+      ]),
+      el("div", { class: "row", style: "gap:8px;flex-wrap:wrap;margin-bottom:8px;" }, [regInp, btnInstallRegistry]),
+      el("div", { class: "row", style: "gap:8px;flex-wrap:wrap;margin-bottom:8px;" }, [localDirInp, btnInstallLocal]),
+    ]),
     skillBindingBox,
     selfCheckBox,
     skillHealthBox,
@@ -8812,7 +8822,7 @@ async function router() {
     else if (p === "session-monitor" && !isAdministratorUsername()) a.style.display = "none";
     else if (p === "admin-audit" && !hasPermission("admin:user:write")) a.style.display = "none";
     else if (p === "plugins" && !hasPermission("admin:user:write")) a.style.display = "none";
-    else if (p === "skills" && !hasPermission("admin:user:write")) a.style.display = "none";
+    else if (p === "skills" && !hasPermission("admin:read")) a.style.display = "none";
     else if (p === "attachments" && !isAdministratorUsername()) a.style.display = "none";
     else if (p === "workspace-paths" && !hasPermission("admin:user:read") && !hasPermission("admin:workspace_paths:read")) a.style.display = "none";
     else if (p === "api-grants" && !canManageApiGrants()) a.style.display = "none";
@@ -8855,7 +8865,7 @@ async function router() {
     );
     view = hasPermission("admin:user:write") ? await renderPlugins() : forbiddenCard();
   } else if (page === "skills") {
-    view = hasPermission("admin:user:write") ? await renderSkills() : forbiddenCard();
+    view = hasPermission("admin:read") ? await renderSkills() : forbiddenCard();
   } else if (page === "attachments") {
     view = isAdministratorUsername() ? await renderAttachments() : forbiddenCard();
   } else if (page === "workspace-paths") {

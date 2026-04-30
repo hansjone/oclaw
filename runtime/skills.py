@@ -148,6 +148,28 @@ def discover_workspace_skill_manifests(skills_root: str | Path | None = None) ->
     return tuple(out)
 
 
+def discover_public_workspace_skill_names(skills_root: str | Path | None = None) -> set[str]:
+    """Skill names under `<skills_root>/_workspace/public/<skill>/SKILL.md`.
+
+    These skills are treated as public and do not require role binding.
+    """
+    base = Path(skills_root).resolve() if skills_root else default_skills_root()
+    public_root = (base / "_workspace" / "public").resolve()
+    if not public_root.exists() or not public_root.is_dir():
+        return set()
+    out: set[str] = set()
+    try:
+        for md in public_root.rglob("SKILL.md"):
+            if not md.is_file():
+                continue
+            m = load_skill_manifest(md.parent)
+            if m and str(m.name or "").strip():
+                out.add(str(m.name).strip())
+    except Exception:
+        return set()
+    return out
+
+
 def _tool_origin(tool: "ToolSpec") -> str:
     nm = str(getattr(tool, "name", "") or "")
     if nm.startswith("mcp__"):

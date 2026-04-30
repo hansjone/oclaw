@@ -240,6 +240,11 @@ class AdminSkillsApiTests(unittest.TestCase):
         self.assertFalse(bool(result2.get("ok")))
         self.assertIn(str(result2.get("error_code") or ""), {"path_restricted", "runtime_error"})
 
+        # Uninstall should be able to remove workspace lane skills.
+        u = self.client.post("/admin/api/skills/uninstall", json={"name": "ws_demo_skill"}, headers=self._h())
+        self.assertEqual(u.status_code, 200, u.text)
+        self.assertTrue((u.json() or {}).get("ok"))
+
     def test_skills_self_check_endpoint(self) -> None:
         c = self.client.post(
             "/admin/api/skills/create-workspace",

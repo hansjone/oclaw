@@ -70,6 +70,31 @@ class LocalAdapter:
         cmd = str(command or "").strip()
         if not cmd:
             return {"ok": False, "error_code": "command_required", "error": "command_required"}
+        # Safety gate: disabled by default unless explicitly enabled.
+        try:
+            def _truthy(v: str | None) -> bool:
+                return str(v or "").strip().lower() in {"1", "true", "yes", "on"}
+
+            enabled: bool | None = None
+            # Prefer DB setting when available.
+            dbp = str(os.getenv("OPS_ASSISTANT_DB_PATH") or "").strip()
+            if dbp:
+                try:
+                    from oclaw.platform.persistence.sqlite_store import SqliteStore
+
+                    store = SqliteStore(dbp)
+                    raw_db = str(store.get_setting("AIA_ENABLE_RUN_COMMAND") or "").strip()
+                    if raw_db:
+                        enabled = _truthy(raw_db)
+                except Exception:
+                    enabled = None
+            if enabled is None:
+                raw_env = str(os.getenv("AIA_ENABLE_RUN_COMMAND") or "").strip()
+                enabled = _truthy(raw_env) if raw_env else False
+            if not enabled:
+                return {"ok": False, "error_code": "disabled", "error": "disabled"}
+        except Exception:
+            return {"ok": False, "error_code": "disabled", "error": "disabled"}
         try:
             timeout_s = max(1, min(int(timeout or 30), 600))
             # run_command never follows adapter cd state.

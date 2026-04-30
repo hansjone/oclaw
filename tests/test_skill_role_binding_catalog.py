@@ -30,6 +30,7 @@ def test_collect_respects_role_binding_union(tmp_path: Path, monkeypatch) -> Non
     skills_root.mkdir(parents=True, exist_ok=True)
     _write_skill(skills_root, "skill-alpha")
     _write_skill(skills_root, "skill-beta")
+    _write_skill(skills_root / "_workspace" / "public", "skill-public")
 
     monkeypatch.setenv("AIA_SKILLS_ROOT", str(skills_root))
     store.set_setting(SKILL_ROLE_BINDING_ENABLED_SETTING, "1")
@@ -48,6 +49,7 @@ def test_collect_respects_role_binding_union(tmp_path: Path, monkeypatch) -> Non
     names = {e[0] for e in entries}
     assert "skill-alpha" in names
     assert "skill-beta" in names
+    assert "skill-public" in names
 
 
 def test_collect_unfiltered_when_binding_disabled(tmp_path: Path, monkeypatch) -> None:

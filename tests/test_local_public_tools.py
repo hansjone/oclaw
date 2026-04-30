@@ -61,6 +61,7 @@ def test_local_public_high_risk_tools_visible_when_enabled(monkeypatch) -> None:
 
 def test_local_adapter_backend_roundtrip(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("OPS_WORKSPACE_ROOT", str(tmp_path))
+    monkeypatch.setenv("AIA_ENABLE_RUN_COMMAND", "1")
     adapter = LocalAdapter()
     out_w = adapter.write_file(path="a.txt", content="hello\nworld\n")
     assert out_w.get("ok") is True
@@ -124,6 +125,7 @@ def test_local_tool_integration_roundtrip(monkeypatch) -> None:
 
     tmpdir = Path(tempfile.mkdtemp(prefix="local_it_"))
     monkeypatch.setenv("OPS_WORKSPACE_ROOT", str(tmpdir))
+    monkeypatch.setenv("AIA_ENABLE_RUN_COMMAND", "1")
     target_rel = "data/workspace/it_sample.txt"
 
     out_write = write_spec.handler({"path": "it_sample.txt", "content": "line1\nline2\n", "mode": "overwrite"})
@@ -178,6 +180,7 @@ def test_p1_p2_read_tools_smoke(tmp_path: Path, monkeypatch) -> None:
 
 def test_run_command_does_not_follow_cd_state(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("OPS_WORKSPACE_ROOT", str(tmp_path))
+    monkeypatch.setenv("AIA_ENABLE_RUN_COMMAND", "1")
     (tmp_path / "data" / "workspace").mkdir(parents=True, exist_ok=True)
     (tmp_path / "subdir").mkdir(parents=True, exist_ok=True)
     (tmp_path / "subdir" / "echo_dir.py").write_text(

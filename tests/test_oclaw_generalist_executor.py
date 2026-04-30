@@ -17,6 +17,7 @@ def test_build_gateway_executor_defaults_to_generalist(tmp_path: Path) -> None:
 
 def test_build_gateway_executor_generalist_run_command_is_disabled_by_default(tmp_path: Path) -> None:
     os.environ.pop("AIA_ENABLE_RUN_COMMAND", None)
+    os.environ["AIA_PUBLIC_TOOLS_ALLOW_HIGH"] = "1"
     os.environ["OPS_ASSISTANT_DB_PATH"] = str(tmp_path / "ops.sqlite")
     try:
         store = SqliteStore(str(tmp_path / "ops.sqlite"))
@@ -28,11 +29,13 @@ def test_build_gateway_executor_generalist_run_command_is_disabled_by_default(tm
         assert out.get("ok") is False
         assert out.get("error") == "disabled"
     finally:
+        os.environ.pop("AIA_PUBLIC_TOOLS_ALLOW_HIGH", None)
         os.environ.pop("OPS_ASSISTANT_DB_PATH", None)
 
 
 def test_build_gateway_executor_generalist_run_command_prefers_db_setting(tmp_path: Path) -> None:
     os.environ["AIA_ENABLE_RUN_COMMAND"] = "0"
+    os.environ["AIA_PUBLIC_TOOLS_ALLOW_HIGH"] = "1"
     os.environ["OPS_ASSISTANT_DB_PATH"] = str(tmp_path / "ops.sqlite")
     try:
         store = SqliteStore(str(tmp_path / "ops.sqlite"))
@@ -45,5 +48,6 @@ def test_build_gateway_executor_generalist_run_command_prefers_db_setting(tmp_pa
         assert out.get("ok") is True
     finally:
         os.environ.pop("AIA_ENABLE_RUN_COMMAND", None)
+        os.environ.pop("AIA_PUBLIC_TOOLS_ALLOW_HIGH", None)
         os.environ.pop("OPS_ASSISTANT_DB_PATH", None)
 

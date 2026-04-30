@@ -355,11 +355,32 @@ def uninstall_skill(
         ec, rt = _classify_install_detail("name_required")
         return SkillInstallResult(ok=False, name="", target_dir="", detail="name_required", error_code=ec, retryable=rt)
     root = Path(skills_root).resolve() if skills_root else default_skills_root()
-    candidates = [root / name, root / "_workspace" / name]
-    target = next((p for p in candidates if p.exists() and p.is_dir()), None)
+    # Prefer manifest directory resolution to handle workspace lanes and public lane.
+    target: Path | None = None
+    try:
+        manifests = list(discover_workspace_skill_manifests(root))
+        m = next((x for x in manifests if str(x.name or "").strip() == name), None)
+        if m and str(m.skill_dir or "").strip():
+            target = Path(str(m.skill_dir)).resolve()
+    except Exception:
+        target = None
+    if target is None:
+        # Fallback to legacy lane guesses.
+        candidates = [root / name, root / "_workspace" / name, root / "_workspace" / "public" / name]
+        target = next((p for p in candidates if p.exists() and p.is_dir()), None)
     if target is None:
         ec, rt = _classify_install_detail("not_found")
         return SkillInstallResult(ok=False, name=name, target_dir="", detail="not_found", error_code=ec, retryable=rt)
+    # Safety: only allow uninstall within the configured skills root.
+    try:
+        root_r = root.resolve()
+        ws_r = (root_r / "_workspace").resolve()
+        if not (str(target).startswith(str(root_r)) or str(target).startswith(str(ws_r))):
+            ec, rt = _classify_install_detail("runtime_error")
+            return SkillInstallResult(ok=False, name=name, target_dir=str(target), detail="remove_failed:path_restricted", error_code=ec, retryable=rt)
+    except Exception:
+        ec, rt = _classify_install_detail("runtime_error")
+        return SkillInstallResult(ok=False, name=name, target_dir=str(target), detail="remove_failed:path_restricted", error_code=ec, retryable=rt)
     try:
         shutil.rmtree(target)
     except Exception as exc:

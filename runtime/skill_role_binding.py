@@ -86,6 +86,9 @@ def allowed_workspace_skill_names_for_role(*, store: Any, role: str) -> set[str]
     r = str(role or "").strip().lower()
     if not r:
         return set()
+    from oclaw.runtime.skills import discover_public_workspace_skill_names
+
+    public = discover_public_workspace_skill_names()
     mapping = normalize_skill_role_binding(
         mapping_raw=load_skill_role_binding_dict(store),
         valid_skill_names=_all_installed_skill_names(store),
@@ -101,7 +104,7 @@ def allowed_workspace_skill_names_for_role(*, store: Any, role: str) -> set[str]
         inherit_mgr = True
     mgr = {str(x).strip() for x in (mapping.get("manager") or []) if str(x).strip()} if inherit_mgr else set()
     sp = {str(x).strip() for x in (mapping.get(r) or []) if str(x).strip()}
-    return mgr | sp
+    return mgr | sp | public
 
 
 def _all_installed_skill_names(store: Any) -> set[str]:
