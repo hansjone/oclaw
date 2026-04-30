@@ -178,6 +178,7 @@ def test_p1_p2_read_tools_smoke(tmp_path: Path, monkeypatch) -> None:
 
 def test_run_command_does_not_follow_cd_state(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("OPS_WORKSPACE_ROOT", str(tmp_path))
+    (tmp_path / "data" / "workspace").mkdir(parents=True, exist_ok=True)
     (tmp_path / "subdir").mkdir(parents=True, exist_ok=True)
     (tmp_path / "subdir" / "echo_dir.py").write_text(
         "import os\nprint(os.path.basename(os.getcwd()))\n",
@@ -190,6 +191,6 @@ def test_run_command_does_not_follow_cd_state(tmp_path: Path, monkeypatch) -> No
 
     out_run = adapter.run_command(command='python -c "import os; print(os.path.basename(os.getcwd()))"', timeout=20)
     assert out_run.get("ok") is True, out_run
-    # If run_command follows cd state this would be "subdir"; we expect workspace root name instead.
-    assert str(out_run.get("cwd") or "").replace("\\", "/").rstrip("/").endswith(str(tmp_path.name))
+    # If run_command follows cd state this would be "subdir"; default should be data/workspace.
+    assert str(out_run.get("cwd") or "").replace("\\", "/").rstrip("/").endswith("/data/workspace")
 

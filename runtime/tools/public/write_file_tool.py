@@ -8,24 +8,17 @@ from oclaw.runtime.tools.path_guard import resolve_workspace_path
 
 
 def write_file_tool() -> ToolSpec:
-    def _sandbox_base_dir() -> Path:
-        return Path("data") / "workspace"
-
     def _normalize_write_path(path: str) -> str:
         raw = str(path or "").strip().strip('"').strip("'")
         if not raw:
             raise ValueError("path_required")
         p = Path(raw)
-        base = _sandbox_base_dir()
         if p.is_absolute():
-            name = str(p.name or "").strip()
-            if not name:
-                raise ValueError("path_required")
-            return str(base / name)
+            return raw
         rel = raw.lstrip("./\\")
         if not rel:
             raise ValueError("path_required")
-        return str(base / rel)
+        return str(Path("data") / "workspace" / rel)
 
     def _handler(args: dict[str, Any]) -> dict[str, Any]:
         path = str(args.get("path") or "").strip()

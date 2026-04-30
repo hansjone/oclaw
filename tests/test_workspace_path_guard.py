@@ -134,7 +134,7 @@ class WorkspacePathGuardTests(unittest.TestCase):
             self.assertEqual(str(expected), str(r.get("path")))
             self.assertTrue(expected.exists())
 
-    def test_write_file_absolute_path_is_forced_into_workspace_sandbox(self) -> None:
+    def test_write_file_absolute_path_is_kept_when_within_workspace(self) -> None:
         with mock.patch.dict(
             os.environ,
             {"OPS_WORKSPACE_ROOT": str(self.root), "OPS_WORKSPACE_EXTRA_ROOTS": "", "OPS_WORKSPACE_ALLOW_ANY_PATH": ""},
@@ -146,7 +146,7 @@ class WorkspacePathGuardTests(unittest.TestCase):
             with workspace_path_access_scope(None, None), workspace_write_namespace_scope("ops"):
                 r = spec.handler({"path": abs_target, "content": "print('ok')\n", "mode": "overwrite"})
             self.assertTrue(r.get("ok"), r)
-            expected = (self.root / "data" / "workspace" / "count_items.py").resolve()
+            expected = (self.root / "count_items.py").resolve()
             self.assertEqual(str(expected), str(r.get("path")))
             self.assertTrue(expected.exists())
 

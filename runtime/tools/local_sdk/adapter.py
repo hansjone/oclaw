@@ -73,8 +73,9 @@ class LocalAdapter:
         try:
             timeout_s = max(1, min(int(timeout or 30), 600))
             # run_command never follows adapter cd state.
-            # It only uses explicit cwd; otherwise defaults to workspace root (".").
-            workdir = str(resolve_workspace_path(cwd or "."))
+            # It only uses explicit cwd; otherwise defaults to data/workspace.
+            workdir = str(resolve_workspace_path(cwd or "data/workspace"))
+            Path(workdir).mkdir(parents=True, exist_ok=True)
             run_kwargs: dict[str, Any] = {
                 "cwd": workdir,
                 "shell": True,

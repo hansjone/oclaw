@@ -39,3 +39,8 @@ This project exposes local atomic capabilities as shared `public` tools for all 
 
 - Adapter path: `runtime/tools/local_sdk/adapter.py`.
 - Uses a self-implemented local backend (cross-platform) with a stable tool contract.
+
+## Path behavior defaults
+
+- `run_command`: when `cwd` is omitted, it runs in `data/workspace`.
+- `write_file`: absolute path is used directly; relative path is written under `data/workspace`.
