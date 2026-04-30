@@ -10,15 +10,32 @@ from oclaw.runtime.tools.public.local_read_file_tool import local_read_file_tool
 from oclaw.runtime.tools.public.local_run_command_tool import local_run_command_tool
 from oclaw.runtime.tools.public.local_write_file_tool import local_write_file_tool
 from oclaw.runtime.tools.public_registry import clear_public_tool_cache
+from oclaw.runtime.tools.public.list_directory_tool import list_directory_tool
+from oclaw.runtime.tools.public.search_files_tool import search_files_tool
+from oclaw.runtime.tools.public.get_cwd_tool import get_cwd_tool
+from oclaw.runtime.tools.public.cd_tool import cd_tool
+from oclaw.runtime.tools.public.get_env_tool import get_env_tool
+from oclaw.runtime.tools.public.set_env_tool import set_env_tool
 
 
 def test_local_public_read_tool_visible_by_default() -> None:
     clear_public_tool_cache()
     names = [t.name for t in default_registry(expert="network_ops+memory", specialist="ops").list()]
     assert "local_read_file" in names
+    assert "list_directory" in names
+    assert "search_files" in names
+    assert "get_cwd" in names
+    assert "get_env" in names
+    assert "list_processes" in names
     assert "local_run_command" not in names
     assert "local_write_file" not in names
     assert "local_edit_file" not in names
+    assert "mkdir" not in names
+    assert "delete_file" not in names
+    assert "move_file" not in names
+    assert "cd" not in names
+    assert "set_env" not in names
+    assert "kill_process" not in names
 
 
 def test_local_public_high_risk_tools_visible_when_enabled(monkeypatch) -> None:
@@ -26,9 +43,20 @@ def test_local_public_high_risk_tools_visible_when_enabled(monkeypatch) -> None:
     monkeypatch.setenv("AIA_PUBLIC_TOOLS_ALLOW_HIGH", "1")
     names = [t.name for t in default_registry(expert="network_ops+memory", specialist="ops").list()]
     assert "local_read_file" in names
+    assert "list_directory" in names
+    assert "search_files" in names
+    assert "get_cwd" in names
+    assert "get_env" in names
+    assert "list_processes" in names
     assert "local_run_command" in names
     assert "local_write_file" in names
     assert "local_edit_file" in names
+    assert "mkdir" in names
+    assert "delete_file" in names
+    assert "move_file" in names
+    assert "cd" in names
+    assert "set_env" in names
+    assert "kill_process" in names
 
 
 def test_local_adapter_backend_roundtrip(tmp_path: Path, monkeypatch) -> None:
@@ -144,4 +172,34 @@ def test_local_tool_integration_roundtrip(monkeypatch) -> None:
     assert out_run.get("ok") is True, out_run
     stdout = str(out_run.get("stdout") or "")
     assert "12345" in stdout
+
+
+def test_p1_p2_read_tools_smoke(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("OPS_WORKSPACE_ROOT", str(tmp_path))
+    # list_directory
+    (tmp_path / "d").mkdir()
+    (tmp_path / "d" / "a.txt").write_text("hello", encoding="utf-8")
+    out_ls = list_directory_tool().handler({"path": "d", "max_entries": 50})
+    assert out_ls.get("ok") is True
+    assert any(e.get("name") == "a.txt" for e in (out_ls.get("entries") or []))
+    # search_files
+    out_s = search_files_tool().handler({"pattern": "hell", "root": "d", "regex": False})
+    assert out_s.get("ok") is True
+    assert (out_s.get("count") or 0) >= 1
+    # get_cwd / cd
+    out_cwd0 = get_cwd_tool().handler({})
+    assert out_cwd0.get("ok") is True
+    out_cd = cd_tool().handler({"cwd": "d"})
+    assert out_cd.get("ok") is True
+    out_cwd1 = get_cwd_tool().handler({})
+    assert out_cwd1.get("ok") is True
+    assert str(out_cwd1.get("cwd") or "").replace("\\", "/").endswith("/d")
+    # get_env / set_env
+    out_get0 = get_env_tool().handler({"key": "LOCAL_PUBLIC_TOOLS_TEST_KEY", "default": "x"})
+    assert out_get0.get("ok") is True
+    out_set = set_env_tool().handler({"key": "LOCAL_PUBLIC_TOOLS_TEST_KEY", "value": "y"})
+    assert out_set.get("ok") is True
+    out_get1 = get_env_tool().handler({"key": "LOCAL_PUBLIC_TOOLS_TEST_KEY"})
+    assert out_get1.get("ok") is True
+    assert out_get1.get("value") == "y"
 

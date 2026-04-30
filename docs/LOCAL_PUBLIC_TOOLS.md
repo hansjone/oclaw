@@ -9,6 +9,20 @@ This project exposes local atomic capabilities as shared `public` tools for all 
 - `local_write_file`
 - `local_edit_file`
 
+## Included P1/P2/P3 tools
+
+- `list_directory`
+- `move_file`
+- `delete_file`
+- `mkdir`
+- `search_files`
+- `get_cwd`
+- `cd`
+- `get_env`
+- `set_env`
+- `list_processes`
+- `kill_process`
+
 ## Loading path
 
 - Files live under `runtime/tools/public/`.
