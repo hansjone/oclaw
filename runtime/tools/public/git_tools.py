@@ -4,7 +4,7 @@ import subprocess
 from typing import Any
 
 from oclaw.runtime.tools.base import ToolSpec
-from oclaw.runtime.tools.experts.workspace.workspace_base import resolve_workspace_path, truncate_text, sanitize_git_ref
+from oclaw.runtime.tools.path_guard import resolve_workspace_path, sanitize_git_ref, truncate_text
 
 
 def _git(command: str, *, cwd: str) -> dict[str, Any]:
@@ -25,8 +25,7 @@ def git_status_tool() -> ToolSpec:
     def handler(args: dict[str, Any]) -> dict[str, Any]:
         cwd = str(args.get("cwd") or ".").strip()
         res = _git("status --porcelain=v1 -b", cwd=cwd)
-        ok = res["exit_code"] == 0
-        return {"ok": ok, **res}
+        return {"ok": res["exit_code"] == 0, **res}
 
     return ToolSpec(
         name="git_status",
@@ -38,7 +37,9 @@ def git_status_tool() -> ToolSpec:
             "additionalProperties": False,
         },
         handler=handler,
-        tags=frozenset({"workspace", "git"}),
+        tags=frozenset({"public", "git"}),
+        read_only=True,
+        risk_level="low",
     )
 
 
@@ -48,8 +49,7 @@ def git_diff_tool() -> ToolSpec:
         ref = sanitize_git_ref(str(args.get("ref") or "").strip()) if args.get("ref") else ""
         cmd = "diff" if not ref else f"diff {ref}...HEAD"
         res = _git(cmd, cwd=cwd)
-        ok = res["exit_code"] == 0
-        return {"ok": ok, **res}
+        return {"ok": res["exit_code"] == 0, **res}
 
     return ToolSpec(
         name="git_diff",
@@ -64,7 +64,9 @@ def git_diff_tool() -> ToolSpec:
             "additionalProperties": False,
         },
         handler=handler,
-        tags=frozenset({"workspace", "git"}),
+        tags=frozenset({"public", "git"}),
+        read_only=True,
+        risk_level="low",
     )
 
 
@@ -74,8 +76,7 @@ def git_log_tool() -> ToolSpec:
         n = int(args.get("n") or 10)
         n = max(1, min(n, 50))
         res = _git(f"log -{n} --oneline --decorate", cwd=cwd)
-        ok = res["exit_code"] == 0
-        return {"ok": ok, **res}
+        return {"ok": res["exit_code"] == 0, **res}
 
     return ToolSpec(
         name="git_log",
@@ -87,7 +88,9 @@ def git_log_tool() -> ToolSpec:
             "additionalProperties": False,
         },
         handler=handler,
-        tags=frozenset({"workspace", "git"}),
+        tags=frozenset({"public", "git"}),
+        read_only=True,
+        risk_level="low",
     )
 
 
@@ -97,18 +100,16 @@ def git_commit_tool() -> ToolSpec:
         message = str(args.get("message") or "").strip()
         if not message:
             return {"ok": False, "error": "message_required"}
-        # stage all changes (simple default)
         s1 = _git("add -A", cwd=cwd)
         if s1["exit_code"] != 0:
             return {"ok": False, "error": "git_add_failed", **s1}
         msg_esc = message.replace('"', '\\"')
         s2 = _git(f'commit -m "{msg_esc}"', cwd=cwd)
-        ok = s2["exit_code"] == 0
-        return {"ok": ok, **s2}
+        return {"ok": s2["exit_code"] == 0, **s2}
 
     return ToolSpec(
         name="git_commit",
-        description="Stage all and create a git commit (requires confirmation by policy).",
+        description="Stage all and create a git commit.",
         parameters={
             "type": "object",
             "properties": {
@@ -119,7 +120,9 @@ def git_commit_tool() -> ToolSpec:
             "additionalProperties": False,
         },
         handler=handler,
-        tags=frozenset({"workspace", "git", "write"}),
+        tags=frozenset({"public", "git", "write"}),
+        risk_level="high",
+        read_only=False,
     )
 
 
@@ -129,12 +132,11 @@ def git_push_tool() -> ToolSpec:
         remote = str(args.get("remote") or "origin").strip() or "origin"
         refspec = str(args.get("refspec") or "HEAD").strip() or "HEAD"
         res = _git(f"push {remote} {refspec}", cwd=cwd)
-        ok = res["exit_code"] == 0
-        return {"ok": ok, **res}
+        return {"ok": res["exit_code"] == 0, **res}
 
     return ToolSpec(
         name="git_push",
-        description="Push current branch (requires confirmation by policy).",
+        description="Push current branch to remote.",
         parameters={
             "type": "object",
             "properties": {
@@ -146,9 +148,10 @@ def git_push_tool() -> ToolSpec:
             "additionalProperties": False,
         },
         handler=handler,
-        tags=frozenset({"workspace", "git", "write"}),
+        tags=frozenset({"public", "git", "write"}),
+        risk_level="high",
+        read_only=False,
     )
 
 
 __all__ = ["git_status_tool", "git_diff_tool", "git_log_tool", "git_commit_tool", "git_push_tool"]
-

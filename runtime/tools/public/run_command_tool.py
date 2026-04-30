@@ -6,7 +6,7 @@ from oclaw.runtime.tools.base import ToolSpec
 from oclaw.runtime.tools.local_sdk import get_local_adapter
 
 
-def local_run_command_tool() -> ToolSpec:
+def run_command_tool() -> ToolSpec:
     def _handler(args: dict[str, Any]) -> dict[str, Any]:
         command = str(args.get("command") or "").strip()
         if not command:
@@ -16,7 +16,7 @@ def local_run_command_tool() -> ToolSpec:
         return get_local_adapter().run_command(command=command, cwd=cwd, timeout=timeout)
 
     return ToolSpec(
-        name="local_run_command",
+        name="run_command",
         description="Run a shell command via local backend.",
         parameters={
             "type": "object",
@@ -29,11 +29,11 @@ def local_run_command_tool() -> ToolSpec:
             "additionalProperties": False,
         },
         handler=_handler,
-        tags=frozenset({"public", "local", "exec", "workspace"}),
+        tags=frozenset({"public", "exec"}),
         risk_level="high",
         timeout_s=90.0,
         read_only=False,
     )
 
 
-__all__ = ["local_run_command_tool"]
+__all__ = ["run_command_tool"]

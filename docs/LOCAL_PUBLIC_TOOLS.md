@@ -4,10 +4,10 @@ This project exposes local atomic capabilities as shared `public` tools for all 
 
 ## Included P0 tools
 
-- `local_run_command`
-- `local_read_file`
-- `local_write_file`
-- `local_edit_file`
+- `run_command`
+- `read_file`
+- `write_file`
+- `edit_file`
 
 ## Included P1/P2/P3 tools
 
@@ -31,8 +31,8 @@ This project exposes local atomic capabilities as shared `public` tools for all 
 
 ## Risk gating
 
-- `local_read_file` is `risk_level=low` and visible by default.
-- `local_run_command`, `local_write_file`, `local_edit_file` are `risk_level=high`.
+- `read_file` is `risk_level=low` and visible by default.
+- `run_command`, `write_file`, `edit_file` are `risk_level=high`.
 - High-risk public tools are hidden unless `AIA_PUBLIC_TOOLS_ALLOW_HIGH=1`.
 
 ## Local backend adapter

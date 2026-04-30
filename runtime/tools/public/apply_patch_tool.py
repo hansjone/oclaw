@@ -4,7 +4,7 @@ import hashlib
 from typing import Any
 
 from oclaw.runtime.tools.base import ToolSpec
-from oclaw.runtime.tools.experts.workspace.workspace_base import resolve_workspace_path
+from oclaw.runtime.tools.path_guard import resolve_workspace_path
 
 
 def apply_patch_tool() -> ToolSpec:
@@ -30,7 +30,7 @@ def apply_patch_tool() -> ToolSpec:
 
     return ToolSpec(
         name="apply_patch",
-        description="Apply a full-file patch by overwriting a file with new content (optional sha256 precondition).",
+        description="Overwrite a file with new content (optional sha256 precondition).",
         parameters={
             "type": "object",
             "properties": {
@@ -38,16 +38,17 @@ def apply_patch_tool() -> ToolSpec:
                 "new_content": {"type": "string", "description": "New full file content."},
                 "expected_sha256": {
                     "type": "string",
-                    "description": "If provided, the current file sha256 must match (precondition).",
+                    "description": "If provided, the current file sha256 must match.",
                 },
             },
             "required": ["path", "new_content"],
             "additionalProperties": False,
         },
         handler=handler,
-        tags=frozenset({"workspace", "write"}),
+        tags=frozenset({"public", "write"}),
+        risk_level="high",
+        read_only=False,
     )
 
 
 __all__ = ["apply_patch_tool"]
-

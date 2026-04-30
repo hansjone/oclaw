@@ -6,7 +6,7 @@ from oclaw.runtime.tools.base import ToolSpec
 from oclaw.runtime.tools.local_sdk import get_local_adapter
 
 
-def local_edit_file_tool() -> ToolSpec:
+def edit_file_tool() -> ToolSpec:
     def _handler(args: dict[str, Any]) -> dict[str, Any]:
         path = str(args.get("path") or "").strip()
         if not path:
@@ -43,7 +43,7 @@ def local_edit_file_tool() -> ToolSpec:
         )
 
     return ToolSpec(
-        name="local_edit_file",
+        name="edit_file",
         description="Edit partial file content via local backend.",
         parameters={
             "type": "object",
@@ -59,11 +59,11 @@ def local_edit_file_tool() -> ToolSpec:
             "additionalProperties": False,
         },
         handler=_handler,
-        tags=frozenset({"public", "local", "workspace", "write", "edit"}),
+        tags=frozenset({"public", "write", "edit"}),
         risk_level="high",
         timeout_s=30.0,
         read_only=False,
     )
 
 
-__all__ = ["local_edit_file_tool"]
+__all__ = ["edit_file_tool"]

@@ -33,7 +33,7 @@ from oclaw.runtime.hooks.user_config_hooks import (
 )
 from oclaw.runtime.hooks.workspace import load_workspace_hook_entries
 from oclaw.runtime.hooks_runtime import resolve_runtime_config
-from oclaw.runtime.tools.experts.workspace.workspace_base import workspace_root
+from oclaw.runtime.tools.path_guard import workspace_root
 
 
 def _resolve_cli_workspace(ns: argparse.Namespace) -> str:

@@ -22,7 +22,7 @@ from oclaw.runtime.tools.base import ToolRegistry
 from oclaw.platform.llm.chat_models import LLMToolCall
 from oclaw.runtime.tools.tool_validation import validate_tool_arguments
 from oclaw.runtime.chat.media_redact import ingest_embedded_image_blobs_as_refs
-from oclaw.runtime.tools.experts.workspace.workspace_base import (
+from oclaw.runtime.tools.path_guard import (
     workspace_path_access_scope,
     workspace_write_namespace_scope,
 )

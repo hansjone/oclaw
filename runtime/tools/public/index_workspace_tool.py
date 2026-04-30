@@ -1,0 +1,38 @@
+from __future__ import annotations
+
+from typing import Any
+
+from oclaw.runtime.tools.base import ToolSpec
+
+
+def index_workspace_tool() -> ToolSpec:
+    def handler(args: dict[str, Any]) -> dict[str, Any]:
+        max_files = int(args.get("max_files") or 120)
+        try:
+            from oclaw.platform.persistence.sqlite_store import SqliteStore
+            from oclaw.platform.config.paths import db_path
+            from oclaw.runtime.tools.workspace_indexer import index_workspace
+
+            store = SqliteStore(db_path())
+            st = index_workspace(store, max_files=max(1, min(max_files, 800)))
+            return {"ok": True, "files_seen": st.files_seen, "chunks_upserted": st.chunks_upserted, "embeddings_upserted": st.embeddings_upserted}
+        except Exception as e:
+            return {"ok": False, "error": f"{type(e).__name__}: {e}"}
+
+    return ToolSpec(
+        name="index_workspace",
+        description="Index workspace files into vector knowledge base for RAG.",
+        parameters={
+            "type": "object",
+            "properties": {"max_files": {"type": "integer", "default": 120, "description": "Max files to index."}},
+            "required": [],
+            "additionalProperties": False,
+        },
+        handler=handler,
+        tags=frozenset({"public", "rag"}),
+        risk_level="high",
+        read_only=False,
+    )
+
+
+__all__ = ["index_workspace_tool"]

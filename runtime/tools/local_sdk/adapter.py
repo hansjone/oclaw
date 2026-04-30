@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from oclaw.runtime.tools.experts.workspace.workspace_base import resolve_workspace_path, truncate_text
+from oclaw.runtime.tools.path_guard import resolve_workspace_path, truncate_text
 
 
 @dataclass(frozen=True)
@@ -72,7 +72,9 @@ class LocalAdapter:
             return {"ok": False, "error_code": "command_required", "error": "command_required"}
         try:
             timeout_s = max(1, min(int(timeout or 30), 600))
-            workdir = str(resolve_workspace_path(cwd or (self._cwd or ".")))
+            # run_command never follows adapter cd state.
+            # It only uses explicit cwd; otherwise defaults to workspace root (".").
+            workdir = str(resolve_workspace_path(cwd or "."))
             run_kwargs: dict[str, Any] = {
                 "cwd": workdir,
                 "shell": True,
