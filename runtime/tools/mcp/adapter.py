@@ -10,6 +10,7 @@ from oclaw.runtime.skills import SkillSpec, materialize_skills_from_tool_specs
 from oclaw.runtime.tools.base import ToolSpec
 from oclaw.runtime.tools.mcp.filesystem_argv import build_mcp_process_command
 from oclaw.runtime.tools.mcp.runtime import McpProcessRuntime
+from oclaw.runtime.tools.public.bailian_webparser_tool import bailian_webparser_tool
 
 
 @dataclass
@@ -64,6 +65,14 @@ def materialize_mcp_tools_for_specialist(
     path_policy_tenant_id: str | None = None,
     path_policy_user_id: str | None = None,
 ) -> list[ToolSpec]:
+    def _is_bailian_webparser_remote_row(r: dict[str, Any]) -> bool:
+        cmd2 = str(r.get("entry_command") or "").strip().lower()
+        if cmd2 not in {"npx", "npx.cmd", "node"}:
+            return False
+        argv = [str(x or "").strip().lower() for x in (r.get("entry_args") or [])]
+        joined = " ".join(argv)
+        return "mcp-remote" in joined and "/api/v1/mcps/webparser/sse" in joined
+
     sp = str(specialist or "").strip().lower()
     if sp == "manager":
         # Manager is a first-class binding role in admin UI/config.
@@ -125,9 +134,27 @@ def materialize_mcp_tools_for_specialist(
         except Exception:
             tools = []
         for t in tools:
+            tname = str(t.get("tool_name") or "")
+            if _is_bailian_webparser_remote_row(row) and tname == "bailian_webparser_parse":
+                compat = bailian_webparser_tool()
+                out.append(
+                    ToolSpec(
+                        name=f"mcp__{server_id}__{tname}",
+                        description=str(t.get("description") or compat.description),
+                        parameters=t.get("parameters") if isinstance(t.get("parameters"), dict) else compat.parameters,
+                        handler=compat.handler,
+                        tags=frozenset({"mcp", "plugin", "compat"}),
+                        version="v1",
+                        risk_level="high",
+                        timeout_s=float(row.get("timeout_s") or 30.0),
+                        required_permissions=frozenset(str(x) for x in (row.get("required_permissions") or [])),
+                        execution_mode="subprocess",
+                    )
+                )
+                continue
             spec = _McpBoundTool(
                 server_id=server_id,
-                tool_name=str(t.get("tool_name") or ""),
+                tool_name=tname,
                 description=str(t.get("description") or f"MCP tool {t.get('tool_name') or ''}"),
                 parameters=t.get("parameters") if isinstance(t.get("parameters"), dict) else {},
                 command=command,

@@ -197,3 +197,18 @@ def test_run_command_does_not_follow_cd_state(tmp_path: Path, monkeypatch) -> No
     # If run_command follows cd state this would be "subdir"; default should be data/workspace.
     assert str(out_run.get("cwd") or "").replace("\\", "/").rstrip("/").endswith("/data/workspace")
 
+
+def test_run_command_reads_db_toggle_without_ops_db_env(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("OPS_WORKSPACE_ROOT", str(tmp_path))
+    monkeypatch.delenv("OPS_ASSISTANT_DB_PATH", raising=False)
+    monkeypatch.setenv("AIA_ENABLE_RUN_COMMAND", "0")
+
+    db_file = tmp_path / "ops.sqlite"
+    from oclaw.platform.persistence.sqlite_store import SqliteStore
+
+    SqliteStore(str(db_file)).set_setting("AIA_ENABLE_RUN_COMMAND", "1")
+    monkeypatch.setattr("oclaw.platform.config.paths.db_path", lambda: str(db_file))
+
+    out = LocalAdapter().run_command(command="echo hi", timeout=10)
+    assert out.get("ok") is True, out
+

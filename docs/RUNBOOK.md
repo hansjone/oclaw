@@ -75,7 +75,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\stop_gateway.ps1 -Force
 
 ### 1.1.4 安装官方微信插件（Personal WeChat）
 
-> 这一步会安装/更新官方插件到：`%USERPROFILE%\.openclaw\extensions\openclaw-weixin\`
+> 这一步会安装/更新微信 sidecar 运行时到：`data/channel_sidecar/oclaw-weixin/`
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\runtime\operations\scripts\weixin_install.ps1
@@ -87,10 +87,10 @@ powershell -ExecutionPolicy Bypass -File .\runtime\operations\scripts\weixin_ins
 powershell -ExecutionPolicy Bypass -File .\runtime\operations\scripts\weixin_login.ps1
 ```
 
-按提示扫码完成绑定（会写入账号 ID / token 等状态到 `%USERPROFILE%\.openclaw\openclaw-weixin\`）。
+按提示扫码完成绑定（会写入账号 ID / token 等状态到 `data/channel_sidecar/oclaw-weixin/state/`）。
 
 > 说明：`weixin_install.ps1` **不要求你全局安装 openclaw**（不需要 `npm install -g openclaw`）。
-> 脚本会在 `data/channel_sidecar/oclaw-weixin/` 下安装本地运行时依赖，并完成官方插件安装。
+> 脚本会在 `data/channel_sidecar/oclaw-weixin/` 下安装本地运行时依赖与官方插件包（`node_modules`），全流程不依赖 `%USERPROFILE%\.openclaw`。
 
 ### 1.1.6 启动微信 sidecar（原生模式）
 
@@ -548,6 +548,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\weixin_install.ps1
 ```
 
 注意：当前仅保留官方插件单链路，直接执行 `weixin_install.ps1` 即可。
+且为纯 sidecar 方案：不会写入 `%USERPROFILE%\.openclaw\`。
 
 安装目录：
 
@@ -563,6 +564,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\weixin_login.ps1
 
 - `data/channel_sidecar/oclaw-weixin/state/oclaw-weixin/accounts/*.json`
 - `data/channel_sidecar/oclaw-weixin/state/oclaw-weixin/accounts.json`
+- 不会写入 `%USERPROFILE%\.openclaw\openclaw-weixin\`
 
 ### 11.3 启动微信 sidecar
 

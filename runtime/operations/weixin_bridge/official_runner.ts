@@ -1,5 +1,4 @@
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -89,13 +88,9 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function homeOpenclawPath(...parts: string[]): string {
-  return path.join(os.homedir(), ".openclaw", ...parts);
-}
-
 function resolvePluginRoot(): string {
   const configured = String(process.env.OCLAW_WEIXIN_PLUGIN_ROOT || "").trim();
-  return configured || homeOpenclawPath("extensions", "openclaw-weixin");
+  return configured || path.join(process.cwd(), "node_modules", "@tencent-weixin", "openclaw-weixin");
 }
 
 async function loadOfficialModules(): Promise<OfficialModules> {
@@ -130,19 +125,34 @@ async function loadOfficialModules(): Promise<OfficialModules> {
   return officialModulesPromise;
 }
 
-function resolveAccount(): { accountId: string; token: string; cloudBaseUrl: string } {
-  const ids = readJsonFile<string[]>(homeOpenclawPath("openclaw-weixin", "accounts.json")) || [];
+async function resolveAccount(): Promise<{ accountId: string; token: string; cloudBaseUrl: string }> {
+  if (!String(process.env.OPENCLAW_STATE_DIR || "").trim()) {
+    process.env.OPENCLAW_STATE_DIR = STATE_DIR;
+  }
+  const pluginRoot = resolvePluginRoot();
+  const srcRoot = path.join(pluginRoot, "src");
+  const importTs = async (relativePath: string): Promise<any> => {
+    const fullPath = path.join(srcRoot, relativePath);
+    return import(pathToFileURL(fullPath).href);
+  };
+  const accountsMod = await importTs(path.join("auth", "accounts.ts"));
+  const listIds = accountsMod.listIndexedWeixinAccountIds as (() => string[]) | undefined;
+  const loadAcc = accountsMod.loadWeixinAccount as ((accountId: string) => any) | undefined;
+  if (!listIds || !loadAcc) {
+    throw new Error("weixin plugin accounts module missing exports");
+  }
+  const ids = listIds() || [];
   const accountId = String(ids[0] || "").trim();
   if (!accountId) {
     throw new Error("no weixin account id found; run login first");
   }
-  const account = readJsonFile<Json>(homeOpenclawPath("openclaw-weixin", "accounts", `${accountId}.json`)) || {};
-  const token = String(account.token || "").trim();
+  const data = loadAcc(accountId) || {};
+  const token = String(data.token || "").trim();
   if (!token) {
     throw new Error(`missing token for account ${accountId}; run login again`);
   }
   const envCloud = String(process.env.OCLAW_WEIXIN_CLOUD_BASE_URL || "").trim();
-  const cfgCloud = String(account.baseUrl || "").trim();
+  const cfgCloud = String(data.baseUrl || "").trim();
   const cloudBaseUrl = (envCloud || cfgCloud || "https://ilinkai.weixin.qq.com").trim();
   return { accountId, token, cloudBaseUrl };
 }
@@ -424,7 +434,7 @@ async function main(): Promise<void> {
     state.user_context_tokens && typeof state.user_context_tokens === "object"
       ? (state.user_context_tokens as TokenMap)
       : {};
-  const { accountId, token, cloudBaseUrl } = resolveAccount();
+  const { accountId, token, cloudBaseUrl } = await resolveAccount();
   const modules = await loadOfficialModules();
   modules.restoreContextTokens(accountId);
   log(`official runner started account=${accountId} cloud=${cloudBaseUrl} local=${LOCAL_BASE_URL}`);

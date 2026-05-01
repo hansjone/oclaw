@@ -44,6 +44,8 @@ Notes:
 
 - No global `openclaw` CLI installation is required.
 - Runtime dependencies are installed locally in sidecar workspace.
+- Login/account state is persisted under `data/channel_sidecar/oclaw-weixin/state/`.
+- The Weixin flow does not rely on `%USERPROFILE%\.openclaw`.
 
 ## Path C: Enable WhatsApp (experimental)
 

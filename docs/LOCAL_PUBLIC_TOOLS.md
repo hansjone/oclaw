@@ -22,6 +22,7 @@ This project exposes local atomic capabilities as shared `public` tools for all 
 - `set_env`
 - `list_processes`
 - `kill_process`
+- `bailian_webparser` (DashScope WebParser compatibility tool)
 
 ## Loading path
 

@@ -140,6 +140,33 @@ class McpAdminApiTests(unittest.TestCase):
         tools = sync.json().get("tools") or []
         self.assertTrue(any(str(t.get("tool_name") or "") == "ping" for t in tools))
 
+    def test_healthcheck_and_tools_sync_bailian_webparser_compat(self) -> None:
+        store = SqliteStore(db_path())
+        store.upsert_mcp_server(
+            server_id="webparser-compat",
+            source_type="npm",
+            source_ref="mcp-remote",
+            entry_command="npx",
+            entry_args=[
+                "-y",
+                "mcp-remote",
+                "https://dashscope.aliyuncs.com/api/v1/mcps/WebParser/sse",
+                "--header",
+                "Authorization: Bearer ${DASHSCOPE_API_KEY}",
+            ],
+            enabled=True,
+        )
+        health = self.client.post("/admin/api/mcp/healthcheck", json={"server_id": "webparser-compat"}, headers=self._headers())
+        self.assertEqual(health.status_code, 200)
+        self.assertTrue(health.json().get("ok"), health.json())
+        self.assertEqual(str((health.json().get("response") or {}).get("compat_mode") or ""), "bailian_webparser")
+
+        sync = self.client.post("/admin/api/mcp/tools/sync", json={"server_id": "webparser-compat"}, headers=self._headers())
+        self.assertEqual(sync.status_code, 200)
+        self.assertTrue(sync.json().get("ok"), sync.json())
+        tools = sync.json().get("tools") or []
+        self.assertTrue(any(str(t.get("tool_name") or "") == "bailian_webparser_parse" for t in tools))
+
     def test_reinstall_from_saved_manifest(self) -> None:
         script = self._write_mcp_server()
         store = SqliteStore(db_path())

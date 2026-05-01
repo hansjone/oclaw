@@ -212,9 +212,17 @@ def build_mcp_process_command(
     path_policy_tenant_id: str | None = None,
     path_policy_user_id: str | None = None,
 ) -> list[str]:
-    """``[cmd] + args`` after filesystem argv augmentation."""
+    """``[cmd] + args`` after env placeholder expansion + filesystem argv augmentation."""
+    base = [str(cmd)]
+    for x in args:
+        s = str(x).strip()
+        if not s:
+            continue
+        # Allow mcp entry args like: "Authorization: Bearer ${DASHSCOPE_API_KEY}".
+        # Unknown vars are kept unchanged by expandvars.
+        base.append(os.path.expandvars(s))
     return augment_filesystem_mcp_argv(
-        [cmd] + [x for x in args if str(x).strip()],
+        base,
         store=store,
         policy_session_id=policy_session_id,
         path_policy_tenant_id=path_policy_tenant_id,

@@ -166,9 +166,41 @@ class McpAdapterTests(unittest.TestCase):
             self.assertIn("GOOGLE_CALENDAR_MCP_TOKEN_PATH", keys)
             self.assertIn("GITHUB_PERSONAL_ACCESS_TOKEN", keys)
             self.assertIn("CONTEXT7_API_KEY", keys)
+            self.assertIn("DASHSCOPE_API_KEY", keys)
         finally:
             if old is not None:
                 os.environ["OPS_MCP_ENV_ALLOWLIST"] = old
+
+    def test_materialize_bailian_webparser_compat_tool(self) -> None:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as td:
+            store = SqliteStore(str(Path(td) / "ops.sqlite"))
+            store.upsert_mcp_server(
+                server_id="webparser-compat",
+                source_type="npm",
+                source_ref="mcp-remote",
+                entry_command="npx",
+                entry_args=[
+                    "-y",
+                    "mcp-remote",
+                    "https://dashscope.aliyuncs.com/api/v1/mcps/WebParser/sse",
+                    "--header",
+                    "Authorization: Bearer ${DASHSCOPE_API_KEY}",
+                ],
+                enabled=True,
+            )
+            store.replace_mcp_server_tools(
+                server_id="webparser-compat",
+                tools=[
+                    {
+                        "tool_name": "bailian_webparser_parse",
+                        "description": "compat",
+                        "parameters": {"type": "object", "properties": {"url": {"type": "string"}}},
+                    }
+                ],
+            )
+            specs = materialize_mcp_tools(store)
+            names = {x.name for x in specs}
+            self.assertIn("mcp__webparser-compat__bailian_webparser_parse", names)
 
 
 if __name__ == "__main__":

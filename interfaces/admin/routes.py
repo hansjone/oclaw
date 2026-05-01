@@ -120,6 +120,12 @@ def _mcp_health_and_sync_one(store: SqliteStore, row: dict[str, Any]) -> dict[st
         }
         store.set_mcp_server_health(server_id=sid, status="error", detail=item["health"])
         return item
+    if _is_bailian_webparser_remote(entry_command=cmd, entry_args=args):
+        tools = _bailian_webparser_virtual_tools()
+        store.replace_mcp_server_tools(server_id=sid, tools=tools)
+        detail = {"synced_tools": len(tools), "compat_mode": "bailian_webparser"}
+        store.set_mcp_server_health(server_id=sid, status="ok", detail=detail)
+        return {"server_id": sid, "ok": True, "health": detail, "tools_synced": len(tools)}
     rt = McpProcessRuntime(
         build_mcp_process_command(cmd, args, store=store),
         timeout_s=float(row.get("timeout_s") or 30.0),
@@ -156,6 +162,32 @@ def _mcp_health_and_sync_one(store: SqliteStore, row: dict[str, Any]) -> dict[st
         return {"server_id": sid, "ok": True, "health": health, "tools_synced": len(tools)}
     finally:
         rt.stop()
+
+
+def _is_bailian_webparser_remote(*, entry_command: str, entry_args: list[str]) -> bool:
+    cmd = str(entry_command or "").strip().lower()
+    if cmd not in {"npx", "npx.cmd", "node"}:
+        return False
+    joined = " ".join(str(x or "").strip().lower() for x in (entry_args or []))
+    return "mcp-remote" in joined and "/api/v1/mcps/webparser/sse" in joined
+
+
+def _bailian_webparser_virtual_tools() -> list[dict[str, Any]]:
+    return [
+        {
+            "tool_name": "bailian_webparser_parse",
+            "description": "Parse webpage via DashScope WebParser compatibility mode. Requires `url` (http/https).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "url": {"type": "string", "description": "Target webpage URL (required). Example: https://example.com"},
+                    "timeout": {"type": "integer", "default": 35, "minimum": 8, "maximum": 90},
+                },
+                "required": ["url"],
+                "additionalProperties": False,
+            },
+        }
+    ]
 
 
 def _http_get_json(url: str, *, timeout: float = 8.0) -> dict[str, Any]:
@@ -3178,6 +3210,10 @@ def build_admin_router() -> APIRouter:
         args = [str(x) for x in (row.get("entry_args") or []) if str(x).strip()]
         if not cmd:
             return {"ok": False, "error_code": "mcp_entry_missing", "error": "entry_command_missing"}
+        if _is_bailian_webparser_remote(entry_command=cmd, entry_args=args):
+            detail = {"ok": True, "status": "ok", "compat_mode": "bailian_webparser", "tools_count": 1}
+            store.set_mcp_server_health(server_id=server_id, status="ok", detail=detail)
+            return {"ok": True, "response": detail}
         rt = McpProcessRuntime(
             build_mcp_process_command(cmd, args, store=store),
             timeout_s=float(row.get("timeout_s") or 30.0),
@@ -3225,6 +3261,15 @@ def build_admin_router() -> APIRouter:
         args = [str(x) for x in (row.get("entry_args") or []) if str(x).strip()]
         if not cmd:
             return {"ok": False, "error_code": "mcp_entry_missing", "error": "entry_command_missing"}
+        if _is_bailian_webparser_remote(entry_command=cmd, entry_args=args):
+            norm = _bailian_webparser_virtual_tools()
+            store.replace_mcp_server_tools(server_id=server_id, tools=norm)
+            store.set_mcp_server_health(
+                server_id=server_id,
+                status="ok",
+                detail={"synced_tools": len(norm), "compat_mode": "bailian_webparser"},
+            )
+            return {"ok": True, "server_id": server_id, "tools": norm, "compat_mode": "bailian_webparser"}
         rt = McpProcessRuntime(
             build_mcp_process_command(cmd, args, store=store),
             timeout_s=float(row.get("timeout_s") or 30.0),

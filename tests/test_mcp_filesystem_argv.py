@@ -38,6 +38,18 @@ class McpFilesystemArgvTests(unittest.TestCase):
         out = build_mcp_process_command("echo", ["a"], store=None)
         self.assertEqual(out, ["echo", "a"])
 
+    def test_build_mcp_process_command_expands_env_placeholders(self) -> None:
+        with mock.patch.dict(os.environ, {"DASHSCOPE_API_KEY": "sk-test-123"}, clear=False):
+            out = build_mcp_process_command(
+                "npx",
+                ["-y", "mcp-remote", "https://example.com/sse", "--header", "Authorization: Bearer ${DASHSCOPE_API_KEY}"],
+                store=None,
+            )
+        self.assertEqual(
+            out,
+            ["npx", "-y", "mcp-remote", "https://example.com/sse", "--header", "Authorization: Bearer sk-test-123"],
+        )
+
     def test_policy_session_only_that_users_db_roots(self) -> None:
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as td:
             dbf = Path(td) / "ops.sqlite"

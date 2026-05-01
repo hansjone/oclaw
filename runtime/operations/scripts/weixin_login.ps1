@@ -23,6 +23,8 @@ New-Item -ItemType Directory -Force -Path $stateDir | Out-Null
 Push-Location $sidecarRoot
 try {
   $env:OCLAW_STATE_DIR = $stateDir
+  # Ensure the official plugin stores state under the sidecar.
+  $env:OPENCLAW_STATE_DIR = $stateDir
   if (Test-Path (Join-Path $sidecarRoot "login.ts")) {
     npm.cmd exec -- tsx login.ts
     exit 0
