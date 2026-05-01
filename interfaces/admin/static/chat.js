@@ -36,6 +36,10 @@ const I18N = {
     "chat.tools": "推理",
     "chat.tools.hidden": "推理已隐藏",
     "chat.tools.visible": "推理已显示",
+    "chat.compressHistory": "压缩历史",
+    "chat.compressHistoryPrompt": "将本会话历史工具输出按回放策略写回压缩（不可逆）？建议仅在发现超大 tool_result/导出卡顿时使用。",
+    "chat.compressHistoryOk": "压缩完成：扫描 {scanned} 条 tool 消息，重写 {rewritten} 条，超限压缩 {compacted} 条（已跳过 {skipped} 条已压缩）。",
+    "chat.compressHistoryFail": "压缩失败：{error}",
     "chat.tools.off": "关",
     "chat.tools.on": "开",
     "chat.status.oclaw": "主控",
@@ -187,6 +191,10 @@ const I18N = {
     "chat.tools": "Reasoning",
     "chat.tools.hidden": "Reasoning hidden",
     "chat.tools.visible": "Reasoning visible",
+    "chat.compressHistory": "Compress history",
+    "chat.compressHistoryPrompt": "Rewrite this session's historical tool outputs using replay-guard compaction (irreversible). Use only when a session is polluted by huge tool_result.",
+    "chat.compressHistoryOk": "Compaction done: scanned {scanned} tool messages, rewritten {rewritten}, oversized compacted {compacted} (skipped {skipped} already compacted).",
+    "chat.compressHistoryFail": "Compaction failed: {error}",
     "chat.tools.off": "Off",
     "chat.tools.on": "On",
     "chat.status.oclaw": "Controller",
@@ -2556,6 +2564,39 @@ async function renderChatUi() {
     el("span", { class: "muted", text: t("chat.modeLabel") }),
     modeSelect,
     toolToggleWrap,
+    el("button", {
+      type: "button",
+      class: "btn",
+      style: "padding:4px 8px;min-height:auto;font-size:12px;",
+      text: t("chat.compressHistory"),
+      onclick: async () => {
+        const sid = String(activeId || "");
+        if (!sid) return;
+        if (!(await confirmChatAction(t("chat.compressHistoryPrompt")))) return;
+        try {
+          const resp = await apiPost(`/admin/api/chat/sessions/${encodeURIComponent(sid)}/compress-history`, {});
+          const r = resp && resp.result ? resp.result : {};
+          if (!resp || !resp.ok) {
+            const err = String((resp && (resp.error || resp.detail)) || "failed");
+            showToast(t("chat.compressHistoryFail", { error: err.slice(0, 180) }), { kind: "error", ttlMs: 6500 });
+            return;
+          }
+          showToast(
+            t("chat.compressHistoryOk", {
+              scanned: String(Number(r.scanned_tool_messages || 0)),
+              rewritten: String(Number(r.rewritten_all_tool_messages || 0)),
+              compacted: String(Number(r.compacted_tool_messages || 0)),
+              skipped: String(Number(r.skipped_already_guarded || 0)),
+            }),
+            { kind: "info", ttlMs: 6500 },
+          );
+          // Reload messages so UI reflects compacted history.
+          loadMessagesForActive().catch(() => {});
+        } catch (e) {
+          showToast(t("chat.compressHistoryFail", { error: String(e || "failed").slice(0, 180) }), { kind: "error", ttlMs: 6500 });
+        }
+      },
+    }),
   ]);
 
   const fitComposerTextarea = () => {

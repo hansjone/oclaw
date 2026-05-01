@@ -78,6 +78,13 @@ class LocalAdapter:
             enabled: bool | None = None
             # Prefer DB setting when available.
             dbp = str(os.getenv("OPS_ASSISTANT_DB_PATH") or "").strip()
+            try:
+                if not dbp:
+                    from oclaw.platform.config.paths import db_path
+
+                    dbp = str(db_path() or "").strip()
+            except Exception:
+                dbp = ""
             if dbp:
                 try:
                     from oclaw.platform.persistence.sqlite_store import SqliteStore

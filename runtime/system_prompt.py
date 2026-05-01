@@ -6,6 +6,10 @@ from typing import Any
 from oclaw.runtime.memory_stage import render_memory_context_block
 from oclaw.runtime.project_context_prompt import build_project_context_block
 from oclaw.runtime.skills_prompt import build_skills_catalog_block
+from oclaw.runtime.skills_workspace_lane import (
+    fs_safe_workspace_lane_segment,
+    workspace_lane_segment,
+)
 from oclaw.runtime.types import OclawMemoryContext
 from oclaw.runtime.workspaces.experts import expert_workspace_signature_token
 from oclaw.prompts.loader import render_runtime_prompt
@@ -57,6 +61,23 @@ def _unified_skill_policy_guidance() -> str:
     )
 
 
+def _skill_catalog_lane_flags(
+    *,
+    skill_binding_role: str | None,
+    workspace_owner_session_id: str | None,
+    session_id: str | None,
+) -> tuple[bool, str | None]:
+    role = str(skill_binding_role or "").strip().lower()
+    if role:
+        return True, fs_safe_workspace_lane_segment(role)
+    o = str(workspace_owner_session_id or "").strip()
+    s = str(session_id or "").strip()
+    if not o and not s:
+        return False, None
+    seg = workspace_lane_segment(workspace_owner_session_id=o or None, session_id=s or None)
+    return True, seg
+
+
 def build_executor_system_prompt(
     *,
     store: Any,
@@ -67,6 +88,8 @@ def build_executor_system_prompt(
     lang: str,
     workspace_dir: str | None = None,
     skill_binding_role: str | None = None,
+    workspace_owner_session_id: str | None = None,
+    session_id: str | None = None,
 ) -> str:
     """Build the final system string for the oclaw executor (memory block + skills catalog).
 
@@ -80,6 +103,8 @@ def build_executor_system_prompt(
         base_system=base_system,
         workspace_dir=workspace_dir,
         skill_binding_role=skill_binding_role,
+        workspace_owner_session_id=workspace_owner_session_id,
+        session_id=session_id,
     )
     mem_block = render_memory_context_block(memory_context or OclawMemoryContext())
     if not mem_block:
@@ -99,7 +124,14 @@ def get_executor_prompt_static(
     base_system: str,
     workspace_dir: str | None = None,
     skill_binding_role: str | None = None,
+    workspace_owner_session_id: str | None = None,
+    session_id: str | None = None,
 ) -> str:
+    excl, lane_seg = _skill_catalog_lane_flags(
+        skill_binding_role=skill_binding_role,
+        workspace_owner_session_id=workspace_owner_session_id,
+        session_id=session_id,
+    )
     cache_key = (
         str(base_url or "").strip(),
         str(base_system or "").strip(),
@@ -108,6 +140,8 @@ def get_executor_prompt_static(
         expert_workspace_signature_token(),
         _executor_prompt_settings_signature(store),
         bool(tools is not None),
+        int(bool(excl)),
+        str(lane_seg or ""),
     )
     with _EXECUTOR_STATIC_PROMPT_CACHE_LOCK:
         cached = _EXECUTOR_STATIC_PROMPT_CACHE.get(cache_key)
@@ -126,6 +160,8 @@ def get_executor_prompt_static(
             registry=tools,
             base_url=str(base_url or ""),
             skill_binding_role=skill_binding_role,
+            exclude_foreign_private_workspace_skills=excl,
+            private_workspace_lane_segment=lane_seg,
         )
         if cat.strip():
             final_system = render_runtime_prompt(
@@ -157,6 +193,8 @@ def warm_executor_prompt_cache(
             base_system=str(base_system or ""),
             workspace_dir=workspace_dir,
             skill_binding_role=str(role or "").strip().lower() or None,
+            workspace_owner_session_id=None,
+            session_id=None,
         )
         warmed += 1
     return {"roles_warmed": int(warmed)}

@@ -508,6 +508,18 @@ Keep responses deterministic and JSON-serializable.
 - **密钥**：在 **`oclaw/_local/mcp_local.env`**（推荐）或 `data/mcp_local.env`（兼容）设置 `CONTEXT7_API_KEY`（见 [context7.com/dashboard](https://context7.com/dashboard)）。两处都存在时**同键以 `oclaw/_local/mcp_local.env` 为准**（覆盖 `data` 中的同键）。未自定义 `OPS_MCP_ENV_ALLOWLIST` 时，网关默认 allowlist 已包含 `CONTEXT7_API_KEY`（见 `oclaw/runtime/operations/mcp_env.py`）；若你自定义了 allowlist，请手动追加该键。  
 - **装完后**：`Health` → `Sync Tools` → 将 `mcp-context7` 加入通识 specialist 的 MCP 绑定（若脚本已成功 Sync，会自动追加）。
 
+### Bailian WebSearch（DashScope）
+
+- **密钥**：在 `oclaw/_local/mcp_local.env`（推荐）设置 `DASHSCOPE_API_KEY=...`。
+- **关键注意**：如果你自定义了 `AIA_MCP_ENV_ALLOWLIST` / `OPS_MCP_ENV_ALLOWLIST`，必须显式包含 `DASHSCOPE_API_KEY`，否则 MCP 子进程拿不到该密钥，常见表现是：
+  - `error_code: mcp_runtime_empty_response`
+  - `error: empty_response`
+- **排查顺序**：
+  1. 确认 `mcp_local.env` 已写 `DASHSCOPE_API_KEY`
+  2. 确认 allowlist 包含 `DASHSCOPE_API_KEY`
+  3. 在 Admin 对该 MCP 执行 `Health` → `Sync Tools`
+  4. 确认该 MCP 已绑定到当前会话使用的 specialist（不只是 `generalist`）
+
 ### 通识侧终端能力（`run_command`）
 
 与 Claude Code「在仓库里跑命令」类似的能力来自内置 **`run_command`**，但通识 lane 需同时满足：

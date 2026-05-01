@@ -56,6 +56,28 @@ def test_auto_install_rollback_on_forced_error(tmp_path: Path) -> None:
     assert not (root / "_workspace" / "roll_me_back").exists()
 
 
+def test_auto_install_private_lane_skips_binding(tmp_path: Path) -> None:
+    db = tmp_path / "ops.sqlite"
+    store = SqliteStore(str(db))
+    root = tmp_path / "skills"
+    lane = root / "_workspace" / "generalist"
+    out = auto_install_skill_from_payload(
+        store=store,
+        payload={
+            "name": "lane_only_skill",
+            "description": "demo",
+            "body_markdown": "x",
+        },
+        skills_root=root,
+        workspace_install_parent=lane,
+        auto_bind=False,
+    )
+    assert out.ok is True
+    assert out.auto_enabled is False
+    assert out.binding_applied_roles == ()
+    assert (lane / "lane_only_skill" / "SKILL.md").exists()
+
+
 def test_auto_install_enables_binding_for_all_roles(tmp_path: Path) -> None:
     db = tmp_path / "ops.sqlite"
     store = SqliteStore(str(db))

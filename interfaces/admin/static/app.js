@@ -4796,7 +4796,7 @@ async function renderPlugins() {
   const jsonInstallInput = el("textarea", {
     class: "input",
     placeholder:
-      "Paste install JSON: one object, array of objects, or { servers: [...] } / { payload: {...} } (seed file shape)",
+      "Paste install JSON: one object, array of objects, { servers:[...] }, { payload:{...} }, or Cursor-style { mcpServers:{...} }",
     rows: "6",
   });
   const cliInstallInput = el("input", {
@@ -4962,10 +4962,89 @@ async function renderPlugins() {
         return;
       }
       let list;
+      let detectedMcpServersShape = false;
       if (Array.isArray(parsed)) {
         list = parsed;
       } else if (parsed && typeof parsed === "object" && Array.isArray(parsed.servers)) {
         list = parsed.servers;
+      } else if (parsed && typeof parsed === "object" && parsed.mcpServers && typeof parsed.mcpServers === "object") {
+        detectedMcpServersShape = true;
+        installStatus.textContent =
+          "[json] detected mcpServers shape; streamableHttp/sse entries will be installed via mcp-remote bridge";
+        const envVarRe = /\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g;
+        list = Object.entries(parsed.mcpServers).map(([rawKey, rawServer]) => {
+          const key = String(rawKey || "").trim();
+          const s = rawServer && typeof rawServer === "object" ? rawServer : {};
+          const transport = String(s.type || "").trim().toLowerCase();
+          const baseUrl = String(s.baseUrl || s.url || "").trim();
+          const headers = s.headers && typeof s.headers === "object" ? s.headers : {};
+
+          // Build env schema from ${ENV_VAR} placeholders in headers.
+          const envSchema = {};
+          Object.entries(headers).forEach(([hk, hv]) => {
+            const v = String(hv || "");
+            let m;
+            while ((m = envVarRe.exec(v)) !== null) {
+              const envName = String(m[1] || "").trim();
+              if (!envName) continue;
+              envSchema[envName] = {
+                required: true,
+                description: `Auto-detected from header ${String(hk || "").trim()}`,
+              };
+            }
+          });
+
+          // Convert remote MCP (streamable HTTP / SSE) to stdio bridge via mcp-remote.
+          // Equivalent runtime command: npx -y mcp-remote <baseUrl> --header "K: V" ...
+          //
+          // Note: mcp-remote uses transport strategy "http-first" and may fall back to "sse-only"
+          // automatically, so both shapes can share the same bridge command.
+          if (
+            transport === "streamablehttp" ||
+            transport === "streamable_http" ||
+            transport === "streamable-http" ||
+            transport === "sse"
+          ) {
+            const entryArgs = ["-y", "mcp-remote"];
+            if (baseUrl) entryArgs.push(baseUrl);
+            Object.entries(headers).forEach(([hk, hv]) => {
+              const hn = String(hk || "").trim();
+              const hvs = String(hv || "").trim();
+              if (!hn || !hvs) return;
+              entryArgs.push("--header", `${hn}: ${hvs}`);
+            });
+            return {
+              source_type: "npm",
+              source_ref: "mcp-remote",
+              server_id: key || String(s.name || "mcp-remote").trim() || "mcp-remote",
+              entry_command: "npx",
+              entry_args: entryArgs,
+              env_schema: envSchema,
+              required_permissions: Array.isArray(s.required_permissions) ? s.required_permissions.map((x) => String(x)) : [],
+              risk_level: String(s.risk_level || "high"),
+              enabled: Object.prototype.hasOwnProperty.call(s, "isActive") ? !!s.isActive : true,
+              timeout_s: Number(s.timeout_s || 30),
+              dry_run: false,
+            };
+          }
+
+          // Best-effort passthrough for stdio-like definitions.
+          const cmd = String(s.command || s.entry_command || "").trim();
+          const cmdArgs = Array.isArray(s.args) ? s.args.map((x) => String(x)) : [];
+          return {
+            source_type: String(s.source_type || "npm").trim() || "npm",
+            source_ref: String(s.source_ref || "mcp-remote").trim() || "mcp-remote",
+            server_id: key || String(s.name || s.server_id || "mcp-server").trim() || "mcp-server",
+            entry_command: cmd,
+            entry_args: cmdArgs,
+            env_schema: Object.keys(envSchema).length ? envSchema : (s.env_schema && typeof s.env_schema === "object" ? s.env_schema : {}),
+            required_permissions: Array.isArray(s.required_permissions) ? s.required_permissions.map((x) => String(x)) : [],
+            risk_level: String(s.risk_level || "high"),
+            enabled: Object.prototype.hasOwnProperty.call(s, "isActive") ? !!s.isActive : true,
+            timeout_s: Number(s.timeout_s || 30),
+            dry_run: false,
+          };
+        });
       } else if (parsed && typeof parsed === "object" && parsed.payload && typeof parsed.payload === "object") {
         list = [parsed.payload];
       } else {
@@ -5014,6 +5093,10 @@ async function renderPlugins() {
         });
       }
       installStatus.textContent = JSON.stringify(results);
+      if (detectedMcpServersShape) {
+        installStatus.textContent =
+          "[json] mcpServers import finished (using mcp-remote bridge where needed)\n" + installStatus.textContent;
+      }
       markPrewarmReminder("mcp_batch_installed");
       router();
     },

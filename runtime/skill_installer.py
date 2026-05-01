@@ -29,6 +29,7 @@ from oclaw.runtime.skills import (
     discover_workspace_skill_manifests,
     load_skill_manifest,
 )
+from oclaw.runtime.skills_workspace_lane import skills_home_containing_workspace_lane
 
 _DISABLED_SKILLS_KEY = "AIA_SKILL_DISABLED_NAMES"
 _AUTO_INSTALL_KEY = "AIA_SKILL_AUTO_INSTALL_ENABLED"
@@ -513,7 +514,7 @@ def install_skill_from_local_dir(
     auto_enabled = False
     binding_roles: tuple[str, ...] = ()
     if auto_bind:
-        binding_root = root.parent if str(root.name).strip().lower() == "_workspace" else root
+        binding_root = skills_home_containing_workspace_lane(root)
         auto_enabled, binding_roles = _apply_auto_enable_binding(store=store, skill_name=manifest.name, skills_root=binding_root)
     deps_ok, deps_detail = _auto_install_skill_dependencies(store=store, skill_dir=target)
     if not deps_ok:
@@ -748,6 +749,8 @@ def auto_install_skill_from_payload(
     store: Any,
     payload: dict[str, Any],
     skills_root: str | Path | None = None,
+    workspace_install_parent: str | Path | None = None,
+    auto_bind: bool | None = None,
 ) -> SkillInstallResult:
     if not skill_auto_install_enabled(store):
         ec, rt = _classify_install_detail("auto_install_disabled")
@@ -757,9 +760,13 @@ def auto_install_skill_from_payload(
     body = str(payload.get("body_markdown") or "").strip()
     md = payload.get("metadata_oclaw")
     md = dict(md) if isinstance(md, dict) else {}
-    root = Path(skills_root).resolve() if skills_root else default_skills_root()
+    skills_home = Path(skills_root).resolve() if skills_root else default_skills_root()
+    if workspace_install_parent is not None:
+        workspace_root = Path(workspace_install_parent).resolve()
+    else:
+        workspace_root = skills_home / "_workspace"
+    bind = True if auto_bind is None else bool(auto_bind)
     # Keep agent-authored/auto-installed skills isolated from primary managed skills.
-    workspace_root = root / "_workspace"
     target = workspace_root / name
     before_disabled = _get_disabled_names(store)
     try:
@@ -776,7 +783,12 @@ def auto_install_skill_from_payload(
             raise RuntimeError("forced_error_for_test")
         if not out.ok:
             return out
-        auto_enabled, roles = _apply_auto_enable_binding(store=store, skill_name=name, skills_root=root)
+        if bind:
+            auto_enabled, roles = _apply_auto_enable_binding(
+                store=store, skill_name=name, skills_root=skills_home_containing_workspace_lane(workspace_root)
+            )
+        else:
+            auto_enabled, roles = False, ()
         return SkillInstallResult(
             ok=out.ok,
             name=out.name,

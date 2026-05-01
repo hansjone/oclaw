@@ -9,6 +9,7 @@ from oclaw.runtime.skill_role_binding import (
     should_apply_workspace_role_filter,
 )
 from oclaw.runtime.skills import discover_workspace_skill_manifests
+from oclaw.runtime.skills_workspace_lane import skill_dir_private_lane_segment
 from oclaw.runtime.tools.base import ToolRegistry
 
 
@@ -71,6 +72,8 @@ def collect_skill_catalog_entries(
     registry: ToolRegistry,
     base_url: str,
     skill_binding_role: str | None = None,
+    exclude_foreign_private_workspace_skills: bool = False,
+    private_workspace_lane_segment: str | None = None,
 ) -> list[tuple[str, str, str]]:
     """Return (name, description, location) for model-visible prompt skills."""
     _ = registry
@@ -86,8 +89,20 @@ def collect_skill_catalog_entries(
     for m in sorted(discover_workspace_skill_manifests(), key=lambda x: x.name.lower()):
         if m.disable_model_invocation or m.name in disabled:
             continue
+        priv_lane = skill_dir_private_lane_segment(str(m.skill_dir or ""))
+        want_lane = str(private_workspace_lane_segment or "").strip()
+        if exclude_foreign_private_workspace_skills:
+            if priv_lane is not None:
+                if not want_lane or priv_lane != want_lane:
+                    continue
+        own_private_lane = bool(
+            exclude_foreign_private_workspace_skills
+            and priv_lane is not None
+            and want_lane
+            and priv_lane == want_lane
+        )
         if role_filter:
-            if m.name not in role_allow:
+            if m.name not in role_allow and not own_private_lane:
                 continue
         out.append((m.name, (m.description or "").strip() or m.name, m.skill_file))
 
@@ -125,6 +140,8 @@ def build_skills_catalog_block(
     registry: ToolRegistry,
     base_url: str,
     skill_binding_role: str | None = None,
+    exclude_foreign_private_workspace_skills: bool = False,
+    private_workspace_lane_segment: str | None = None,
 ) -> str:
     if not _skill_runtime_enabled(store) or not _skills_prompt_in_system_enabled(store):
         return ""
@@ -133,6 +150,8 @@ def build_skills_catalog_block(
         registry=registry,
         base_url=base_url,
         skill_binding_role=skill_binding_role,
+        exclude_foreign_private_workspace_skills=exclude_foreign_private_workspace_skills,
+        private_workspace_lane_segment=private_workspace_lane_segment,
     )
     return format_skills_for_prompt(entries, max_chars=_max_skills_prompt_chars())
 

@@ -232,7 +232,7 @@
   - 生效：`oclaw/tools/mcp/adapter.py`
 
 - `AIA_MCP_ENV_ALLOWLIST`
-  - 默认：内置 allowlist（Brave/Google/GitHub/Context7）
+  - 默认：内置 allowlist（Brave/Google/GitHub/Context7/DashScope）
   - 作用：MCP 子进程可透传环境变量白名单
   - 生效：`oclaw/runtime/operations/mcp_env.py`
 

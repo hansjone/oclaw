@@ -24,7 +24,7 @@ class _Msg:
         self.turn_uuid = turn_uuid
 
 
-def test_build_llm_messages_unpaired_tool_rows_downgrade_to_assistant_text() -> None:
+def test_build_llm_messages_unpaired_tool_rows_are_dropped() -> None:
     model = RuleBasedChatModel()
     rows = [
         _Msg("user", "hi"),
@@ -51,7 +51,36 @@ def test_build_llm_messages_unpaired_tool_rows_downgrade_to_assistant_text() -> 
     msgs = build_llm_messages(store_messages=rows, system_prompt="s", model=model, lang="zh")
     assert not any(m.get("role") == "tool" for m in msgs), msgs
     assistant_texts = [str(m.get("content") or "") for m in msgs if m.get("role") == "assistant"]
-    assert any("[tool_use_result" in t for t in assistant_texts)
+    assert not any("[tool_use_result" in t for t in assistant_texts)
+
+
+def test_build_llm_messages_tool_row_not_immediately_after_assistant_tool_calls_is_dropped() -> None:
+    model = RuleBasedChatModel()
+    rows = [
+        _Msg("user", "hi"),
+        _Msg(
+            "assistant",
+            "",
+            tool_calls=json.dumps(
+                [
+                    {
+                        "id": "call_1",
+                        "name": "t",
+                        "arguments": {},
+                    }
+                ],
+                ensure_ascii=False,
+            ),
+        ),
+        _Msg("assistant", "interleaving"),
+        _Msg(
+            "tool",
+            '{"ok":true}',
+            tool_calls=json.dumps({"tool_call_id": "call_1", "name": "t"}, ensure_ascii=False),
+        ),
+    ]
+    msgs = build_llm_messages(store_messages=rows, system_prompt="s", model=model, lang="zh")
+    assert not any(m.get("role") == "tool" for m in msgs), msgs
 
 
 def test_build_llm_messages_user_relay_pointer_as_text_meta() -> None:

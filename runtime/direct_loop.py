@@ -12,7 +12,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Callable, Optional
 
-from oclaw.runtime.chat.agent_messages import build_llm_messages
+from oclaw.runtime.chat.agent_messages import build_llm_messages, get_last_build_llm_messages_stats
 from oclaw.runtime.chat.media_redact import redact_embedded_image_blobs
 from oclaw.runtime.chat.tool_runtime import ToolExecutionConfig
 from oclaw.runtime.chat.turn_types import TurnRunOutcome
@@ -32,6 +32,7 @@ _OCLAW_IMAGE_TOOL_RESULT_REPLAY_CAP_CHARS = 4_000
 _DIRECT_LOOP_OC_STAGE: dict[str, str] = {
     "tool_wire_filter": "wire_filter",
     "tool_result_context_guard": "tool_context_guard",
+    "tool_pairing_guard": "tool_pairing_guard",
 }
 _THINK_BLOCK_RE = re.compile(r"<(think|redacted_thinking)>\s*(.*?)\s*</\1>\s*", flags=re.IGNORECASE | re.DOTALL)
 _TOOL_WIRE_CACHE_LOCK = threading.Lock()
@@ -559,6 +560,7 @@ def _build_model_context(
     attempt_no: int | None = None,
     workspace_dir: str | None = None,
     skill_binding_role: str | None = None,
+    workspace_owner_session_id: str | None = None,
     user_text: str = "",
     prompt_build_context: dict[str, Any] | None = None,
     active_turn_uuid: str | None = None,
@@ -590,6 +592,8 @@ def _build_model_context(
         lang=lang,
         workspace_dir=workspace_dir,
         skill_binding_role=skill_binding_role,
+        workspace_owner_session_id=workspace_owner_session_id,
+        session_id=session_id,
     )
     # Hook integration: wiki-auto-inject can prepend retrieval snippets
     # before prompt build when query/topic hints indicate supplemental lookup.
@@ -617,7 +621,7 @@ def _build_model_context(
         pass
     trunc_raw = str(store.get_setting("AIA_TOOL_CONTEXT_TRUNCATE_ENABLED") or "").strip().lower()
     tool_context_truncate_enabled = trunc_raw not in ("0", "false", "no", "off")
-    return build_llm_messages(
+    llm_messages = build_llm_messages(
         store_messages=rows,
         system_prompt=final_system,
         model=model,
@@ -625,6 +629,30 @@ def _build_model_context(
         tool_context_truncate_enabled=tool_context_truncate_enabled,
         active_turn_uuid=active_turn_uuid,
     )
+    try:
+        stats = get_last_build_llm_messages_stats()
+        dropped_unpaired = int(stats.get("dropped_unpaired_tool_rows") or 0)
+        dropped_no_id = int(stats.get("dropped_no_id_tool_rows") or 0)
+        dropped_total = dropped_unpaired + dropped_no_id
+        if dropped_total > 0 and trace_id:
+            _emit_direct_loop_trace(
+                store=store,
+                session_id=session_id,
+                trace_id=trace_id,
+                parent_span_id=parent_span_id,
+                event_type="tool_pairing_guard",
+                payload={
+                    "dropped_total": int(dropped_total),
+                    "dropped_unpaired_tool_rows": int(dropped_unpaired),
+                    "dropped_no_id_tool_rows": int(dropped_no_id),
+                },
+                run_id=run_id,
+                attempt_no=attempt_no,
+                lang=lang,
+            )
+    except Exception:
+        pass
+    return llm_messages
 
 
 def _prepare_llm_tools(
@@ -815,6 +843,10 @@ def _persist_assistant_step(
 
     reasoning_chunks, assistant_body = _split_reasoning_and_body(assistant_text, explicit_reasoning=reasoning_text)
     reasoning_full = "\n".join([str(x or "").strip() for x in reasoning_chunks if str(x or "").strip()]).strip()
+    if not str(assistant_body or "").strip() and not stored_tool_calls:
+        # Provider/model can occasionally return an empty body; persist a visible stub
+        # so UI doesn't look "stuck" and operators can diagnose from history.
+        assistant_body = "（空响应）模型返回了空内容，请重试一次；若持续出现，请检查模型网关/上游返回。"
     if not thinking_mode_enabled:
         for idx, chunk in enumerate(reasoning_chunks):
             store.add_message(
@@ -860,6 +892,7 @@ def _execute_tool_step(
     on_tool_ui: Optional[Callable[[str, dict[str, Any]], None]],
     should_stop: Optional[Callable[[], bool]],
     signature_budget: int,
+    workspace_lane_role: str | None = None,
     run_id: str | None = None,
     attempt_no: int | None = None,
     turn_uuid: str | None = None,
@@ -882,6 +915,7 @@ def _execute_tool_step(
             run_id=run_id,
             attempt_no=attempt_no,
             turn_uuid=turn_uuid,
+            workspace_lane_role=workspace_lane_role,
         ),
         assistant_msg_id=assistant_msg_id,
         skill_uses=llm_tool_calls,
@@ -945,6 +979,7 @@ def run_oclaw_direct_loop(
     tool_traces: list[dict[str, Any]] = []
     final_text = ""
     hit_tool_round_limit = False
+    workspace_lane_role = str(skill_binding_role or wire_policy_role or "generalist").strip().lower() or "generalist"
 
     base_url = str(getattr(model, "base_url", "") or "")
 
@@ -970,6 +1005,7 @@ def run_oclaw_direct_loop(
             attempt_no=attempt_no,
             workspace_dir=workspace_dir,
             skill_binding_role=skill_binding_role,
+            workspace_owner_session_id=workspace_owner_session_id,
             user_text=str(user_text or ""),
             prompt_build_context=prompt_build_context,
             active_turn_uuid=turn_uuid,
@@ -1026,6 +1062,7 @@ def run_oclaw_direct_loop(
             on_tool_ui=on_tool_ui,
             should_stop=should_stop,
             signature_budget=tool_signature_budget,
+            workspace_lane_role=workspace_lane_role,
             run_id=run_id,
             attempt_no=attempt_no,
             turn_uuid=turn_uuid,
@@ -1066,6 +1103,7 @@ def run_oclaw_direct_loop(
             attempt_no=attempt_no,
             workspace_dir=workspace_dir,
             skill_binding_role=skill_binding_role,
+            workspace_owner_session_id=workspace_owner_session_id,
             user_text=str(user_text or ""),
             prompt_build_context=prompt_build_context,
             active_turn_uuid=turn_uuid,

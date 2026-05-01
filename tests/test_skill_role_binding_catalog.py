@@ -10,6 +10,7 @@ from oclaw.runtime.skill_role_binding import (
     ordered_binding_roles,
 )
 from oclaw.runtime.skills_prompt import collect_skill_catalog_entries
+from oclaw.runtime.skills_workspace_lane import skill_dir_private_lane_segment
 from oclaw.platform.persistence.sqlite_store import SqliteStore
 from oclaw.runtime.tools.catalog import default_registry
 
@@ -50,6 +51,45 @@ def test_collect_respects_role_binding_union(tmp_path: Path, monkeypatch) -> Non
     assert "skill-alpha" in names
     assert "skill-beta" in names
     assert "skill-public" in names
+
+
+def test_skill_dir_private_lane_segment_role_and_legacy_agent(tmp_path: Path) -> None:
+    home = tmp_path / "skills"
+    role_skill = home / "_workspace" / "ops" / "demo-skill"
+    role_skill.mkdir(parents=True)
+    assert skill_dir_private_lane_segment(role_skill, skills_home=home) == "ops"
+    leg = home / "_workspace" / "_agent" / "sess" / "legacy-skill"
+    leg.mkdir(parents=True)
+    assert skill_dir_private_lane_segment(leg, skills_home=home) == "sess"
+    flat = home / "_workspace" / "flat-only"
+    flat.mkdir(parents=True)
+    assert skill_dir_private_lane_segment(flat, skills_home=home) is None
+
+
+def test_collect_includes_own_private_lane_without_role_mapping(tmp_path: Path, monkeypatch) -> None:
+    db = tmp_path / "ops.sqlite"
+    store = SqliteStore(str(db))
+    skills_root = tmp_path / "skills_priv"
+    skills_root.mkdir(parents=True, exist_ok=True)
+    lane = "generalist"
+    _write_skill(skills_root / "_workspace" / lane, "lane-bound-skill")
+    monkeypatch.setenv("AIA_SKILLS_ROOT", str(skills_root))
+    store.set_setting(SKILL_ROLE_BINDING_ENABLED_SETTING, "1")
+    mapping = {r: [] for r in ordered_binding_roles()}
+    mapping["generalist"] = ["other-only"]
+    store.set_setting(SKILL_ROLE_BINDING_KEY, json.dumps(mapping))
+
+    reg = default_registry(store=store)
+    entries = collect_skill_catalog_entries(
+        store=store,
+        registry=reg,
+        base_url="",
+        skill_binding_role="generalist",
+        exclude_foreign_private_workspace_skills=True,
+        private_workspace_lane_segment=lane,
+    )
+    names = {e[0] for e in entries}
+    assert "lane-bound-skill" in names
 
 
 def test_collect_unfiltered_when_binding_disabled(tmp_path: Path, monkeypatch) -> None:

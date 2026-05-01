@@ -26,6 +26,7 @@ from oclaw.runtime.tools.path_guard import (
     workspace_path_access_scope,
     workspace_write_namespace_scope,
 )
+from oclaw.runtime.chat.tool_invocation_context import tool_workspace_lane_scope
 
 logger = logging.getLogger(__name__)
 _tool_exec_log = logging.getLogger("oclaw.tool_exec")
@@ -474,6 +475,8 @@ class ToolExecutionContext:
     path_policy_user_id: str | None = None
     workspace_dir: str | None = None
     turn_uuid: str | None = None
+    #: Binding role for private ``skill_auto_install`` paths (``_workspace/<role>/``, sibling of ``public/``).
+    workspace_lane_role: str | None = None
 
 
 class ToolExecutor:
@@ -516,7 +519,11 @@ class ToolExecutor:
                     owner_fallback_session_id=ctx.workspace_owner_session_id,
                     allowlist_tenant_id=ctx.path_policy_tenant_id,
                     allowlist_user_id=ctx.path_policy_user_id,
-                ), workspace_write_namespace_scope(ws_ns):
+                ), workspace_write_namespace_scope(ws_ns), tool_workspace_lane_scope(
+                    workspace_owner_session_id=ctx.workspace_owner_session_id,
+                    session_id=ctx.session_id,
+                    workspace_lane_role=ctx.workspace_lane_role,
+                ):
                     return tool.handler(tc.arguments)
 
             if isinstance(timeout_s, (int, float)) and float(timeout_s) > 0:

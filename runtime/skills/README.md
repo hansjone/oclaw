@@ -13,10 +13,11 @@
 ## 目录分层（重要）
 - **主目录**：`oclaw/runtime/skills/<skill_name>/`  
   用于官方/手工管理的稳定技能（安装、维护、评审都在这层）。
-- **自写目录**：`oclaw/runtime/skills/_workspace/<skill_name>/`  
-  用于 agent 自写/自动安装技能，和主目录隔离，避免混放。
+- **自写目录（扁平）**：`oclaw/runtime/skills/_workspace/<skill_name>/`  
+  兼容旧行为；新装技能优先按角色分桶（见下）。
 - **公共目录**：`oclaw/runtime/skills/_workspace/public/<skill_name>/`  
-  放在这里的 skill 默认对所有人可用，不需要做角色绑定（适合通用能力）。
+  与 **按专家/角色目录** `oclaw/runtime/skills/_workspace/<role>/<skill_name>/`（如 `generalist`、`ops`）**平级**；`public` 下技能默认全员可用，不需角色绑定。
+- **遗留会话桶**：`oclaw/runtime/skills/_workspace/_agent/<segment>/` 仅用于无绑定角色时的回退（如旧会话 id），新逻辑不应依赖该层。
 
 说明：
 - `auto_install_skill_from_payload` 产物默认落在 `_workspace` 下。

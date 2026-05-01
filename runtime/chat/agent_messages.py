@@ -23,6 +23,10 @@ from oclaw.runtime.relay_pointer import parse_pointer_uri
 logger = logging.getLogger(__name__)
 _THINK_BLOCK_RE = re.compile(r"<think>\s*(.*?)\s*</think>\s*", flags=re.IGNORECASE | re.DOTALL)
 _TOOL_CONTEXT_RESULT_MAX_CHARS = 50
+_LAST_BUILD_LLM_MESSAGES_STATS: dict[str, int] = {
+    "dropped_unpaired_tool_rows": 0,
+    "dropped_no_id_tool_rows": 0,
+}
 
 
 def _replay_recent_tool_rounds() -> int:
@@ -210,6 +214,8 @@ def build_llm_messages(
     older user attachments are replayed as text metadata only.
     """
     out: list[dict[str, Any]] = [{"role": "system", "content": (system_prompt or "").strip()}]
+    dropped_unpaired_tool_rows = 0
+    dropped_no_id_tool_rows = 0
     thinking_mode_enabled = bool(getattr(model, "thinking_mode_enabled", False))
     allow_signature_replay = _allow_reasoning_signature_replay(model)
     reasoning_by_turn: dict[str, list[tuple[int, str]]] = {}
@@ -250,6 +256,7 @@ def build_llm_messages(
                 seen_tool_ids.add(tcid)
         tool_ids_after.append(set(seen_tool_ids))
     tool_ids_after.reverse()
+    pending_tool_ids_for_next_tool_rows: set[str] = set()
 
     last_user_msg_idx = -1
     for _ui, _um in enumerate(store_messages or []):
@@ -550,6 +557,11 @@ def build_llm_messages(
                         entry["extra_content"] = {"google": {"thought_signature": raw_sig}}
                     api_tool_calls.append(entry)
                 if api_tool_calls:
+                    pending_tool_ids_for_next_tool_rows = {
+                        str(tc.get("id") or "").strip()
+                        for tc in api_tool_calls
+                        if str(tc.get("id") or "").strip()
+                    }
                     out.append(
                         _attach_reasoning_content(
                             {
@@ -561,6 +573,7 @@ def build_llm_messages(
                         )
                     )
                 else:
+                    pending_tool_ids_for_next_tool_rows = set()
                     out.append(
                         _attach_reasoning_content(
                             {"role": "assistant", "content": _strip_reasoning_blocks(getattr(m, "content", "") or "")},
@@ -568,6 +581,7 @@ def build_llm_messages(
                         )
                     )
             else:
+                pending_tool_ids_for_next_tool_rows = set()
                 out.append(
                     _attach_reasoning_content(
                         {"role": "assistant", "content": _strip_reasoning_blocks(getattr(m, "content", "") or "")},
@@ -593,26 +607,15 @@ def build_llm_messages(
                     tool_call_id = ""
             if tool_call_id:
                 # Guard against dangling tool_call_id (assistant tool_calls missing from this trimmed context window).
-                if str(tool_call_id) not in valid_tool_call_ids:
-                    # Preserve tool evidence, but downgrade to plain assistant text when pairing is broken.
-                    # Some OpenAI-compatible gateways reject a role=tool message if tool_call_id cannot be paired
-                    # to an assistant.tool_calls.id within the same request context.
-                    r0 = getattr(m, "content", "") or ""
-                    cap0 = tool_llm_message_max_chars()
-                    pretty = _summarize_unpaired_tool_content(r0, cap=cap0)
-                    if tool_context_truncate_enabled:
-                        pretty = _truncate_tool_context(pretty, lang=lang)
-                    out.append(
-                        {
-                            "role": "assistant",
-                            "content": render_prompt(
-                                "tools/tool_result_unpaired.md",
-                                variables={"tag": "tool_use_result:unpaired", "payload": pretty},
-                                strict=True,
-                            ),
-                        }
-                    )
+                # Also require strict immediate-turn pairing: a tool row must follow the assistant
+                # tool_calls message that introduced this id (no unrelated message in-between).
+                # Some OpenAI-compatible gateways enforce this strictly.
+                if str(tool_call_id) not in valid_tool_call_ids or str(tool_call_id) not in pending_tool_ids_for_next_tool_rows:
+                    # Strict pairing mode: drop unpaired tool rows entirely.
+                    # This avoids provider-side 400 errors caused by orphan tool_result blocks.
+                    dropped_unpaired_tool_rows += 1
                     continue
+                pending_tool_ids_for_next_tool_rows.discard(str(tool_call_id))
                 raw_tc_content = getattr(m, "content", "") or ""
                 _tun = str(getattr(m, "turn_uuid", "") or "").strip()
                 _aus = str(active_turn_uuid or "").strip()
@@ -661,23 +664,21 @@ def build_llm_messages(
                     tool_row["name"] = str(meta2["name"])
                 out.append(tool_row)
             else:
-                r = getattr(m, "content", "") or ""
-                cap2 = tool_llm_message_max_chars()
-                pretty2 = _summarize_unpaired_tool_content(r, cap=cap2)
-                # Unpaired tool rows are already summarized; avoid extra 50-char clipping.
-                out.append(
-                    {
-                        "role": "assistant",
-                        "content": render_prompt(
-                            "tools/tool_result_unpaired.md",
-                            variables={"tag": "tool_use_result:no_id", "payload": pretty2},
-                            strict=True,
-                        ),
-                    }
-                )
+                pending_tool_ids_for_next_tool_rows = set()
+                # Strict pairing mode: drop no-id tool rows entirely.
+                dropped_no_id_tool_rows += 1
             continue
 
+    global _LAST_BUILD_LLM_MESSAGES_STATS
+    _LAST_BUILD_LLM_MESSAGES_STATS = {
+        "dropped_unpaired_tool_rows": int(dropped_unpaired_tool_rows),
+        "dropped_no_id_tool_rows": int(dropped_no_id_tool_rows),
+    }
     return out
 
 
-__all__ = ["build_llm_messages"]
+def get_last_build_llm_messages_stats() -> dict[str, int]:
+    return dict(_LAST_BUILD_LLM_MESSAGES_STATS)
+
+
+__all__ = ["build_llm_messages", "get_last_build_llm_messages_stats"]

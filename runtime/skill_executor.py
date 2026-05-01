@@ -33,6 +33,7 @@ class SkillExecutionContext:
     attempt_no: int | None = None
     turn_uuid: str | None = None
     hook_eligibility: HookEligibilityContext | None = None
+    workspace_lane_role: str | None = None
 
 
 class SkillExecutor:
@@ -169,6 +170,7 @@ class SkillExecutor:
                 path_policy_user_id=ctx.path_policy_user_id,
                 workspace_dir=ctx.workspace_dir,
                 turn_uuid=ctx.turn_uuid,
+                workspace_lane_role=ctx.workspace_lane_role,
             ),
             assistant_msg_id=assistant_msg_id,
             tool_uses=skill_uses,

@@ -34,6 +34,7 @@ from oclaw.platform.files.session_export import export_session_json, export_sess
 from oclaw.platform.persistence.sqlite_store import SqliteStore
 from oclaw.runtime.gateway import OclawGateway
 from oclaw.runtime.types import StandardMessage, normalize_interaction_mode, normalize_requested_specialist
+from oclaw.runtime.chat.history_tool_result_compact import compact_tool_results_in_session_history
 
 
 def _oclaw_config_path() -> Path:
@@ -986,6 +987,50 @@ def include_chat_routes(router: APIRouter, *, resolve_auth: Callable[[SqliteStor
             "ok": True,
             "message_count": len(msgs),
             "messages": [_serialize_message(m) for m in msgs],
+        }
+
+    @chat.post("/sessions/{session_id}/compress-history")
+    def api_chat_compress_history(
+        session_id: str,
+        payload: dict[str, Any] | None = Body(default=None),
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        """Rewrite overlarge tool_result history using the same replay-guard strategy.
+
+        This is intended for operators to clean up historical polluted sessions so UI/export
+        performance remains stable. It only touches `role=tool` chat_message rows.
+        """
+        payload = payload or {}
+        store = SqliteStore(db_path())
+        ctx = resolve_auth(store, authorization)
+        sess = _resolve_chat_session(store, ctx, session_id)
+        if not sess:
+            raise HTTPException(status_code=404, detail="session_not_found")
+        limit_messages = int(payload.get("limit_messages") or 5000)
+        raw_cap = payload.get("cap_chars")
+        cap_chars: int | None
+        try:
+            cap_chars = int(raw_cap) if raw_cap is not None else None
+        except Exception:
+            cap_chars = None
+        out = compact_tool_results_in_session_history(
+            store=store,
+            session_id=str(session_id),
+            cap_chars=cap_chars,
+            limit_messages=limit_messages,
+        )
+        return {
+            "ok": bool(out.ok),
+            "result": {
+                "session_id": out.session_id,
+                "scanned_tool_messages": int(out.scanned_tool_messages),
+                "compacted_tool_messages": int(out.compacted_tool_messages),
+                "rewritten_all_tool_messages": int(out.rewritten_all_tool_messages),
+                "skipped_already_guarded": int(out.skipped_already_guarded),
+                "max_original_chars_seen": int(out.max_original_chars_seen),
+                "cap_chars": int(out.cap_chars),
+                "detail": str(out.detail or ""),
+            },
         }
 
     @chat.delete("/sessions/{session_id}/messages/{message_id}")
