@@ -1,6 +1,7 @@
 /* Standalone /chat page: same bearer + /admin/api/chat as admin SPA. */
 
 const PAGE_SIZE = 35;
+const CHAT_MESSAGES_FETCH_LIMIT = 5000;
 
 const I18N = {
   zh: {
@@ -36,7 +37,7 @@ const I18N = {
     "chat.tools": "推理",
     "chat.tools.hidden": "推理已隐藏",
     "chat.tools.visible": "推理已显示",
-    "chat.compressHistory": "压缩历史",
+    "chat.compressHistory": "压缩对话",
     "chat.compressHistoryPrompt": "将本会话历史工具输出按回放策略写回压缩（不可逆）？建议仅在发现超大 tool_result/导出卡顿时使用。",
     "chat.compressHistoryOk": "压缩完成：扫描 {scanned} 条 tool 消息，重写 {rewritten} 条，超限压缩 {compacted} 条（已跳过 {skipped} 条已压缩）。",
     "chat.compressHistoryFail": "压缩失败：{error}",
@@ -72,6 +73,18 @@ const I18N = {
     "chat.modeLabel": "模式",
     "chat.modeComprehensive": "综合",
     "chat.modeExpert": "专家",
+    "chat.execModeLabel": "执行态",
+    "chat.execModeAgent": "Agent",
+    "chat.execModePlan": "Plan",
+    "chat.execModeApplied": "执行态：{mode}",
+    "chat.confirmStrategyLabel": "确认策略",
+    "chat.planAgentVersionLabel": "Plan / Agent 版本",
+    "chat.planAgentVersionV1": "v1（经典）",
+    "chat.planAgentVersionV2": "v2",
+    "chat.planAgentVersionV2Disabled": "v2（未启用，需 AIA_EXPERT_PLAN_AGENT_V2_ENABLED=1）",
+    "chat.confirmStrategyStrict": "Strict（需切换 Agent）",
+    "chat.confirmStrategyAuto": "Auto（自动确认执行）",
+    "chat.confirmStrategyOff": "Off（不拦截确认）",
     "chat.specialistGeneralist": "通用",
     "chat.specialistOps": "运维",
     "chat.specialistImage": "图像",
@@ -191,7 +204,7 @@ const I18N = {
     "chat.tools": "Reasoning",
     "chat.tools.hidden": "Reasoning hidden",
     "chat.tools.visible": "Reasoning visible",
-    "chat.compressHistory": "Compress history",
+    "chat.compressHistory": "Compress chat",
     "chat.compressHistoryPrompt": "Rewrite this session's historical tool outputs using replay-guard compaction (irreversible). Use only when a session is polluted by huge tool_result.",
     "chat.compressHistoryOk": "Compaction done: scanned {scanned} tool messages, rewritten {rewritten}, oversized compacted {compacted} (skipped {skipped} already compacted).",
     "chat.compressHistoryFail": "Compaction failed: {error}",
@@ -227,6 +240,17 @@ const I18N = {
     "chat.modeLabel": "Mode",
     "chat.modeComprehensive": "Comprehensive",
     "chat.modeExpert": "Expert",
+    "chat.execModeLabel": "Execution",
+    "chat.execModeAgent": "Agent",
+    "chat.execModePlan": "Plan",
+    "chat.execModeApplied": "Execution: {mode}",
+    "chat.confirmStrategyLabel": "Confirm Strategy",
+    "chat.planAgentVersionLabel": "Plan / Agent version",
+    "chat.planAgentVersionV1": "v1 (classic)",
+    "chat.planAgentVersionV2": "v2",
+    "chat.confirmStrategyStrict": "Strict (switch to Agent first)",
+    "chat.confirmStrategyAuto": "Auto (confirm executes directly)",
+    "chat.confirmStrategyOff": "Off (no confirm-mode gate)",
     "chat.specialistGeneralist": "Generalist",
     "chat.specialistOps": "Ops",
     "chat.specialistImage": "Image",
@@ -326,7 +350,18 @@ const CHAT_URL_SCOPE_KEY = "ops_chat_url_scope";
 const CHAT_SPECIALIST_PREF_KEY = "ops_chat_specialist_pref";
 const CHAT_INTERACTION_MODE_KEY = "ops_chat_interaction_mode";
 const CHAT_MEMORY_MODE_KEY = "ops_chat_memory_mode";
+const CHAT_EXECUTION_MODE_KEY = "ops_chat_execution_mode";
+const CHAT_CONFIRM_STRATEGY_KEY = "ops_chat_confirm_strategy";
+const CHAT_PLAN_AGENT_VERSION_KEY = "ops_chat_plan_agent_version";
+const CHAT_USER_MENU_MODE_KEY = "ops_chat_user_menu_mode";
 const CHAT_REASONING_TOGGLE_KEY = "ops_chat_reasoning_toggle";
+const EXECUTION_MODE_AGENT = "agent";
+const EXECUTION_MODE_PLAN = "plan";
+const CONFIRM_STRATEGY_STRICT = "strict";
+const CONFIRM_STRATEGY_AUTO = "auto";
+const CONFIRM_STRATEGY_OFF = "off";
+const PLAN_AGENT_V1 = "v1";
+const PLAN_AGENT_V2 = "v2";
 const ADMIN_CHAT_SHOW_TOOL_OUTPUT_DEFAULT = false;
 const REASONING_BLOCK_MAX_CHARS = 12000;
 const CHAT_ENABLE_WIKI_EVENT_POLLER = false;
@@ -510,6 +545,10 @@ function _buildRenderRows(msgs) {
   let agg = null;
   const flush = () => {
     if (!agg) return;
+    if (!Array.isArray(agg._items) || !agg._items.length) {
+      agg = null;
+      return;
+    }
     rows.push(agg);
     agg = null;
   };
@@ -539,7 +578,7 @@ function _buildRenderRows(msgs) {
           if (String(content || "").trim()) {
             agg._items.push({ kind: "reasoning", text: content });
           }
-        } else if (String(content || "").trim()) {
+        } else if ((eventType === "assistant_text" || eventType === "assistant" || !eventType) && String(content || "").trim()) {
           agg._items.push({ kind: "assistant_text", text: content });
         }
         const tc = m.tool_calls;
@@ -2209,30 +2248,80 @@ function syncAuthUserLabel() {
           "data-menu-action": "profile",
           text: t("chat.myProfile"),
         }),
+      ];
+      const bridge = window.__chatUserMenuPrefs;
+      if (bridge && typeof bridge === "object") {
+        items.push(el("div", { class: "chat-sess-menu-sep" }));
+        items.push(el("div", { class: "muted", style: "padding:6px 10px 2px;font-size:12px;", text: t("chat.modeLabel") }));
+        const modeSel = el("select", { class: "input", style: "width:100%;margin:4px 8px 8px;max-width:calc(100% - 16px);" });
+        try {
+          const rows = Array.isArray(bridge.getModeOptions && bridge.getModeOptions()) ? bridge.getModeOptions() : [];
+          rows.forEach((r) => modeSel.appendChild(el("option", { value: String(r.value || ""), text: String(r.label || r.value || "") })));
+          modeSel.value = String((bridge.getModeValue && bridge.getModeValue()) || "");
+        } catch (_) {}
+        modeSel.addEventListener("change", () => {
+          try {
+            Promise.resolve(bridge.setModeValue && bridge.setModeValue(modeSel.value)).catch(() => {});
+          } catch (_) {}
+        });
+        items.push(modeSel);
+        items.push(el("div", { class: "muted", style: "padding:6px 10px 2px;font-size:12px;", text: t("chat.planAgentVersionLabel") }));
+        const pavSel = el("select", { class: "input", style: "width:100%;margin:4px 8px 8px;max-width:calc(100% - 16px);" });
+        try {
+          const prow = Array.isArray(bridge.getPlanAgentVersionOptions && bridge.getPlanAgentVersionOptions())
+            ? bridge.getPlanAgentVersionOptions()
+            : [];
+          prow.forEach((r) =>
+            pavSel.appendChild(el("option", { value: String(r.value || ""), text: String(r.label || r.value || "") })),
+          );
+          pavSel.value = String((bridge.getPlanAgentVersionValue && bridge.getPlanAgentVersionValue()) || "");
+        } catch (_) {}
+        pavSel.addEventListener("change", () => {
+          try {
+            Promise.resolve(bridge.setPlanAgentVersionValue && bridge.setPlanAgentVersionValue(pavSel.value)).catch(() => {});
+          } catch (_) {}
+        });
+        items.push(pavSel);
+        items.push(el("div", { class: "muted", style: "padding:2px 10px 2px;font-size:12px;", text: t("chat.confirmStrategyLabel") }));
+        const csSel = el("select", { class: "input", style: "width:100%;margin:4px 8px 8px;max-width:calc(100% - 16px);" });
+        try {
+          const rows = Array.isArray(bridge.getConfirmStrategyOptions && bridge.getConfirmStrategyOptions())
+            ? bridge.getConfirmStrategyOptions()
+            : [];
+          rows.forEach((r) => csSel.appendChild(el("option", { value: String(r.value || ""), text: String(r.label || r.value || "") })));
+          csSel.value = String((bridge.getConfirmStrategyValue && bridge.getConfirmStrategyValue()) || "");
+        } catch (_) {}
+        csSel.addEventListener("change", () => {
+          try {
+            Promise.resolve(bridge.setConfirmStrategyValue && bridge.setConfirmStrategyValue(csSel.value)).catch(() => {});
+          } catch (_) {}
+        });
+        items.push(csSel);
+        const reasonWrap = el("label", { class: "switch-wrap", style: "margin:2px 8px 8px;" }, [
+          el("input", { type: "checkbox", class: "switch-input" }),
+          el("span", { class: "switch-slider" }),
+          el("span", { class: "muted", text: t("chat.tools") }),
+        ]);
+        const reasonCb = reasonWrap.querySelector("input.switch-input");
+        try {
+          reasonCb.checked = !!(bridge.getReasoningVisible && bridge.getReasoningVisible());
+        } catch (_) {}
+        reasonCb.addEventListener("change", () => {
+          try {
+            Promise.resolve(bridge.setReasoningVisible && bridge.setReasoningVisible(!!reasonCb.checked)).catch(() => {});
+          } catch (_) {}
+        });
+        items.push(reasonWrap);
+      }
+      items.push(el("div", { class: "chat-sess-menu-sep" }));
+      items.push(
         el("button", {
           type: "button",
           class: "chat-sess-menu-item",
           "data-menu-action": "lang",
           text: t("lang.switch"),
         }),
-        el("button", {
-          type: "button",
-          class: "chat-sess-menu-item",
-          "data-menu-action": "dispatchLabels",
-          text: t("chat.dispatchLabelsEdit"),
-        }),
-      ];
-      if (isAdminViewer) {
-        items.push(el("div", { class: "chat-sess-menu-sep" }));
-        items.push(
-          el("button", {
-            type: "button",
-            class: "chat-sess-menu-item",
-            "data-menu-action": "attachmentAclBackfill",
-            text: t("chat.attachmentAclBackfill"),
-          }),
-        );
-      }
+      );
       items.push(el("div", { class: "chat-sess-menu-sep" }));
       items.push(
         el("button", {
@@ -2242,11 +2331,21 @@ function syncAuthUserLabel() {
           text: t("auth.logout"),
         }),
       );
-      const menu = el("div", { class: "chat-sess-menu-pop", style: "position:fixed;" }, items);
+      const menu = el("div", { class: "chat-sess-menu-pop", style: "position:fixed;min-width:220px;" }, items);
       const rect = moreBtn.getBoundingClientRect();
-      menu.style.left = `${Math.min(rect.left, window.innerWidth - 220)}px`;
-      menu.style.top = `${Math.max(8, rect.top - 92)}px`;
+      menu.style.position = "fixed";
       document.body.appendChild(menu);
+      const mrect = menu.getBoundingClientRect();
+      const pad = 8;
+      let left = rect.left;
+      let top = rect.bottom + 4;
+      if (top + mrect.height > window.innerHeight - pad) {
+        top = rect.top - 4 - mrect.height;
+      }
+      left = Math.max(pad, Math.min(left, window.innerWidth - pad - mrect.width));
+      top = Math.max(pad, Math.min(top, window.innerHeight - pad - mrect.height));
+      menu.style.left = `${left}px`;
+      menu.style.top = `${top}px`;
       const close = (e) => {
         if (!menu.contains(e.target)) {
           menu.remove();
@@ -2442,19 +2541,83 @@ async function renderChatUi() {
     disabled: "disabled",
   });
   const composerShell = el("div", { class: "chat-composer-shell" });
-  const toolToggleCb = el("input", { type: "checkbox", class: "switch-input" });
-  const toolToggleWrap = el("label", { class: "switch-wrap", title: t("chat.tools.visible") }, [
-    toolToggleCb,
-    el("span", { class: "switch-slider" }),
-    el("span", { class: "muted", text: t("chat.tools") }),
-  ]);
   const MAIN_MODE_VALUE = "comprehensive";
   const EXCLUDED_SPECIALISTS = new Set(["main", "memory", "manager_self", "pycache", "__pycache__"]);
   let specialistCatalog = [];
+  /** Hidden: mode is global-only (⋯ menu). Kept for specialist option list in `publishUserMenuPrefsBridge`. */
   const modeSelect = el("select", {
     class: "input",
-    style: "min-width:120px;max-width:160px;padding:6px 8px;",
+    style: "display:none;",
+    "aria-hidden": "true",
+    tabIndex: -1,
   });
+  let globalMenuModeValue = String(localStorage.getItem(CHAT_USER_MENU_MODE_KEY) || MAIN_MODE_VALUE).toLowerCase();
+  const modelSelect = el("select", {
+    class: "input",
+    style: "min-width:150px;max-width:240px;padding:6px 8px;",
+    title: t("chat.activeModelLabel"),
+  });
+  let modelSelectNameToId = new Map();
+  const normalizeExecutionMode = (v) => {
+    const raw = String(v || "").trim().toLowerCase();
+    return raw === EXECUTION_MODE_PLAN ? EXECUTION_MODE_PLAN : EXECUTION_MODE_AGENT;
+  };
+  const normalizeConfirmStrategy = (v) => {
+    const raw = String(v || "").trim().toLowerCase();
+    if (raw === CONFIRM_STRATEGY_AUTO) return CONFIRM_STRATEGY_AUTO;
+    if (raw === CONFIRM_STRATEGY_OFF) return CONFIRM_STRATEGY_OFF;
+    return CONFIRM_STRATEGY_STRICT;
+  };
+  const executionModeLabel = (v) =>
+    normalizeExecutionMode(v) === EXECUTION_MODE_PLAN ? t("chat.execModePlan") : t("chat.execModeAgent");
+  let currentExecutionMode = normalizeExecutionMode(localStorage.getItem(CHAT_EXECUTION_MODE_KEY) || EXECUTION_MODE_AGENT);
+  let currentConfirmStrategy = normalizeConfirmStrategy(localStorage.getItem(CHAT_CONFIRM_STRATEGY_KEY) || CONFIRM_STRATEGY_STRICT);
+  const normalizePlanAgentVersion = (v) => {
+    const raw = String(v || "").trim().toLowerCase();
+    return raw === PLAN_AGENT_V2 ? PLAN_AGENT_V2 : PLAN_AGENT_V1;
+  };
+  let planAgentV2GloballyEnabled = false;
+  let currentPlanAgentVersion = normalizePlanAgentVersion(localStorage.getItem(CHAT_PLAN_AGENT_VERSION_KEY) || PLAN_AGENT_V1);
+  const execSelect = el("select", {
+    class: "input",
+    style: "min-width:96px;max-width:140px;padding:6px 8px;",
+  });
+  const refreshExecutionSelect = () => {
+    const prev = normalizeExecutionMode(execSelect.value || currentExecutionMode);
+    execSelect.innerHTML = "";
+    execSelect.appendChild(el("option", { value: EXECUTION_MODE_AGENT, text: t("chat.execModeAgent") }));
+    execSelect.appendChild(el("option", { value: EXECUTION_MODE_PLAN, text: t("chat.execModePlan") }));
+    execSelect.value = prev;
+  };
+  const setExecutionMode = (v, { persistLocal = true, saveSession = true } = {}) => {
+    currentExecutionMode = normalizeExecutionMode(v);
+    if (persistLocal) localStorage.setItem(CHAT_EXECUTION_MODE_KEY, currentExecutionMode);
+    refreshExecutionSelect();
+    execSelect.value = currentExecutionMode;
+    if (saveSession && activeId) saveSessionModePreference();
+  };
+  execSelect.addEventListener("change", () => {
+    setExecutionMode(execSelect.value, { persistLocal: true, saveSession: true });
+  });
+  refreshExecutionSelect();
+  execSelect.value = currentExecutionMode;
+  const execSelectWrap = el("span", { class: "chat-exec-mode-wrap", style: "display:inline-flex;align-items:center;" }, [
+    execSelect,
+  ]);
+  const outboundPlanAgentVersion = () => {
+    const modeVal = String(globalMenuModeValue || MAIN_MODE_VALUE).toLowerCase();
+    if (modeVal === MAIN_MODE_VALUE) return PLAN_AGENT_V1;
+    return normalizePlanAgentVersion(currentPlanAgentVersion);
+  };
+  const refreshExecUi = () => {
+    const modeVal = String(globalMenuModeValue || MAIN_MODE_VALUE).toLowerCase();
+    const expert = modeVal !== MAIN_MODE_VALUE;
+    const show =
+      expert &&
+      planAgentV2GloballyEnabled &&
+      normalizePlanAgentVersion(currentPlanAgentVersion) === PLAN_AGENT_V2;
+    execSelectWrap.style.display = show ? "inline-flex" : "none";
+  };
   const modeOptionLabel = (v) => {
     const key = String(v || "").trim().toLowerCase();
     if (key === MAIN_MODE_VALUE) return t("chat.modeComprehensive");
@@ -2472,12 +2635,17 @@ async function renderChatUi() {
     return specialistCatalog.some((x) => String(x.id || "").toLowerCase() === key);
   };
   const persistModeSelection = () => {
-    const v = String(modeSelect.value || MAIN_MODE_VALUE).toLowerCase();
+    const v = String(globalMenuModeValue || MAIN_MODE_VALUE).toLowerCase();
     localStorage.setItem(CHAT_INTERACTION_MODE_KEY, v);
     if (v !== MAIN_MODE_VALUE) localStorage.setItem(CHAT_SPECIALIST_PREF_KEY, v);
   };
+  const syncHiddenModeSelectFromGlobal = () => {
+    const g = String(globalMenuModeValue || MAIN_MODE_VALUE).toLowerCase();
+    if (Array.from(modeSelect.options || []).some((o) => String(o.value || "") === g)) modeSelect.value = g;
+    else modeSelect.value = MAIN_MODE_VALUE;
+  };
   const applyModeOptions = () => {
-    const prev = String(modeSelect.value || localStorage.getItem(CHAT_INTERACTION_MODE_KEY) || MAIN_MODE_VALUE).toLowerCase();
+    const prev = String(globalMenuModeValue || MAIN_MODE_VALUE).toLowerCase();
     modeSelect.innerHTML = "";
     modeSelect.appendChild(el("option", { value: MAIN_MODE_VALUE, text: modeOptionLabel(MAIN_MODE_VALUE) }));
     modeSelect.appendChild(el("option", { value: "generalist", text: modeOptionLabel("generalist") }));
@@ -2486,17 +2654,15 @@ async function renderChatUi() {
       if (!sid || sid === "generalist") return;
       modeSelect.appendChild(el("option", { value: sid, text: modeOptionLabel(sid) }));
     });
-    if (Array.from(modeSelect.options).some((o) => String(o.value || "") === prev)) modeSelect.value = prev;
-    else modeSelect.value = MAIN_MODE_VALUE;
+    if (Array.from(modeSelect.options).some((o) => String(o.value || "") === prev)) {
+      modeSelect.value = prev;
+    } else {
+      modeSelect.value = MAIN_MODE_VALUE;
+      globalMenuModeValue = MAIN_MODE_VALUE;
+    }
   };
-  const _im = String(localStorage.getItem(CHAT_INTERACTION_MODE_KEY) || MAIN_MODE_VALUE).toLowerCase();
-  modeSelect.value = _im;
   const _mm = String(localStorage.getItem(CHAT_MEMORY_MODE_KEY) || "default").toLowerCase();
   localStorage.setItem(CHAT_MEMORY_MODE_KEY, _mm === "store_only" ? "store_only" : "default");
-  modeSelect.addEventListener("change", () => {
-    persistModeSelection();
-    saveSessionModePreference();
-  });
   const loadSpecialistCatalog = async () => {
     try {
       const r = await apiGet("/admin/api/experts");
@@ -2528,42 +2694,150 @@ async function renderChatUi() {
       const p = profiles.find((x) => String(x.id || "") === aid) || null;
       const modelName = String((p && p.model) || "").trim() || "-";
       activeModelText.textContent = `${t("chat.activeModelLabel")}: ${modelName}`;
+      modelSelect.innerHTML = "";
+      modelSelectNameToId = new Map();
+      const usedKeys = new Set();
+      profiles.forEach((row) => {
+        const pid = String(row && row.id ? row.id : "");
+        if (!pid) return;
+        const rawName = String(row.name || "").trim();
+        const keyBase = rawName || pid;
+        let key = keyBase;
+        let n = 2;
+        while (usedKeys.has(key)) {
+          key = `${keyBase}#${n}`;
+          n += 1;
+        }
+        usedKeys.add(key);
+        modelSelectNameToId.set(key, pid);
+        const display = String(row.model || row.name || pid);
+        modelSelect.appendChild(el("option", { value: key, text: display }));
+      });
+      if (p) {
+        const rawName = String(p.name || "").trim();
+        const firstKey = Array.from(modelSelectNameToId.keys()).find((k) => modelSelectNameToId.get(k) === aid) || "";
+        const key = firstKey || rawName;
+        if (key && Array.from(modelSelect.options).some((o) => String(o.value || "") === key)) {
+          modelSelect.value = key;
+        }
+      } else if (modelSelect.options.length > 0) {
+        modelSelect.value = String(modelSelect.options[0].value || "");
+      }
     } catch (_) {
       activeModelText.textContent = `${t("chat.activeModelLabel")}: -`;
+      modelSelect.innerHTML = "";
+      modelSelect.appendChild(el("option", { value: "", text: "-" }));
+      modelSelect.value = "";
     }
   };
+  modelSelect.addEventListener("change", async () => {
+    const selectedKey = String(modelSelect.value || "").trim();
+    const pid = String(modelSelectNameToId.get(selectedKey) || "").trim();
+    if (!pid) return;
+    try {
+      await apiPost("/admin/api/models/active", { profile_id: pid });
+      await refreshActiveModelText();
+    } catch (e) {
+      statusBar.textContent = `${t("chat.error")}: ${String(e)}`;
+    }
+  });
   const loadSessionModePreference = async () => {
-    if (!activeId) return;
+    if (!activeId) {
+      setExecutionMode(currentExecutionMode, { persistLocal: true, saveSession: false });
+      refreshExecUi();
+      return;
+    }
     try {
       const resp = await apiGet(`/admin/api/chat/sessions/${encodeURIComponent(activeId)}/mode`);
       const m = String((resp && resp.interaction_mode) || "").toLowerCase();
       const s = String((resp && resp.specialist) || "").toLowerCase();
       const mm = String((resp && resp.memory_mode) || "").toLowerCase();
-      if (m === "comprehensive") modeSelect.value = MAIN_MODE_VALUE;
-      else if (m === "expert" && isSelectableSpecialist(s)) modeSelect.value = s;
+      const em = String((resp && resp.execution_mode) || "").toLowerCase();
+      const cs = String((resp && resp.confirm_strategy) || "").toLowerCase();
+      planAgentV2GloballyEnabled = !!(resp && resp.plan_agent_v2_globally_enabled);
+      const pavRaw = String((resp && resp.plan_agent_version) || "").trim().toLowerCase();
+      currentPlanAgentVersion = normalizePlanAgentVersion(pavRaw || localStorage.getItem(CHAT_PLAN_AGENT_VERSION_KEY));
+      localStorage.setItem(CHAT_PLAN_AGENT_VERSION_KEY, currentPlanAgentVersion);
+      const gm = resp && resp.global_menu && typeof resp.global_menu === "object" ? resp.global_menu : null;
+      if (gm) {
+        const gIm = String(gm.interaction_mode || "").toLowerCase();
+        const gSp = String(gm.specialist || "").toLowerCase();
+        if (gIm === "comprehensive") globalMenuModeValue = MAIN_MODE_VALUE;
+        else if (gIm === "expert") {
+          if (isSelectableSpecialist(gSp)) globalMenuModeValue = gSp;
+          else globalMenuModeValue = "generalist";
+        } else globalMenuModeValue = MAIN_MODE_VALUE;
+      } else {
+        try {
+          const ur = await apiGet("/admin/api/chat/user-mode");
+          if (ur && ur.ok) {
+            planAgentV2GloballyEnabled = !!(ur.plan_agent_v2_globally_enabled != null ? ur.plan_agent_v2_globally_enabled : planAgentV2GloballyEnabled);
+            const gum = String((ur.interaction_mode || "").toLowerCase());
+            const gus = String((ur.specialist || "").toLowerCase());
+            currentConfirmStrategy = normalizeConfirmStrategy(ur.confirm_strategy || currentConfirmStrategy);
+            localStorage.setItem(CHAT_CONFIRM_STRATEGY_KEY, currentConfirmStrategy);
+            currentPlanAgentVersion = normalizePlanAgentVersion(
+              ur.plan_agent_version || localStorage.getItem(CHAT_PLAN_AGENT_VERSION_KEY),
+            );
+            localStorage.setItem(CHAT_PLAN_AGENT_VERSION_KEY, currentPlanAgentVersion);
+            if (gum === "comprehensive") globalMenuModeValue = MAIN_MODE_VALUE;
+            else if (gum === "expert") {
+              if (isSelectableSpecialist(gus)) globalMenuModeValue = gus;
+              else globalMenuModeValue = "generalist";
+            } else globalMenuModeValue = MAIN_MODE_VALUE;
+          }
+        } catch (_) {
+          if (m === "comprehensive") globalMenuModeValue = MAIN_MODE_VALUE;
+          else if (m === "expert" && isSelectableSpecialist(s)) globalMenuModeValue = s;
+          else globalMenuModeValue = MAIN_MODE_VALUE;
+        }
+      }
+      localStorage.setItem(CHAT_USER_MENU_MODE_KEY, String(globalMenuModeValue || MAIN_MODE_VALUE).toLowerCase());
+      syncHiddenModeSelectFromGlobal();
       if (["default", "store_only"].includes(mm)) localStorage.setItem(CHAT_MEMORY_MODE_KEY, mm);
+      setExecutionMode(em, { persistLocal: true, saveSession: false });
+      currentConfirmStrategy = normalizeConfirmStrategy(cs || currentConfirmStrategy);
+      localStorage.setItem(CHAT_CONFIRM_STRATEGY_KEY, currentConfirmStrategy);
       persistModeSelection();
       const mml = String(localStorage.getItem(CHAT_MEMORY_MODE_KEY) || "default").toLowerCase();
       localStorage.setItem(CHAT_MEMORY_MODE_KEY, mml === "store_only" ? "store_only" : "default");
+      refreshExecUi();
+      publishUserMenuPrefsBridge();
+    } catch (_) {
+      setExecutionMode(currentExecutionMode, { persistLocal: true, saveSession: false });
+      refreshExecUi();
+    }
+  };
+  const saveUserGlobalModePreference = async () => {
+    try {
+      const modeVal = String(globalMenuModeValue || MAIN_MODE_VALUE).toLowerCase();
+      const isMain = modeVal === MAIN_MODE_VALUE;
+      const resp = await apiPost("/admin/api/chat/user-mode", {
+        interaction_mode: isMain ? "comprehensive" : "expert",
+        specialist: isMain ? "generalist" : modeVal,
+        confirm_strategy: String(currentConfirmStrategy || CONFIRM_STRATEGY_STRICT),
+        plan_agent_version: String(currentPlanAgentVersion || PLAN_AGENT_V1),
+      });
+      if (resp && typeof resp.plan_agent_v2_globally_enabled === "boolean") {
+        planAgentV2GloballyEnabled = !!resp.plan_agent_v2_globally_enabled;
+      }
+      localStorage.setItem(CHAT_USER_MENU_MODE_KEY, modeVal);
     } catch (_) {}
   };
   const saveSessionModePreference = async () => {
     if (!activeId) return;
     try {
-      const modeVal = String(modeSelect.value || MAIN_MODE_VALUE).toLowerCase();
-      const isMain = modeVal === MAIN_MODE_VALUE;
       await apiPost(`/admin/api/chat/sessions/${encodeURIComponent(activeId)}/mode`, {
-        interaction_mode: isMain ? "comprehensive" : "expert",
-        specialist: isMain ? "generalist" : modeVal,
         memory_mode: String(localStorage.getItem(CHAT_MEMORY_MODE_KEY) || "default"),
+        execution_mode: String(currentExecutionMode || EXECUTION_MODE_AGENT),
       });
     } catch (_) {}
   };
   await refreshActiveModelText();
+  refreshExecUi();
   const composerMetaBar = el("div", { class: "row", style: "gap:8px;padding:2px 4px 6px;align-items:center;" }, [
-    el("span", { class: "muted", text: t("chat.modeLabel") }),
-    modeSelect,
-    toolToggleWrap,
+    execSelectWrap,
+    modelSelect,
     el("button", {
       type: "button",
       class: "btn",
@@ -2811,27 +3085,73 @@ async function renderChatUi() {
   };
 
   attachBtn.addEventListener("click", () => fileInput.click());
-  const syncToolToggleBtn = () => {
-    toolToggleCb.checked = !!showToolOutput;
-    toolToggleWrap.title = showToolOutput ? t("chat.tools.visible") : t("chat.tools.hidden");
-  };
-  toolToggleCb.addEventListener("change", () => {
-    showToolOutput = !!toolToggleCb.checked;
+  const setReasoningVisible = (next, { showStatus = true } = {}) => {
+    showToolOutput = !!next;
     adminChatShowToolOutput = showToolOutput;
     localStorage.setItem(CHAT_REASONING_TOGGLE_KEY, showToolOutput ? "1" : "0");
-    syncToolToggleBtn();
     const isStreaming = composerShell.classList.contains("chat-composer-shell--busy");
-    if (isStreaming) {
+    if (showStatus && isStreaming) {
       // Avoid clearing active stream bubble mid-turn (loadMessagesForActive() resets messagesEl).
       statusBar.textContent = `${showToolOutput ? t("chat.tools.visible") : t("chat.tools.hidden")} · ${
         currentLang === "zh" ? "本轮结束后应用到历史消息" : "applies to history after current turn"
       }`;
       return;
     }
-    statusBar.textContent = showToolOutput ? t("chat.tools.visible") : t("chat.tools.hidden");
+    if (showStatus) statusBar.textContent = showToolOutput ? t("chat.tools.visible") : t("chat.tools.hidden");
     loadMessagesForActive().catch(() => {});
-  });
-  syncToolToggleBtn();
+  };
+  const publishUserMenuPrefsBridge = () => {
+    try {
+      window.__chatUserMenuPrefs = {
+        getModeOptions: () =>
+          Array.from(modeSelect.options || []).map((o) => ({
+            value: String(o.value || ""),
+            label: String(o.text || o.label || o.value || ""),
+          })),
+        getModeValue: () => String(globalMenuModeValue || MAIN_MODE_VALUE).toLowerCase(),
+        setModeValue: async (v) => {
+          const next = String(v || "").toLowerCase();
+          if (!Array.from(modeSelect.options || []).some((o) => String(o.value || "") === next)) return;
+          globalMenuModeValue = next;
+          localStorage.setItem(CHAT_USER_MENU_MODE_KEY, globalMenuModeValue);
+          syncHiddenModeSelectFromGlobal();
+          await saveUserGlobalModePreference();
+          refreshExecUi();
+          publishUserMenuPrefsBridge();
+        },
+        getPlanAgentVersionOptions: () => [
+          { value: PLAN_AGENT_V1, label: t("chat.planAgentVersionV1") },
+          { value: PLAN_AGENT_V2, label: t("chat.planAgentVersionV2") },
+        ],
+        getPlanAgentVersionValue: () => String(currentPlanAgentVersion || PLAN_AGENT_V1),
+        setPlanAgentVersionValue: async (v) => {
+          const next = normalizePlanAgentVersion(v);
+          currentPlanAgentVersion = next;
+          localStorage.setItem(CHAT_PLAN_AGENT_VERSION_KEY, currentPlanAgentVersion);
+          await saveUserGlobalModePreference();
+          refreshExecUi();
+          publishUserMenuPrefsBridge();
+        },
+        getConfirmStrategyOptions: () => [
+          { value: CONFIRM_STRATEGY_STRICT, label: t("chat.confirmStrategyStrict") },
+          { value: CONFIRM_STRATEGY_AUTO, label: t("chat.confirmStrategyAuto") },
+          { value: CONFIRM_STRATEGY_OFF, label: t("chat.confirmStrategyOff") },
+        ],
+        getConfirmStrategyValue: () => String(currentConfirmStrategy || CONFIRM_STRATEGY_STRICT),
+        setConfirmStrategyValue: async (v) => {
+          currentConfirmStrategy = normalizeConfirmStrategy(v);
+          localStorage.setItem(CHAT_CONFIRM_STRATEGY_KEY, currentConfirmStrategy);
+          await saveUserGlobalModePreference();
+          publishUserMenuPrefsBridge();
+        },
+        getReasoningVisible: () => !!showToolOutput,
+        setReasoningVisible: async (v) => {
+          setReasoningVisible(!!v, { showStatus: true });
+        },
+      };
+    } catch (_) {}
+  };
+  publishUserMenuPrefsBridge();
   fileInput.addEventListener("change", () => {
     const fs = fileInput.files;
     if (!fs || !fs.length) return;
@@ -3045,7 +3365,9 @@ async function renderChatUi() {
     }
     statusBar.textContent = t("chat.loading");
     try {
-      const resp = await apiGet(`/admin/api/chat/sessions/${encodeURIComponent(activeId)}/messages`);
+      const resp = await apiGet(
+        `/admin/api/chat/sessions/${encodeURIComponent(activeId)}/messages?limit=${CHAT_MESSAGES_FETCH_LIMIT}`,
+      );
       if (rid !== loadMessagesForActive._rid) return;
       const msgs = Array.isArray(resp.messages) ? resp.messages : [];
       const renderRows = _buildRenderRows(msgs);
@@ -3317,7 +3639,18 @@ async function renderChatUi() {
         this.ws = null;
       }
     }
-    async sendSessionSend({ sessionId, text, attachments, interactionMode, specialist, memoryMode, idempotencyKey, signal, onEvent }) {
+    async sendSessionSend({
+      sessionId,
+      text,
+      attachments,
+      interactionMode,
+      specialist,
+      memoryMode,
+      executionMode,
+      idempotencyKey,
+      signal,
+      onEvent,
+    }) {
       await this._openAndHandshake();
       this._trackSessionSubscription(sessionId);
       await this._sendReqAndAwait("sessions.messages.subscribe", { sessionKey: String(sessionId || "") });
@@ -3336,6 +3669,8 @@ async function renderChatUi() {
           interaction_mode: String(interactionMode || "expert"),
           specialist: String(specialist || "generalist"),
           memory_mode: String(memoryMode || "default"),
+          execution_mode: String(executionMode || "agent"),
+          plan_agent_version: outboundPlanAgentVersion(),
         },
       };
       this.ws.send(JSON.stringify(req));
@@ -3381,6 +3716,7 @@ async function renderChatUi() {
           const p = msg.payload || {};
           doneMeta = {
             interaction_mode: String(p.interactionMode || interactionMode || ""),
+            execution_mode: String(p.executionMode || executionMode || EXECUTION_MODE_AGENT || ""),
             selected_specialist: String(p.selectedSpecialist || specialist || ""),
             dispatch_reason: String(p.dispatchReason || ""),
             manager_selected_specialist: String(p.managerSelectedSpecialist || ""),
@@ -3458,6 +3794,55 @@ async function renderChatUi() {
     if (!("content" in m) && !("text" in m)) return null;
     return m;
   };
+  const _expandAssistantMessageForRender = (message) => {
+    if (!message || typeof message !== "object") return [];
+    const base = {
+      role: "assistant",
+      id: message.id,
+      timestamp: message.timestamp != null ? message.timestamp : new Date().toISOString(),
+      attachments: message.attachments || null,
+    };
+    const out = [];
+    const contentItems = Array.isArray(message.content) ? message.content : [];
+    for (const item of contentItems) {
+      if (!item || typeof item !== "object") continue;
+      const typ = String(item.type || "").toLowerCase();
+      if (typ === "reasoning" || typ === "reasoning_text" || typ === "thinking" || typ === "thought") {
+        const reasoningText = decodeEscapedNewlines(String(item.text || item.content || item.summary || "")).trim();
+        if (reasoningText) out.push({ ...base, content: reasoningText, event_type: "reasoning" });
+        continue;
+      }
+      const textBody = decodeEscapedNewlines(
+        String(item.text || item.output_text || item.content || item.value || ""),
+      ).trim();
+      if (!textBody) continue;
+      if (typ === "text" || typ === "output_text" || typ === "assistant_text" || !typ) {
+        out.push({ ...base, content: textBody, event_type: "assistant_text" });
+      }
+    }
+    if (out.length) {
+      const lastIdx = out.length - 1;
+      out[lastIdx] = {
+        ...out[lastIdx],
+        tool_calls: message.tool_calls != null ? message.tool_calls : message.toolCalls,
+      };
+      return out;
+    }
+    const textFallback = decodeEscapedNewlines(
+      typeof message.content === "string" ? message.content : typeof message.text === "string" ? message.text : "",
+    ).trim();
+    if (textFallback) {
+      return [
+        {
+          ...base,
+          content: textFallback,
+          event_type: "assistant_text",
+          tool_calls: message.tool_calls != null ? message.tool_calls : message.toolCalls,
+        },
+      ];
+    }
+    return [];
+  };
 
   const sendMessageStream = async (userText, attachmentPayload, turnId) => {
     const token = localStorage.getItem(AUTH_TOKEN_KEY) || "";
@@ -3501,7 +3886,9 @@ async function renderChatUi() {
         setTimeout(resolve, Math.max(0, Number(ms) || 0));
       });
     const _recoverLatestAssistantFromHistory = async () => {
-      const resp = await apiGet(`/admin/api/chat/sessions/${encodeURIComponent(activeId)}/messages`);
+      const resp = await apiGet(
+        `/admin/api/chat/sessions/${encodeURIComponent(activeId)}/messages?limit=${CHAT_MESSAGES_FETCH_LIMIT}`,
+      );
       const msgs = Array.isArray(resp && resp.messages) ? resp.messages : [];
       if (!msgs.length) return false;
       let last = null;
@@ -3867,15 +4254,8 @@ ${autoLimit ? `<div style="margin-top:8px;"><span class="muted">auto-added claus
     };
     const appendFinalAssistant = async (message, fallbackText) => {
       const normalized = _normalizeAssistantMessage(message, { requireRole: false, requireContentArray: false });
-      if (normalized && !_isSilentReplyStream(extractWsAssistantText(normalized))) {
-        const norm = {
-          ...normalized,
-          role: "assistant",
-          content: extractWsAssistantText(normalized),
-          timestamp: normalized.timestamp != null ? normalized.timestamp : new Date().toISOString(),
-          tool_calls: normalized.tool_calls != null ? normalized.tool_calls : normalized.toolCalls,
-        };
-        const rows = _buildRenderRows([norm]);
+      if (normalized) {
+        const rows = _buildRenderRows(_expandAssistantMessageForRender(normalized));
         const last = rows && rows.length ? rows[rows.length - 1] : null;
         if (last) {
           if (streamRow && streamRow.parentNode) streamRow.remove();
@@ -3921,14 +4301,17 @@ ${autoLimit ? `<div style="margin-top:8px;"><span class="muted">auto-added claus
           sessionId: activeId,
           text: userText,
           attachments: attachmentPayload,
-          interactionMode: String(modeSelect.value || MAIN_MODE_VALUE).toLowerCase() === MAIN_MODE_VALUE ? "comprehensive" : "expert",
+          interactionMode:
+            String(globalMenuModeValue || MAIN_MODE_VALUE).toLowerCase() === MAIN_MODE_VALUE ? "comprehensive" : "expert",
           idempotencyKey: String(turnId || ""),
-          specialist: String(modeSelect.value || MAIN_MODE_VALUE).toLowerCase() === MAIN_MODE_VALUE
-            ? "generalist"
-            : (isSelectableSpecialist(String(modeSelect.value || "").toLowerCase())
-              ? String(modeSelect.value || "generalist").toLowerCase()
-              : "generalist"),
+          specialist:
+            String(globalMenuModeValue || MAIN_MODE_VALUE).toLowerCase() === MAIN_MODE_VALUE
+              ? "generalist"
+              : isSelectableSpecialist(String(globalMenuModeValue || "").toLowerCase())
+                ? String(globalMenuModeValue || "generalist").toLowerCase()
+                : "generalist",
           memoryMode: String(localStorage.getItem(CHAT_MEMORY_MODE_KEY) || "default"),
+          executionMode: String(currentExecutionMode || EXECUTION_MODE_AGENT),
           signal: abortController.signal,
           onEvent: async (frame) => {
             wsLastActivityAt = Date.now();
@@ -4306,6 +4689,9 @@ ${autoLimit ? `<div style="margin-top:8px;"><span class="muted">auto-added claus
       const baseText = t("chat.execApplied", { mode: m, specialist: s });
       const memoryModeNow = String(localStorage.getItem(CHAT_MEMORY_MODE_KEY) || "default").toLowerCase();
       const memoryText = ` · ${t("chat.memoryApplied", { mode: memoryModeShortLabel(memoryModeNow) })}`;
+      const execModeFromServer = String((doneMeta && doneMeta.execution_mode) || "").trim().toLowerCase();
+      const effectiveExecMode = execModeFromServer === EXECUTION_MODE_PLAN ? EXECUTION_MODE_PLAN : currentExecutionMode;
+      const execText = ` · ${t("chat.execModeApplied", { mode: executionModeLabel(effectiveExecMode) })}`;
       const reason = reasonLabel(doneMeta && doneMeta.dispatch_reason);
       const dyn = doneMeta && doneMeta.dynamic_agent_used ? ` · dynamic=${String(doneMeta.dynamic_agent_name || "1")}` : "";
       const routeText = reason && reason !== "-" ? ` · ${reason}${dyn}` : dyn;
@@ -4387,10 +4773,10 @@ ${autoLimit ? `<div style="margin-top:8px;"><span class="muted">auto-added claus
         const topReasonLabel = String((stats.reasonLabels && stats.reasonLabels[topReason]) || reasonLabel(topReason));
         const topReasonText = t("chat.dynamicStatsDetail", { rate: ratePct, reason: topReasonLabel });
         const topMixText = t("chat.dynamicTopReasons", { items: top5 || "-" });
-        statusBar.textContent = `${baseText}${memoryText}${routeText}${markerText}${ttftText}${phaseText} · ${t("chat.dynamicStats", { dynamic: stats.dynamic, fallback: stats.fallback })} · ${topReasonText} · ${topMixText} · ${t("chat.dynamicAllReasons")}${transportTag ? ` · transport=${transportTag}` : ""}`;
+        statusBar.textContent = `${baseText}${memoryText}${execText}${routeText}${markerText}${ttftText}${phaseText} · ${t("chat.dynamicStats", { dynamic: stats.dynamic, fallback: stats.fallback })} · ${topReasonText} · ${topMixText} · ${t("chat.dynamicAllReasons")}${transportTag ? ` · transport=${transportTag}` : ""}`;
       } else {
         _statusReasonPairs = [];
-      statusBar.textContent = `${baseText}${memoryText}${routeText}${markerText}${ttftText}${phaseText}${transportTag ? ` · transport=${transportTag}` : ""}`;
+      statusBar.textContent = `${baseText}${memoryText}${execText}${routeText}${markerText}${ttftText}${phaseText}${transportTag ? ` · transport=${transportTag}` : ""}`;
       }
     } catch (e) {
       statusBar.textContent = `${t("chat.error")}: ${String(e)}`;
@@ -4442,7 +4828,6 @@ ${autoLimit ? `<div style="margin-top:8px;"><span class="muted">auto-added claus
       navFooter,
     ]),
     el("div", { class: "chat-main" }, [
-      el("div", { class: "muted", style: "font-size:12px;line-height:1.2;padding:10px 12px 0;" }, [activeModelText]),
       messagesEl,
       statusBar,
       el("div", { class: "chat-composer" }, [fileInput, composerShell]),
@@ -4559,28 +4944,6 @@ document.body.addEventListener("click", async (e) => {
         await apiPost("/admin/api/chat/settings/ui-lang", { lang: currentLang });
       } catch (_) {}
       await boot();
-      return;
-    }
-    if (action === "dispatchLabels") {
-      const status = document.querySelector(".chat-status");
-      await openDispatchLabelsEditor(status);
-      return;
-    }
-    if (action === "attachmentAclBackfill") {
-      const status = document.querySelector(".chat-status");
-      if (!(await confirmChatAction(t("chat.attachmentAclBackfillPrompt")))) return;
-      try {
-        const res = await apiPost("/admin/api/chat/admin/attachments/acl/backfill", {});
-        const ok = !!(res && (res.ok === true || res.ok === 1));
-        if (ok) {
-          if (status) status.textContent = t("chat.attachmentAclBackfillOk", res);
-        } else {
-          const err = String((res && (res.error || res.detail)) || "backfill_failed");
-          if (status) status.textContent = t("chat.attachmentAclBackfillFail", { error: err });
-        }
-      } catch (err) {
-        if (status) status.textContent = t("chat.attachmentAclBackfillFail", { error: String(err) });
-      }
       return;
     }
   }

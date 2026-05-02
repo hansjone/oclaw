@@ -6,6 +6,7 @@ import pytest
 
 from oclaw.platform.llm.chat_models import LLMResponse
 from oclaw.runtime.gateway import OclawGateway
+from oclaw.runtime.tools.base import ToolRegistry, ToolSpec
 from oclaw.runtime.types import StandardMessage
 
 
@@ -101,6 +102,9 @@ def test_gateway_async_task_payload_preserves_relay_envelope(monkeypatch: pytest
     class Store:
         def get_setting(self, _k: str) -> str:
             return ""
+
+        def set_setting(self, _k: str, _v: str) -> None:
+            return None
 
         def add_trace_event(self, **_kwargs: object) -> None:
             return None
@@ -212,6 +216,179 @@ def test_gateway_expert_mode_uses_requested_specialist() -> None:
     assert out.interaction_mode == "expert"
     assert out.selected_specialist == "ops"
     assert chosen.get("sid") == "ops"
+
+
+def test_gateway_expert_plan_execution_mode_runs_v2_with_plan_prompt(monkeypatch: pytest.MonkeyPatch) -> None:
+    class Store:
+        def get_setting(self, k: str) -> str:
+            if str(k or "") == "AIA_EXPERT_PLAN_AGENT_V2_ENABLED":
+                return "1"
+            return ""
+
+        def set_setting(self, _k: str, _v: str) -> None:
+            return None
+
+        def add_trace_event(self, **_kwargs: object) -> None:
+            return None
+
+        def add_trace_events_batch(self, _rows: list[dict[str, object]]) -> None:
+            return None
+
+        def set_setting(self, _k: str, _v: str) -> None:
+            return None
+
+    class _Exec:
+        model = object()
+        tools = object()
+        system_prompt = "base-system"
+
+    captured: dict[str, object] = {}
+
+    def _run_agent_core_ok(**kwargs: object) -> object:
+        data = kwargs.get("data")
+        captured["system_prompt"] = str(getattr(data, "system_prompt", "") or "")
+        return SimpleNamespace(outcome=SimpleNamespace(final_text="plan_llm_reply", turn_uuid="turn-1"))
+
+    monkeypatch.setattr("oclaw.runtime.gateway.run_agent_core", _run_agent_core_ok)
+
+    gw = OclawGateway(store=Store())
+    msg = StandardMessage(
+        session_id="sid-plan-1",
+        tenant_id="t1",
+        user_id="u1",
+        role="user",
+        channel="admin_chat",
+        text="先给我一个执行计划",
+        attachments=[],
+        metadata={"interaction_mode": "expert", "selected_specialist": "generalist", "execution_mode": "plan"},
+    )
+    out = gw.handle_turn(msg=msg, lang="zh", executor=_Exec())
+    assert out.interaction_mode == "expert"
+    assert out.dispatch_reason == "expert_direct"
+    assert str(out.reply_text or "") == "plan_llm_reply"
+    prompt_text = str(captured.get("system_prompt") or "")
+    assert ("plan 模式" in prompt_text) or ("Plan mode is active" in prompt_text)
+    assert ("计划工作流" in prompt_text) or ("Plan Workflow" in prompt_text)
+
+
+def test_gateway_expert_plan_mode_filters_non_readonly_tools(monkeypatch: pytest.MonkeyPatch) -> None:
+    class Store:
+        def get_setting(self, k: str) -> str:
+            if str(k or "") == "AIA_EXPERT_PLAN_AGENT_V2_ENABLED":
+                return "1"
+            return ""
+
+        def set_setting(self, _k: str, _v: str) -> None:
+            return None
+
+        def add_trace_event(self, **_kwargs: object) -> None:
+            return None
+
+        def add_trace_events_batch(self, _rows: list[dict[str, object]]) -> None:
+            return None
+
+    def _mk_tool(name: str, read_only: bool) -> ToolSpec:
+        return ToolSpec(
+            name=name,
+            description=name,
+            parameters={"type": "object", "properties": {}, "additionalProperties": True},
+            handler=lambda args: {"ok": True, "args": args},
+            read_only=read_only,
+        )
+
+    class _Exec:
+        model = object()
+        system_prompt = "base-system"
+        tools = ToolRegistry([_mk_tool("read_file", True), _mk_tool("edit_file", False)])
+
+    captured: dict[str, object] = {}
+
+    def _run_agent_core_ok(**kwargs: object) -> object:
+        data = kwargs.get("data")
+        tools = getattr(data, "tools", None)
+        captured["tool_names"] = [t.name for t in tools.list()] if hasattr(tools, "list") else []
+        return SimpleNamespace(outcome=SimpleNamespace(final_text="ok", turn_uuid="turn-1"))
+
+    monkeypatch.setattr("oclaw.runtime.gateway.run_agent_core", _run_agent_core_ok)
+
+    gw = OclawGateway(store=Store())
+    msg = StandardMessage(
+        session_id="sid-plan-tools",
+        tenant_id="t1",
+        user_id="u1",
+        role="user",
+        channel="admin_chat",
+        text="先给我一个执行计划",
+        attachments=[],
+        metadata={"interaction_mode": "expert", "selected_specialist": "generalist", "execution_mode": "plan"},
+    )
+    out = gw.handle_turn(msg=msg, lang="zh", executor=_Exec())
+    assert str(out.reply_text or "") == "ok"
+    names = list(captured.get("tool_names") or [])
+    assert "read_file" in names
+    assert "edit_file" not in names
+
+
+def test_gateway_expert_agent_mode_injects_plan_control_tools(monkeypatch: pytest.MonkeyPatch) -> None:
+    class Store:
+        def __init__(self) -> None:
+            self.kv: dict[str, str] = {}
+
+        def get_setting(self, k: str) -> str:
+            return str(self.kv.get(k) or "")
+
+        def set_setting(self, k: str, v: str) -> None:
+            self.kv[k] = str(v or "")
+
+        def add_trace_event(self, **_kwargs: object) -> None:
+            return None
+
+        def add_trace_events_batch(self, _rows: list[dict[str, object]]) -> None:
+            return None
+
+    def _mk_tool(name: str, read_only: bool) -> ToolSpec:
+        return ToolSpec(
+            name=name,
+            description=name,
+            parameters={"type": "object", "properties": {}, "additionalProperties": True},
+            handler=lambda args: {"ok": True, "args": args},
+            read_only=read_only,
+        )
+
+    class _Exec:
+        model = object()
+        system_prompt = "base-system"
+        tools = ToolRegistry([_mk_tool("read_file", True)])
+
+    captured: dict[str, object] = {}
+
+    def _run_agent_core_ok(**kwargs: object) -> object:
+        data = kwargs.get("data")
+        tools = getattr(data, "tools", None)
+        captured["tool_names"] = [t.name for t in tools.list()] if hasattr(tools, "list") else []
+        return SimpleNamespace(outcome=SimpleNamespace(final_text="ok", turn_uuid="turn-1"))
+
+    monkeypatch.setattr("oclaw.runtime.gateway.run_agent_core", _run_agent_core_ok)
+
+    store = Store()
+    store.kv["AIA_EXPERT_PLAN_AGENT_V2_ENABLED"] = "1"
+    gw = OclawGateway(store=store)
+    msg = StandardMessage(
+        session_id="sid-agent-tools",
+        tenant_id="t1",
+        user_id="u1",
+        role="user",
+        channel="admin_chat",
+        text="直接执行",
+        attachments=[],
+        metadata={"interaction_mode": "expert", "selected_specialist": "generalist", "execution_mode": "agent"},
+    )
+    out = gw.handle_turn(msg=msg, lang="zh", executor=_Exec())
+    assert str(out.reply_text or "") == "ok"
+    names = list(captured.get("tool_names") or [])
+    assert "enter_plan_mode_v2" in names
+    assert "exit_plan_mode_v2" in names
+    assert store.get_setting("AIA_PLAN_AGENT_V2_DEFAULT_SESSION_ID") == "sid-agent-tools"
 
 
 def test_gateway_comprehensive_mode_manager_first_selects_specialist(monkeypatch: pytest.MonkeyPatch) -> None:

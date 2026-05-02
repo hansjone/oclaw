@@ -14,6 +14,8 @@
         "thinking": { "type": "string" },
         "interaction_mode": { "type": "string" },
         "specialist": { "type": "string" },
+        "execution_mode": { "type": "string" },
+        "plan_agent_version": { "type": "string" },
         "relay_share_envelope": { "type": "object" },
         "acp_parent_run_id": { "type": "string" },
         "acp_child_run_id": { "type": "string" },

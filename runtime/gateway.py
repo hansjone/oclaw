@@ -36,6 +36,7 @@ from oclaw.runtime.worker import ensure_worker_started
 from oclaw.runtime.orchestration.trace import new_span_id, new_trace_id
 from oclaw.runtime.chat.tool_runtime import compact_turn_tool_messages_for_storage
 from oclaw.runtime.chat.model_path_audit import ensure_no_tool_or_embedded_image_payload
+from oclaw.runtime.tools.base import ToolRegistry
 from oclaw.runtime.tools.local_sdk import local_adapter_startup_self_check
 
 logger = logging.getLogger(__name__)
@@ -951,6 +952,92 @@ class OclawGateway:
                         except Exception:
                             selected_executor = executor
 
+        system_prompt_override = ""
+        tools_override = None
+        if interaction_mode == "expert":
+            from oclaw.runtime.plan_agent_v2.gateway_adapter import evaluate_gateway_expert_turn_shadow
+            from oclaw.runtime.plan_agent_v2.tool_specs import DEFAULT_SESSION_KEY, materialize_plan_mode_v2_tools
+
+            execution_mode = str(base_metadata.get("execution_mode") or "agent").strip().lower()
+            if execution_mode not in {"agent", "plan"}:
+                execution_mode = "agent"
+            try:
+                self.store.set_setting(DEFAULT_SESSION_KEY, str(msg.session_id or ""))
+            except Exception:
+                pass
+            # Respect store setting AIA_EXPERT_PLAN_AGENT_V2_ENABLED (default off); do not force cutover.
+            shadow = evaluate_gateway_expert_turn_shadow(
+                store=self.store,
+                msg=msg,
+                lang=lang,
+                interaction_mode=interaction_mode,
+                requested_specialist=requested_specialist,
+                execution_mode=execution_mode,
+                base_system_prompt=str(getattr(selected_executor, "system_prompt", "") or ""),
+                force_flag=False,
+                trace_id=trace_id,
+                parent_span_id=None,
+            )
+            if shadow.used_v2 and shadow.decision is not None:
+                action = str(shadow.decision.action or "")
+                if action in {"enter_plan", "stay_plan"}:
+                    elapsed_ms = int((time.perf_counter() - t0) * 1000)
+                    _trace_local(
+                        event_type="response_sent",
+                        payload={"ok": True, "elapsed_ms": elapsed_ms, "mode": "sync_direct", "plan_action": action},
+                        started_at=t0,
+                    )
+                    _flush_trace_rows()
+                    return OclawGatewayResult(
+                        run_id=rid,
+                        reply_text=str(shadow.decision.reply_text or ""),
+                        trace_id=trace_id,
+                        elapsed_ms=elapsed_ms,
+                        mode="sync_direct",
+                        selected_specialist=requested_specialist,
+                        interaction_mode=interaction_mode,
+                        dispatch_reason=f"plan_agent_v2:{action}",
+                        manager_selected_specialist=requested_specialist,
+                        requested_specialist=requested_specialist,
+                        dynamic_agent_used=False,
+                        dynamic_agent_name="",
+                        relay_pointer_count=int(relay_stats.get("relay_pointer_count") or 0),
+                        relay_envelope_present=bool(relay_stats.get("relay_envelope_present")),
+                        relay_envelope_pointer_count=int(relay_stats.get("relay_envelope_pointer_count") or 0),
+                        relay_ttl_turn_count=int(ttl_stats.get("turn") or 0),
+                        relay_ttl_session_count=int(ttl_stats.get("session") or 0),
+                        relay_ttl_keep_count=int(ttl_stats.get("keep") or 0),
+                    )
+                if action == "run_agent":
+                    system_prompt_override = str(shadow.decision.system_prompt_override or "")
+                    exec_tools = getattr(selected_executor, "tools", None)
+                    if isinstance(exec_tools, ToolRegistry):
+                        merged = ToolRegistry(exec_tools.list() + materialize_plan_mode_v2_tools(store=self.store))
+                        tools_override = merged
+                        _trace_local(
+                            event_type="plan_mode_tools_augmented",
+                            payload={"base_count": len(exec_tools.list()), "merged_count": len(merged.list())},
+                            started_at=t0,
+                        )
+                    try:
+                        plan_mode = str((shadow.decision.plan_state or {}).get("mode") or "").strip().lower()
+                    except Exception:
+                        plan_mode = ""
+                    if plan_mode == "plan":
+                        from oclaw.runtime.plan_agent_v2.tool_policy import filter_tools_for_mode
+
+                        if isinstance(tools_override, ToolRegistry):
+                            filtered = filter_tools_for_mode(registry=tools_override, mode="plan")
+                            tools_override = ToolRegistry(filtered)
+                            _trace_local(
+                                event_type="plan_mode_tools_filtered",
+                                payload={
+                                    "before_count": len(merged.list()) if isinstance(exec_tools, ToolRegistry) else len(filtered),
+                                    "after_count": len(filtered),
+                                },
+                                started_at=t0,
+                            )
+
         route_mode = "sync_direct"
         route_msg = StandardMessage(
             session_id=msg.session_id,
@@ -1064,10 +1151,10 @@ class OclawGateway:
             )
         try:
             model = getattr(selected_executor, "model", None)
-            tools = getattr(selected_executor, "tools", None)
+            tools = tools_override if tools_override is not None else getattr(selected_executor, "tools", None)
             if model is None or tools is None:
                 raise RuntimeError("executor missing model/tools")
-            sys_prompt = str(getattr(selected_executor, "system_prompt", "") or "")
+            sys_prompt = system_prompt_override or str(getattr(selected_executor, "system_prompt", "") or "")
             if self._has_tabular_ref_attachments(msg):
                 sys_prompt = f"{sys_prompt}\n\n{self._tabular_query_system_hint(lang)}".strip()
             if self._has_text_ref_attachments(msg):

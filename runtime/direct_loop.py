@@ -35,6 +35,8 @@ _DIRECT_LOOP_OC_STAGE: dict[str, str] = {
     "tool_pairing_guard": "tool_pairing_guard",
 }
 _THINK_BLOCK_RE = re.compile(r"<(think|redacted_thinking)>\s*(.*?)\s*</\1>\s*", flags=re.IGNORECASE | re.DOTALL)
+_DSML_INVOKE_NAME_RE = re.compile(r"invoke\s+name\s*=\s*['\"]([^'\"\s>]+)['\"]", flags=re.IGNORECASE)
+_JSON_TOOL_NAME_RE = re.compile(r"['\"]name['\"]\s*:\s*['\"]([^'\"\s]{1,120})['\"]", flags=re.IGNORECASE)
 _TOOL_WIRE_CACHE_LOCK = threading.Lock()
 _TOOL_WIRE_CACHE: dict[str, tuple[float, list[dict[str, Any]]]] = {}
 _TOOL_WIRE_CACHE_TTL_SEC = 300.0
@@ -51,6 +53,16 @@ def _safe_int(raw: Any, default: int, *, min_value: int = 1, max_value: int = 2_
         return default
     if value < min_value:
         return default
+    return min(value, max_value)
+
+
+def _safe_nonneg_int(raw: Any, default: int, *, max_value: int = 2_000_000) -> int:
+    try:
+        value = int(raw)
+    except Exception:
+        return max(0, int(default))
+    if value < 0:
+        return max(0, int(default))
     return min(value, max_value)
 
 
@@ -820,6 +832,163 @@ def _tool_names_for_trace(tools: list[dict[str, Any]]) -> list[str]:
     return out
 
 
+def _chat_with_empty_body_retry(
+    *,
+    model: Any,
+    msgs: list[dict[str, Any]],
+    llm_tools: list[dict[str, Any]],
+    on_token: Optional[Callable[[str], None]],
+    on_progress: Optional[Callable[[str], None]],
+    progress_label: str = "oclaw: think",
+) -> Any:
+    # Empty assistant body can occur transiently at upstream gateways.
+    # Retry until non-empty (bounded by retry count and total timeout).
+    retry_max = _safe_nonneg_int(os.getenv("AIA_EMPTY_ASSISTANT_RETRY_MAX"), 1, max_value=3)
+    retry_delay_ms = _safe_nonneg_int(os.getenv("AIA_EMPTY_ASSISTANT_RETRY_DELAY_MS"), 1200, max_value=15_000)
+    retry_total_timeout_ms = _safe_nonneg_int(os.getenv("AIA_EMPTY_ASSISTANT_RETRY_TOTAL_TIMEOUT_MS"), 30_000, max_value=300_000)
+    started = time.perf_counter()
+    retries_done = 0
+    resp = model.chat(msgs, llm_tools, on_token=on_token)
+    while True:
+        content = str(getattr(resp, "content", "") or "")
+        tool_calls = list(getattr(resp, "tool_calls", []) or [])
+        textual_tool_intent = (not tool_calls) and bool(_extract_textual_tool_intent_names(content))
+        if (content.strip() or tool_calls) and not textual_tool_intent:
+            return resp
+        elapsed_ms = int((time.perf_counter() - started) * 1000.0)
+        if retries_done >= retry_max or elapsed_ms >= retry_total_timeout_ms:
+            return resp
+        if textual_tool_intent:
+            if on_progress:
+                on_progress(f"{progress_label} retry-native-tool-calls ({retries_done + 1}/{retry_max})…")
+            repair_msgs = list(msgs) + [
+                {
+                    "role": "system",
+                    "content": (
+                        "Do not output textual tool intent/templates (DSML/XML/JSON). "
+                        "If a tool is needed, return native tool_calls only."
+                    ),
+                }
+            ]
+            retries_done += 1
+            resp = model.chat(repair_msgs, llm_tools, on_token=on_token)
+            continue
+        if on_progress:
+            on_progress(f"{progress_label} retry-empty ({retries_done + 1}/{retry_max})…")
+        if retry_delay_ms > 0:
+            time.sleep(float(retry_delay_ms) / 1000.0)
+        retries_done += 1
+        resp = model.chat(msgs, llm_tools, on_token=on_token)
+
+
+def _extract_dsml_invoke_names(text: str) -> list[str]:
+    raw = str(text or "")
+    if not raw:
+        return []
+    out: list[str] = []
+    seen: set[str] = set()
+    for m in _DSML_INVOKE_NAME_RE.finditer(raw):
+        nm = str(m.group(1) or "").strip()
+        if not nm or nm in seen:
+            continue
+        seen.add(nm)
+        out.append(nm)
+        if len(out) >= 8:
+            break
+    return out
+
+
+def _extract_textual_tool_intent_names(text: str) -> list[str]:
+    raw = str(text or "")
+    if not raw:
+        return []
+    lower = raw.lower()
+    marker_hit = ("tool_calls" in lower) or ("invoke name" in lower) or ("parameter name" in lower)
+    if not marker_hit:
+        return []
+    out: list[str] = []
+    seen: set[str] = set()
+    for nm in _extract_dsml_invoke_names(raw):
+        key = str(nm or "").strip()
+        if key and key not in seen:
+            seen.add(key)
+            out.append(key)
+    if len(out) < 8:
+        for m in _JSON_TOOL_NAME_RE.finditer(raw):
+            nm = str(m.group(1) or "").strip()
+            if not nm or nm in seen:
+                continue
+            seen.add(nm)
+            out.append(nm)
+            if len(out) >= 8:
+                break
+    if out:
+        return out
+    return ["unknown_tool"]
+
+
+def _persist_dsml_protocol_mismatch_step(
+    *,
+    store: Any,
+    session_id: str,
+    turn_uuid: str,
+    assistant_text: str,
+    invoke_names: list[str],
+) -> _LoopStepResult:
+    names = [str(x or "").strip() for x in (invoke_names or []) if str(x or "").strip()]
+    if not names:
+        names = ["unknown_tool"]
+    stored_tool_calls: list[dict[str, Any]] = []
+    for nm in names:
+        stored_tool_calls.append(
+            {
+                "id": f"call_dsml_{uuid.uuid4().hex}",
+                "name": nm,
+                "arguments": {},
+                "thought_signature": None,
+            }
+        )
+    assistant_row = store.add_message(
+        session_id=session_id,
+        role="assistant",
+        content="",
+        tool_calls=stored_tool_calls,
+        turn_uuid=turn_uuid,
+        event_type="tool_call",
+        event_payload={
+            "protocol_mismatch": "textual_tool_intent",
+            "raw_excerpt": str(assistant_text or "")[:2000],
+        },
+    )
+    for tc in stored_tool_calls:
+        tcid = str(tc.get("id") or "").strip()
+        tname = str(tc.get("name") or "").strip() or "unknown_tool"
+        tool_result = {
+            "ok": False,
+            "error_code": "model_protocol_mismatch_dsml",
+            "error": "model_returned_textual_tool_intent_instead_of_native_tool_calls",
+            "detail": {"tool_name": tname},
+        }
+        store.add_message(
+            session_id=session_id,
+            role="tool",
+            content=_json_dumps_safe(tool_result),
+            tool_calls={
+                "tool_call_id": tcid,
+                "name": tname,
+                "assistant_message_id": int(getattr(assistant_row, "id", 0) or 0),
+            },
+            turn_uuid=turn_uuid,
+            event_type="tool_result",
+            event_payload={"tool_name": tname, "protocol_mismatch": "textual_tool_intent"},
+        )
+    return _LoopStepResult(
+        assistant_text="",
+        llm_tool_calls=[],
+        assistant_msg_id=int(getattr(assistant_row, "id", 0) or 0),
+    )
+
+
 def _persist_assistant_step(
     *,
     store: Any,
@@ -843,10 +1012,8 @@ def _persist_assistant_step(
 
     reasoning_chunks, assistant_body = _split_reasoning_and_body(assistant_text, explicit_reasoning=reasoning_text)
     reasoning_full = "\n".join([str(x or "").strip() for x in reasoning_chunks if str(x or "").strip()]).strip()
-    if not str(assistant_body or "").strip() and not stored_tool_calls:
-        # Provider/model can occasionally return an empty body; persist a visible stub
-        # so UI doesn't look "stuck" and operators can diagnose from history.
-        assistant_body = "（空响应）模型返回了空内容，请重试一次；若持续出现，请检查模型网关/上游返回。"
+    # Keep empty body as-is when model returns nothing and there are no tool calls.
+    # The UI should treat this as an invisible intermediate/final empty response.
     if not thinking_mode_enabled:
         for idx, chunk in enumerate(reasoning_chunks):
             store.add_message(
@@ -1022,20 +1189,37 @@ def run_oclaw_direct_loop(
             lang=lang,
         wire_policy_role=wire_policy_role,
         )
-        resp = model.chat(msgs, llm_tools, on_token=on_token)
+        resp = _chat_with_empty_body_retry(
+            model=model,
+            msgs=msgs,
+            llm_tools=llm_tools,
+            on_token=on_token,
+            on_progress=on_progress,
+            progress_label="oclaw: think",
+        )
         assistant_text = str(getattr(resp, "content", "") or "")
         reasoning_text = str(getattr(resp, "reasoning_content", "") or "")
         llm_tool_calls = list(getattr(resp, "tool_calls", []) or [])
+        textual_tool_intent_names = _extract_textual_tool_intent_names(assistant_text) if not llm_tool_calls else []
 
-        step = _persist_assistant_step(
-            store=store,
-            session_id=session_id,
-            turn_uuid=turn_uuid,
-            assistant_text=assistant_text,
-            reasoning_text=reasoning_text,
-            llm_tool_calls=llm_tool_calls,
-            thinking_mode_enabled=bool(getattr(model, "thinking_mode_enabled", False)),
-        )
+        if textual_tool_intent_names:
+            step = _persist_dsml_protocol_mismatch_step(
+                store=store,
+                session_id=session_id,
+                turn_uuid=turn_uuid,
+                assistant_text=assistant_text,
+                invoke_names=textual_tool_intent_names,
+            )
+        else:
+            step = _persist_assistant_step(
+                store=store,
+                session_id=session_id,
+                turn_uuid=turn_uuid,
+                assistant_text=assistant_text,
+                reasoning_text=reasoning_text,
+                llm_tool_calls=llm_tool_calls,
+                thinking_mode_enabled=bool(getattr(model, "thinking_mode_enabled", False)),
+            )
         final_text = step.assistant_text
         if not step.llm_tool_calls:
             break
@@ -1109,7 +1293,14 @@ def run_oclaw_direct_loop(
             active_turn_uuid=turn_uuid,
         )
         # Final pass forbids extra tool calls; model must synthesize answer.
-        resp = model.chat(msgs, [], on_token=on_token)
+        resp = _chat_with_empty_body_retry(
+            model=model,
+            msgs=msgs,
+            llm_tools=[],
+            on_token=on_token,
+            on_progress=on_progress,
+            progress_label="oclaw: finalize",
+        )
         step = _persist_assistant_step(
             store=store,
             session_id=session_id,

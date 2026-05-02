@@ -172,6 +172,46 @@ class AdminChatStreamAsyncTaskTests(unittest.TestCase):
         payload = json.loads(str(task.payload or "{}"))
         self.assertEqual(str(payload.get("selected_specialist") or ""), "generalist")
 
+    def test_user_mode_plan_version_sets_v2_feature_flag_in_store(self) -> None:
+        """POST /user-mode mirrors plan_agent_version to AIA_EXPERT_PLAN_AGENT_V2_ENABLED (v2→1, v1→0)."""
+        token = self._login()
+        headers = {
+            "authorization": f"Bearer {token}",
+            "accept": "application/json",
+            "content-type": "application/json",
+        }
+        r2 = self.client.post(
+            "/admin/api/chat/user-mode",
+            headers=headers,
+            json={
+                "interaction_mode": "expert",
+                "specialist": "generalist",
+                "confirm_strategy": "strict",
+                "plan_agent_version": "v2",
+            },
+        )
+        self.assertEqual(r2.status_code, 200)
+        body2 = r2.json()
+        self.assertTrue(body2.get("ok"), body2)
+        self.assertTrue(body2.get("plan_agent_v2_globally_enabled"), body2)
+        self.assertEqual(str(self.store.get_setting("AIA_EXPERT_PLAN_AGENT_V2_ENABLED") or "").strip(), "1")
+
+        r1 = self.client.post(
+            "/admin/api/chat/user-mode",
+            headers=headers,
+            json={
+                "interaction_mode": "expert",
+                "specialist": "generalist",
+                "confirm_strategy": "strict",
+                "plan_agent_version": "v1",
+            },
+        )
+        self.assertEqual(r1.status_code, 200)
+        body1 = r1.json()
+        self.assertTrue(body1.get("ok"), body1)
+        self.assertFalse(body1.get("plan_agent_v2_globally_enabled"), body1)
+        self.assertEqual(str(self.store.get_setting("AIA_EXPERT_PLAN_AGENT_V2_ENABLED") or "").strip(), "0")
+
     def test_session_mode_setting_roundtrip(self) -> None:
         token = self._login()
         headers = {
@@ -179,6 +219,16 @@ class AdminChatStreamAsyncTaskTests(unittest.TestCase):
             "accept": "application/json",
             "content-type": "application/json",
         }
+        _ = self.client.post(
+            "/admin/api/chat/user-mode",
+            headers=headers,
+            json={
+                "interaction_mode": "expert",
+                "specialist": "generalist",
+                "confirm_strategy": "auto",
+                "plan_agent_version": "v1",
+            },
+        )
         resp1 = self.client.post(
             f"/admin/api/chat/sessions/{self.session_id}/mode",
             headers=headers,
@@ -188,8 +238,10 @@ class AdminChatStreamAsyncTaskTests(unittest.TestCase):
         body1 = resp1.json()
         self.assertTrue(body1.get("ok"), body1)
         self.assertEqual(str(body1.get("interaction_mode") or ""), "expert")
-        self.assertEqual(str(body1.get("specialist") or ""), "ops")
+        # Session POST ignores interaction/specialist; user menu still has generalist.
+        self.assertEqual(str(body1.get("specialist") or ""), "generalist")
         self.assertEqual(str(body1.get("memory_mode") or ""), "store_only")
+        self.assertEqual(str(body1.get("confirm_strategy") or ""), "auto")
 
         resp2 = self.client.get(
             f"/admin/api/chat/sessions/{self.session_id}/mode",
@@ -199,8 +251,9 @@ class AdminChatStreamAsyncTaskTests(unittest.TestCase):
         body2 = resp2.json()
         self.assertTrue(body2.get("ok"), body2)
         self.assertEqual(str(body2.get("interaction_mode") or ""), "expert")
-        self.assertEqual(str(body2.get("specialist") or ""), "ops")
+        self.assertEqual(str(body2.get("specialist") or ""), "generalist")
         self.assertEqual(str(body2.get("memory_mode") or ""), "store_only")
+        self.assertEqual(str(body2.get("confirm_strategy") or ""), "auto")
 
     def test_messages_use_session_mode_when_payload_omits_mode(self) -> None:
         token = self._login()
@@ -210,9 +263,19 @@ class AdminChatStreamAsyncTaskTests(unittest.TestCase):
             "content-type": "application/json",
         }
         _ = self.client.post(
+            "/admin/api/chat/user-mode",
+            headers=headers,
+            json={
+                "interaction_mode": "expert",
+                "specialist": "ops",
+                "confirm_strategy": "strict",
+                "plan_agent_version": "v1",
+            },
+        )
+        _ = self.client.post(
             f"/admin/api/chat/sessions/{self.session_id}/mode",
             headers=headers,
-            json={"interaction_mode": "expert", "specialist": "ops", "memory_mode": "store_only"},
+            json={"memory_mode": "store_only"},
         )
         resp = self.client.post(
             f"/admin/api/chat/sessions/{self.session_id}/messages",
@@ -238,12 +301,17 @@ class AdminChatStreamAsyncTaskTests(unittest.TestCase):
             "accept": "application/json",
             "content-type": "application/json",
         }
-        set_resp = self.client.post(
-            f"/admin/api/chat/sessions/{self.session_id}/mode",
+        pref = self.client.post(
+            "/admin/api/chat/user-mode",
             headers=headers,
-            json={"interaction_mode": "expert", "specialist": "ops", "memory_mode": "store_only"},
+            json={
+                "interaction_mode": "expert",
+                "specialist": "ops",
+                "confirm_strategy": "strict",
+                "plan_agent_version": "v1",
+            },
         )
-        self.assertEqual(set_resp.status_code, 200)
+        self.assertEqual(pref.status_code, 200)
 
         create_resp = self.client.post(
             "/admin/api/chat/sessions",
@@ -265,7 +333,12 @@ class AdminChatStreamAsyncTaskTests(unittest.TestCase):
         self.assertTrue(mode_body.get("ok"), mode_body)
         self.assertEqual(str(mode_body.get("interaction_mode") or ""), "expert")
         self.assertEqual(str(mode_body.get("specialist") or ""), "ops")
-        self.assertEqual(str(mode_body.get("memory_mode") or ""), "store_only")
+        self.assertEqual(str(mode_body.get("memory_mode") or ""), "default")
+        self.assertEqual(str(mode_body.get("execution_mode") or ""), "agent")
+        self.assertEqual(str(mode_body.get("confirm_strategy") or ""), "strict")
+        gm = mode_body.get("global_menu") if isinstance(mode_body.get("global_menu"), dict) else {}
+        self.assertEqual(str(gm.get("interaction_mode") or ""), "expert")
+        self.assertEqual(str(gm.get("specialist") or ""), "ops")
 
     def test_new_session_default_mode_is_expert_generalist(self) -> None:
         token = self._login()
@@ -295,6 +368,7 @@ class AdminChatStreamAsyncTaskTests(unittest.TestCase):
         self.assertEqual(str(mode_body.get("interaction_mode") or ""), "expert")
         self.assertEqual(str(mode_body.get("specialist") or ""), "generalist")
         self.assertEqual(str(mode_body.get("memory_mode") or ""), "default")
+        self.assertEqual(str(mode_body.get("confirm_strategy") or ""), "strict")
 
     def test_admin_dynamic_expert_stats_endpoint(self) -> None:
         token = self._login()

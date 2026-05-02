@@ -84,6 +84,9 @@ def _chat_send_handler(opts: dict[str, Any]) -> None:
     run_id = run_id.strip() if isinstance(run_id, str) and run_id.strip() else None
     if run_id is None:
         run_id = f"chat-{session_key.strip()}"
+    execution_mode = str(params.get("execution_mode") or "agent").strip().lower() or "agent"
+    if execution_mode not in {"agent", "plan"}:
+        execution_mode = "agent"
     normalized_transport: dict[str, Any] = {}
     if isinstance(params, dict):
         channel = params.get("channel")
@@ -117,6 +120,7 @@ def _chat_send_handler(opts: dict[str, Any]) -> None:
             "runId": run_id,
             "sessionKey": session_key.strip(),
             "message": message.strip(),
+            "executionMode": execution_mode,
             **normalized_transport,
         },
     )

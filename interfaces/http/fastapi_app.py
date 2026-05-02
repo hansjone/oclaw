@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+from oclaw.platform.config.bootstrap_env import load_system_env
+
+load_system_env()
+
 import asyncio
 import os
 import shutil
@@ -280,6 +284,7 @@ def create_app() -> FastAPI:
 
 
 def main() -> int:
+    load_system_env()
     host = (os.getenv("AIA_ASSISTANT_GATEWAY_HOST") or "0.0.0.0").strip()
     port = int(os.getenv("AIA_ASSISTANT_GATEWAY_PORT") or "8787")
     try:

@@ -51,6 +51,12 @@ def build_gateway_context(
         p = dict(params or {})
         interaction_mode = str(p.get("interaction_mode") or "comprehensive").strip().lower() or "comprehensive"
         specialist = str(p.get("specialist") or "generalist").strip().lower() or "generalist"
+        execution_mode = str(p.get("execution_mode") or "agent").strip().lower() or "agent"
+        if execution_mode not in {"agent", "plan"}:
+            execution_mode = "agent"
+        plan_agent_version = str(p.get("plan_agent_version") or "v1").strip().lower() or "v1"
+        if plan_agent_version not in {"v1", "v2"}:
+            plan_agent_version = "v1"
         if interaction_mode != "expert":
             specialist = "generalist"
         raw_env = dict(p.get("relay_share_envelope") or {}) if isinstance(p.get("relay_share_envelope"), dict) else {}
@@ -62,6 +68,8 @@ def build_gateway_context(
             "idempotencyKey": str(p.get("idempotencyKey") or uuid.uuid4().hex),
             "interaction_mode": interaction_mode,
             "specialist": specialist,
+            "execution_mode": execution_mode,
+            "plan_agent_version": plan_agent_version,
             "relay_share_envelope": norm_env if ok_env else {},
             "acp_parent_run_id": str(p.get("acp_parent_run_id") or ""),
             "acp_child_run_id": str(p.get("acp_child_run_id") or ""),
@@ -81,6 +89,12 @@ def build_gateway_context(
         message = str(p.get("message") or "").strip()
         interaction_mode = str(p.get("interaction_mode") or "comprehensive").strip().lower() or "comprehensive"
         specialist = str(p.get("specialist") or "generalist").strip().lower() or "generalist"
+        execution_mode = str(p.get("execution_mode") or "agent").strip().lower() or "agent"
+        if execution_mode not in {"agent", "plan"}:
+            execution_mode = "agent"
+        plan_agent_version = str(p.get("plan_agent_version") or "v1").strip().lower() or "v1"
+        if plan_agent_version not in {"v1", "v2"}:
+            plan_agent_version = "v1"
         if interaction_mode != "expert":
             specialist = "generalist"
         raw_env = dict(p.get("relay_share_envelope") or {}) if isinstance(p.get("relay_share_envelope"), dict) else {}
@@ -92,6 +106,8 @@ def build_gateway_context(
             "idempotencyKey": run_id,
             "interaction_mode": interaction_mode,
             "specialist": specialist,
+            "execution_mode": execution_mode,
+            "plan_agent_version": plan_agent_version,
             "relay_share_envelope": norm_env if ok_env else {},
             "acp_parent_run_id": str(p.get("acp_parent_run_id") or ""),
             "acp_child_run_id": str(p.get("acp_child_run_id") or ""),

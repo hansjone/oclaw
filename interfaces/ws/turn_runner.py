@@ -89,6 +89,12 @@ async def run_agent_turn_via_bridge(
     accepted_ms = now_ms()
     msg_text = str(p.get("message") or "").strip()
     attachments = list(p.get("attachments") or [])
+    execution_mode = str(p.get("execution_mode") or "agent").strip().lower() or "agent"
+    if execution_mode not in {"agent", "plan"}:
+        execution_mode = "agent"
+    plan_agent_version = str(p.get("plan_agent_version") or "v1").strip().lower() or "v1"
+    if plan_agent_version not in {"v1", "v2"}:
+        plan_agent_version = "v1"
     store = SqliteStore(db_path())
     gw = OclawGateway(store=store)
 
@@ -190,6 +196,8 @@ async def run_agent_turn_via_bridge(
         metadata={
             "interaction_mode": str(p.get("interaction_mode") or "comprehensive"),
             "selected_specialist": str(p.get("specialist") or "generalist"),
+            "execution_mode": execution_mode,
+            "plan_agent_version": plan_agent_version,
             "relay_share_envelope": dict(p.get("relay_share_envelope") or {})
             if isinstance(p.get("relay_share_envelope"), dict)
             else {},
@@ -329,6 +337,7 @@ async def run_agent_turn_via_bridge(
                     "selectedSpecialist": str(p.get("specialist") or "generalist"),
                     "interactionMode": str(p.get("interaction_mode") or "comprehensive"),
                     "dispatchReason": "execution_failed",
+                    "executionMode": execution_mode,
                     "managerSelectedSpecialist": str(p.get("specialist") or "generalist"),
                     "requestedSpecialist": str(p.get("specialist") or "generalist"),
                     "dynamicAgentUsed": False,
@@ -464,6 +473,7 @@ async def run_agent_turn_via_bridge(
                 "selectedSpecialist": str(getattr(result, "selected_specialist", "generalist") or "generalist"),
                 "interactionMode": str(getattr(result, "interaction_mode", "comprehensive") or "comprehensive"),
                 "dispatchReason": str(getattr(result, "dispatch_reason", "") or ""),
+                "executionMode": execution_mode,
                 "managerSelectedSpecialist": str(getattr(result, "manager_selected_specialist", "generalist") or "generalist"),
                 "requestedSpecialist": str(getattr(result, "requested_specialist", "generalist") or "generalist"),
                 "dynamicAgentUsed": bool(getattr(result, "dynamic_agent_used", False) or False),

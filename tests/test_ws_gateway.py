@@ -295,7 +295,12 @@ class WsGatewayTests(unittest.TestCase):
                         "type": "req",
                         "id": "cs1",
                         "method": "chat.send",
-                        "params": {"sessionKey": "sess-chat", "message": "hi", "idempotencyKey": "idem-chat-1"},
+                        "params": {
+                            "sessionKey": "sess-chat",
+                            "message": "hi",
+                            "idempotencyKey": "idem-chat-1",
+                            "execution_mode": "plan",
+                        },
                     }
                 )
                 ack = None
@@ -309,6 +314,7 @@ class WsGatewayTests(unittest.TestCase):
                 assert ack.get("id") == "cs1"
                 assert ack.get("ok") is True
                 assert str((ack.get("payload") or {}).get("status") or "") == "started"
+                assert str((ack.get("payload") or {}).get("executionMode") or "") == "plan"
                 run_id = str((ack.get("payload") or {}).get("runId") or "")
                 assert run_id.strip() != ""
 
