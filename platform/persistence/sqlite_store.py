@@ -4745,34 +4745,49 @@ class SqliteStore:
                 ),
             )
 
-    def list_admin_audit_logs(self, *, tenant_id: str | None = None, limit: int = 200) -> list[dict[str, Any]]:
+    def list_admin_audit_logs(
+        self,
+        *,
+        tenant_id: str | None = None,
+        action: str | None = None,
+        actor_user_id: str | None = None,
+        status: str | None = None,
+        limit: int = 200,
+        offset: int = 0,
+    ) -> list[dict[str, Any]]:
         lim = max(1, min(int(limit), 500))
+        off = max(0, int(offset))
+        clauses: list[str] = []
+        params: list[Any] = []
+        tid = str(tenant_id or "").strip()
+        act = str(action or "").strip()
+        actor = str(actor_user_id or "").strip()
+        st = str(status or "").strip()
+        if tid:
+            clauses.append("l.actor_tenant_id = ?")
+            params.append(tid)
+        if act:
+            clauses.append("l.action = ?")
+            params.append(act)
+        if actor:
+            clauses.append("l.actor_user_id = ?")
+            params.append(actor)
+        if st:
+            clauses.append("l.status = ?")
+            params.append(st)
+        where_sql = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        sql = f"""
+            SELECT l.actor_tenant_id, l.actor_user_id, l.action, l.target_type, l.target_id, l.status, l.detail,
+                   l.timestamp, u.username AS actor_username, u.display_name AS actor_display_name
+            FROM admin_audit_log l
+            LEFT JOIN app_user u ON u.tenant_id = l.actor_tenant_id AND u.id = l.actor_user_id
+            {where_sql}
+            ORDER BY l.id DESC
+            LIMIT ?
+            OFFSET ?
+        """
         with self._connect() as conn:
-            if tenant_id:
-                rows = conn.execute(
-                    """
-                    SELECT l.actor_tenant_id, l.actor_user_id, l.action, l.target_type, l.target_id, l.status, l.detail,
-                           l.timestamp, u.username AS actor_username, u.display_name AS actor_display_name
-                    FROM admin_audit_log l
-                    LEFT JOIN app_user u ON u.tenant_id = l.actor_tenant_id AND u.id = l.actor_user_id
-                    WHERE l.actor_tenant_id = ?
-                    ORDER BY l.id DESC
-                    LIMIT ?
-                    """,
-                    (str(tenant_id), lim),
-                ).fetchall()
-            else:
-                rows = conn.execute(
-                    """
-                    SELECT l.actor_tenant_id, l.actor_user_id, l.action, l.target_type, l.target_id, l.status, l.detail,
-                           l.timestamp, u.username AS actor_username, u.display_name AS actor_display_name
-                    FROM admin_audit_log l
-                    LEFT JOIN app_user u ON u.tenant_id = l.actor_tenant_id AND u.id = l.actor_user_id
-                    ORDER BY l.id DESC
-                    LIMIT ?
-                    """,
-                    (lim,),
-                ).fetchall()
+            rows = conn.execute(sql, tuple(params + [lim, off])).fetchall()
         out: list[dict[str, Any]] = []
         for r in rows:
             try:
@@ -4794,6 +4809,38 @@ class SqliteStore:
                 }
             )
         return out
+
+    def count_admin_audit_logs(
+        self,
+        *,
+        tenant_id: str | None = None,
+        action: str | None = None,
+        actor_user_id: str | None = None,
+        status: str | None = None,
+    ) -> int:
+        clauses: list[str] = []
+        params: list[Any] = []
+        tid = str(tenant_id or "").strip()
+        act = str(action or "").strip()
+        actor = str(actor_user_id or "").strip()
+        st = str(status or "").strip()
+        if tid:
+            clauses.append("actor_tenant_id = ?")
+            params.append(tid)
+        if act:
+            clauses.append("action = ?")
+            params.append(act)
+        if actor:
+            clauses.append("actor_user_id = ?")
+            params.append(actor)
+        if st:
+            clauses.append("status = ?")
+            params.append(st)
+        where_sql = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        sql = f"SELECT COUNT(1) AS c FROM admin_audit_log {where_sql}"
+        with self._connect() as conn:
+            row = conn.execute(sql, tuple(params)).fetchone()
+        return int((row["c"] if row and row["c"] is not None else 0) or 0)
 
     def upsert_channel_identity(
         self,

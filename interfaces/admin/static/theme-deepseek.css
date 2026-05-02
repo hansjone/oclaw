@@ -681,11 +681,29 @@ body.theme-ds-body .card {
 }
 
 .chat-img-lightbox__img {
-  max-width: 96vw;
-  max-height: 92vh;
+  max-width: none;
+  max-height: none;
   width: auto;
   height: auto;
   object-fit: contain;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.chat-img-lightbox__viewportWrap {
+  width: min(96vw, 1400px);
+  max-height: 92vh;
+  overflow: auto;
+  padding: 14px;
+  cursor: grab;
+}
+
+.chat-img-lightbox__viewportWrap--dragging {
+  cursor: grabbing;
+}
+
+.chat-img-lightbox__viewport {
+  transform-origin: 0 0;
 }
 
 .chat-mermaid-lightbox__svg {
@@ -732,6 +750,18 @@ body.theme-ds-body .card {
 
 .chat-mermaid-lightbox__btn:hover {
   background: rgba(30, 41, 59, 0.75);
+}
+
+.chat-img-lightbox__btn--icon {
+  width: 40px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  font-size: 22px;
+  font-weight: 800;
+  line-height: 1;
 }
 
 .chat-mermaid-lightbox__zoom {

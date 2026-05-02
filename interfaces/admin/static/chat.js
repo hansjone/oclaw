@@ -69,6 +69,7 @@ const I18N = {
     "lang.switch": "English",
     "chat.imageViewerClose": "关闭",
     "chat.imageViewerHint": "点击查看大图，空白处或 Esc 关闭",
+    "chat.imageViewerDownload": "下载图片",
     "chat.specialistLabel": "专家",
     "chat.modeLabel": "模式",
     "chat.modeComprehensive": "综合",
@@ -236,6 +237,7 @@ const I18N = {
     "lang.switch": "中文",
     "chat.imageViewerClose": "Close",
     "chat.imageViewerHint": "Click image to enlarge; click outside or Esc to close",
+    "chat.imageViewerDownload": "Download image",
     "chat.specialistLabel": "Specialist",
     "chat.modeLabel": "Mode",
     "chat.modeComprehensive": "Comprehensive",
@@ -1091,6 +1093,75 @@ function openChatImageLightbox(src, alt) {
     "aria-label": t("chat.imageViewerHint"),
   });
   const inner = el("div", { class: "chat-img-lightbox__inner" });
+  let scale = 1.0;
+  const clamp = (v) => Math.max(0.2, Math.min(5.0, Number(v || 1)));
+  const applyScale = () => {
+    scale = clamp(scale);
+    viewport.style.transform = `scale(${scale})`;
+    zoomText.textContent = `${Math.round(scale * 100)}%`;
+  };
+  const fileStem = (() => {
+    const raw = String(alt || "").trim() || "image";
+    const safe = raw.replace(/[\\/:*?"<>|]+/g, "_").replace(/\s+/g, "_").slice(0, 64);
+    return safe || "image";
+  })();
+  const ext = (() => {
+    const s = String(src || "");
+    if (/^data:image\/png/i.test(s)) return ".png";
+    if (/^data:image\/webp/i.test(s)) return ".webp";
+    if (/^data:image\/gif/i.test(s)) return ".gif";
+    if (/^data:image\/bmp/i.test(s)) return ".bmp";
+    if (/^data:image\/jpeg/i.test(s) || /^data:image\/jpg/i.test(s)) return ".jpg";
+    return ".png";
+  })();
+  const toolbar = el("div", { class: "chat-mermaid-lightbox__toolbar" });
+  const btnMinus = el("button", {
+    type: "button",
+    class: "chat-mermaid-lightbox__btn",
+    text: "−",
+    title: currentLang === "zh" ? "缩小" : "Zoom out",
+    onclick: (e) => {
+      e.stopPropagation();
+      scale = clamp(scale - 0.1);
+      applyScale();
+    },
+  });
+  const btnReset = el("button", {
+    type: "button",
+    class: "chat-mermaid-lightbox__btn",
+    text: "100%",
+    title: currentLang === "zh" ? "重置缩放" : "Reset zoom",
+    onclick: (e) => {
+      e.stopPropagation();
+      scale = 1.0;
+      applyScale();
+      wrap.scrollLeft = 0;
+      wrap.scrollTop = 0;
+    },
+  });
+  const btnPlus = el("button", {
+    type: "button",
+    class: "chat-mermaid-lightbox__btn",
+    text: "+",
+    title: currentLang === "zh" ? "放大" : "Zoom in",
+    onclick: (e) => {
+      e.stopPropagation();
+      scale = clamp(scale + 0.1);
+      applyScale();
+    },
+  });
+  const zoomText = el("span", { class: "chat-mermaid-lightbox__zoom", text: "100%" });
+  const saveBtn = el("a", {
+    class: "chat-mermaid-lightbox__btn chat-img-lightbox__btn--icon",
+    href: String(src),
+    download: `${fileStem}${ext}`,
+    text: "⤓",
+    title: t("chat.imageViewerDownload"),
+    "aria-label": t("chat.imageViewerDownload"),
+    onclick: (e) => e.stopPropagation(),
+  });
+  const wrap = el("div", { class: "chat-img-lightbox__viewportWrap" });
+  const viewport = el("div", { class: "chat-img-lightbox__viewport" });
   const big = el("img", {
     class: "chat-img-lightbox__img",
     src: String(src),
@@ -1107,13 +1178,65 @@ function openChatImageLightbox(src, alt) {
       closeChatImageLightbox();
     },
   });
+  // Keep native image context menu so users can right-click save.
+  big.addEventListener("contextmenu", (e) => {
+    e.stopPropagation();
+  });
+  toolbar.appendChild(btnMinus);
+  toolbar.appendChild(btnReset);
+  toolbar.appendChild(btnPlus);
+  toolbar.appendChild(zoomText);
+  toolbar.appendChild(saveBtn);
+  viewport.appendChild(big);
+  wrap.appendChild(viewport);
+  let dragging = false;
+  let dragStartX = 0;
+  let dragStartY = 0;
+  let dragScrollLeft = 0;
+  let dragScrollTop = 0;
+  const onDragStart = (e) => {
+    if (e && e.target && e.target.closest && e.target.closest(".chat-mermaid-lightbox__toolbar")) return;
+    dragging = true;
+    wrap.classList.add("chat-img-lightbox__viewportWrap--dragging");
+    dragStartX = Number(e.clientX || 0);
+    dragStartY = Number(e.clientY || 0);
+    dragScrollLeft = wrap.scrollLeft;
+    dragScrollTop = wrap.scrollTop;
+  };
+  const onDragMove = (e) => {
+    if (!dragging) return;
+    const x = Number(e.clientX || 0);
+    const y = Number(e.clientY || 0);
+    wrap.scrollLeft = dragScrollLeft - (x - dragStartX);
+    wrap.scrollTop = dragScrollTop - (y - dragStartY);
+  };
+  const onDragEnd = () => {
+    dragging = false;
+    wrap.classList.remove("chat-img-lightbox__viewportWrap--dragging");
+  };
+  wrap.addEventListener("mousedown", (e) => onDragStart(e));
+  window.addEventListener("mousemove", (e) => onDragMove(e));
+  window.addEventListener("mouseup", () => onDragEnd());
+  wrap.addEventListener(
+    "wheel",
+    (e) => {
+      e.preventDefault();
+      const dy = Number(e.deltaY || 0);
+      const step = dy > 0 ? -0.08 : 0.08;
+      scale = clamp(scale + step);
+      applyScale();
+    },
+    { passive: false },
+  );
+  inner.appendChild(toolbar);
   inner.appendChild(closeBtn);
-  inner.appendChild(big);
+  inner.appendChild(wrap);
   backdrop.appendChild(inner);
   backdrop.addEventListener("click", (e) => {
     if (e.target === backdrop) closeChatImageLightbox();
   });
   document.body.appendChild(backdrop);
+  applyScale();
 }
 
 function openChatMermaidLightbox(svg) {
@@ -4403,6 +4526,16 @@ ${autoLimit ? `<div style="margin-top:8px;"><span class="muted">auto-added claus
                 // Keep stream bubble as final UI when it already contains image blocks.
                 renderStreamComposite();
                 _markStreamTerminal("end", t("chat.status.end"));
+                ok = true;
+              } else if (adminChatShowToolOutput) {
+                // WS final message may only contain the last assistant_text snapshot and
+                // omit persisted reasoning rows. Hydrate from history to avoid
+                // end-of-turn "reasoning disappears until refresh".
+                try {
+                  if (streamRow && streamRow.parentNode) streamRow.remove();
+                } catch (_) {}
+                await loadMessagesForActive();
+                scrollMessagesToBottom(true);
                 ok = true;
               } else if (sawStreamToolRefAttachments) {
                 // Streaming UI cannot render image_ref/relay_pointer; recover from persisted history so images appear

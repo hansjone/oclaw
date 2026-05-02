@@ -3813,6 +3813,7 @@ def build_admin_router() -> APIRouter:
     @router.get("/admin/api/admin-audit")
     def api_admin_audit(
         limit: int = Query(default=200),
+        offset: int = Query(default=0),
         action: str | None = Query(default=None),
         actor_user_id: str | None = Query(default=None),
         status: str | None = Query(default=None),
@@ -3821,17 +3822,34 @@ def build_admin_router() -> APIRouter:
         store = SqliteStore(db_path())
         ctx = _resolve_auth(store, authorization)
         _require_permission(ctx, "admin:user:write")
-        rows = store.list_admin_audit_logs(tenant_id=str(ctx.get("tenant_id") or ""), limit=limit)
         a = str(action or "").strip()
         actor = str(actor_user_id or "").strip()
         st = str(status or "").strip()
-        if a:
-            rows = [r for r in rows if str(r.get("action") or "") == a]
-        if actor:
-            rows = [r for r in rows if str(r.get("actor_user_id") or "") == actor]
-        if st:
-            rows = [r for r in rows if str(r.get("status") or "") == st]
-        return {"ok": True, "items": rows}
+        lim = max(1, min(int(limit), 500))
+        off = max(0, int(offset))
+        tenant_id = str(ctx.get("tenant_id") or "")
+        rows = store.list_admin_audit_logs(
+            tenant_id=tenant_id,
+            action=a or None,
+            actor_user_id=actor or None,
+            status=st or None,
+            limit=lim,
+            offset=off,
+        )
+        total = store.count_admin_audit_logs(
+            tenant_id=tenant_id,
+            action=a or None,
+            actor_user_id=actor or None,
+            status=st or None,
+        )
+        return {
+            "ok": True,
+            "items": rows,
+            "logs": rows,
+            "total": int(total),
+            "limit": int(lim),
+            "offset": int(off),
+        }
 
     from oclaw.interfaces.admin.chat_api import include_chat_routes
     from oclaw.interfaces.admin.models_api import include_model_mgmt_routes

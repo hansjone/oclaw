@@ -306,6 +306,9 @@ const I18N = {
     "adminAudit.action": "动作",
     "adminAudit.actor": "操作者",
     "adminAudit.status": "状态",
+    "adminAudit.total": "共 {total} 条",
+    "adminAudit.jumpPlaceholder": "页码",
+    "adminAudit.jump": "跳转",
     "models.sectionActive": "当前模型配置",
     "models.sectionBindings": "智能体与模型绑定",
     "models.sectionNew": "新建模型配置",
@@ -735,6 +738,9 @@ const I18N = {
     "adminAudit.action": "Action",
     "adminAudit.actor": "Actor",
     "adminAudit.status": "Status",
+    "adminAudit.total": "Total {total}",
+    "adminAudit.jumpPlaceholder": "Page",
+    "adminAudit.jump": "Go",
     "models.sectionActive": "Active profile",
     "models.sectionBindings": "Agent ↔ profile bindings",
     "models.sectionNew": "New profile",
@@ -4162,19 +4168,26 @@ async function renderModels() {
       el("div", { class: "row" }, [btnSave]),
       el("div", { class: "row" }, [btnDelete]),
     ], { id: "models-api" }),
-    renderSectionCard("Experts (runtime/workspaces)", "English name required; Chinese optional. SOUL.md or ROLE_SYSTEM.md is required.", [
-      el("div", { class: "row" }, [el("label", { text: "Existing" }), expertsSelect]),
-      el("div", { class: "row" }, [btnExpertDelete]),
-      el("div", { class: "row" }, [el("label", { text: "Create ID" }), expertNewId]),
-      el("div", { class: "row" }, [el("label", { text: "Create Name(en)" }), expertNewNameEn]),
-      el("div", { class: "row" }, [el("label", { text: "Create Name(zh)" }), expertNewNameZh]),
-      el("div", { class: "row" }, [btnExpertCreate]),
-      el("div", { class: "row" }, [el("label", { text: "Name(en)" }), expertNameEn]),
-      el("div", { class: "row" }, [el("label", { text: "Name(zh)" }), expertNameZh]),
-      el("div", { class: "row" }, [el("label", { text: "Role" }), expertRoleSel]),
-      el("div", { class: "row" }, [el("label", { text: "SOUL.md" }), expertSoul]),
-      el("div", { class: "row" }, [el("label", { text: "ROLE_SYSTEM.md" }), expertRoleSystem]),
-      el("div", { class: "row" }, [btnExpertSave]),
+    renderSectionCard("Experts", "Runtime registry and workspace prompt files are split into two sections below.", [
+      el("div", { class: "card", style: "margin:8px 0;padding:10px;" }, [
+        el("div", { class: "card__title", text: "Runtime Expert Registry" }),
+        el("div", { class: "row" }, [el("label", { text: "Existing" }), expertsSelect]),
+        el("div", { class: "row" }, [btnExpertDelete]),
+        el("div", { class: "row" }, [el("label", { text: "Create ID" }), expertNewId]),
+        el("div", { class: "row" }, [el("label", { text: "Create Name(en)" }), expertNewNameEn]),
+        el("div", { class: "row" }, [el("label", { text: "Create Name(zh)" }), expertNewNameZh]),
+        el("div", { class: "row" }, [btnExpertCreate]),
+        el("div", { class: "row" }, [el("label", { text: "Name(en)" }), expertNameEn]),
+        el("div", { class: "row" }, [el("label", { text: "Name(zh)" }), expertNameZh]),
+        el("div", { class: "row" }, [el("label", { text: "Role" }), expertRoleSel]),
+      ]),
+      el("div", { class: "card", style: "margin:8px 0;padding:10px;" }, [
+        el("div", { class: "card__title", text: "Workspace Prompt Files" }),
+        el("div", { class: "muted", text: "SOUL.md or ROLE_SYSTEM.md is required." }),
+        el("div", { class: "row" }, [el("label", { text: "SOUL.md" }), expertSoul]),
+        el("div", { class: "row" }, [el("label", { text: "ROLE_SYSTEM.md" }), expertRoleSystem]),
+        el("div", { class: "row" }, [btnExpertSave]),
+      ]),
       expertsStatus,
     ], { id: "models-experts" }),
     el("div", { class: "card section-card", id: "models-eval" }, [evalDetails]),
@@ -6308,17 +6321,43 @@ async function renderAdminAudit() {
   const actor = el("input", { class: "input", placeholder: t("adminAudit.actor") });
   const status = el("input", { class: "input", placeholder: t("adminAudit.status") });
   const tbody = el("tbody");
+  const pager = el("div", { class: "row", style: "gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px;" });
+  const pageInfo = el("span", { class: "muted", text: tf("sessionMonitor.pageInfo", { page: 1, totalPages: 1 }) });
+  const totalInfo = el("span", { class: "muted", text: tf("adminAudit.total", { total: 0 }) });
+  const pageInput = el("input", {
+    class: "input",
+    type: "number",
+    min: "1",
+    step: "1",
+    placeholder: t("adminAudit.jumpPlaceholder"),
+    style: "width:90px;",
+  });
+  let page = 1;
+  const pageSize = 50;
+  let total = 0;
+  const totalPages = () => Math.max(1, Math.ceil((Number(total) || 0) / pageSize));
+  const setPager = () => {
+    const tp = totalPages();
+    pageInfo.textContent = tf("sessionMonitor.pageInfo", { page, totalPages: tp });
+    totalInfo.textContent = tf("adminAudit.total", { total });
+    pageInput.value = String(page);
+    btnPrev.disabled = page <= 1;
+    btnNext.disabled = page >= tp;
+  };
   const load = async () => {
     const p = new URLSearchParams();
-    p.set("limit", "300");
+    p.set("limit", String(pageSize));
+    p.set("offset", String((Math.max(1, page) - 1) * pageSize));
     if (action.value.trim()) p.set("action", action.value.trim());
     if (actor.value.trim()) p.set("actor_user_id", actor.value.trim());
     if (status.value.trim()) p.set("status", status.value.trim());
     const resp = await apiGet("/admin/api/admin-audit?" + p.toString());
+    total = Math.max(0, Number(resp.total || 0) || 0);
     const rows = Array.isArray(resp.items) ? resp.items : [];
     tbody.innerHTML = "";
     if (!rows.length) {
       tbody.appendChild(el("tr", {}, [el("td", { text: t("audit.empty"), colspan: "8" })]));
+      setPager();
       return;
     }
     rows.forEach((r) => {
@@ -6333,13 +6372,70 @@ async function renderAdminAudit() {
         tdCell(JSON.stringify(r.detail || {}), 120),
       ]));
     });
+    setPager();
   };
+  const btn = el("button", {
+    class: "btn btn--primary",
+    text: t("audit.query"),
+    onclick: async () => {
+      page = 1;
+      await load();
+    },
+  });
+  const btnPrev = el("button", {
+    class: "btn btn--small",
+    text: t("sessionMonitor.pagePrev"),
+    disabled: true,
+    onclick: async () => {
+      if (page <= 1) return;
+      page -= 1;
+      await load();
+    },
+  });
+  const btnNext = el("button", {
+    class: "btn btn--small",
+    text: t("sessionMonitor.pageNext"),
+    disabled: true,
+    onclick: async () => {
+      const tp = totalPages();
+      if (page >= tp) return;
+      page += 1;
+      await load();
+    },
+  });
+  const btnJump = el("button", {
+    class: "btn btn--small",
+    text: t("adminAudit.jump"),
+    onclick: async () => {
+      const tp = totalPages();
+      let target = parseInt(String(pageInput.value || "").trim(), 10);
+      if (!Number.isFinite(target)) target = page;
+      target = Math.max(1, Math.min(tp, target));
+      if (target === page) {
+        setPager();
+        return;
+      }
+      page = target;
+      await load();
+    },
+  });
+  pageInput.addEventListener("keydown", async (ev) => {
+    if (ev.key !== "Enter") return;
+    ev.preventDefault();
+    btnJump.click();
+  });
+  pager.appendChild(btnPrev);
+  pager.appendChild(btnNext);
+  pager.appendChild(pageInfo);
+  pager.appendChild(totalInfo);
+  pager.appendChild(pageInput);
+  pager.appendChild(btnJump);
   await load();
-  const btn = el("button", { class: "btn btn--primary", text: t("audit.query"), onclick: load });
   return el("div", {}, [
     el("div", { class: "card" }, [
       el("div", { class: "card__title", text: t("adminAudit.title") }),
       el("div", { class: "row" }, [action, actor, status, btn]),
+      pager,
       el("div", { class: "table-wrap" }, [el("table", { class: "table table--compact" }, [
         el("thead", {}, [el("tr", {}, [
           el("th", { text: t("table.timestamp") }),
