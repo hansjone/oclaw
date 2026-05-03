@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from oclaw.platform.config.paths import PROJECT_ROOT
-from oclaw.prompts.frontmatter import parse_markdown_document
+from oclaw.runtime.prompt_templates.frontmatter import parse_markdown_document
 
 _VAR_RE = re.compile(r"\{\{\s*([a-zA-Z0-9_]+)\s*\}\}")
 
@@ -18,13 +18,17 @@ class PromptDoc:
     body: str
 
 
+def _system_prompt_root() -> Path:
+    """Builtin Markdown templates: ``runtime/workspaces/_system`` (replaces former ``prompts/``)."""
+    return (PROJECT_ROOT / "runtime" / "workspaces" / "_system").resolve()
+
+
 def _prompts_root() -> Path:
-    return (PROJECT_ROOT / "prompts").resolve()
+    return _system_prompt_root()
 
 
 def _runtime_prompts_root() -> Path:
-    # Runtime prompts are unified into the single prompts tree.
-    return _prompts_root()
+    return _system_prompt_root()
 
 
 @lru_cache(maxsize=512)

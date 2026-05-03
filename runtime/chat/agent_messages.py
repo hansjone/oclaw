@@ -16,7 +16,7 @@ from typing import Any
 from oclaw.platform.llm.chat_models import _normalize_image_b64_payload, gemini_openai_compat_client, ChatModel
 from oclaw.runtime.chat.media_redact import redact_embedded_image_blobs
 from oclaw.runtime.chat.tool_runtime import tool_llm_message_max_chars, truncate_tool_result_for_llm_messages
-from oclaw.prompts import render_prompt
+from oclaw.runtime.prompt_templates import render_prompt
 from oclaw.platform.files.attachment_assets import attachment_id_to_data_url
 from oclaw.runtime.relay_pointer import parse_pointer_uri
 

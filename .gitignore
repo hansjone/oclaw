@@ -67,5 +67,6 @@ oclaw/desktop/node_modules/
 oclaw/desktop/dist/
 oclaw/desktop/runtime-data/
 oclaw/desktop/assets/oclaw.ico
+vendor/
 vendor/oclaw-main.zip
 vendor/oclaw/

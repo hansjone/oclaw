@@ -15,6 +15,7 @@ const I18N = {
     "nav.skills": "技能",
     "nav.attachments": "附件",
     "nav.profile": "用户信息",
+    "nav.netx": "打开 netx 运维工具",
     "notice.noLogin": "v2 已启用登录鉴权：请仅在内网访问",
     "action.refresh": "刷新",
     "title.stack": "运行时",
@@ -447,6 +448,7 @@ const I18N = {
     "nav.skills": "Skills",
     "nav.attachments": "Attachments",
     "nav.profile": "User Info",
+    "nav.netx": "Open netx ops tool",
     "notice.noLogin": "v2 login enabled: internal network only",
     "action.refresh": "Refresh",
     "title.stack": "Runtime",
@@ -3446,6 +3448,8 @@ async function renderModels() {
   });
   const activeSelect = el("select", { class: "input", disabled: !canPickActive });
   const bindingWrap = el("div", {});
+  const opsAiSpecialistSelect = el("select", { class: "input", disabled: !canConfigureBindings });
+  const opsAiProfileSelect = el("select", { class: "input", disabled: !canConfigureBindings });
   const modelsGrantsLinkRow = el("div", { class: "muted", style: "display:none" });
   const newName = el("input", { class: "input", placeholder: t("models.createNamePlaceholder") });
   const newMode = el("select", { class: "input", disabled: !canMutateProfiles }, [
@@ -3772,6 +3776,29 @@ async function renderModels() {
     });
   }
 
+  function paintOpsAiBindings() {
+    if (!state || !state.ops_ai_bindings) return;
+    const profiles = state.profiles || [];
+    const profileIds = profiles.map((p) => String(p.id));
+    const roleIds = (Array.isArray(state.role_ids) ? state.role_ids : []).filter((rid) => String(rid || "") !== "manager");
+
+    const curSpecialist = String(opsAiSpecialistSelect.value || "").trim();
+    opsAiSpecialistSelect.innerHTML = "";
+    roleIds.forEach((rid) => {
+      opsAiSpecialistSelect.appendChild(el("option", { value: String(rid), text: t("models.role." + rid) }));
+    });
+    if (roleIds.includes(curSpecialist)) opsAiSpecialistSelect.value = curSpecialist;
+    else if (roleIds.length) opsAiSpecialistSelect.value = roleIds[0];
+
+    const rid = String(opsAiSpecialistSelect.value || "").trim();
+    opsAiProfileSelect.innerHTML = "";
+    profiles.forEach((p) => {
+      opsAiProfileSelect.appendChild(el("option", { value: String(p.id), text: labelFor(p.id) }));
+    });
+    const v = String((state.ops_ai_bindings && state.ops_ai_bindings[rid]) || "").trim();
+    opsAiProfileSelect.value = profileIds.includes(v) ? v : "";
+  }
+
   function paintEval() {
     evalMetrics.innerHTML = "";
     evalTableWrap.innerHTML = "";
@@ -3833,8 +3860,11 @@ async function renderModels() {
     const aid = String(state.active_llm_profile_id || "");
     if (profiles.some((p) => String(p.id) === aid)) activeSelect.value = aid;
     activeSelect.disabled = !canPickActive;
+    opsAiSpecialistSelect.disabled = !canConfigureBindings;
+    opsAiProfileSelect.disabled = !canConfigureBindings;
 
     paintBindings();
+    paintOpsAiBindings();
 
     const selProf = profiles.find((p) => String(p.id) === aid) || profiles[0] || {};
     const pid = String(selProf.id || "");
@@ -3906,6 +3936,21 @@ async function renderModels() {
     if (!canPickActive) return;
     try {
       await apiPost("/admin/api/models/active", { profile_id: activeSelect.value });
+      await refresh();
+    } catch (e) {
+      status.textContent = String(e.message || e);
+    }
+  });
+  opsAiSpecialistSelect.addEventListener("change", async () => {
+    paintOpsAiBindings();
+  });
+  opsAiProfileSelect.addEventListener("change", async () => {
+    if (!canConfigureBindings) return;
+    try {
+      const rid = String(opsAiSpecialistSelect.value || "").trim();
+      const next = Object.assign({}, (state && state.ops_ai_bindings) || {});
+      next[rid] = String(opsAiProfileSelect.value || "");
+      await apiPost("/admin/api/models/ops-ai/bindings", { bindings: next });
       await refresh();
     } catch (e) {
       status.textContent = String(e.message || e);
@@ -4129,6 +4174,7 @@ async function renderModels() {
     sections: [
       { id: "models-overview", label: "概览" },
       { id: "models-bindings", label: "绑定" },
+      { id: "models-ops-ai", label: "内部API" },
       { id: "models-api", label: "API配置" },
       { id: "models-experts", label: "Experts" },
       { id: "models-eval", label: "评估" },
@@ -4150,6 +4196,10 @@ async function renderModels() {
       el("div", { class: "muted", text: t("models.bindingsScopeHint") }),
       bindingWrap,
     ], { id: "models-bindings" }),
+    renderSectionCard("内部 API模型配置", "仅用于 v1 / 专家模式：选择专家并绑定 API 配置。", [
+      el("div", { class: "row" }, [el("label", { text: "专家" }), opsAiSpecialistSelect]),
+      el("div", { class: "row" }, [el("label", { text: "API配置" }), opsAiProfileSelect]),
+    ], { id: "models-ops-ai" }),
     renderSectionCard(t("models.sectionApi"), "", [
       builtinCap,
       readonlyProfileHint,

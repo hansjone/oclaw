@@ -47,8 +47,8 @@
 
 - `AIA_PROMPT_FRONTMATTER_STRICT`
   - 默认：`0`
-  - 作用：`1` 时 `SKILL.md` / `oclaw/prompts/*.md` 的 frontmatter 必须为可解析 YAML；解析失败直接报错（不回落旧版行解析）
-  - 生效：`oclaw/prompts/frontmatter.py`, `oclaw/prompts/loader.py`, `oclaw/oclaw_runtime/skills.py`
+  - 作用：`1` 时 `SKILL.md` / `runtime/workspaces/_system/**/*.md` 的 frontmatter 必须为可解析 YAML；解析失败直接报错（不回落旧版行解析）
+  - 生效：`oclaw/runtime/prompt_templates/frontmatter.py`, `oclaw/runtime/prompt_templates/loader.py`, `oclaw/runtime/skills.py`
 
 - `AIA_SKILLS_PROMPT_IN_SYSTEM`
   - 默认：`1`（开启；仅当技能运行时启用）
@@ -83,7 +83,7 @@
 - `AIA_OCLAW_ROUTER_MODE`
   - 默认：`rule`
   - 取值：`rule`（启发式）或 `llm_json`（由当前 executor 的 `model.chat` 产出 `{mode,reason}` JSON；解析失败则回落 `rule`）
-  - 说明：亦可通过同名环境变量覆盖；提示词见 `oclaw/prompts_runtime/router/decide_route.md`
+  - 说明：亦可通过同名环境变量覆盖；提示词见 `runtime/workspaces/_system/router/decide_route.md`
   - 生效：`oclaw/oclaw_runtime/router.py`, `oclaw/oclaw_runtime/gateway.py`
 
 - oclaw trace 字段与 `event_type` ↔ `oc_stage` 对照见 `oclaw/docs/oclaw-trace-taxonomy.md`

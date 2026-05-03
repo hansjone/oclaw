@@ -5,14 +5,10 @@ from typing import Any
 from oclaw.runtime.chat.agent import Agent
 from oclaw.runtime.agent_context import build_role_system_context
 from oclaw.platform.persistence.sqlite_store import SqliteStore
-from oclaw.prompts.loader import render_prompt
 from oclaw.runtime.tools import default_registry
 
-NETWORK_SYSTEM_PROMPT_ZH = render_prompt(
-    "agents/network_ops_system.zh.md",
-    variables={"ROLE_SYSTEM_CONTEXT": build_role_system_context("ops")},
-    strict=True,
-)
+# Ops 专家走与 specialists 相同的工作区框架：runtime/workspaces/ops/{SOUL,ROLE_SYSTEM}.md
+NETWORK_SYSTEM_PROMPT_ZH = build_role_system_context("ops")
 
 
 class NetworkOpsAgent(Agent):

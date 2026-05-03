@@ -90,6 +90,10 @@ def _workspace_signature() -> tuple[Any, ...]:
     for item in sorted(root.iterdir(), key=lambda p: p.name.lower()):
         if not item.is_dir():
             continue
+        # Internal workspace directories (single underscore prefix) are not experts.
+        # Example: `_system` is used for builtin prompt templates.
+        if item.name.startswith("_"):
+            continue
         if item.name.startswith("__"):
             continue
         eid = normalize_expert_id(item.name)
@@ -158,6 +162,10 @@ def list_experts() -> list[dict[str, Any]]:
         return out
     for item in sorted(root.iterdir(), key=lambda p: p.name.lower()):
         if not item.is_dir():
+            continue
+        # Internal workspace directories (single underscore prefix) are not experts.
+        # Example: `_system` is used for builtin prompt templates.
+        if item.name.startswith("_"):
             continue
         eid = normalize_expert_id(item.name)
         if not eid:

@@ -24,6 +24,7 @@ from oclaw.runtime.types import OclawMemoryContext
 from oclaw.runtime.orchestration.trace import new_span_id
 from oclaw.runtime.tools.base import ToolRegistry
 from oclaw.runtime.hooks_runtime import trigger_hook_event
+from oclaw.runtime.tools.experts.network_ops.netx_tools import ops_netx_system_context_extension
 
 _OCLAW_TOOL_RESULT_HARD_CAP_CHARS = 24_000
 _OCLAW_ATTACHMENT_TEXT_REPLAY_CAP_CHARS = 4_000
@@ -629,6 +630,13 @@ def _build_model_context(
         prepend = str((hook_out or {}).get("prepend_system_context") or "").strip()
         if prepend:
             final_system = f"{prepend}\n\n{final_system}".strip()
+    except Exception:
+        pass
+    try:
+        if str(skill_binding_role or "").strip().lower() == "ops":
+            ext = ops_netx_system_context_extension(lang=lang or "zh")
+            if str(ext or "").strip():
+                final_system = f"{final_system}\n\n{ext.strip()}".strip()
     except Exception:
         pass
     trunc_raw = str(store.get_setting("AIA_TOOL_CONTEXT_TRUNCATE_ENABLED") or "").strip().lower()

@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any
 
 from oclaw.platform.config.paths import PROJECT_ROOT
 from oclaw.platform.config.runtime_paths import runtime_skills_root
-from oclaw.prompts.frontmatter import parse_frontmatter_dict, split_markdown_frontmatter
+from oclaw.runtime.prompt_templates.frontmatter import parse_frontmatter_dict, split_markdown_frontmatter
 from oclaw.runtime.skill_manifest_core import (
     SkillInstallSpec,
     normalize_frontmatter,

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from oclaw.prompts.frontmatter import parse_frontmatter_dict, parse_markdown_document
+from oclaw.runtime.prompt_templates.frontmatter import parse_frontmatter_dict, parse_markdown_document
 
 
 def test_parse_yaml_frontmatter_nested_metadata() -> None:

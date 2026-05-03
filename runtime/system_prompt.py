@@ -12,7 +12,7 @@ from oclaw.runtime.skills_workspace_lane import (
 )
 from oclaw.runtime.types import OclawMemoryContext
 from oclaw.runtime.workspaces.experts import expert_workspace_signature_token
-from oclaw.prompts.loader import render_runtime_prompt
+from oclaw.runtime.prompt_templates import render_runtime_prompt
 from oclaw.runtime.tools.base import ToolRegistry
 
 _EXECUTOR_STATIC_PROMPT_CACHE_LOCK = threading.Lock()

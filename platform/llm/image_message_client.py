@@ -8,7 +8,7 @@ from typing import Any
 
 import httpx
 from PIL import Image
-from oclaw.prompts import render_prompt
+from oclaw.runtime.prompt_templates import render_prompt
 
 
 def _summarize_data_url(url: str) -> dict[str, Any]:

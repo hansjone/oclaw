@@ -32,7 +32,7 @@ from oclaw.platform.persistence.sqlite_store import (
     agent_profile_bindings_setting_key,
     is_administrator_model_pool,
 )
-from oclaw.prompts import render_prompt
+from oclaw.runtime.prompt_templates import render_prompt
 from oclaw.runtime.tools.catalog import default_registry
 from oclaw.runtime.tools.plugin_loader import sync_plugin_metadata
 

@@ -31,6 +31,8 @@ from oclaw.platform.persistence.sqlite_store import (
 
 _LLM_MODE_OPTIONS = frozenset({"openai", "openai_responses", "anthropic", "google", "ollama", "rule"})
 _LLM_USER_CREATE_MODES = frozenset({"openai", "anthropic", "google", "ollama", "rule"})
+_OPS_AI_ACTIVE_KEY = "ops_ai_active_llm_profile_id"
+_OPS_AI_BINDINGS_KEY = "ops_ai_agent_profile_bindings"
 
 
 def _require_permission(ctx: dict[str, Any], permission: str) -> None:
@@ -136,6 +138,16 @@ def _normalize_active(
     return active_id
 
 
+def _normalize_active_by_key(store: SqliteStore, *, key: str, profile_ids: list[str]) -> str:
+    if not profile_ids:
+        return ""
+    active_id = str(store.get_setting(key) or "").strip()
+    if active_id not in profile_ids:
+        active_id = LLM_BUILTIN_OLLAMA_PROFILE_ID if LLM_BUILTIN_OLLAMA_PROFILE_ID in profile_ids else profile_ids[0]
+        store.set_setting(key, active_id)
+    return active_id
+
+
 def include_model_mgmt_routes(
     router: APIRouter,
     *,
@@ -179,6 +191,20 @@ def include_model_mgmt_routes(
             # 便于核对「浏览器连的是哪台网关、网关读的是哪个库文件」
             "db_path": db_path(),
         }
+        ops_ai_active_id = _normalize_active_by_key(store, key=_OPS_AI_ACTIVE_KEY, profile_ids=profile_ids)
+        raw_ops_bindings = parse_agent_profile_bindings(store.get_setting(_OPS_AI_BINDINGS_KEY))
+        ops_ai_bindings: dict[str, str] = {}
+        changed = False
+        for rid in agent_role_ids():
+            pid = str(raw_ops_bindings.get(rid) or "").strip()
+            if pid and pid not in profile_ids:
+                pid = ""
+                changed = True
+            ops_ai_bindings[rid] = pid
+        if changed:
+            store.set_setting(_OPS_AI_BINDINGS_KEY, dump_agent_profile_bindings(ops_ai_bindings))
+        out["ops_ai_active_llm_profile_id"] = ops_ai_active_id
+        out["ops_ai_bindings"] = ops_ai_bindings
         return out
 
     @mg.post("/active")
@@ -224,6 +250,49 @@ def include_model_mgmt_routes(
             cur[rid] = s
         store.set_setting(_bindings_key(ctx), dump_agent_profile_bindings(cur))
         return {"ok": True, "bindings": cur}
+
+    @mg.post("/ops-ai/active")
+    def api_models_set_ops_ai_active(
+        payload: dict[str, Any] | None = Body(default=None),
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        payload = payload or {}
+        store = SqliteStore(db_path())
+        ctx = resolve_auth(store, authorization)
+        _require_models_mutate(ctx)
+        profiles = store.list_llm_profiles(visible_only=True, **_models_list_kwargs(ctx))
+        profile_ids = [str(p["id"]) for p in profiles]
+        pid = str(payload.get("profile_id") or "").strip()
+        if pid not in profile_ids:
+            raise HTTPException(status_code=400, detail="invalid_profile_id")
+        store.set_setting(_OPS_AI_ACTIVE_KEY, pid)
+        return {"ok": True, "ops_ai_active_llm_profile_id": pid}
+
+    @mg.post("/ops-ai/bindings")
+    def api_models_set_ops_ai_bindings(
+        payload: dict[str, Any] | None = Body(default=None),
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        payload = payload or {}
+        store = SqliteStore(db_path())
+        ctx = resolve_auth(store, authorization)
+        _require_models_mutate(ctx)
+        profiles = store.list_llm_profiles(visible_only=True, **_models_list_kwargs(ctx))
+        profile_ids = set(str(p["id"]) for p in profiles)
+        raw = payload.get("bindings")
+        if not isinstance(raw, dict):
+            raise HTTPException(status_code=400, detail="bindings_object_required")
+        cur = parse_agent_profile_bindings(store.get_setting(_OPS_AI_BINDINGS_KEY))
+        for rid in agent_role_ids():
+            v = raw.get(rid)
+            if v is None:
+                continue
+            s = str(v).strip()
+            if s and s not in profile_ids:
+                raise HTTPException(status_code=400, detail=f"invalid_binding:{rid}")
+            cur[rid] = s
+        store.set_setting(_OPS_AI_BINDINGS_KEY, dump_agent_profile_bindings(cur))
+        return {"ok": True, "ops_ai_bindings": cur}
 
     @mg.post("/profiles")
     def api_models_create_profile(

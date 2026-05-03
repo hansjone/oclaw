@@ -2,7 +2,12 @@ from __future__ import annotations
 
 import pytest
 
-from oclaw.prompts.loader import load_runtime_prompt_doc, load_prompt_doc, render_runtime_prompt, render_prompt
+from oclaw.runtime.prompt_templates import (
+    load_prompt_doc,
+    load_runtime_prompt_doc,
+    render_prompt,
+    render_runtime_prompt,
+)
 
 
 def test_load_prompt_doc_with_frontmatter() -> None:

@@ -108,7 +108,7 @@
 - 依赖：`PyYAML`（`requirements.txt`）。
 
 ### Changed
-- `oclaw/prompts/loader.py` 与 `oclaw/oclaw_runtime/skills.py` 统一使用 YAML 解析 frontmatter（失败时默认回落旧行解析，除非开启 STRICT）。
+- `runtime/prompt_templates/loader.py` 与 `runtime/skills.py` 统一使用 YAML 解析 frontmatter（失败时默认回落旧行解析，除非开启 STRICT）。（历史：`oclaw/prompts/` 已迁至 `runtime/workspaces/_system/` + `runtime/prompt_templates/`。）
 
 ---
 

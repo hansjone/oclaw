@@ -7,7 +7,6 @@ from oclaw.platform.config.paths import PROJECT_ROOT
 
 _PROMPT_CRITICAL_FILES = (
     "runtime/chat/agent.py",
-    "runtime/agents/network_ops_agent.py",
     "runtime/agents/factory.py",
     "runtime/chat/agent_messages.py",
     "runtime/system_prompt.py",
@@ -27,16 +26,17 @@ def test_prompt_critical_paths_use_prompt_templates() -> None:
             or "render_prompt_for_lang(" in text
             or "render_runtime_prompt(" in text
         ), (
-            f"{rel} must render prompts from oclaw/prompts*.md"
+            f"{rel} must use oclaw.runtime.prompt_templates (Markdown under runtime/workspaces/_system)"
         )
 
 
 def test_prompt_markdown_frontmatter_keys_present() -> None:
     roots = [
-        PROJECT_ROOT / "prompts",
-        PROJECT_ROOT / "prompts_runtime",
+        PROJECT_ROOT / "runtime" / "workspaces" / "_system",
     ]
     for prompts_root in roots:
+        if not prompts_root.exists():
+            continue
         for p in prompts_root.rglob("*.md"):
             if p.name == "MAPPING.md":
                 continue

@@ -7,7 +7,7 @@ from typing import Any
 from oclaw.runtime.agents.agent_scope import resolve_agent_id_by_workspace_path
 from oclaw.runtime.hooks_runtime import get_active_hooks_config, trigger_hook_event
 from oclaw.platform.config.paths import PROJECT_ROOT
-from oclaw.prompts.loader import render_runtime_prompt
+from oclaw.runtime.prompt_templates import render_runtime_prompt
 
 _PROJECT_CONTEXT_FILES: tuple[str, ...] = (
     "TOOLS.md",

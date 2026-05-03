@@ -17,6 +17,9 @@ from fastapi import HTTPException
 from fastapi.responses import HTMLResponse
 
 from oclaw.runtime.operations.mcp_env import apply_gateway_mcp_env_to_os
+from oclaw.runtime.agents.factory import build_gateway_executor
+from oclaw.runtime.gateway import OclawGateway
+from oclaw.runtime.types import StandardMessage, normalize_interaction_mode, normalize_requested_specialist
 from oclaw.runtime.operations.providers.registry import build_channel_registry
 from oclaw.runtime.operations.runtime import (
     cleanup_service_processes_by_pid,
@@ -31,7 +34,7 @@ from oclaw.runtime.orchestration.vector_store import read_vector_memory_runtime
 from oclaw.platform.config.paths import PROJECT_ROOT, db_path
 from oclaw.platform.config.passwords import load_expected_password
 from oclaw.platform.persistence.sqlite_store import SqliteStore
-from oclaw.runtime.agents.specialists import discover_specialist_ids
+from oclaw.runtime.agents.specialists import discover_specialist_ids, parse_agent_profile_bindings
 from oclaw.runtime.tools.mcp.installer import (
     _safe_server_id,
     detect_local_dependencies,
@@ -380,6 +383,19 @@ def build_admin_router() -> APIRouter:
         if str(ctx.get("username") or "").strip().lower() == "administrator":
             return
         raise HTTPException(status_code=403, detail="cross_tenant_forbidden")
+
+    def _resolve_ops_ai_auth(store: SqliteStore, authorization: str | None) -> dict[str, Any]:
+        shared = str(os.getenv("OCLAW_OPS_AI_SHARED_TOKEN") or "").strip()
+        token = _extract_bearer(authorization)
+        if shared and token and hmac.compare_digest(shared, token):
+            return {
+                "tenant_id": "",
+                "user_id": "ops-ai-service",
+                "username": "ops-ai-service",
+                "role": "service",
+                "permissions": ["admin:read"],
+            }
+        return _resolve_auth(store, authorization)
 
     def _ordered_specialists() -> list[str]:
         base = [str(k).strip().lower() for k in discover_specialist_ids() if str(k).strip()]
@@ -3809,6 +3825,247 @@ def build_admin_router() -> APIRouter:
         if token:
             store.revoke_auth_session(session_token_hash=_sha256_hex(token))
         return {"ok": True}
+
+    @router.post("/admin/api/ops-ai/analyze-sync")
+    def api_ops_ai_analyze_sync(
+        payload: dict[str, Any] | None = Body(default=None),
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        payload = payload or {}
+        store = SqliteStore(db_path())
+        ctx = _resolve_ops_ai_auth(store, authorization)
+        _require_permission(ctx, "admin:read")
+
+        question = str(payload.get("question") or "").strip()
+        dataset_ref = payload.get("dataset_ref") if isinstance(payload.get("dataset_ref"), dict) else {}
+        context = payload.get("context") if isinstance(payload.get("context"), dict) else {}
+        constraints = payload.get("constraints") if isinstance(payload.get("constraints"), dict) else {}
+        analysis_request_id = str(payload.get("analysis_request_id") or "").strip()
+        if not question:
+            raise HTTPException(status_code=400, detail="question_required")
+
+        severity_summary = context.get("severity_summary") if isinstance(context.get("severity_summary"), list) else []
+        top_alarm_codes = context.get("top_alarm_codes") if isinstance(context.get("top_alarm_codes"), list) else []
+        top_ne = context.get("top_ne") if isinstance(context.get("top_ne"), list) else []
+        findings = context.get("findings") if isinstance(context.get("findings"), list) else []
+        protocol_summary = context.get("protocol_summary") if isinstance(context.get("protocol_summary"), list) else []
+        lang = str(constraints.get("language") or "zh-CN")
+        interaction_mode = normalize_interaction_mode(payload.get("interaction_mode") or "expert")
+        selected_specialist = normalize_requested_specialist(payload.get("specialist") or "ops")
+        visible_profiles = store.list_llm_profiles(visible_only=True)
+        visible_profile_ids = {str(p.get("id") or "").strip() for p in visible_profiles if str(p.get("id") or "").strip()}
+        ops_ai_active_profile_id = str(store.get_setting("ops_ai_active_llm_profile_id") or "").strip()
+        if ops_ai_active_profile_id not in visible_profile_ids:
+            ops_ai_active_profile_id = ""
+        raw_ops_ai_bindings = parse_agent_profile_bindings(store.get_setting("ops_ai_agent_profile_bindings"))
+
+        def _ops_ai_profile_for_role(role_id: str) -> str | None:
+            bound = str(raw_ops_ai_bindings.get(role_id) or "").strip()
+            if bound and bound in visible_profile_ids:
+                return bound
+            return None
+        selected_profile_id = _ops_ai_profile_for_role(selected_specialist)
+        if not selected_profile_id:
+            raise HTTPException(status_code=400, detail=f"ops_ai_profile_unbound:{selected_specialist}")
+
+        ops_prompt = (
+            f"问题：{question}\n"
+            f"数据范围：{json.dumps(dataset_ref, ensure_ascii=False)}\n"
+            f"级别分布：{json.dumps(severity_summary, ensure_ascii=False)}\n"
+            f"高频告警码：{json.dumps(top_alarm_codes, ensure_ascii=False)}\n"
+            f"高频网元：{json.dumps(top_ne, ensure_ascii=False)}\n"
+            f"协议/领域分布：{json.dumps(protocol_summary, ensure_ascii=False)}\n"
+            f"附加发现：{json.dumps(findings, ensure_ascii=False)}\n"
+            "请以网络运维专家视角给出："
+            "1) 根因假设；2) 证据与缺口；3) 处置优先级；4) 需要进一步采集的数据。"
+        )
+
+        tenant_id = str(ctx.get("tenant_id") or "")
+        user_id = str(ctx.get("user_id") or "ops-ai-service")
+        username = str(ctx.get("username") or "ops-ai-service")
+        role = str(ctx.get("role") or "service")
+        gw_result = None
+        answer = ""
+        gateway_error = ""
+        try:
+            apply_gateway_mcp_env_to_os()
+            # Service-token calls may not map to a real UI user row.
+            # Use internal session to avoid ui_session_owner foreign-key constraints.
+            ops_session = store.create_session(
+                title=f"ops-ai-sync:{str(dataset_ref.get('batch_id') or 'adhoc')}"
+            )
+            manager_agent = build_gateway_executor(
+                store,
+                lang=lang,
+                specialist="generalist",
+                profile_id=selected_profile_id,
+                openai_api_key=None,
+                llm_mode=None,
+                model=None,
+                base_url=None,
+                # Internal ops-ai should use the global model pool bindings
+                # instead of service-user personal visibility filtering.
+                viewer_user_id=None,
+                viewer_username="administrator",
+                viewer_tenant_id=None,
+                policy_session_id=str(ops_session.id),
+                path_policy_tenant_id=tenant_id or None,
+                path_policy_user_id=user_id or None,
+            )
+            specialist_factory = lambda sid: build_gateway_executor(
+                store,
+                lang=lang,
+                specialist=sid,
+                profile_id=_ops_ai_profile_for_role(str(sid or "").strip().lower()) or selected_profile_id,
+                openai_api_key=None,
+                llm_mode=None,
+                model=None,
+                base_url=None,
+                viewer_user_id=None,
+                viewer_username="administrator",
+                viewer_tenant_id=None,
+                policy_session_id=str(ops_session.id),
+                path_policy_tenant_id=tenant_id or None,
+                path_policy_user_id=user_id or None,
+            )
+            gw = OclawGateway(store=store)
+            gw_result = gw.handle_turn(
+                msg=StandardMessage(
+                    session_id=str(ops_session.id),
+                    tenant_id=tenant_id,
+                    user_id=user_id,
+                    role=role,
+                    channel="ops_ai_api",
+                    text=ops_prompt,
+                    attachments=[],
+                    metadata={
+                        "tenant_id": tenant_id,
+                        "user_id": user_id,
+                        "role": role,
+                        "channel": "ops_ai_api",
+                        "interaction_mode": interaction_mode,
+                        "selected_specialist": selected_specialist,
+                        "memory_mode": "default",
+                        "execution_mode": "normal",
+                    },
+                ),
+                lang=lang,
+                executor=manager_agent,
+                run_id=(analysis_request_id or None),
+                specialist_executor_factory=specialist_factory,
+            )
+            answer = str(getattr(gw_result, "reply_text", "") or "")
+        except Exception as exc:
+            gateway_error = str(exc)
+            sev_text = "；".join(
+                f"{str(x.get('key') or '')}:{int(x.get('count') or 0)}"
+                for x in severity_summary[:5]
+                if isinstance(x, dict)
+            )
+            code_text = "；".join(
+                f"{str(x.get('key') or '')}:{int(x.get('count') or 0)}"
+                for x in top_alarm_codes[:5]
+                if isinstance(x, dict)
+            )
+            ne_text = "；".join(
+                f"{str(x.get('key') or '')}:{int(x.get('count') or 0)}"
+                for x in top_ne[:5]
+                if isinstance(x, dict)
+            )
+            proto_text = "；".join(
+                f"{str(x.get('key') or '')}:{int(x.get('count') or 0)}"
+                for x in protocol_summary[:5]
+                if isinstance(x, dict)
+            )
+            answer = (
+                "网关专家暂时不可用，先给出统计结论：\n"
+                f"- 级别分布：{sev_text or '无'}\n"
+                f"- 高频告警码：{code_text or '无'}\n"
+                f"- 高频网元：{ne_text or '无'}\n"
+                f"- 协议/领域：{proto_text or '无'}\n"
+                "- 建议优先处理 critical/major 的热点网元，并结合 top 告警码排查是否告警风暴。"
+            )
+
+        try:
+            store.add_admin_audit_log(
+                actor_tenant_id=str(ctx.get("tenant_id") or ""),
+                actor_user_id=str(ctx.get("user_id") or ""),
+                action="ops_ai_analyze_sync",
+                target_type="ops_ai",
+                target_id=analysis_request_id or str(dataset_ref.get("batch_id") or "unknown"),
+                status="ok",
+                detail={
+                    "question": question[:200],
+                    "dataset_ref": dataset_ref,
+                    "risk_hint": findings[:3] if findings else [],
+                    "mode": interaction_mode,
+                    "specialist": selected_specialist,
+                    "gateway_error": gateway_error,
+                },
+            )
+        except Exception:
+            pass
+
+        return {
+            "ok": True,
+            "analysis_request_id": analysis_request_id,
+            "answer": answer,
+            "evidence": {
+                "severity_summary": severity_summary[:10],
+                "top_alarm_codes": top_alarm_codes[:10],
+                "top_ne": top_ne[:10],
+                "protocol_summary": protocol_summary[:10],
+                "findings": findings[:10],
+            },
+            "followups": [
+                "请给出过去2小时 critical 告警的 top5 网元与同比变化。",
+                "请按告警码聚类，定位是否为单一根因引发的告警风暴。",
+            ],
+            "metadata": {
+                "engine": "oclaw_ops_ai_sync_v1",
+                "source": "gateway_expert" if not gateway_error else "fallback_context",
+                "interaction_mode": str(getattr(gw_result, "interaction_mode", interaction_mode) or interaction_mode),
+                "selected_specialist": str(getattr(gw_result, "selected_specialist", selected_specialist) or selected_specialist),
+                "ops_ai_active_profile_id": ops_ai_active_profile_id,
+                "ops_ai_role_profile_id": _ops_ai_profile_for_role(selected_specialist) or "",
+                "gateway_error": gateway_error,
+                "caller": str(ctx.get("username") or ""),
+            },
+        }
+
+    @router.get("/admin/api/ops-ai/logs")
+    def api_ops_ai_logs(
+        limit: int = Query(default=50),
+        offset: int = Query(default=0),
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        store = SqliteStore(db_path())
+        ctx = _resolve_ops_ai_auth(store, authorization)
+        _require_permission(ctx, "admin:read")
+        lim = max(1, min(int(limit), 200))
+        off = max(0, int(offset))
+        rows = store.list_admin_audit_logs(
+            tenant_id=str(ctx.get("tenant_id") or ""),
+            action="ops_ai_analyze_sync",
+            actor_user_id=None,
+            status=None,
+            limit=lim,
+            offset=off,
+        )
+        total = store.count_admin_audit_logs(
+            tenant_id=str(ctx.get("tenant_id") or ""),
+            action="ops_ai_analyze_sync",
+            actor_user_id=None,
+            status=None,
+        )
+        return {"ok": True, "items": rows, "total": int(total), "limit": lim, "offset": off}
+
+    @router.get("/admin/api/ops-ai/health")
+    def api_ops_ai_health(authorization: str | None = Header(default=None)) -> dict[str, Any]:
+        store = SqliteStore(db_path())
+        ctx = _resolve_ops_ai_auth(store, authorization)
+        _require_permission(ctx, "admin:read")
+        return {"ok": True, "service": "oclaw", "component": "ops-ai", "status": "ok", "caller": str(ctx.get("username") or "")}
 
     @router.get("/admin/api/admin-audit")
     def api_admin_audit(

@@ -7,7 +7,7 @@
 - `runtime/`：运行时主域（agent、gateway 执行流、skills/hooks/extensions、operations）。
 - `interfaces/`：对外接口层（HTTP、WS、Admin、Gateway method bridge）。
 - `platform/`：通用平台能力（配置、存储、LLM transport、文件层）。
-- `prompts/`：统一提示词体系（含 runtime 相关提示模板）。
+- `runtime/workspaces/_system/`：内置系统提示词 Markdown 树（原顶层 `prompts/`，与按角色分区的 `workspaces/<role>/` 并列）；`runtime/prompt_templates/` 为加载与 frontmatter 解析。
 - `tests/`：测试代码（按你的要求保持顶层）。
 - `docs/`：设计文档、运维说明、迁移记录。
 

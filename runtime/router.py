@@ -7,7 +7,7 @@ from typing import Any
 
 from oclaw.runtime.types import StandardMessage
 from oclaw.runtime.types import normalize_interaction_mode, normalize_requested_specialist
-from oclaw.prompts.loader import render_runtime_prompt
+from oclaw.runtime.prompt_templates import render_runtime_prompt
 from oclaw.runtime.chat.model_path_audit import ensure_no_tool_or_embedded_image_payload
 
 

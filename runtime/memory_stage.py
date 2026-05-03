@@ -6,7 +6,7 @@ from typing import Any
 
 from oclaw.runtime.types import OclawMemoryContext
 from oclaw.runtime.orchestration.memory import semantic_retrieve, session_memory_digest
-from oclaw.prompts.loader import render_runtime_prompt
+from oclaw.runtime.prompt_templates import render_runtime_prompt
 
 _SPECIALIST_FLAGS_SETTING_KEY = "AIA_CHAT_SPECIALIST_FLAGS_JSON"
 

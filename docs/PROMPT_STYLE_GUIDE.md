@@ -1,7 +1,7 @@
 # Prompt Style Guide
 
 ## Goal
-- All model-facing prompts must be Markdown templates under `oclaw/prompts/`.
+- System/builtin model-facing prompt templates live under `runtime/workspaces/_system/`; role-specific copy lives under `runtime/workspaces/<role>/` (e.g. `ROLE_SYSTEM.md`). Load via `oclaw.runtime.prompt_templates`.
 - Business code must inject variables only; no long inline prompt strings.
 
 ## Template Contract

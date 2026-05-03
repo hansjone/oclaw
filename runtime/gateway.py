@@ -27,7 +27,7 @@ from oclaw.runtime.types import (
     normalize_requested_specialist,
 )
 from oclaw.platform.config.paths import PROJECT_ROOT
-from oclaw.prompts import render_prompt
+from oclaw.runtime.prompt_templates import render_prompt
 
 from oclaw.runtime.command_parser import parse_internal_command
 from oclaw.runtime.core.agent_execution import AgentCoreRunInput, build_memory_context, run_agent_core

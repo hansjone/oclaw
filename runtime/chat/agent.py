@@ -22,7 +22,7 @@ from oclaw.platform.llm.chat_models import (
     build_default_model,
     gemini_openai_compat_client,
 )
-from oclaw.prompts.loader import render_prompt_for_lang
+from oclaw.runtime.prompt_templates import render_prompt_for_lang
 from oclaw.runtime.tools.tool_validation import validate_tool_arguments
 
 logger = logging.getLogger(__name__)
