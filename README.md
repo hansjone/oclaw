@@ -153,3 +153,8 @@ Chinese zero-to-running checklist: see **开箱即用（从零跑起来）** at 
 
 See `docs/ENVIRONMENT_VARIABLES.md` for full runtime variable reference.
 
+## License and security
+
+- License: [MIT](LICENSE). Third-party subtrees may carry their own license files; those terms apply to the respective files only.
+- Vulnerability reporting: [SECURITY.md](SECURITY.md).
+

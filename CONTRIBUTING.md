@@ -13,7 +13,7 @@
 2. 克隆你的 Fork，并添加上游（便于同步）：
 
    ```text
-   git remote add upstream https://github.com/<原仓库>/oclaw.git
+   git remote add upstream https://github.com/hansjone/oclaw.git
    ```
 
 3. 从 `main` 拉最新，并创建功能分支（命名清晰，如 `fix/...`、`feat/...`）：
