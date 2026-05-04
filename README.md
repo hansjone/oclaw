@@ -52,6 +52,10 @@ powershell -ExecutionPolicy Bypass -File .\scripts\start_all.ps1 -Background
 
 若要在 ops 专家模式下调 **netx** 告警库，需单独启动 netx 服务，并在 `_local/system.env` 中配置 `OCLAW_NETX_BASE_URL`（及可选的 `OCLAW_NETX_API_TOKEN`）。说明见 `docs/NETX_MCP_INTEGRATION.md`。
 
+### 外部贡献
+
+若仓库对外开源并接受 Pull Request，协作方式与合并前自检见根目录 `CONTRIBUTING.md`。
+
 ---
 
 ## Quickstart (Open Source)
