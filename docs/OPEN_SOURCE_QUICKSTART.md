@@ -2,11 +2,23 @@
 
 This guide is the shortest path for first-time users.
 
+For a Chinese step-by-step “out of the box” checklist (env file, gateway, optional netx), see the repository root `README.md` → **开箱即用（从零跑起来）**.
+
 ## Prerequisites
 
 - Python 3.11+
 - Node.js 22+
 - PowerShell (Windows 10/11)
+
+## Environment file (recommended)
+
+Copy the template once at repo root:
+
+```powershell
+copy _local\system.env.example _local\system.env
+```
+
+Gateway startup loads `_local/system.env`. Configure LLM keys here or later in Admin (`docs/ENVIRONMENT_VARIABLES.md`).
 
 ## Path A: Web/Admin only (no Weixin/WhatsApp required)
 
