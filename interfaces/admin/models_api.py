@@ -33,6 +33,16 @@ _LLM_MODE_OPTIONS = frozenset({"openai", "openai_responses", "anthropic", "googl
 _LLM_USER_CREATE_MODES = frozenset({"openai", "anthropic", "google", "ollama", "rule"})
 _OPS_AI_ACTIVE_KEY = "ops_ai_active_llm_profile_id"
 _OPS_AI_BINDINGS_KEY = "ops_ai_agent_profile_bindings"
+_CHAT_MODEL_SELECTOR_VISIBLE_KEY = "AIA_CHAT_MODEL_SELECTOR_VISIBLE"
+
+
+def _truthy(v: Any, *, default: bool = False) -> bool:
+    if v is None:
+        return bool(default)
+    s = str(v).strip().lower()
+    if not s:
+        return bool(default)
+    return s in {"1", "true", "yes", "on"}
 
 
 def _require_permission(ctx: dict[str, Any], permission: str) -> None:
@@ -188,6 +198,7 @@ def include_model_mgmt_routes(
             "role_ids": list(agent_role_ids()),
             "profile_secret": secret,
             "can_manage_llm_grants": _can_manage_llm_grants(ctx),
+            "chat_model_selector_visible": _truthy(store.get_setting(_CHAT_MODEL_SELECTOR_VISIBLE_KEY), default=True),
             # 便于核对「浏览器连的是哪台网关、网关读的是哪个库文件」
             "db_path": db_path(),
         }
@@ -293,6 +304,19 @@ def include_model_mgmt_routes(
             cur[rid] = s
         store.set_setting(_OPS_AI_BINDINGS_KEY, dump_agent_profile_bindings(cur))
         return {"ok": True, "ops_ai_bindings": cur}
+
+    @mg.post("/chat-ui")
+    def api_models_set_chat_ui(
+        payload: dict[str, Any] | None = Body(default=None),
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        payload = payload or {}
+        store = SqliteStore(db_path())
+        ctx = resolve_auth(store, authorization)
+        _require_permission(ctx, "admin:tenant:write")
+        visible = _truthy(payload.get("chat_model_selector_visible"), default=True)
+        store.set_setting(_CHAT_MODEL_SELECTOR_VISIBLE_KEY, "1" if visible else "0")
+        return {"ok": True, "chat_model_selector_visible": visible}
 
     @mg.post("/profiles")
     def api_models_create_profile(

@@ -322,6 +322,8 @@ const I18N = {
     "models.sectionBindings": "智能体与模型绑定",
     "models.sectionNew": "新建模型配置",
     "models.sectionApi": "API 与密钥",
+    "models.chatModelSelector": "聊天页模型选择器",
+    "models.chatModelSelectorHint": "控制 Chat 页底部的模型下拉是否显示。",
     "models.sectionEval": "Agent Evaluation",
     "models.pickModel": "选用配置",
     "models.agentBindingHelp": "可为不同角色指定模型配置；留空则跟随上方全局选用。",
@@ -763,6 +765,8 @@ const I18N = {
     "models.sectionBindings": "Agent ↔ profile bindings",
     "models.sectionNew": "New profile",
     "models.sectionApi": "API & secret",
+    "models.chatModelSelector": "Chat model selector",
+    "models.chatModelSelectorHint": "Control whether the model dropdown is visible on the Chat page.",
     "models.sectionEval": "Agent Evaluation",
     "models.pickModel": "Profile",
     "models.agentBindingHelp": "Optional per-role profile; leave empty to use the global selection above.",
@@ -3460,6 +3464,7 @@ async function renderApiGrants() {
 async function renderModels() {
   const canPickActive = hasPermission("admin:read");
   const canConfigureBindings = canPickActive;
+  const canConfigureChatUi = hasPermission("admin:tenant:write");
   const status = el("div", { class: "muted", text: "" });
   const isAdminPool = String((authSession && authSession.username) || "").trim().toLowerCase() === "administrator";
   // 与后端 _require_models_mutate 对齐：administrator 写全局池需 tenant:write；普通用户写自己的配置只需 admin:read
@@ -3469,6 +3474,7 @@ async function renderModels() {
     text: isAdminPool && !canMutateProfiles ? t("models.readonly") : "",
   });
   const activeSelect = el("select", { class: "input", disabled: !canPickActive });
+  const chatModelSelectorVisibleCb = el("input", { type: "checkbox", disabled: !canConfigureChatUi });
   const bindingWrap = el("div", {});
   const opsAiSpecialistSelect = el("select", { class: "input", disabled: !canConfigureBindings });
   const opsAiProfileSelect = el("select", { class: "input", disabled: !canConfigureBindings });
@@ -3882,6 +3888,8 @@ async function renderModels() {
     const aid = String(state.active_llm_profile_id || "");
     if (profiles.some((p) => String(p.id) === aid)) activeSelect.value = aid;
     activeSelect.disabled = !canPickActive;
+    chatModelSelectorVisibleCb.disabled = !canConfigureChatUi;
+    chatModelSelectorVisibleCb.checked = state.chat_model_selector_visible !== false;
     opsAiSpecialistSelect.disabled = !canConfigureBindings;
     opsAiProfileSelect.disabled = !canConfigureBindings;
 
@@ -3958,6 +3966,17 @@ async function renderModels() {
     if (!canPickActive) return;
     try {
       await apiPost("/admin/api/models/active", { profile_id: activeSelect.value });
+      await refresh();
+    } catch (e) {
+      status.textContent = String(e.message || e);
+    }
+  });
+  chatModelSelectorVisibleCb.addEventListener("change", async () => {
+    if (!canConfigureChatUi) return;
+    try {
+      await apiPost("/admin/api/models/chat-ui", {
+        chat_model_selector_visible: !!chatModelSelectorVisibleCb.checked,
+      });
       await refresh();
     } catch (e) {
       status.textContent = String(e.message || e);
@@ -4206,6 +4225,8 @@ async function renderModels() {
     el("div", { class: "page-grid page-grid--two" }, [
       renderSectionCard(t("models.sectionActive"), "", [
         el("div", { class: "row" }, [el("label", { text: t("models.pickModel") }), activeSelect]),
+        el("div", { class: "row" }, [el("label", { text: t("models.chatModelSelector") }), chatModelSelectorVisibleCb]),
+        el("div", { class: "muted", text: t("models.chatModelSelectorHint") }),
       ], { id: "models-overview" }),
       renderSectionCard(t("models.sectionNew"), "", [
         el("div", { class: "row" }, [el("label", { text: t("models.profileName") }), newName]),

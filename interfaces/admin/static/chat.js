@@ -2845,9 +2845,15 @@ async function renderChatUi() {
   };
   await loadSpecialistCatalog();
   const activeModelText = el("span", { class: "muted", text: `${t("chat.activeModelLabel")}: -` });
+  const applyModelSelectorVisibility = (modelsState) => {
+    const show = !(modelsState && modelsState.chat_model_selector_visible === false);
+    modelSelect.style.display = show ? "" : "none";
+    modelSelect.disabled = !show;
+  };
   const refreshActiveModelText = async () => {
     try {
       const ms = await apiGet("/admin/api/models");
+      applyModelSelectorVisibility(ms);
       const profiles = Array.isArray(ms.profiles) ? ms.profiles : [];
       const aid = String(ms.active_llm_profile_id || "");
       const p = profiles.find((x) => String(x.id || "") === aid) || null;
@@ -2883,6 +2889,7 @@ async function renderChatUi() {
         modelSelect.value = String(modelSelect.options[0].value || "");
       }
     } catch (_) {
+      applyModelSelectorVisibility(null);
       activeModelText.textContent = `${t("chat.activeModelLabel")}: -`;
       modelSelect.innerHTML = "";
       modelSelect.appendChild(el("option", { value: "", text: "-" }));
