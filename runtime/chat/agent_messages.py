@@ -514,11 +514,30 @@ def build_llm_messages(
                     tool_calls = None
 
             if tool_calls and isinstance(tool_calls, list):
-                # Guard: only include tool_calls if tool results exist later in this trimmed window.
+                # Guard: only include assistant tool_calls when paired tool rows are present.
+                # OpenAI-compatible providers require strict adjacency:
+                # assistant(tool_calls) must be followed immediately by matching tool rows.
                 want_ids = [str(tc.get("id") or "").strip() for tc in tool_calls if isinstance(tc, dict) and str(tc.get("id") or "").strip()]
                 suffix = tool_ids_after[i] if (i >= 0 and i < len(tool_ids_after)) else set()
                 if want_ids and any(tid not in suffix for tid in want_ids):
                     tool_calls = None
+                # Stronger guard than suffix-presence: verify immediate following block.
+                if tool_calls is not None and want_ids:
+                    immediate_ids: set[str] = set()
+                    for j in range(i + 1, len(store_messages)):
+                        nm = store_messages[j]
+                        n_event_type = str(getattr(nm, "event_type", "") or "").strip().lower()
+                        # Ignore reasoning-only rows when checking adjacency.
+                        if n_event_type == "reasoning":
+                            continue
+                        n_role = str(getattr(nm, "role", "") or "")
+                        if n_role != "tool":
+                            break
+                        tcid = _tool_call_id_from_tool_row(getattr(nm, "tool_calls", None))
+                        if tcid:
+                            immediate_ids.add(str(tcid))
+                    if any(tid not in immediate_ids for tid in want_ids):
+                        tool_calls = None
                 if tool_calls is None:
                     out.append(
                         _attach_reasoning_content(

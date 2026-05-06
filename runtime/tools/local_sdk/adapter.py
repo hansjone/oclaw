@@ -66,7 +66,7 @@ class LocalAdapter:
         os.environ[k] = str(value)
         return {"ok": True, "key": k, "value": os.environ.get(k), "deleted": False}
 
-    def run_command(self, *, command: str, cwd: str | None = None, timeout: int = 30) -> dict[str, Any]:
+    def run_command(self, *, command: str, cwd: str | None = None, timeout: int = 300) -> dict[str, Any]:
         cmd = str(command or "").strip()
         if not cmd:
             return {"ok": False, "error_code": "command_required", "error": "command_required"}
@@ -103,7 +103,7 @@ class LocalAdapter:
         except Exception:
             return {"ok": False, "error_code": "disabled", "error": "disabled"}
         try:
-            timeout_s = max(1, min(int(timeout or 30), 600))
+            timeout_s = max(1, min(int(timeout or 300), 600))
             # run_command never follows adapter cd state.
             # It only uses explicit cwd; otherwise defaults to data/workspace.
             workdir = str(resolve_workspace_path(cwd or "data/workspace"))

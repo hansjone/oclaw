@@ -74,7 +74,7 @@ def test_local_adapter_backend_roundtrip(tmp_path: Path, monkeypatch) -> None:
 
 def test_run_command_tool_handler(monkeypatch) -> None:
     class _Adapter:
-        def run_command(self, *, command: str, cwd: str | None = None, timeout: int = 30):
+        def run_command(self, *, command: str, cwd: str | None = None, timeout: int = 300):
             return {"ok": True, "command": command, "cwd": cwd, "timeout": timeout}
 
     monkeypatch.setattr("oclaw.runtime.tools.public.run_command_tool.get_local_adapter", lambda: _Adapter())

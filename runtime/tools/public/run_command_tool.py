@@ -12,7 +12,7 @@ def run_command_tool() -> ToolSpec:
         if not command:
             return {"ok": False, "error_code": "command_required", "error": "command_required"}
         cwd = str(args.get("cwd") or "").strip() or None
-        timeout = int(args.get("timeout") or 30)
+        timeout = int(args.get("timeout") or 300)
         return get_local_adapter().run_command(command=command, cwd=cwd, timeout=timeout)
 
     return ToolSpec(
@@ -23,7 +23,7 @@ def run_command_tool() -> ToolSpec:
             "properties": {
                 "command": {"type": "string", "description": "Shell command to execute."},
                 "cwd": {"type": "string", "description": "Optional working directory."},
-                "timeout": {"type": "integer", "description": "Timeout in seconds.", "default": 30},
+                "timeout": {"type": "integer", "description": "Timeout in seconds.", "default": 300},
             },
             "required": ["command"],
             "additionalProperties": False,
@@ -31,7 +31,7 @@ def run_command_tool() -> ToolSpec:
         handler=_handler,
         tags=frozenset({"public", "exec"}),
         risk_level="high",
-        timeout_s=90.0,
+        timeout_s=620.0,
         read_only=False,
     )
 
