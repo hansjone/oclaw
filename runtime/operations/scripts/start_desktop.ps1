@@ -2,6 +2,7 @@
     [switch]$SkipInstall = $false,
     [switch]$Background = $false,
     [switch]$KeepExistingGateway = $false,
+    [string]$GatewayBaseUrl = "",
     [bool]$WithWikiWorker = $true
 )
 
@@ -27,6 +28,19 @@ $env:AIA_WORKSPACE_ROOT = $repoRoot
 $env:OPS_WORKSPACE_ROOT = $repoRoot
 $env:OCLAW_WORKSPACE = $repoRoot
 
+# Do not inherit attach-mode env from a parent shell when launching standalone desktop.
+Remove-Item Env:OCLAW_DESKTOP_EMBED_BACKEND -ErrorAction SilentlyContinue
+Remove-Item Env:OCLAW_DESKTOP_GATEWAY_BASE_URL -ErrorAction SilentlyContinue
+Remove-Item Env:OCLAW_DESKTOP_SKIP_CHANNEL -ErrorAction SilentlyContinue
+
+if ($KeepExistingGateway) {
+    $gw = if ($GatewayBaseUrl) { $GatewayBaseUrl.Trim() } else { "http://127.0.0.1:8787" }
+    $env:OCLAW_DESKTOP_EMBED_BACKEND = "0"
+    $env:OCLAW_DESKTOP_GATEWAY_BASE_URL = $gw
+    $env:OCLAW_DESKTOP_SKIP_CHANNEL = "1"
+    Write-Host "==> Desktop will use existing gateway (no second listener): $gw" -ForegroundColor Cyan
+}
+
 if (-not $KeepExistingGateway) {
     Write-Host "==> Cleaning previous gateway listener" -ForegroundColor Cyan
     try {
@@ -48,14 +62,21 @@ if ($WithWikiWorker) {
 
 Write-Host "==> Launching desktop app" -ForegroundColor Cyan
 if ($Background) {
-    # Avoid launching npm.ps1 directly (can be file-associated and open in Notepad on some setups).
-    # Use hidden cmd and redirect logs to avoid black console window popup.
-    $p = Start-Process -FilePath "cmd.exe" -ArgumentList @("/c","npm.cmd","run","dev") -WorkingDirectory $desktopDir -PassThru -WindowStyle Hidden -RedirectStandardOutput $outLog -RedirectStandardError $errLog
+    # Do NOT redirect stdout/stderr here: on Windows, piping npm/electron stdio can prevent the GUI from showing.
+    # Prefer the Electron shim directly; fallback to npm run dev (still without redirects).
+    $electronCmd = Join-Path $desktopDir "node_modules\.bin\electron.cmd"
+    $p = $null
+    if (Test-Path $electronCmd) {
+        $p = Start-Process -FilePath $electronCmd -ArgumentList @(".") -WorkingDirectory $desktopDir -PassThru -WindowStyle Hidden
+    }
+    if (-not $p) {
+        $p = Start-Process -FilePath "npm.cmd" -ArgumentList @("run","dev") -WorkingDirectory $desktopDir -PassThru -WindowStyle Hidden
+    }
     Set-Content -Path $pidFile -Value "$($p.Id)" -Encoding ascii
     Write-Host "desktop.pid = $pidFile" -ForegroundColor DarkGray
-    Write-Host "desktop.out = $outLog" -ForegroundColor DarkGray
-    Write-Host "desktop.err = $errLog" -ForegroundColor DarkGray
+    Write-Host "Embedded backend/chat logs (Electron): see %APPDATA%\oclaw\logs\desktop.log / backend.log" -ForegroundColor DarkGray
     Write-Host "PID = $($p.Id)" -ForegroundColor Green
+    Write-Host "==> Desktop launched in background (this script exits now)." -ForegroundColor Cyan
     exit 0
 }
 & "npm.cmd" "run" "dev"

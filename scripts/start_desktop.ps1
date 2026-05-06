@@ -1,6 +1,8 @@
 param(
     [switch]$SkipInstall = $false,
     [switch]$Background = $false,
+    [switch]$KeepExistingGateway = $false,
+    [string]$GatewayBaseUrl = "",
     [bool]$WithWikiWorker = $true
 )
 
@@ -11,5 +13,5 @@ if (-not (Test-Path $real)) {
     throw "Forward script target not found: $real"
 }
 
-& $real -SkipInstall:$SkipInstall -Background:$Background -WithWikiWorker:$WithWikiWorker
+& $real -SkipInstall:$SkipInstall -Background:$Background -KeepExistingGateway:$KeepExistingGateway -GatewayBaseUrl $GatewayBaseUrl -WithWikiWorker:$WithWikiWorker
 

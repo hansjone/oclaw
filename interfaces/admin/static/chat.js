@@ -66,6 +66,14 @@ const I18N = {
     "auth.chatLoginDenied": "当前账号无法使用对话（请联系管理员）。",
     "auth.disabled": "账号已被禁用，请联系管理员",
     "common.error": "错误",
+    "theme.label": "界面配色",
+    "theme.deepseek": "DeepSeek 默认",
+    "theme.github": "GitHub 暗色",
+    "theme.nord": "Nord",
+    "theme.dracula": "Dracula",
+    "theme.forest": "森绿",
+    "theme.catppuccin": "Catppuccin Mocha",
+    "theme.light": "浅色",
     "lang.switch": "English",
     "chat.imageViewerClose": "关闭",
     "chat.imageViewerHint": "点击查看大图，空白处或 Esc 关闭",
@@ -234,6 +242,14 @@ const I18N = {
     "auth.chatLoginDenied": "This account cannot use chat (contact an admin).",
     "auth.disabled": "Account is disabled",
     "common.error": "Error",
+    "theme.label": "Color theme",
+    "theme.deepseek": "DeepSeek (default)",
+    "theme.github": "GitHub Dark",
+    "theme.nord": "Nord",
+    "theme.dracula": "Dracula",
+    "theme.forest": "Forest",
+    "theme.catppuccin": "Catppuccin Mocha",
+    "theme.light": "Light",
     "lang.switch": "中文",
     "chat.imageViewerClose": "Close",
     "chat.imageViewerHint": "Click image to enlarge; click outside or Esc to close",
@@ -2372,6 +2388,26 @@ function syncAuthUserLabel() {
           text: t("chat.myProfile"),
         }),
       ];
+      items.push(el("div", { class: "chat-sess-menu-sep" }));
+      items.push(
+        el("div", { class: "muted", style: "padding:6px 10px 2px;font-size:12px;", text: t("theme.label") }),
+      );
+      const themeSelMenu = el("select", {
+        class: "input",
+        style: "width:100%;margin:4px 8px 8px;max-width:calc(100% - 16px);",
+      });
+      try {
+        (window.OclawAdminTheme && window.OclawAdminTheme.THEMES ? window.OclawAdminTheme.THEMES : ["deepseek"]).forEach((tid) => {
+          themeSelMenu.appendChild(el("option", { value: tid, text: t(`theme.${tid}`) }));
+        });
+        themeSelMenu.value = window.OclawAdminTheme ? window.OclawAdminTheme.currentAdminTheme() : "deepseek";
+      } catch (_) {}
+      themeSelMenu.addEventListener("change", () => {
+        try {
+          if (window.OclawAdminTheme) window.OclawAdminTheme.persistAdminTheme(themeSelMenu.value);
+        } catch (_) {}
+      });
+      items.push(themeSelMenu);
       const bridge = window.__chatUserMenuPrefs;
       if (bridge && typeof bridge === "object") {
         items.push(el("div", { class: "chat-sess-menu-sep" }));

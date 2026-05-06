@@ -7,6 +7,7 @@
     <!-- Avoid render-blocking external fonts (can stall first paint ~30s on blocked networks). -->
     <link rel="stylesheet" href="/admin/assets/styles.css" />
     <link rel="stylesheet" href="/admin/assets/theme-deepseek.css" />
+    <link rel="stylesheet" href="/admin/assets/theme-presets.css" />
     <style>
       body.theme-ds-body.chat-standalone-page {
         margin: 0;
@@ -561,9 +562,10 @@
       onload="(function(){try{ if (window.__oclawHydrateMermaidAll) window.__oclawHydrateMermaidAll(); }catch(e){}})()"
     ></script>
     <!-- Cache-bust for desktop webview: avoid stale chat.js -->
+    <script defer src="/admin/assets/admin-theme.js"></script>
     <script
       defer
-      src="/admin/assets/chat.js?v=20260501-1"
+      src="/admin/assets/chat.js?v=20260507-2"
       onerror="(function(){var s=document.getElementById('chat-boot-splash');if(s){s.querySelector('.chat-boot-splash__title span:last-child').textContent='无法加载 chat.js';s.querySelector('.chat-boot-splash__muted').textContent='请确认网关已启动且 /admin/assets/chat.js 可访问。';}})()"
     ></script>
   </head>

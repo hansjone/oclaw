@@ -34,14 +34,19 @@ Write-Step "Starting gateway + desktop"
 
 & "$PSScriptRoot/start_gateway.ps1" -BindHost $BindHost -Port $Port -SkipInstall:$SkipInstall -Background:$Background -WithWikiWorker:$WithWikiWorker
 
-# When gateway is started in foreground, the call above blocks; desktop won't start.
+# When gateway is started in foreground, the call above blocks; desktop / sidecars won't run in this script.
 if (-not $Background) {
     Write-Host ""
-    Write-Host "[INFO] Gateway started in foreground and will block. Use -Background to start both." -ForegroundColor Yellow
+    Write-Host "[INFO] Gateway is running in the foreground (this window blocks). Desktop was not started." -ForegroundColor Yellow
+    Write-Host "       For gateway + desktop + sidecars in one go, run:  start_all.ps1 -Background" -ForegroundColor Yellow
+    Write-Host "       Or start desktop in another terminal after the gateway is listening:  start_desktop.ps1 -Background -KeepExistingGateway" -ForegroundColor Yellow
     exit 0
 }
 
-& "$PSScriptRoot/start_desktop.ps1" -SkipInstall:$SkipInstall -Background -WithWikiWorker:$WithWikiWorker
+# start_desktop.ps1 defaults to stop_gateway.ps1 to free the port when launching desktop alone.
+# After start_gateway above we must keep the listener — pass -KeepExistingGateway.
+$gwUrl = "http://$BindHost`:$Port"
+& "$PSScriptRoot/start_desktop.ps1" -SkipInstall:$SkipInstall -Background -WithWikiWorker:$WithWikiWorker -KeepExistingGateway -GatewayBaseUrl $gwUrl
 
 if (-not $WithoutWeixin) {
     $gwBase = ($WeixinGatewayBaseUrl | ForEach-Object { "$_".Trim() })

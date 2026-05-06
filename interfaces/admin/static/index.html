@@ -7,6 +7,7 @@
     <!-- Avoid render-blocking external fonts (can stall first paint ~30s on blocked networks). -->
     <link rel="stylesheet" href="/admin/assets/styles.css" />
     <link rel="stylesheet" href="/admin/assets/theme-deepseek.css" />
+    <link rel="stylesheet" href="/admin/assets/theme-presets.css" />
     <style>
       /* First paint before app.js runs: keep admin from showing a blank dark screen. */
       .admin-boot-splash {
@@ -47,6 +48,7 @@
     </style>
   </head>
   <body class="theme-ds-body">
+    <script src="/admin/assets/admin-theme.js"></script>
     <div class="layout">
       <aside class="sidebar">
         <div class="brand">
@@ -101,6 +103,18 @@
           <div id="topTitle" class="topbar__title">Runtime</div>
           <div class="topbar__actions">
             <span id="authUser" class="muted"></span>
+            <label class="admin-theme-wrap" style="display: inline-flex; align-items: center; gap: 6px; margin-right: 4px">
+              <span class="muted" style="font-size: 12px" data-i18n="theme.label">配色</span>
+              <select id="adminThemeSelect" class="input input--compact" style="min-width: 132px; max-width: 200px; padding: 6px 8px" aria-label="theme">
+                <option value="deepseek" data-i18n="theme.deepseek">DeepSeek</option>
+                <option value="github" data-i18n="theme.github">GitHub</option>
+                <option value="nord" data-i18n="theme.nord">Nord</option>
+                <option value="dracula" data-i18n="theme.dracula">Dracula</option>
+                <option value="forest" data-i18n="theme.forest">Forest</option>
+                <option value="catppuccin" data-i18n="theme.catppuccin">Catppuccin</option>
+                <option value="light" data-i18n="theme.light">Light</option>
+              </select>
+            </label>
             <a id="btnBackChat" class="btn" data-i18n="nav.chat" href="chat">对话</a>
             <button id="btnLogout" class="btn" data-i18n="auth.logout">退出登录</button>
             <button id="btnLang" class="btn">中文</button>
@@ -120,7 +134,7 @@
     </div>
     <script
       defer
-      src="/admin/assets/app.js?v=20260425-1"
+      src="/admin/assets/app.js?v=20260507-2"
       onerror="(function(){var s=document.getElementById('admin-boot-splash');if(s){s.querySelector('.admin-boot-splash__title span:last-child').textContent='无法加载 app.js';s.querySelector('.admin-boot-splash__muted').textContent='请确认 /admin/assets/app.js 可访问。';}})()"
     ></script>
   </body>

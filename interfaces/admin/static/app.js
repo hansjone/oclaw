@@ -232,6 +232,14 @@ const I18N = {
     "common.notFound": "未找到页面",
     "common.forbidden": "无权访问该页面。",
     "common.error": "错误",
+    "theme.label": "界面配色",
+    "theme.deepseek": "DeepSeek 默认",
+    "theme.github": "GitHub 暗色",
+    "theme.nord": "Nord",
+    "theme.dracula": "Dracula",
+    "theme.forest": "森绿",
+    "theme.catppuccin": "Catppuccin Mocha",
+    "theme.light": "浅色",
     "lang.switch": "English",
     "memory.title": "记忆治理",
     "memory.hits": "最近命中",
@@ -665,6 +673,14 @@ const I18N = {
     "common.notFound": "Not found",
     "common.forbidden": "You do not have access to this page.",
     "common.error": "Error",
+    "theme.label": "Color theme",
+    "theme.deepseek": "DeepSeek (default)",
+    "theme.github": "GitHub Dark",
+    "theme.nord": "Nord",
+    "theme.dracula": "Dracula",
+    "theme.forest": "Forest",
+    "theme.catppuccin": "Catppuccin Mocha",
+    "theme.light": "Light",
     "lang.switch": "中文",
     "memory.title": "Memory Governance",
     "memory.hits": "Recent Hits",
@@ -997,6 +1013,12 @@ function applyI18nStatic() {
   });
   const langBtn = document.getElementById("btnLang");
   if (langBtn) langBtn.textContent = t("lang.switch");
+  const themeSel = document.getElementById("adminThemeSelect");
+  if (themeSel && window.OclawAdminTheme) {
+    try {
+      themeSel.value = OclawAdminTheme.currentAdminTheme();
+    } catch (_) {}
+  }
 }
 
 function toggleLang() {
@@ -9164,6 +9186,14 @@ if (btnLangEl) btnLangEl.addEventListener("click", () => {
   toggleLang();
   router();
 });
+const adminThemeSelectEl = document.getElementById("adminThemeSelect");
+if (adminThemeSelectEl && window.OclawAdminTheme) {
+  adminThemeSelectEl.addEventListener("change", () => {
+    try {
+      window.OclawAdminTheme.persistAdminTheme(adminThemeSelectEl.value);
+    } catch (_) {}
+  });
+}
 const btnBackChatEl = document.getElementById("btnBackChat");
 if (btnBackChatEl) {
   try {

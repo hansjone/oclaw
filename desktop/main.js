@@ -96,6 +96,47 @@ function pickPort(preferredPort) {
   });
 }
 
+function envFlagOff(v) {
+  return ["0", "false", "no", "off"].includes(String(v ?? "").trim().toLowerCase());
+}
+
+/** When false, connect to OCLAW_DESKTOP_GATEWAY_BASE_URL (or default :8787) instead of spawning a child gateway. */
+function shouldEmbedBackend() {
+  if (envFlagOff(process.env.OCLAW_DESKTOP_EMBED_BACKEND)) return false;
+  return !String(process.env.OCLAW_DESKTOP_GATEWAY_BASE_URL || "").trim();
+}
+
+function normalizeGatewayBaseUrl(raw) {
+  const s = String(raw || "").trim();
+  if (!s) throw new Error("gateway base URL is empty");
+  const u = new URL(s);
+  const host = u.hostname || DEFAULT_HOST;
+  const port = u.port ? parseInt(u.port, 10) : u.protocol === "https:" ? 443 : 80;
+  const baseUrl = `${u.protocol}//${u.host}`;
+  return { host, port, baseUrl };
+}
+
+async function attachToExistingGateway() {
+  const raw =
+    String(process.env.OCLAW_DESKTOP_GATEWAY_BASE_URL || "").trim() ||
+    `http://${DEFAULT_HOST}:${DEFAULT_PORT}`;
+  const parsed = normalizeGatewayBaseUrl(raw);
+  runtimeState = {
+    host: parsed.host,
+    port: parsed.port,
+    baseUrl: parsed.baseUrl,
+    pythonBin: resolvePythonBin(),
+    externalAttach: true,
+  };
+  const deadlineAtMs = Date.now() + STARTUP_TIMEOUT_MS;
+  await waitForBackend(`${runtimeState.baseUrl}/health`, deadlineAtMs);
+  return runtimeState;
+}
+
+function shouldSkipDesktopChannel() {
+  return ["1", "true", "yes", "on"].includes(String(process.env.OCLAW_DESKTOP_SKIP_CHANNEL || "").trim().toLowerCase());
+}
+
 function waitForBackend(url, deadlineAtMs) {
   return new Promise((resolve, reject) => {
     const attempt = () => {
@@ -124,6 +165,22 @@ function waitForBackend(url, deadlineAtMs) {
     };
     attempt();
   });
+}
+
+/** Avoid hanging forever on session.clearStorageData / clearCache (seen on some Windows setups). */
+function awaitWithTimeout(promise, timeoutMs, logLabel) {
+  const ms = Math.max(200, Number(timeoutMs) || 8000);
+  return Promise.race([
+    promise,
+    new Promise((resolve) => {
+      setTimeout(() => {
+        try {
+          logDesktop(`${logLabel}:timeout_after_${ms}ms`);
+        } catch (_) {}
+        resolve();
+      }, ms);
+    }),
+  ]);
 }
 
 function loadingHtml(text) {
@@ -190,7 +247,7 @@ async function startBackendProcess() {
     windowsHide: true,
     stdio: ["ignore", "pipe", "pipe"],
   });
-  runtimeState = { host, port, baseUrl, pythonBin };
+  runtimeState = { host, port, baseUrl, pythonBin, externalAttach: false };
 
   backendProc.stdout.on("data", (chunk) => {
     logStream.write(chunk);
@@ -513,8 +570,13 @@ async function boot() {
     app.setName(APP_DISPLAY_NAME);
     createMainWindow();
     // Show window immediately to avoid "black screen" during backend startup.
+    const embedGateway = shouldEmbedBackend();
     try {
-      await mainWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(loadingHtml("Starting local gateway…"))}`);
+      await mainWindow.loadURL(
+        `data:text/html;charset=utf-8,${encodeURIComponent(
+          loadingHtml(embedGateway ? "Starting local gateway…" : "Connecting to existing gateway…"),
+        )}`,
+      );
     } catch (_) {}
     mainWindow.show();
     try {
@@ -546,8 +608,13 @@ async function boot() {
       }
     })();
 
-    await startBackendProcess();
-    logDesktop(`boot:backendReady:${Date.now() - t0}ms`);
+    if (embedGateway) {
+      await startBackendProcess();
+      logDesktop(`boot:backendReady:embedded:${Date.now() - t0}ms`);
+    } else {
+      await attachToExistingGateway();
+      logDesktop(`boot:backendReady:external:${Date.now() - t0}ms`);
+    }
 
     try {
       await mainWindow.loadURL(
@@ -555,19 +622,33 @@ async function boot() {
       );
     } catch (_) {}
 
-    const channelOk = await startChannelProcess();
-    logDesktop(`boot:channel:${channelOk ? "ok" : "fail"}:${Date.now() - t0}ms`);
-    if (!channelOk && !channelStartWarningShown) {
-      channelStartWarningShown = true;
-      await dialog.showMessageBox({
-        type: "warning",
-        title: "Channel startup warning",
-        message: "企微通道启动失败（不影响桌面端启动）",
-        detail: "你可以在 Admin -> 运行时中查看并重试服务。",
-      });
+    let channelOk = true;
+    if (shouldSkipDesktopChannel()) {
+      logDesktop(`boot:channel:skipped:${Date.now() - t0}ms`);
+    } else {
+      channelOk = await startChannelProcess();
+      logDesktop(`boot:channel:${channelOk ? "ok" : "fail"}:${Date.now() - t0}ms`);
+      if (!channelOk && !channelStartWarningShown) {
+        channelStartWarningShown = true;
+        await dialog.showMessageBox({
+          type: "warning",
+          title: "Channel startup warning",
+          message: "企微通道启动失败（不影响桌面端启动）",
+          detail: "你可以在 Admin -> 运行时中查看并重试服务。",
+        });
+      }
     }
-    await clearStoragePromise;
-    await clearCachePromise;
+    try {
+      await mainWindow.loadURL(
+        `data:text/html;charset=utf-8,${encodeURIComponent(
+          loadingHtml(
+            `Backend ready at ${runtimeState.baseUrl}\nClearing login/session storage…\nThen opening chat…`,
+          ),
+        )}`,
+      );
+    } catch (_) {}
+    // Do not block the window forever if Electron's clearStorageData/clearCache never settle.
+    await awaitWithTimeout(Promise.all([clearStoragePromise, clearCachePromise]), 12000, "boot:storageCleanup");
     // Desktop policy: always require fresh login on every app restart.
     logDesktop(`boot:loadChat:start:${Date.now() - t0}ms`);
     await mainWindow.loadURL(`${runtimeState.baseUrl}/chat?v=${Date.now()}`);
@@ -593,6 +674,28 @@ ipcMain.handle("desktop:getRuntimeInfo", async () => {
 });
 
 ipcMain.handle("desktop:restartBackend", async () => {
+  if (runtimeState && runtimeState.externalAttach) {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      try {
+        await mainWindow.loadURL(
+          `data:text/html;charset=utf-8,${encodeURIComponent(loadingHtml("Reloading chat (external gateway)…"))}`,
+        );
+        mainWindow.show();
+      } catch (_) {}
+      try {
+        await waitForBackend(`${runtimeState.baseUrl}/health`, Date.now() + 15000);
+      } catch (_) {}
+      try {
+        await awaitWithTimeout(mainWindow.webContents.session.clearCache(), 8000, "restartBackend:clearCache");
+      } catch (_) {}
+      await mainWindow.loadURL(`${runtimeState.baseUrl}/chat?v=${Date.now()}`);
+      try {
+        mainWindow.show();
+        mainWindow.focus();
+      } catch (_) {}
+    }
+    return true;
+  }
   if (mainWindow && !mainWindow.isDestroyed()) {
     try {
       await mainWindow.loadURL(
@@ -607,10 +710,12 @@ ipcMain.handle("desktop:restartBackend", async () => {
   await stopChannelProcess();
   await stopBackendProcess();
   await startBackendProcess();
-  await startChannelProcess();
+  if (!shouldSkipDesktopChannel()) {
+    await startChannelProcess();
+  }
   if (mainWindow && !mainWindow.isDestroyed()) {
     try {
-      await mainWindow.webContents.session.clearCache();
+      await awaitWithTimeout(mainWindow.webContents.session.clearCache(), 8000, "restartBackend:clearCache");
     } catch (_) {}
     await mainWindow.loadURL(`${runtimeState.baseUrl}/chat?v=${Date.now()}`);
     try {

@@ -11,6 +11,17 @@ body.theme-ds-body {
   --ds-text-muted: rgba(232, 232, 232, 0.55);
   --ds-accent: #5eb3ff;
   --ds-accent-soft: rgba(94, 179, 255, 0.18);
+  --ds-sidebar: #161618;
+  --ds-topbar-bg: rgba(22, 22, 24, 0.92);
+  --ds-accent-border: rgba(94, 179, 255, 0.25);
+  --ds-accent-border-strong: rgba(94, 179, 255, 0.45);
+  --ds-accent-link: rgba(94, 179, 255, 0.95);
+  --ds-accent-scrollbar: rgba(94, 179, 255, 0.45);
+  --ds-accent-scrollbar-hover: rgba(94, 179, 255, 0.65);
+  --ds-panel: #222224;
+  --ds-chat-scroll-track: #2e2e2e;
+  --ds-chat-scroll-thumb: #7a7a7a;
+  --ds-chat-scroll-thumb-hover: #909090;
   /* 左侧会话列表：贴近侧栏 #0d0d0d，选中仅略提亮 */
   --chat-sess-hover-bg: rgba(255, 255, 255, 0.05);
   --chat-sess-active-bg: rgba(255, 255, 255, 0.062);
@@ -21,7 +32,7 @@ body.theme-ds-body {
 }
 
 body.theme-ds-body .layout .sidebar {
-  background: #161618;
+  background: var(--ds-sidebar);
   border-right-color: var(--ds-border);
 }
 
@@ -36,7 +47,7 @@ body.theme-ds-body .nav__item:hover {
 
 body.theme-ds-body .nav__item--active {
   background: var(--ds-accent-soft);
-  border: 1px solid rgba(94, 179, 255, 0.25);
+  border: 1px solid var(--ds-accent-border);
   color: var(--ds-text);
 }
 
@@ -49,7 +60,7 @@ body.theme-ds-body .main {
 }
 
 body.theme-ds-body .topbar {
-  background: rgba(22, 22, 24, 0.92);
+  background: var(--ds-topbar-bg);
   border-bottom-color: var(--ds-border);
 }
 
@@ -78,7 +89,7 @@ body.theme-ds-body .btn:hover {
 
 body.theme-ds-body .btn--primary {
   background: var(--ds-accent-soft);
-  border-color: rgba(94, 179, 255, 0.45);
+  border-color: var(--ds-accent-border-strong);
   color: var(--ds-text);
 }
 
@@ -276,7 +287,7 @@ body.theme-ds-body .card {
 .chat-nav__link {
   display: inline-block;
   font-size: 13px;
-  color: rgba(94, 179, 255, 0.95);
+  color: var(--ds-accent-link);
   text-decoration: none;
 }
 
@@ -379,7 +390,7 @@ body.theme-ds-body .card {
 .chat-pending-files:hover,
 .table-wrap:hover,
 .session-monitor-modal__card:hover {
-  scrollbar-color: rgba(94, 179, 255, 0.45) rgba(255, 255, 255, 0.06);
+  scrollbar-color: var(--ds-accent-scrollbar) rgba(255, 255, 255, 0.06);
 }
 
 .chat-msg__reasoning-pre::-webkit-scrollbar,
@@ -425,14 +436,14 @@ body.theme-ds-body .card {
 .chat-pending-files:hover::-webkit-scrollbar-thumb,
 .table-wrap:hover::-webkit-scrollbar-thumb,
 .session-monitor-modal__card:hover::-webkit-scrollbar-thumb {
-  background: rgba(94, 179, 255, 0.45);
+  background: var(--ds-accent-scrollbar);
 }
 
 .chat-msg__reasoning-pre::-webkit-scrollbar-thumb:hover,
 .chat-pending-files::-webkit-scrollbar-thumb:hover,
 .table-wrap::-webkit-scrollbar-thumb:hover,
 .session-monitor-modal__card::-webkit-scrollbar-thumb:hover {
-  background: rgba(94, 179, 255, 0.65);
+  background: var(--ds-accent-scrollbar-hover);
 }
 
 .chat-msg {
@@ -973,7 +984,7 @@ body.chat-standalone-page .chat-nav__scroll::-webkit-scrollbar {
 
 body.chat-standalone-page .chat-messages {
   scrollbar-width: thin;
-  scrollbar-color: #7a7a7a #2e2e2e;
+  scrollbar-color: var(--ds-chat-scroll-thumb) var(--ds-chat-scroll-track);
 }
 
 body.chat-standalone-page .chat-messages::-webkit-scrollbar {
@@ -982,14 +993,14 @@ body.chat-standalone-page .chat-messages::-webkit-scrollbar {
 }
 
 body.chat-standalone-page .chat-messages::-webkit-scrollbar-track {
-  background: #2e2e2e;
+  background: var(--ds-chat-scroll-track);
 }
 
 body.chat-standalone-page .chat-messages::-webkit-scrollbar-thumb {
-  background: #7a7a7a;
+  background: var(--ds-chat-scroll-thumb);
   border-radius: 0;
 }
 
 body.chat-standalone-page .chat-messages::-webkit-scrollbar-thumb:hover {
-  background: #909090;
+  background: var(--ds-chat-scroll-thumb-hover);
 }
