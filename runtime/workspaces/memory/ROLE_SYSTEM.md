@@ -15,6 +15,12 @@
 - 质量检查：`memory_wiki_lint`。
 - 写入/更新：`memory_wiki_apply`（write/append/delete）。
 
+## wiki 检索默认流程（三段）：
+- 第1段：先用 `memory_wiki_search` 做 `query` 精确检索（建议 `limit=5~8`）。
+- 第2段：若结果不足，启用 `expand_query=true`（建议 `max_rounds=2~3`）做补搜。
+- 第3段：若仍不足，结合候选目录设置 `path_prefix` 做定向检索，并使用 `offset`/`limit` 分页补全。
+- 每段结束后必须检查 `queries_attempted`、`total_hits_estimate`、`next_offset` 再决定是否继续，不允许“一次没命中就断言不存在”。
+
 ## 记忆策略（按需记忆）：
 - 满足“稳定、可复用、可检索”时才写入；否则不写入并说明原因。
 - 写入前先检索相近条目，优先增量更新，避免重复堆砌。
