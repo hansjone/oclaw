@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import hashlib
 import threading
+from pathlib import Path
 from typing import Any
 
+from oclaw.platform.config.paths import PROJECT_ROOT
 from oclaw.runtime.memory_stage import render_memory_context_block
 from oclaw.runtime.project_context_prompt import build_project_context_block
 from oclaw.runtime.skills_prompt import build_skills_catalog_block
@@ -17,6 +20,59 @@ from oclaw.runtime.tools.base import ToolRegistry
 
 _EXECUTOR_STATIC_PROMPT_CACHE_LOCK = threading.Lock()
 _EXECUTOR_STATIC_PROMPT_CACHE: dict[tuple[Any, ...], str] = {}
+
+
+def _file_stat_signature(path: Path) -> str:
+    try:
+        st = path.stat()
+        return f"{path.as_posix()}:{int(st.st_mtime_ns)}:{int(st.st_size)}"
+    except Exception:
+        return f"{path.as_posix()}:missing"
+
+
+def _session_bootstrap_content_signature(*, skill_binding_role: str | None, workspace_dir: str | None) -> str:
+    """Best-effort signature for session-bootstrap content sources.
+
+    When this signature changes, cached executor system prompts are invalidated,
+    so the next turn rebuilds project context and re-runs bootstrap hooks.
+    """
+    repo = Path(PROJECT_ROOT).resolve()
+    role = str(skill_binding_role or "").strip().lower()
+    ws = Path(workspace_dir).expanduser().resolve() if str(workspace_dir or "").strip() else None
+
+    targets: list[Path] = []
+    # session-bootstrap static source files
+    targets.append((repo / "runtime" / "skills" / "session-bootstrap" / "SOUL.md").resolve())
+    targets.append((repo / "runtime" / "skills" / "session-bootstrap" / "IDENTITY.md").resolve())
+    # wiki global memory/improvement sources
+    targets.append((repo / "data" / "wiki" / "improvement" / "learnings.md").resolve())
+    targets.append((repo / "data" / "wiki" / "improvement" / "errors.md").resolve())
+    targets.append((repo / "data" / "wiki" / "improvement" / "feature-requests.md").resolve())
+
+    core_dir = (repo / "data" / "wiki" / "core").resolve()
+    if core_dir.exists() and core_dir.is_dir():
+        for p in sorted(core_dir.glob("*.md"), key=lambda x: x.name.lower()):
+            targets.append(p.resolve())
+
+    if role:
+        role_dir = (repo / "data" / "wiki" / "experts" / role).resolve()
+        if role_dir.exists() and role_dir.is_dir():
+            for p in sorted(role_dir.glob("*.md"), key=lambda x: x.name.lower()):
+                targets.append(p.resolve())
+
+    if ws is not None:
+        mem_dir = (ws / "memory").resolve()
+        if mem_dir.exists() and mem_dir.is_dir():
+            mem_files = [p for p in mem_dir.glob("*.md") if p.is_file()]
+            mem_files.sort(key=lambda p: p.stat().st_mtime if p.exists() else 0.0, reverse=True)
+            if mem_files:
+                targets.append(mem_files[0].resolve())
+
+    h = hashlib.sha256()
+    for p in targets:
+        h.update(_file_stat_signature(p).encode("utf-8", errors="ignore"))
+        h.update(b"\n")
+    return h.hexdigest()[:24]
 
 
 def _executor_prompt_settings_signature(store: Any) -> tuple[str, ...]:
@@ -145,6 +201,7 @@ def get_executor_prompt_static(
         bool(tools is not None),
         int(bool(excl)),
         str(lane_seg or ""),
+        _session_bootstrap_content_signature(skill_binding_role=skill_binding_role, workspace_dir=workspace_dir),
     )
     with _EXECUTOR_STATIC_PROMPT_CACHE_LOCK:
         cached = _EXECUTOR_STATIC_PROMPT_CACHE.get(cache_key)
