@@ -36,6 +36,11 @@ from oclaw.runtime.worker import ensure_worker_started
 from oclaw.runtime.orchestration.trace import new_span_id, new_trace_id
 from oclaw.runtime.chat.tool_runtime import compact_turn_tool_messages_for_storage
 from oclaw.runtime.chat.model_path_audit import ensure_no_tool_or_embedded_image_payload
+from oclaw.runtime.session_auto_title import (
+    AUTO_TITLE_SYSTEM_PROMPT_EN,
+    AUTO_TITLE_SYSTEM_PROMPT_ZH,
+    finalize_auto_title,
+)
 from oclaw.runtime.tools.base import ToolRegistry
 from oclaw.runtime.tools.local_sdk import local_adapter_startup_self_check
 
@@ -180,7 +185,7 @@ class OclawGateway:
         }
 
     def _maybe_generate_title_on_third_round(self, *, msg: StandardMessage, model: Any | None) -> None:
-        """Generate title once on round-3 using user text only (no tools/reasoning context)."""
+        """Generate title once on round-3: one plain model.chat (system+user, no tools)."""
         if model is None or not callable(getattr(model, "chat", None)):
             return
         sid = str(msg.session_id or "").strip()
@@ -225,19 +230,12 @@ class OclawGateway:
         body = body[:_TITLE_BODIES_MAX_CHARS]
         try:
             lang_is_en = str(msg.metadata.get("lang") if isinstance(msg.metadata, dict) else "").lower().startswith("en")
-            sys = (
-                "Generate a concise chat title from these user messages only. "
-                "Use the dominant language used by the user content body. "
-                "Return title text only, no quotes, no markdown, max 18 chars."
-                if lang_is_en
-                else "仅基于以下用户正文生成简短会话标题。请使用对话内容主体语言命名。"
-                "只返回标题文本，不要引号，不要markdown，最多18个字。"
-            )
+            sys = AUTO_TITLE_SYSTEM_PROMPT_EN if lang_is_en else AUTO_TITLE_SYSTEM_PROMPT_ZH
             messages = [{"role": "system", "content": sys}, {"role": "user", "content": body}]
             ensure_no_tool_or_embedded_image_payload(messages=messages, path="gateway.auto_title")
             resp = model.chat(messages, [], on_token=None)
-            title = str(getattr(resp, "content", "") or "").strip().replace("\n", " ")
-            title = title.strip("\"'` ").strip()
+            raw_title = str(getattr(resp, "content", "") or "").strip().strip("\"'` ")
+            title = finalize_auto_title(raw=raw_title, fallback=str(bodies[0] or "").strip())
             if not title:
                 return
             self.store.rename_session(sid, title[:_SESSION_TITLE_MAX_LEN])

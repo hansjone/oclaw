@@ -12,6 +12,11 @@ from oclaw.runtime.memory_stage import build_memory_context
 from oclaw.runtime.relay_pointer import build_acp_relay_result, validate_relay_share_envelope
 from oclaw.runtime.types import StandardMessage
 from oclaw.runtime.chat.model_path_audit import ensure_no_tool_or_embedded_image_payload
+from oclaw.runtime.session_auto_title import (
+    AUTO_TITLE_SYSTEM_PROMPT_EN,
+    AUTO_TITLE_SYSTEM_PROMPT_ZH,
+    finalize_auto_title,
+)
 
 _LOCK = threading.Lock()
 _THREAD: threading.Thread | None = None
@@ -68,7 +73,7 @@ def _maybe_rename_from_first_user_message(*, store: Any, session_id: str, user_t
 
 
 def _maybe_generate_title_on_third_round(*, store: Any, msg: StandardMessage, model: Any | None) -> None:
-    """Generate title once on round-3 using user text only (no tools/reasoning context)."""
+    """Generate title once on round-3: one plain model.chat (system+user, no tools)."""
     if model is None or not callable(getattr(model, "chat", None)):
         return
     sid = str(msg.session_id or "").strip()
@@ -113,19 +118,12 @@ def _maybe_generate_title_on_third_round(*, store: Any, msg: StandardMessage, mo
     body = body[:_TITLE_BODIES_MAX_CHARS]
     try:
         lang_is_en = str(msg.metadata.get("lang") if isinstance(msg.metadata, dict) else "").lower().startswith("en")
-        sys = (
-            "Generate a concise chat title from these user messages only. "
-            "Use the dominant language used by the user content body. "
-            "Return title text only, no quotes, no markdown, max 18 chars."
-            if lang_is_en
-            else "仅基于以下用户正文生成简短会话标题。请使用对话内容主体语言命名。"
-            "只返回标题文本，不要引号，不要markdown，最多18个字。"
-        )
+        sys = AUTO_TITLE_SYSTEM_PROMPT_EN if lang_is_en else AUTO_TITLE_SYSTEM_PROMPT_ZH
         messages = [{"role": "system", "content": sys}, {"role": "user", "content": body}]
         ensure_no_tool_or_embedded_image_payload(messages=messages, path="worker.auto_title")
         resp = model.chat(messages, [], on_token=None)
-        title = str(getattr(resp, "content", "") or "").strip().replace("\n", " ")
-        title = title.strip("\"'` ").strip()
+        raw_title = str(getattr(resp, "content", "") or "").strip().strip("\"'` ")
+        title = finalize_auto_title(raw=raw_title, fallback=str(bodies[0] or "").strip())
         if not title:
             return
         store.rename_session(sid, title[:_SESSION_TITLE_MAX_LEN])
@@ -284,11 +282,7 @@ def _worker_loop(*, store: Any, worker_id: str, poll_interval_s: float) -> None:
                 user_text=user_text,
                 attachments=list(attachments or []),
             )
-            _maybe_generate_title_on_third_round(
-                store=store,
-                msg=msg,
-                model=getattr(executor, "model", None),
-            )
+            _maybe_generate_title_on_third_round(store=store, msg=msg, model=getattr(executor, "model", None))
             run_out = run_agent_core(
                 store=store,
                 data=AgentCoreRunInput(
