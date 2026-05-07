@@ -53,7 +53,12 @@
       <aside class="sidebar">
         <div class="brand">
           <div class="brand__logoWrap">
-            <img class="brand__logo" src="/admin/assets/oliver.svg" alt="oliver logo" />
+            <img
+              class="brand__logo"
+              src="/admin/brand-assets/logo.svg"
+              alt="site logo"
+              onerror="if(!this.dataset.fallback){this.dataset.fallback='1';this.src='/admin/assets/oliver.svg';}"
+            />
           </div>
         </div>
         <nav class="nav">

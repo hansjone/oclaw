@@ -47,6 +47,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\start_all.ps1 -Background
 
 - **8787 端口占用 / 重启不生效**：`powershell -ExecutionPolicy Bypass -File .\scripts\stop_gateway.ps1 -Force` 后再启动。
 - **更细的从零教程**：`docs/RUNBOOK.md` →「开源快速安装（从零到跑起来）」。
+- **更换品牌 Logo（外部优先）**：见 `docs/BRANDING.md`（将资源放到 `_local/branding/`）。
 
 ### 可选：运维专家（network_ops）与 netx
 
@@ -110,6 +111,7 @@ Notes:
 Full runbook (recommended): see `docs/RUNBOOK.md` → “开源快速安装（从零到跑起来）”.
 
 Minimal onboarding guide: `docs/OPEN_SOURCE_QUICKSTART.md`.
+Branding guide (external-first assets under `_local/branding`): `docs/BRANDING.md`.
 
 Chinese zero-to-running checklist: see **开箱即用（从零跑起来）** at the top of this README.
 

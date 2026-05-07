@@ -1934,7 +1934,8 @@ function prependMessageTime(node, tsIso) {
   node.insertBefore(el("div", { class: "chat-msg__time", text: txt }), node.firstChild);
 }
 
-const CHAT_BOT_LOGO_SRC = "/admin/assets/oliver.svg";
+const CHAT_BOT_LOGO_SRC = "/admin/brand-assets/logo.svg";
+const CHAT_BOT_LOGO_FALLBACK_SRC = "/admin/assets/oliver.svg";
 /** 内置默认用户头像（与助手头像同尺寸与底栏样式，SVG） */
 const DEFAULT_USER_AVATAR_SRC = "/admin/assets/default-user-avatar.svg";
 
@@ -1950,12 +1951,22 @@ async function loadMeProfile() {
 }
 
 function buildBotAvatarImg() {
-  return el("img", {
+  const img = el("img", {
     class: "chat-avatar chat-avatar--bot",
     src: CHAT_BOT_LOGO_SRC,
     alt: "",
     loading: "lazy",
   });
+  img.addEventListener(
+    "error",
+    () => {
+      if (img.dataset.logoFallbackApplied === "1") return;
+      img.dataset.logoFallbackApplied = "1";
+      img.src = CHAT_BOT_LOGO_FALLBACK_SRC;
+    },
+    { once: true },
+  );
+  return img;
 }
 
 function buildUserAvatarSlot() {
@@ -2331,13 +2342,21 @@ function mount(node) {
 }
 
 function buildChatBrandLogoNode() {
-  return el("div", { class: "chat-nav__brandWrap" }, [
-    el("img", {
-      class: "chat-nav__brandLogo",
-      src: "/admin/assets/oliver.svg",
-      alt: "oliver logo",
-    }),
-  ]);
+  const img = el("img", {
+    class: "chat-nav__brandLogo",
+    src: CHAT_BOT_LOGO_SRC,
+    alt: "site logo",
+  });
+  img.addEventListener(
+    "error",
+    () => {
+      if (img.dataset.logoFallbackApplied === "1") return;
+      img.dataset.logoFallbackApplied = "1";
+      img.src = CHAT_BOT_LOGO_FALLBACK_SRC;
+    },
+    { once: true },
+  );
+  return el("div", { class: "chat-nav__brandWrap" }, [img]);
 }
 
 function resolveAdminHashUrl(hashPath, sessionId) {

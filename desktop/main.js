@@ -9,7 +9,20 @@ const DEFAULT_HOST = "127.0.0.1";
 const DEFAULT_PORT = 8787;
 const APP_DISPLAY_NAME = "oclaw";
 const APP_ROOT = path.resolve(__dirname, "..", "..");
-const APP_ICON_PATH = path.join(APP_ROOT, "src", "admin", "static", "oliver.svg");
+const APP_ICON_PATH = (() => {
+  const candidates = [
+    path.join(APP_ROOT, "_local", "branding", "desktop.ico"),
+    path.join(APP_ROOT, "_local", "branding", "logo.png"),
+    path.join(APP_ROOT, "_local", "branding", "logo.svg"),
+    path.join(APP_ROOT, "interfaces", "admin", "static", "oliver.svg"),
+  ];
+  for (const p of candidates) {
+    try {
+      if (fs.existsSync(p)) return p;
+    } catch (_) {}
+  }
+  return candidates[candidates.length - 1];
+})();
 const DATA_ROOT = path.join(app.getPath("userData"), "runtime-data");
 const LOG_ROOT = path.join(app.getPath("userData"), "logs");
 const BACKEND_LOG_FILE = path.join(LOG_ROOT, "backend.log");

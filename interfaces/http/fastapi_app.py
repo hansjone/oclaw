@@ -8,6 +8,7 @@ import asyncio
 import os
 import shutil
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Any
 import threading
 
@@ -230,6 +231,8 @@ async def _lifespan(app: FastAPI):  # type: ignore[no-untyped-def]
 
 def create_app() -> FastAPI:
     app = FastAPI(title="ops-gateway", version="0.1", lifespan=_lifespan)
+    brand_assets_dir = (Path(PROJECT_ROOT) / "_local" / "branding").resolve()
+    app.mount("/admin/brand-assets", StaticFiles(directory=str(brand_assets_dir), check_dir=False), name="admin-brand-assets")
     app.mount("/admin/assets", StaticFiles(directory=str(admin_static_dir())), name="admin-assets")
     app.include_router(build_admin_router())
     app.include_router(weixin_ilink_router)
@@ -239,7 +242,8 @@ def create_app() -> FastAPI:
         resp = await call_next(request)
         # Avoid stale JS/CSS after refactors (especially in Electron webview).
         # The admin SPA and /chat both load from /admin/assets/...
-        if str(request.url.path or "").startswith("/admin/assets/"):
+        req_path = str(request.url.path or "")
+        if req_path.startswith("/admin/assets/") or req_path.startswith("/admin/brand-assets/"):
             resp.headers["Cache-Control"] = "no-store, max-age=0"
             resp.headers["Pragma"] = "no-cache"
         return resp

@@ -6,7 +6,11 @@ const pngToIco = typeof pngToIcoModule === "function" ? pngToIcoModule : pngToIc
 
 async function main() {
   const desktopRoot = path.resolve(__dirname, "..");
-  const svgPath = path.resolve(desktopRoot, "..", "src", "admin", "static", "oliver.svg");
+  const svgCandidates = [
+    path.resolve(desktopRoot, "..", "_local", "branding", "logo.svg"),
+    path.resolve(desktopRoot, "..", "interfaces", "admin", "static", "oliver.svg"),
+  ];
+  const svgPath = svgCandidates.find((p) => fs.existsSync(p)) || svgCandidates[svgCandidates.length - 1];
   const assetsDir = path.join(desktopRoot, "assets");
   const icoPath = path.join(assetsDir, "oclaw.ico");
 
