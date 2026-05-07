@@ -20,6 +20,13 @@ $stateDir = Join-Path $sidecarRoot "state"
 $logDir = Join-Path $sidecarRoot "logs"
 $bridgeSrc = Join-Path $oclawRoot "runtime\\operations\\whatsapp_bridge"
 
+# Pin known-good versions to avoid breakage from upstream latest releases.
+$baileysVersion = "7.0.0-rc.9"
+$qrcodeVersion = "0.12.0"
+$httpsProxyAgentVersion = "7.0.6"
+$tsxVersion = "4.20.3"
+$typescriptVersion = "5.8.2"
+
 New-Item -ItemType Directory -Force -Path $sidecarRoot | Out-Null
 New-Item -ItemType Directory -Force -Path $stateDir | Out-Null
 New-Item -ItemType Directory -Force -Path $logDir | Out-Null
@@ -30,11 +37,14 @@ try {
     npm.cmd init -y | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "npm init failed with exit code $LASTEXITCODE" }
   }
-  npm.cmd install --save @whiskeysockets/baileys@latest qrcode-terminal@latest
+  # Remove problematic package when present (seen on some environments with latest dependency graph).
+  npm.cmd remove whatsapp-rust-bridge | Out-Null
+
+  npm.cmd install --save --save-exact @whiskeysockets/baileys@$baileysVersion qrcode-terminal@$qrcodeVersion
   if ($LASTEXITCODE -ne 0) { throw "npm install deps failed with exit code $LASTEXITCODE" }
-  npm.cmd install --save https-proxy-agent@latest
+  npm.cmd install --save --save-exact https-proxy-agent@$httpsProxyAgentVersion
   if ($LASTEXITCODE -ne 0) { throw "npm install proxy deps failed with exit code $LASTEXITCODE" }
-  npm.cmd install --save tsx@latest typescript@latest
+  npm.cmd install --save --save-exact tsx@$tsxVersion typescript@$typescriptVersion
   if ($LASTEXITCODE -ne 0) { throw "npm install dev deps failed with exit code $LASTEXITCODE" }
 } finally {
   Pop-Location
