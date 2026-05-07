@@ -1,5 +1,6 @@
 param(
-  [string]$ChannelId = "whatsapp"
+  [string]$ChannelId = "whatsapp",
+  [switch]$VerboseRunner
 )
 
 $ErrorActionPreference = "Stop"
@@ -25,8 +26,17 @@ if (-not (Test-Path (Join-Path $sidecarRoot "baileys_runner.ts"))) {
 Push-Location $sidecarRoot
 try {
   $env:OCLAW_STATE_DIR = $stateDir
-  $args = @("/c", "set OCLAW_STATE_DIR=$stateDir&& npx.cmd -y tsx baileys_runner.ts --login")
-  Start-Process -FilePath "cmd.exe" -ArgumentList $args -WorkingDirectory $sidecarRoot -Wait
+  Write-Host "[info] whatsapp login started (foreground)."
+  Write-Host "[info] If QR appears, scan it in WhatsApp -> Linked devices."
+  $runnerArgs = @("-y", "tsx", "baileys_runner.ts", "--login")
+  if ($VerboseRunner) {
+    $runnerArgs += "--verbose"
+  }
+  & npx.cmd @runnerArgs
+  if ($LASTEXITCODE -ne 0) {
+    throw "whatsapp login runner exited with code $LASTEXITCODE"
+  }
+  Write-Host "[ok] whatsapp login finished"
 } finally {
   Pop-Location
 }
