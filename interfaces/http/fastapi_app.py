@@ -192,6 +192,10 @@ def _run_startup_hooks(app: FastAPI) -> None:
         _log_info(f"[skills] root={diag.get('skills_root')} total={diag.get('skills_total')}")
     except Exception:
         pass
+
+    # NOTE: skill role binding is an optional feature. For ops, we rely on:
+    # - role workspace system prompt (ROLE_SYSTEM.md) requiring the playbook
+    # - skill being present under runtime/skills/_workspace/ops/
     try:
         warm_expert_workspace_cache()
     except Exception:
