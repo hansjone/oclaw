@@ -12,6 +12,8 @@ import os
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+from oclaw.platform.llm.tool_schema import MIN_OPENAI_FUNCTION_PARAMETERS, complete_openai_tools_wire_parameters
+
 logger = logging.getLogger(__name__)
 
 SETTINGS_KEY_PENALTY_STATE = "mcp_tool_wire_penalty_state"
@@ -25,7 +27,7 @@ SETTINGS_KEY_PENALTY_STATE_BY_ROLE = "mcp_tool_wire_penalty_state_by_role"
 SETTINGS_KEY_TOOL_POLICIES_BY_ROLE = "mcp_tool_wire_tool_policies_by_role"
 SETTINGS_KEY_ROLE_MODE_BY_ROLE = "mcp_tool_wire_role_mode_by_role"
 
-_MIN_PARAMETERS: dict[str, Any] = {"type": "object", "additionalProperties": True}
+_MIN_PARAMETERS: dict[str, Any] = dict(MIN_OPENAI_FUNCTION_PARAMETERS)
 
 
 def _env_prefixed(name_suffix: str, default: str = "") -> str:
@@ -413,6 +415,12 @@ def prepare_openai_tools_for_llm_api(
     if not tools:
         return tools
 
+    tools = complete_openai_tools_wire_parameters(tools)
+
+    def _finalize(result: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Re-apply completion after tier/shrink/squeeze (those paths emit fresh ``parameters`` dicts)."""
+        return complete_openai_tools_wire_parameters(result)
+
     policies: dict[str, int] = {}
     admin: dict[str, Any] = _admin_defaults_from_env()
     role_mode = "restricted"
@@ -450,17 +458,17 @@ def prepare_openai_tools_for_llm_api(
     if role_mode == "forbidden":
         out = _filter_mcp_out(tools)
         if max_json_bytes is not None and max_json_bytes > 0:
-            return _fallback_shrink(out, max_json_bytes)
-        return out
+            return _finalize(_fallback_shrink(out, max_json_bytes))
+        return _finalize(out)
     if role_mode == "unrestricted":
         if max_json_bytes is not None and max_json_bytes > 0:
-            return _fallback_shrink(tools_pass1, max_json_bytes)
-        return tools_pass1
+            return _finalize(_fallback_shrink(tools_pass1, max_json_bytes))
+        return _finalize(tools_pass1)
 
     if not wire_graduation_effective(base_url, admin):
         if max_json_bytes is not None and max_json_bytes > 0:
-            return _fallback_shrink(tools_pass1, max_json_bytes)
-        return tools_pass1
+            return _finalize(_fallback_shrink(tools_pass1, max_json_bytes))
+        return _finalize(tools_pass1)
 
     top_n = int(admin.get("top_n_full") or 20)
     top_n = max(3, min(top_n, 80))
@@ -481,8 +489,8 @@ def prepare_openai_tools_for_llm_api(
     except Exception as exc:
         logger.warning("tool_wire_policy: usage store unavailable (%s); fallback shrink only", exc)
         if max_json_bytes is not None and max_json_bytes > 0:
-            return _fallback_shrink(tools_pass1, max_json_bytes)
-        return tools_pass1
+            return _finalize(_fallback_shrink(tools_pass1, max_json_bytes))
+        return _finalize(tools_pass1)
 
     ranked = sorted(
         usage_map.items(),
@@ -601,9 +609,9 @@ def prepare_openai_tools_for_llm_api(
         )
 
     if max_json_bytes is not None and max_json_bytes > 0 and _wire_json_size(built) > max_json_bytes:
-        return _squeeze_to_budget(built, max_json_bytes, admin=admin)
+        return _finalize(_squeeze_to_budget(built, max_json_bytes, admin=admin))
 
-    return built
+    return _finalize(built)
 
 
 def _squeeze_to_budget(

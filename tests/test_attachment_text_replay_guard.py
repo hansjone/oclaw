@@ -79,7 +79,19 @@ def test_large_image_tool_result_is_guarded_in_history_context(tmp_path: Path) -
         "text": long_text,
         "backend_shape": "multi",
     }
-    store.add_message(session_id=sess.id, role="tool", content=json.dumps(payload, ensure_ascii=False))
+    tc_id = "c_img_hist_guard"
+    store.add_message(
+        session_id=sess.id,
+        role="assistant",
+        content="",
+        tool_calls=[{"id": tc_id, "name": "query_image_attachment", "arguments": {}}],
+    )
+    store.add_message(
+        session_id=sess.id,
+        role="tool",
+        content=json.dumps(payload, ensure_ascii=False),
+        tool_calls={"tool_call_id": tc_id, "name": "query_image_attachment"},
+    )
 
     msgs = _build_model_context(
         store=store,
@@ -111,7 +123,19 @@ def test_small_image_tool_result_not_guarded(tmp_path: Path) -> None:
         "attachment_id": "c" * 64,
         "text": "A concise description of an icon.",
     }
-    store.add_message(session_id=sess.id, role="tool", content=json.dumps(payload, ensure_ascii=False))
+    tc_id = "c_img_small_ok"
+    store.add_message(
+        session_id=sess.id,
+        role="assistant",
+        content="",
+        tool_calls=[{"id": tc_id, "name": "query_image_attachment", "arguments": {}}],
+    )
+    store.add_message(
+        session_id=sess.id,
+        role="tool",
+        content=json.dumps(payload, ensure_ascii=False),
+        tool_calls={"tool_call_id": tc_id, "name": "query_image_attachment"},
+    )
 
     msgs = _build_model_context(
         store=store,
@@ -143,7 +167,19 @@ def test_large_video_transcript_tool_result_is_guarded_in_history_context(tmp_pa
         "attachment_id": "d" * 64,
         "text": long_text,
     }
-    store.add_message(session_id=sess.id, role="tool", content=json.dumps(payload, ensure_ascii=False))
+    tc_id = "c_vid_hist_guard"
+    store.add_message(
+        session_id=sess.id,
+        role="assistant",
+        content="",
+        tool_calls=[{"id": tc_id, "name": "query_video_attachment", "arguments": {}}],
+    )
+    store.add_message(
+        session_id=sess.id,
+        role="tool",
+        content=json.dumps(payload, ensure_ascii=False),
+        tool_calls={"tool_call_id": tc_id, "name": "query_video_attachment"},
+    )
 
     msgs = _build_model_context(
         store=store,

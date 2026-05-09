@@ -7,7 +7,105 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-_MIN_TOOL_PARAMETERS: dict[str, Any] = {"type": "object", "additionalProperties": True}
+# Full minimal object schema for ``function.parameters`` (wire / shrink / tier_minimal).
+# A bare ``{type, additionalProperties}`` alone has led strict gateways to emit or validate
+# ``required: null`` / missing array fields — always send explicit ``properties`` + ``required``.
+_MIN_TOOL_PARAMETERS: dict[str, Any] = {
+    "type": "object",
+    "properties": {},
+    "required": [],
+    "additionalProperties": True,
+}
+
+_COMBO_KEYS = frozenset({"allOf", "anyOf", "oneOf", "prefixItems"})
+
+
+def _schema_type_tags(t: Any) -> set[str]:
+    if t is None:
+        return set()
+    if isinstance(t, list):
+        return {str(x).strip().lower() for x in t if x is not None and str(x).strip()}
+    s = str(t).strip().lower()
+    return {s} if s else set()
+
+
+def complete_json_schema_for_openai_tools(obj: Any) -> Any:
+    """Recursively ensure JSON-schema fragments match what strict OpenAI-compat gateways expect.
+
+    This is **structural completion** for our wire path (tier/shrink/SDK), not a general MCP fix-all:
+    every ``type: object`` node gets explicit ``properties`` + ``required`` (list); every
+    ``type: array`` gets ``items`` (object). Combo keywords that must be arrays and are ``null``
+    are dropped; list elements that are ``null`` are removed.
+    """
+
+    if isinstance(obj, dict):
+        out: dict[str, Any] = {}
+        for k, v in obj.items():
+            key = str(k)
+            if key in _COMBO_KEYS and v is None:
+                if key in ("allOf", "prefixItems"):
+                    out[key] = []
+                continue
+            out[key] = complete_json_schema_for_openai_tools(v)
+
+        for combo in _COMBO_KEYS:
+            if combo not in out:
+                continue
+            val = out[combo]
+            if not isinstance(val, list):
+                continue
+            cleaned = [complete_json_schema_for_openai_tools(x) for x in val if x is not None]
+            if combo in ("anyOf", "oneOf") and not cleaned:
+                out.pop(combo, None)
+            else:
+                out[combo] = cleaned
+
+        if isinstance(out.get("properties"), dict):
+            t0 = out.get("type")
+            if t0 is None or (isinstance(t0, str) and not str(t0).strip()):
+                out["type"] = "object"
+
+        tags = _schema_type_tags(out.get("type"))
+        if "object" in tags:
+            if not isinstance(out.get("properties"), dict):
+                out["properties"] = {}
+            r = out.get("required")
+            if r is None or not isinstance(r, list):
+                out["required"] = []
+        if "array" in tags:
+            if out.get("items") is None:
+                out["items"] = {}
+            elif isinstance(out.get("items"), dict):
+                out["items"] = complete_json_schema_for_openai_tools(out["items"])
+        return out
+    if isinstance(obj, list):
+        return [complete_json_schema_for_openai_tools(x) for x in obj]
+    return obj
+
+
+def complete_openai_tools_wire_parameters(tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Apply :func:`complete_json_schema_for_openai_tools` to each function's ``parameters``."""
+    out: list[dict[str, Any]] = []
+    for ent in tools or []:
+        if not isinstance(ent, dict):
+            continue
+        if str(ent.get("type") or "") != "function":
+            out.append(ent)
+            continue
+        fn = ent.get("function")
+        if not isinstance(fn, dict):
+            out.append(ent)
+            continue
+        params = fn.get("parameters")
+        if not isinstance(params, dict):
+            row = dict(ent)
+            row["function"] = {**dict(fn), "parameters": dict(_MIN_TOOL_PARAMETERS)}
+            out.append(row)
+            continue
+        row = dict(ent)
+        row["function"] = {**dict(fn), "parameters": complete_json_schema_for_openai_tools(dict(params))}
+        out.append(row)
+    return out
 
 
 def openai_tools_json_byte_length(tools: list[dict[str, Any]]) -> int:
@@ -96,8 +194,12 @@ def default_max_openai_tools_json_bytes(base_url: str | None) -> int | None:
 
 
 __all__ = [
+    "MIN_OPENAI_FUNCTION_PARAMETERS",
+    "complete_json_schema_for_openai_tools",
+    "complete_openai_tools_wire_parameters",
     "default_max_openai_tools_json_bytes",
     "openai_tools_json_byte_length",
     "shrink_openai_tools_payload_for_api",
 ]
 
+MIN_OPENAI_FUNCTION_PARAMETERS = _MIN_TOOL_PARAMETERS

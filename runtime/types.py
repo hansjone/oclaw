@@ -42,11 +42,16 @@ def normalize_interaction_mode(raw: Any) -> InteractionMode:
 
 def normalize_requested_specialist(raw: Any) -> SpecialistId:
     specialist = str(raw or "").strip().lower()
-    if specialist == "ops":
-        return "ops"
-    if specialist == "memory":
-        return "memory"
-    return "generalist"
+    # Accept dynamic specialists discovered from workspaces (e.g. "stock").
+    # Fallback to "generalist" when unknown.
+    try:
+        from oclaw.runtime.agents.specialists import normalize_specialist_id
+
+        return normalize_specialist_id(specialist)
+    except Exception:
+        if specialist in {"ops", "memory", "generalist", "image"}:
+            return specialist
+        return "generalist"
 
 
 @dataclass(frozen=True)

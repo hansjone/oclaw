@@ -13,7 +13,8 @@ _PROMPT_CRITICAL_FILES = (
     "runtime/memory_stage.py",
     "runtime/project_context_prompt.py",
     "runtime/chat/agent_errors.py",
-    "platform/llm/image_message_client.py",
+    "platform/llm/image_ocr_client.py",
+    "platform/llm/image_legacy_client.py",
     "runtime/gateway.py",
 )
 

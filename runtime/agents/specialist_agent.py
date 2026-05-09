@@ -15,7 +15,7 @@ from oclaw.runtime.chat.agent import GenerationInterrupted
 from oclaw.runtime.agents.network_ops_agent import NetworkOpsAgent
 from oclaw.platform.persistence.sqlite_store import SqliteStore
 from oclaw.platform.files.attachment_assets import AttachmentAssetStore, attachment_id_to_data_url
-from oclaw.platform.llm.image_message_client import send_image_messages
+from oclaw.platform.llm.image_ocr_client import send_ocr_image_messages
 from oclaw.runtime.tools import default_registry
 from oclaw.runtime.agents.specialists import expert_name_for_specialist
 
@@ -267,25 +267,22 @@ class SpecialistAgentRunner:
                 else:
                     _, chosen_model, _ = self._resolve_profile_and_model(step.specialist)
                     model_name = str(
-                        os.getenv("AIA_IMAGE_MODEL")
-                        or getattr(chosen_model, "model", None)
-                        or ""
+                        os.getenv("AIA_OCR_MODEL") or getattr(chosen_model, "model", None) or ""
                     ).strip() or None
                     api_key = str(getattr(chosen_model, "api_key", "") or "").strip() or None
                     base_url = str(getattr(chosen_model, "base_url", "") or "").strip() or None
-                    dashscope_api_key = api_key if base_url and "dashscope.aliyuncs.com" in base_url.lower() else None
-                    dashscope_base_http_api_url = None
-                    if base_url and "dashscope.aliyuncs.com" in base_url.lower():
-                        # Normalize compatible-mode/v1 to native /api/v1 for DashScope SDK.
-                        dashscope_base_http_api_url = str(base_url).replace("/compatible-mode/v1", "/api/v1")
-                    resp = send_image_messages(
+                    text_parts = [
+                        str(x).strip()
+                        for x in (step.objective, step.input_text, parent_task.user_text)
+                        if str(x or "").strip()
+                    ]
+                    user_text = "\n".join(text_parts) if text_parts else "请根据用户上传的图片作答：描述可见场景、物体与文字；不确定处请标明。"
+                    resp = send_ocr_image_messages(
                         images=selected_images,
-                        prompt=f"{step.objective}\n\n{step.input_text}\n\n{parent_task.user_text}",
+                        prompt=user_text,
                         model=model_name,
                         api_key=api_key,
                         base_url=base_url,
-                        dashscope_api_key=dashscope_api_key,
-                        dashscope_base_http_api_url=dashscope_base_http_api_url,
                     )
                     image_debug_schema = str(resp.get("debug_used_schema") or "").strip()
                     dbg = resp.get("debug_used_debug")

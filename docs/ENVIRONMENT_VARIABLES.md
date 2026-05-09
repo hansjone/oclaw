@@ -308,47 +308,33 @@
   - 作用：Gemini OpenAI 兼容下 tools 非流式开关
   - 生效：`oclaw/platform/llm/chat_models.py`
 
-## 图像能力
+## OCR / 看多模态专线
 
-- `AIA_IMAGE_MODEL`
-  - 默认：空（走 profile/模型默认）
-  - 作用：图像模型
-  - 生效：`oclaw/platform/llm/image_message_client.py`, `oclaw/runtime/agents/specialist_agent.py`
+用于工具 **`query_image_attachment`**、纯文本模型降级 OCR、**图片专家**单次看图与底层 **`send_ocr_image_messages`**：向 **OpenAI-compatible** 网关发送带图 `messages`（通常为 `POST …/chat/completions`）。旧版 DashScope 形态载荷见 **`send_legacy_image_messages`**（一般不再用于图片专家）。与主聊天模型配置的 Key/Base URL **互不继承**。
 
-- `AIA_IMAGE_BASE_URL`
-  - 默认：`https://api.openai.com/v1`
-  - 作用：图像服务 base URL
-  - 生效：`oclaw/platform/llm/image_message_client.py`
+- `AIA_OCR_BASE_URL`
+  - 默认：无（必填，否则工具判为未配置）
+  - 作用：多模态网关根地址（例如 `https://api.example.com/v1`；实际请求为 `BASE_URL` + `CHAT_ENDPOINT`）
+  - 生效：`oclaw/platform/llm/image_ocr_client.py`
 
-- `AIA_IMAGE_API_KEY`
-  - 默认：空
-  - 作用：图像 API Key
-  - 生效：`oclaw/platform/llm/image_message_client.py`
+- `AIA_OCR_API_KEY`
+  - 默认：无（必填）
+  - 作用：上述网关的 Bearer API Key
+  - 生效：`oclaw/platform/llm/image_ocr_client.py`
 
-- `AIA_IMAGE_CHAT_ENDPOINT`
+- `AIA_OCR_MODEL`
+  - 默认：无（必填，**不提供默认模型 id**）
+  - 作用：网关上支持图+文的多模态模型名（由你的厂商决定）
+  - 生效：`oclaw/platform/llm/image_ocr_client.py`，`oclaw/runtime/agents/specialist_agent.py`
+
+- `AIA_OCR_CHAT_ENDPOINT`
   - 默认：`/chat/completions`
-  - 作用：图像接口 endpoint
-  - 生效：`oclaw/platform/llm/image_message_client.py`
+  - 作用：相对 `AIA_OCR_BASE_URL` 的路径
+  - 生效：`oclaw/platform/llm/image_ocr_client.py`
 
-- `AIA_IMAGE_RETRIES`
-  - 默认：`3`
-  - 作用：图像请求重试次数
-  - 生效：`oclaw/platform/llm/image_message_client.py`
+**动态参数：** 代码中也可在调用 `send_ocr_image_messages` / `send_legacy_image_messages` 时传入 `base_url` / `api_key` / `model`，优先级高于环境变量（见 `vision_llm_backend_status` 仅在未传参时使用 env 判断「是否已配置」）。
 
-- `AIA_IMAGE_RETRY_BACKOFF_SEC`
-  - 默认：`0.8`
-  - 作用：图像请求重试退避秒数
-  - 生效：`oclaw/platform/llm/image_message_client.py`
-
-- `AIA_IMAGE_STATUS_RETRIES`
-  - 默认：`4`
-  - 作用：图像状态轮询重试次数
-  - 生效：`oclaw/platform/llm/image_message_client.py`
-
-- `AIA_IMAGE_STATUS_RETRY_BACKOFF_SEC`
-  - 默认：`5.0`
-  - 作用：图像状态轮询退避秒数
-  - 生效：`oclaw/platform/llm/image_message_client.py`
+> **说明：** 历史上曾使用 `AIA_IMAGE_BASE_URL` / `AIA_IMAGE_API_KEY` / `AIA_IMAGE_MODEL` / `AIA_IMAGE_CHAT_ENDPOINT` 作为同一路由；当前实现 **不再读取** 上述变量作 OCR 通道配置，请统一改为 `AIA_OCR_*`。（`AIA_IMAGE_TOOL_RESULT_REPLAY_CAP_CHARS` 等为 **另一用途**，与 OCR 网关无关，仍保留原名。）
 
 ## Memory / RAG
 

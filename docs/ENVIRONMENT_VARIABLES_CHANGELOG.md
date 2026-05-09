@@ -57,6 +57,23 @@
 
 ---
 
+## 2026-05-10 / Unreleased
+
+### Added
+- `AIA_OCR_BASE_URL`, `AIA_OCR_API_KEY`, `AIA_OCR_MODEL`, `AIA_OCR_CHAT_ENDPOINT`
+  - 默认值：`CHAT_ENDPOINT` 为 `/chat/completions`，其余无默认（三项主体必填方视为已配置）
+  - 用途：`query_image_attachment` / `send_ocr_image_messages` 等多模态 HTTP 通道命名（与主 LLM 分离）
+  - 影响模块：`oclaw/platform/llm/image_ocr_client.py`、`image_legacy_client.py`，`oclaw/runtime/tools/public/query_image_attachment_tool.py`，`oclaw/runtime/agents/specialist_agent.py`（图片专家走 OCR 多模态 HTTP）
+
+### Changed
+- `send_ocr_image_messages` / `send_legacy_image_messages` 不再有隐式默认模型 id；未配 `AIA_OCR_MODEL`（且未传 `model`）将直接失败
+
+### Removed（OCR 通道）
+- `AIA_IMAGE_BASE_URL` / `AIA_IMAGE_API_KEY` / `AIA_IMAGE_MODEL` / `AIA_IMAGE_CHAT_ENDPOINT` **不再**作为看图/OCR 通道的环境变量读取（须改用 `AIA_OCR_*`）。与附件回放相关的 `AIA_IMAGE_TOOL_RESULT_REPLAY_CAP_CHARS` 等 **不受影响**。
+- 先前文档中的 `AIA_IMAGE_RETRIES` 等重试变量 **从未**由当前 OCR/legacy 客户端使用，示例 env 中已去除占位。
+
+---
+
 ## 2026-04-26 / Unreleased
 
 ### Added

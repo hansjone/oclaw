@@ -1195,7 +1195,7 @@ def run_oclaw_direct_loop(
             run_id=run_id,
             attempt_no=attempt_no,
             lang=lang,
-        wire_policy_role=wire_policy_role,
+            wire_policy_role=wire_policy_role,
         )
         resp = _chat_with_empty_body_retry(
             model=model,

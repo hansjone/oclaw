@@ -38,6 +38,9 @@ def test_every_workspace_has_role_system() -> None:
             continue
         if item.name.startswith("__"):
             continue
+        # `_system` holds template fragments/snippets, not routed specialist workspaces.
+        if item.name.startswith("_"):
+            continue
         assert (item / "ROLE_SYSTEM.md").exists(), f"missing ROLE_SYSTEM.md for {item.name}"
 
 
@@ -48,6 +51,8 @@ def test_workspace_legacy_prompt_files_removed() -> None:
         if not item.is_dir():
             continue
         if item.name.startswith("__"):
+            continue
+        if item.name.startswith("_"):
             continue
         for name in legacy:
             assert not (item / name).exists(), f"legacy prompt file still exists: {item.name}/{name}"

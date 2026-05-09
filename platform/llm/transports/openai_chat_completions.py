@@ -8,6 +8,7 @@ import uuid
 from typing import Any, Optional
 from collections.abc import Callable
 
+from oclaw.platform.llm.tool_schema import complete_openai_tools_wire_parameters
 from oclaw.platform.llm.transports.base import ChatModel, LLMResponse, LLMToolCall, normalize_image_b64_payload, coerce_thought_signature_for_storage
 
 logger = logging.getLogger(__name__)
@@ -69,6 +70,272 @@ def _should_enable_thinking(base_url: str | None, *, thinking_mode_enabled: bool
     if "api.openai.com" in b:
         return False
     return True
+
+
+def _should_force_text_only_messages(base_url: str | None) -> bool:
+    del base_url
+    # Opt-in only. Avoid hard-coding vendor/domain specific heuristics.
+    return _truthy_env("AIA_OPENAI_FORCE_TEXT_CONTENT", "0")
+
+
+def _multimodal_proactive_downgrade_enabled() -> bool:
+    raw = str(os.getenv("AIA_OPENAI_MULTIMODAL_PROACTIVE_DOWNGRADE") or "1").strip().lower()
+    return raw not in {"0", "false", "no", "off"}
+
+
+def _text_only_multimodal_substrings() -> tuple[str, ...]:
+    raw = os.getenv("AIA_OPENAI_TEXT_ONLY_MULTIMODAL_SUBSTRINGS")
+    if raw is None:
+        return ("deepseek",)
+    s = str(raw).strip().lower()
+    if s in {"", "-", "none", "off"}:
+        return ()
+    return tuple(part.strip().lower() for part in str(raw).split(",") if part.strip())
+
+
+def _messages_contain_list_with_image(messages: list[dict[str, Any]]) -> bool:
+    for m in messages or []:
+        if not isinstance(m, dict):
+            continue
+        c = m.get("content")
+        if not isinstance(c, list):
+            continue
+        for item in c:
+            if not isinstance(item, dict):
+                continue
+            typ = str(item.get("type") or "").strip().lower()
+            if typ in ("image_url", "input_image"):
+                return True
+    return False
+
+
+def _should_proactively_downgrade_multimodal_messages(
+    messages: list[dict[str, Any]],
+    *,
+    model: str | None,
+    base_url: str | None,
+) -> bool:
+    if _should_force_text_only_messages(base_url):
+        return _messages_contain_list_with_image(messages)
+    if not _multimodal_proactive_downgrade_enabled():
+        return False
+    if not _messages_contain_list_with_image(messages):
+        return False
+    parts = _text_only_multimodal_substrings()
+    if not parts:
+        return False
+    hay = f"{model or ''} {base_url or ''}".lower()
+    return any(p and p in hay for p in parts)
+
+
+def _wire_error_message(exc: BaseException) -> str:
+    chunks: list[str] = [str(exc)]
+    em = getattr(exc, "message", None)
+    if isinstance(em, str) and em.strip():
+        chunks.append(em)
+    body = getattr(exc, "body", None)
+    if isinstance(body, dict):
+        try:
+            chunks.append(json.dumps(body, ensure_ascii=False, default=str))
+        except Exception:
+            chunks.append(repr(body))
+    elif isinstance(body, str) and body.strip():
+        chunks.append(body)
+    resp = getattr(exc, "response", None)
+    if resp is not None:
+        t = ""
+        try:
+            rt = getattr(resp, "text", "")
+            if isinstance(rt, str):
+                t = rt
+        except Exception:
+            pass
+        if not t.strip():
+            try:
+                ct = getattr(resp, "content", None)
+                if isinstance(ct, (bytes, bytearray)):
+                    t = bytes(ct).decode("utf-8", errors="replace")
+            except Exception:
+                pass
+        if t.strip():
+            chunks.append(t)
+    inner = getattr(exc, "__cause__", None)
+    if inner is not None:
+        chunks.append(str(inner))
+    return "\n".join(chunks)
+
+
+def _is_text_only_gateway_error(msg: str) -> bool:
+    m = str(msg or "").strip().lower()
+    if not m:
+        return False
+    if "unknown variant image_url" in m:
+        return True
+    if "image_url" in m and "expected text" in m:
+        return True
+    if "failed to deserialize" in m and ("expected text" in m or "unknown variant image_url" in m):
+        return True
+    if "deserialize" in m and "image_url" in m and ("expected text" in m or "messages[" in m):
+        return True
+    if "invalid_request_error" in m and ("image_url" in m or "expected text" in m):
+        return True
+    return False
+
+
+def _flatten_message_content_to_text(content: Any) -> str:
+    if isinstance(content, str):
+        return content
+    if not isinstance(content, list):
+        return str(content or "")
+    parts: list[str] = []
+    for item in content:
+        if isinstance(item, str):
+            if item.strip():
+                parts.append(item)
+            continue
+        if not isinstance(item, dict):
+            continue
+        typ = str(item.get("type") or "").strip().lower()
+        if typ in ("text", "input_text"):
+            txt = str(item.get("text") or item.get("content") or "").strip()
+            if txt:
+                parts.append(txt)
+            continue
+        if typ in ("image_url", "input_image"):
+            # Proactive / forced text-only path without OCR injection (or OCR disabled).
+            parts.append(
+                "【图片】本消息含图片，但当前以纯文本发往上游模型，像素未传入；"
+                "若需要图中细节，请改用支持多模态的模型或开启看图 OCR 降级通道。"
+            )
+            continue
+    return "\n".join([p for p in parts if p]).strip()
+
+
+def _multimodal_downgrade_ocr_enabled() -> bool:
+    """When True, text-only downgrade replaces image blocks with OCR text via AIA_OCR_* lane."""
+    return str(os.getenv("AIA_MULTIMODAL_DOWNGRADE_OCR") or "1").strip().lower() not in {
+        "0",
+        "false",
+        "no",
+        "off",
+    }
+
+
+def _image_block_to_url(item: dict[str, Any]) -> str | None:
+    typ = str(item.get("type") or "").strip().lower()
+    if typ == "image_url":
+        u = item.get("image_url")
+        if isinstance(u, dict):
+            s = str(u.get("url") or "").strip()
+            return s or None
+        if isinstance(u, str) and u.strip():
+            return u.strip()
+    if typ == "input_image":
+        b64 = normalize_image_b64_payload(item.get("image_base64") or item.get("data"))
+        mime = str(item.get("mime") or "image/jpeg").strip() or "image/jpeg"
+        if b64:
+            return f"data:{mime};base64,{b64}"
+    return None
+
+
+def _message_list_contains_image_block(content: Any) -> bool:
+    if not isinstance(content, list):
+        return False
+    for item in content:
+        if not isinstance(item, dict):
+            continue
+        typ = str(item.get("type") or "").strip().lower()
+        if typ in ("image_url", "input_image"):
+            return True
+    return False
+
+
+def _downgrade_ocr_wrap_for_llm(ocr_text: str) -> str:
+    """User-facing copy injected into the main model when multimodal was OCR-downgraded to text."""
+    head = (
+        "【图片内容·OCR】当前主对话模型仅接收纯文本，无法直接读图；"
+        "下面是由独立看图通道从用户图片中转写提取的正文。请把它和用户的文字问题一起当作依据来回答；"
+        "转写可能有漏字、错行或与截图不完全一致，重要结论可请用户核对原图或补充说明。"
+    )
+    return f"{head}\n\n{ocr_text.strip()}"
+
+
+def _flatten_message_content_for_text_gateway(content: Any) -> str:
+    """Flatten list content to a string; image blocks may become OCR text when configured."""
+    if isinstance(content, str):
+        return content
+    if not isinstance(content, list):
+        return str(content or "")
+    if _multimodal_downgrade_ocr_enabled() and _message_list_contains_image_block(content):
+        try:
+            from oclaw.platform.llm.image_ocr_client import (
+                VISION_OCR_EXTRACT_PROMPT_ZH,
+                send_ocr_image_messages,
+                vision_llm_backend_status,
+            )
+        except Exception:
+            return _flatten_message_content_to_text(content)
+        if vision_llm_backend_status().get("ok"):
+            parts: list[str] = []
+            for item in content:
+                if isinstance(item, str):
+                    if item.strip():
+                        parts.append(item)
+                    continue
+                if not isinstance(item, dict):
+                    continue
+                typ = str(item.get("type") or "").strip().lower()
+                if typ in ("image_url", "input_image"):
+                    url = _image_block_to_url(item)
+                    if not url:
+                        parts.append(
+                            "【图片】无法从本消息中还原图片数据，图中细节未传入本轮模型；"
+                            "若作答需要像素级信息，请提示用户重发或改用支持多模态的模型配置。"
+                        )
+                        continue
+                    try:
+                        out = send_ocr_image_messages(images=[url], prompt=VISION_OCR_EXTRACT_PROMPT_ZH)
+                    except Exception as exc:
+                        parts.append(
+                            f"【图片】独立看图通道 OCR 调用异常（{type(exc).__name__}），"
+                            "本张图的正文未能写入对话；可请用户改述图中要点或稍后重试。"
+                        )
+                        continue
+                    if not out.get("ok"):
+                        err = str(out.get("error") or "unknown")
+                        parts.append(
+                            f"【图片】看图通道返回失败（{err}），本张图未转成文字；"
+                            "请据用户文字说明作答，或提示检查 OCR 配置/重发图片。"
+                        )
+                        continue
+                    t = str(out.get("text") or "").strip()
+                    if not t:
+                        parts.append(
+                            "【图片】看图通道未返回有效文字（可能模型拒识或图不清晰）。"
+                            "请提示用户补充文字说明或重发更清晰的截图。"
+                        )
+                    else:
+                        parts.append(_downgrade_ocr_wrap_for_llm(t))
+                    continue
+                if typ in ("text", "input_text"):
+                    txt = str(item.get("text") or item.get("content") or "").strip()
+                    if txt:
+                        parts.append(txt)
+                    continue
+            return "\n\n".join([p for p in parts if p]).strip()
+    return _flatten_message_content_to_text(content)
+
+
+def _normalize_messages_for_text_only_gateway(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    for m in messages or []:
+        if not isinstance(m, dict):
+            continue
+        mm = dict(m)
+        if isinstance(mm.get("content"), list):
+            mm["content"] = _flatten_message_content_for_text_gateway(mm.get("content"))
+        out.append(mm)
+    return out
 
 
 def _find_thought_signature_in_obj(o: Any) -> str | None:
@@ -222,7 +489,14 @@ class OpenAIChatModel(ChatModel):
             else:
                 cleaned_msgs.append(m)
 
-        kwargs: dict[str, Any] = {"model": self.model, "messages": cleaned_msgs, "stream": stream}
+        msgs_wire = cleaned_msgs
+        if _should_force_text_only_messages(self.base_url) or _should_proactively_downgrade_multimodal_messages(
+            cleaned_msgs,
+            model=self.model,
+            base_url=self.base_url,
+        ):
+            msgs_wire = _normalize_messages_for_text_only_gateway(cleaned_msgs)
+        kwargs: dict[str, Any] = {"model": self.model, "messages": msgs_wire, "stream": stream}
         if _should_enable_thinking(self.base_url, thinking_mode_enabled=bool(getattr(self, "thinking_mode_enabled", False))):
             extra_body = kwargs.get("extra_body") if isinstance(kwargs.get("extra_body"), dict) else {}
             extra_body = dict(extra_body)
@@ -253,11 +527,14 @@ class OpenAIChatModel(ChatModel):
                 )
                 kwargs["tools"] = plan.tools_wired
             except Exception:
-                kwargs["tools"] = tools
+                kwargs["tools"] = complete_openai_tools_wire_parameters(tools)
         try:
             return self._client.chat.completions.create(**kwargs)
         except Exception as exc:
-            msg = str(exc)
+            msg = _wire_error_message(exc)
+            if _is_text_only_gateway_error(msg) and isinstance(kwargs.get("messages"), list):
+                kwargs["messages"] = _normalize_messages_for_text_only_gateway(kwargs["messages"])
+                return self._client.chat.completions.create(**kwargs)
             if "reasoning_content" in msg and "thinking mode" in msg and "must be passed back" in msg:
                 # Provider requires replaying assistant.reasoning_content in thinking mode.
                 # As a safety fallback, force-disable thinking and retry once.

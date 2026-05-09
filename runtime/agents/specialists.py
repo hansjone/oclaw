@@ -37,10 +37,16 @@ SPECIALISTS: dict[SpecialistId, SpecialistConfig] = {
         expert_name="memory",
         default_tool_tags=None,
     ),
+    "image": SpecialistConfig(
+        specialist_id="image",
+        # Vision turns attach pixels in-message; gateway executor exposes no tools (see factory).
+        expert_name="image",
+        default_tool_tags=None,
+    ),
 }
 
 def discover_specialist_ids() -> tuple[SpecialistId, ...]:
-    rows = specialist_registry_snapshot(base_order=("generalist", "ops", "memory"))
+    rows = specialist_registry_snapshot(base_order=("generalist", "ops", "memory", "image"))
     return tuple(str(x.get("id") or "").strip().lower() for x in rows if str(x.get("id") or "").strip())
 
 

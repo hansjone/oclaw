@@ -2437,10 +2437,16 @@ function syncAuthUserLabel() {
           rows.forEach((r) => modeSel.appendChild(el("option", { value: String(r.value || ""), text: String(r.label || r.value || "") })));
           modeSel.value = String((bridge.getModeValue && bridge.getModeValue()) || "");
         } catch (_) {}
-        modeSel.addEventListener("change", () => {
+        modeSel.addEventListener("change", async () => {
+          const v = modeSel.value;
           try {
-            Promise.resolve(bridge.setModeValue && bridge.setModeValue(modeSel.value)).catch(() => {});
-          } catch (_) {}
+            modeSel.disabled = true;
+            if (bridge.setModeValue) await bridge.setModeValue(v);
+          } catch (_) {
+            // errors are surfaced by saveUserGlobalModePreference()
+          } finally {
+            modeSel.disabled = false;
+          }
         });
         items.push(modeSel);
         items.push(el("div", { class: "muted", style: "padding:6px 10px 2px;font-size:12px;", text: t("chat.planAgentVersionLabel") }));
@@ -2454,10 +2460,16 @@ function syncAuthUserLabel() {
           );
           pavSel.value = String((bridge.getPlanAgentVersionValue && bridge.getPlanAgentVersionValue()) || "");
         } catch (_) {}
-        pavSel.addEventListener("change", () => {
+        pavSel.addEventListener("change", async () => {
+          const v = pavSel.value;
           try {
-            Promise.resolve(bridge.setPlanAgentVersionValue && bridge.setPlanAgentVersionValue(pavSel.value)).catch(() => {});
-          } catch (_) {}
+            pavSel.disabled = true;
+            if (bridge.setPlanAgentVersionValue) await bridge.setPlanAgentVersionValue(v);
+          } catch (_) {
+            // errors are surfaced by saveUserGlobalModePreference()
+          } finally {
+            pavSel.disabled = false;
+          }
         });
         items.push(pavSel);
         items.push(el("div", { class: "muted", style: "padding:2px 10px 2px;font-size:12px;", text: t("chat.confirmStrategyLabel") }));
@@ -2469,10 +2481,16 @@ function syncAuthUserLabel() {
           rows.forEach((r) => csSel.appendChild(el("option", { value: String(r.value || ""), text: String(r.label || r.value || "") })));
           csSel.value = String((bridge.getConfirmStrategyValue && bridge.getConfirmStrategyValue()) || "");
         } catch (_) {}
-        csSel.addEventListener("change", () => {
+        csSel.addEventListener("change", async () => {
+          const v = csSel.value;
           try {
-            Promise.resolve(bridge.setConfirmStrategyValue && bridge.setConfirmStrategyValue(csSel.value)).catch(() => {});
-          } catch (_) {}
+            csSel.disabled = true;
+            if (bridge.setConfirmStrategyValue) await bridge.setConfirmStrategyValue(v);
+          } catch (_) {
+            // errors are surfaced by saveUserGlobalModePreference()
+          } finally {
+            csSel.disabled = false;
+          }
         });
         items.push(csSel);
         const reasonWrap = el("label", { class: "switch-wrap", style: "margin:2px 8px 8px;" }, [
@@ -3007,7 +3025,39 @@ async function renderChatUi() {
         planAgentV2GloballyEnabled = !!resp.plan_agent_v2_globally_enabled;
       }
       localStorage.setItem(CHAT_USER_MENU_MODE_KEY, modeVal);
-    } catch (_) {}
+      if (!resp || resp.ok === false) {
+        const detail = String((resp && (resp.error || resp.detail)) || "unknown_error");
+        throw new Error(detail);
+      }
+      // Hard-verify persistence: session switches reload mode from server.
+      // If server didn't persist, the UI will "snap back" to defaults.
+      try {
+        const ur = await apiGet("/admin/api/chat/user-mode");
+        if (ur && ur.ok) {
+          const gum = String((ur.interaction_mode || "").toLowerCase());
+          const gus = String((ur.specialist || "").toLowerCase());
+          const expectedIm = isMain ? "comprehensive" : "expert";
+          const expectedSp = isMain ? "generalist" : modeVal;
+          if (gum !== expectedIm || gus !== expectedSp) {
+            const msg =
+              currentLang === "zh"
+                ? `模式未固化：后端返回 interaction_mode=${gum || "-"} specialist=${gus || "-"}（期望 ${expectedIm}/${expectedSp}）`
+                : `Mode not persisted: server returned interaction_mode=${gum || "-"} specialist=${gus || "-"} (expected ${expectedIm}/${expectedSp})`;
+            showToast(msg, { kind: "error", ttlMs: 8000 });
+          }
+        }
+      } catch (_) {}
+    } catch (e) {
+      // If persistence fails, user will observe "mode resets after reload/restart".
+      // Surface this instead of silently swallowing.
+      try {
+        const msg =
+          currentLang === "zh"
+            ? `保存“模式”失败：${String(e || "").slice(0, 180) || "unknown"}`
+            : `Failed to save mode: ${String(e || "").slice(0, 180) || "unknown"}`;
+        showToast(msg, { kind: "error", ttlMs: 6500 });
+      } catch (_) {}
+    }
   };
   const saveSessionModePreference = async () => {
     if (!activeId) return;

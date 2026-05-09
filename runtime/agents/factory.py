@@ -275,6 +275,11 @@ def build_ops_agent(
     )
 
 
+# `default_registry` treats empty allow_tags + empty allow_tools as "no filter". Use an impossible
+# tool name so the image specialist gets an empty tool surface (vision-only turns).
+_IMAGE_SPECIALIST_TOOL_ALLOWLIST: tuple[str, ...] = ("__oclaw_image_specialist_no_tools__",)
+
+
 def build_gateway_executor(
     store: SqliteStore,
     *,
@@ -321,14 +326,17 @@ def build_gateway_executor(
             path_policy_tenant_id=path_policy_tenant_id,
             path_policy_user_id=path_policy_user_id,
         )
-    tools = default_registry(
-        expert=expert_name_for_specialist(prof.name),
-        specialist=prof.name,
-        policy_session_id=policy_session_id,
-        path_policy_tenant_id=path_policy_tenant_id,
-        path_policy_user_id=path_policy_user_id,
-        store=store,
-    )
+    reg_kw: dict[str, Any] = {
+        "expert": expert_name_for_specialist(prof.name),
+        "specialist": prof.name,
+        "policy_session_id": policy_session_id,
+        "path_policy_tenant_id": path_policy_tenant_id,
+        "path_policy_user_id": path_policy_user_id,
+        "store": store,
+    }
+    if prof.name == "image":
+        reg_kw["allow_tools"] = list(_IMAGE_SPECIALIST_TOOL_ALLOWLIST)
+    tools = default_registry(**reg_kw)
     return Agent(
         store=store,
         tools=tools,

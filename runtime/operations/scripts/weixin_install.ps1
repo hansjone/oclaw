@@ -28,29 +28,33 @@ New-Item -ItemType Directory -Force -Path $sidecarRoot | Out-Null
 New-Item -ItemType Directory -Force -Path (Join-Path $sidecarRoot "logs") | Out-Null
 New-Item -ItemType Directory -Force -Path $stateDir | Out-Null
 
-Push-Location $sidecarRoot
-try {
-  $npmRegistry = ($env:OCLAW_NPM_REGISTRY).Trim()
-  $npmRegistryArgs = @()
-  if ($npmRegistry) {
-    $npmRegistryArgs = @("--registry", $npmRegistry)
-  }
-  if (-not (Test-Path (Join-Path $sidecarRoot "package.json"))) {
-    npm.cmd init -y | Out-Null
-    if ($LASTEXITCODE -ne 0) {
-      throw "npm init failed with exit code $LASTEXITCODE"
+function Ensure-OfficialPluginRuntimeDeps {
+  Push-Location $sidecarRoot
+  try {
+    $npmRegistry = ($env:OCLAW_NPM_REGISTRY).Trim()
+    $npmRegistryArgs = @()
+    if ($npmRegistry) {
+      $npmRegistryArgs = @("--registry", $npmRegistry)
     }
+    if (-not (Test-Path (Join-Path $sidecarRoot "package.json"))) {
+      npm.cmd init -y | Out-Null
+      if ($LASTEXITCODE -ne 0) {
+        throw "npm init failed with exit code $LASTEXITCODE"
+      }
+    }
+    # Pure sidecar mode:
+    # - No ~/.openclaw usage
+    # - Install the official plugin package into node_modules and point it to $stateDir via OPENCLAW_STATE_DIR at runtime
+    npm.cmd install --no-audit --no-fund --save @tencent-weixin/openclaw-weixin@latest openclaw@latest tsx@4.21.0 typescript@6.0.3 @npmRegistryArgs
+    if ($LASTEXITCODE -ne 0) {
+      throw "npm install bridge runtime deps failed with exit code $LASTEXITCODE"
+    }
+  } finally {
+    Pop-Location
   }
-  # Pure sidecar mode:
-  # - No ~/.openclaw usage
-  # - Install the official plugin package into node_modules and point it to $stateDir via OPENCLAW_STATE_DIR at runtime
-  npm.cmd install --no-audit --no-fund --save @tencent-weixin/openclaw-weixin@latest openclaw@latest tsx@4.21.0 typescript@6.0.3 @npmRegistryArgs
-  if ($LASTEXITCODE -ne 0) {
-    throw "npm install bridge runtime deps failed with exit code $LASTEXITCODE"
-  }
-} finally {
-  Pop-Location
 }
+
+Ensure-OfficialPluginRuntimeDeps
 Sync-WeixinBridgeRunners
 Write-Host "[ok] installed official openclaw-weixin plugin sidecar runtime into $sidecarRoot"
 

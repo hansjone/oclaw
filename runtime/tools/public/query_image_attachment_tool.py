@@ -3,7 +3,12 @@ from __future__ import annotations
 from typing import Any
 
 from oclaw.platform.files.attachment_assets import attachment_id_to_data_url
-from oclaw.platform.llm.image_message_client import send_image_messages
+from oclaw.platform.llm.image_ocr_client import (
+    VISION_DESCRIBE_PROMPT_ZH,
+    VISION_OCR_EXTRACT_PROMPT_ZH,
+    send_ocr_image_messages,
+    vision_llm_backend_status,
+)
 from oclaw.runtime.tools.base import ToolSpec
 
 
@@ -19,20 +24,20 @@ def query_image_attachment_tool() -> ToolSpec:
         data_url = attachment_id_to_data_url(attachment_id=attachment_id)
         if not data_url:
             return {"ok": False, "error": "attachment_not_found"}
-        prompt = (
-            (
-                "请详细描述这张图片的主要内容、对象、场景和可见文字。"
-                "回答请使用要点列表，避免臆测。"
-            )
-            if task == "describe"
-            else (
-                "请只提取图片中可见文字并按阅读顺序输出。"
-                "如果有表格，保持行列结构；不确定的内容标注为[unclear]。"
-            )
-        )
+        vs = vision_llm_backend_status()
+        if not bool(vs.get("ok")):
+            return {
+                "ok": False,
+                "error": "vision_backend_not_configured",
+                "hint": str(vs.get("hint_zh") or vs.get("hint_en") or "").strip(),
+                "hint_en": str(vs.get("hint_en") or "").strip(),
+                "task": task,
+                "attachment_id": attachment_id,
+            }
+        prompt = VISION_DESCRIBE_PROMPT_ZH if task == "describe" else VISION_OCR_EXTRACT_PROMPT_ZH
         if question:
             prompt = f"{prompt}\n\n用户问题：{question}"
-        out = send_image_messages(images=[data_url], prompt=prompt)
+        out = send_ocr_image_messages(images=[data_url], prompt=prompt)
         if not bool(out.get("ok")):
             return {
                 "ok": False,
@@ -41,6 +46,18 @@ def query_image_attachment_tool() -> ToolSpec:
                 "attachment_id": attachment_id,
             }
         text = str(out.get("text") or "")
+        if not str(text).strip():
+            return {
+                "ok": False,
+                "error": "empty_image_analysis_response",
+                "hint": (
+                    "Vision backend returned status ok but no text. Set AIA_OCR_MODEL to a vision-capable id "
+                    "for your gateway, or check rate limits (HTTP 429)."
+                ),
+                "task": task,
+                "attachment_id": attachment_id,
+                "backend_shape": str(out.get("backend_shape") or ""),
+            }
         if len(text) > 12_000:
             text = text[:12_000] + "\n\n...[truncated image analysis output]"
         return {
