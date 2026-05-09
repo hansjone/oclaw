@@ -58,7 +58,7 @@ class AttachmentAclBackfillTests(unittest.TestCase):
     def _h(self) -> dict[str, str]:
         return {"authorization": f"Bearer {self.token}"}
 
-    def test_backfill_enables_strict_acl_download(self) -> None:
+    def test_add_message_links_acl_for_strict_download(self) -> None:
         store = SqliteStore(str(self.db))
         sess = store.create_session_for_user(title="t", tenant_id=self.tenant_id, user_id=self.alice_id)
         ast = AttachmentAssetStore()
@@ -75,11 +75,12 @@ class AttachmentAclBackfillTests(unittest.TestCase):
         prev = os.environ.get("AIA_ATTACHMENT_ACL_STRICT")
         os.environ["AIA_ATTACHMENT_ACL_STRICT"] = "1"
         try:
-            # Strict mode: without backfill, this should be forbidden (not avatar).
+            # Strict mode: add_message should have written attachment_acl (not only tool_result rows).
             r0 = self.client.get(f"/admin/api/chat/attachments/{aid}", headers=self._h())
-            self.assertEqual(r0.status_code, 403, r0.text)
+            self.assertEqual(r0.status_code, 200, r0.text)
+            self.assertTrue(len(r0.content) > 10)
 
-            # Backfill ACL for tenant, then strict download should succeed.
+            # Backfill remains idempotent.
             res = store.backfill_attachment_acl_from_messages(tenant_id=self.tenant_id, limit_messages=5000)
             self.assertTrue(res.get("ok"), res)
             r1 = self.client.get(f"/admin/api/chat/attachments/{aid}", headers=self._h())

@@ -480,34 +480,22 @@ function _appendAssistantTextSegments(inner, rawText, collapsedItems) {
 async function _buildAggregatedAssistantBubble(tsIso, items) {
   const inner = el("div", { class: "chat-msg chat-msg--assistant chat-msg--rich" });
   const collapsedItems = [];
-  const _inlineImageHtmlFromAttachments = (raw) => {
-    const list = parseAttachments(raw);
-    if (!Array.isArray(list) || !list.length) return "";
-    const blocks = [];
-    for (const att of list) {
-      if (!att || typeof att !== "object") continue;
-      const typ = String(att.type || "").toLowerCase();
-      if (typ === "image" || typ === "input_image") {
-        const b64 = String(att.image_base64 || att.data || "").trim();
-        if (!b64) continue;
-        const mime = String(att.mime || att.mime_type || "image/png").trim() || "image/png";
-        const src = `data:${mime};base64,${b64.replace(/\s/g, "")}`;
-        blocks.push(`<div class="chat-att-wrap"><img class="chat-att-img" src="${escapeHtml(src)}" alt="tool image" /></div>`);
-      } else if (typ === "image_url") {
-        const src = String(att.url || att.image_url || "").trim();
-        if (!src) continue;
-        blocks.push(`<div class="chat-att-wrap"><img class="chat-att-img" src="${escapeHtml(src)}" alt="tool image" /></div>`);
-      }
-    }
-    return blocks.join("");
-  };
   for (const it of items || []) {
     const kind = String((it && it.kind) || "");
     const text = String((it && it.text) || "");
-    const hasInlineAtt = !!(it && it.attachments);
-    if (!text.trim() && !(kind === "tool_result" && hasInlineAtt)) continue;
+    const parsedAtts = parseAttachments(it && it.attachments);
+    const hasInlineAtt = parsedAtts.length > 0;
+    if (
+      !text.trim() &&
+      !(kind === "tool_result" && hasInlineAtt) &&
+      !(kind === "assistant_text" && hasInlineAtt)
+    ) {
+      continue;
+    }
     if (kind === "assistant_text") {
       _appendAssistantTextSegments(inner, text, collapsedItems);
+      const attsAssistant = await renderAttachmentsEl(it && it.attachments);
+      if (attsAssistant) inner.appendChild(attsAssistant);
     } else if (kind === "reasoning") {
       if (adminChatShowToolOutput) collapsedItems.push({ title: t("reasoning.summary"), text });
     } else if (kind === "tool_call") {
@@ -538,6 +526,7 @@ async function _buildAggregatedAssistantBubble(tsIso, items) {
   }
   const hasVisible =
     !!inner.querySelector(".chat-msg__md, .chat-msg__reasoning, .chat-msg__wiki") ||
+    !!inner.querySelector(".chat-att-wrap, img.chat-att-img, a.chat-att-ref__link, .chat-att-chip") ||
     String(inner.textContent || "").trim().length > 0;
   if (!hasVisible) {
     inner.appendChild(el("div", { class: "muted", text: t("chat.tools.hidden") }));
@@ -596,8 +585,14 @@ function _buildRenderRows(msgs) {
           if (String(content || "").trim()) {
             agg._items.push({ kind: "reasoning", text: content });
           }
-        } else if ((eventType === "assistant_text" || eventType === "assistant" || !eventType) && String(content || "").trim()) {
-          agg._items.push({ kind: "assistant_text", text: content });
+        } else if (eventType === "assistant_text" || eventType === "assistant" || !eventType) {
+          const hasText = !!String(content || "").trim();
+          const attsParsed = parseAttachments(m && m.attachments);
+          if (hasText || attsParsed.length) {
+            const piece = { kind: "assistant_text", text: content };
+            if (attsParsed.length) piece.attachments = attsParsed;
+            agg._items.push(piece);
+          }
         }
         const tc = m.tool_calls;
         if (tc != null && tc !== "") {
@@ -610,9 +605,16 @@ function _buildRenderRows(msgs) {
           if (line) agg._items.push({ kind: "tool_call", text: line });
         }
         if (m.attachments) agg.attachments = m.attachments;
-      } else if (String(content || "").trim()) {
-        agg._items.push({ kind: "tool_result", text: content, attachments: m.attachments || null });
-        if (m.attachments) agg.attachments = m.attachments;
+      } else {
+        const hasToolText = !!String(content || "").trim();
+        const toolAtts = parseAttachments(m && m.attachments);
+        if (hasToolText || toolAtts.length) {
+          const piece = { kind: "tool_result", text: content };
+          if (toolAtts.length) piece.attachments = toolAtts;
+          else if (m.attachments) piece.attachments = m.attachments;
+          agg._items.push(piece);
+          if (m.attachments) agg.attachments = m.attachments;
+        }
       }
       continue;
     }
@@ -2235,7 +2237,37 @@ async function renderAttachmentsEl(raw) {
       }
     } else if (typ === "image_url") {
       const src = String(att.url || att.image_url || "").trim();
-      const img = el("img", { class: "chat-att-img", src, alt: "" });
+      if (!src) continue;
+      const img = el("img", {
+        class: "chat-att-img",
+        src,
+        alt: String(att.name || "generated image"),
+        decoding: "async",
+        referrerPolicy: "no-referrer",
+      });
+      img.addEventListener(
+        "error",
+        () => {
+          try {
+            const parent = img.parentNode;
+            if (!parent) return;
+            parent.replaceChild(
+              el("a", {
+                class: "chat-att-ref__link",
+                href: src,
+                target: "_blank",
+                rel: "noopener noreferrer",
+                text:
+                  currentLang === "zh"
+                    ? "图片无法嵌入显示（可能被防盗链），点击打开原始链接"
+                    : "Image blocked from inline display; open original URL",
+              }),
+              img,
+            );
+          } catch (_) {}
+        },
+        { once: true },
+      );
       wrap.appendChild(img);
     } else if (typ === "video_ref" || typ === "text_ref" || typ === "binary_ref") {
       wrap.appendChild(await buildRefCard(att, typ));
@@ -4026,16 +4058,18 @@ async function renderChatUi() {
     const role = String(m.role || "").toLowerCase();
     if (requireRole && role !== "assistant") return null;
     if (requireContentArray && !Array.isArray(m.content)) return null;
-    if (!("content" in m) && !("text" in m)) return null;
+    const hasRootAttachments = m.attachments != null && m.attachments !== "";
+    if (!("content" in m) && !("text" in m) && !hasRootAttachments) return null;
     return m;
   };
   const _expandAssistantMessageForRender = (message) => {
     if (!message || typeof message !== "object") return [];
+    const mesAttParsed = parseAttachments(message.attachments);
+    const mesAtt = mesAttParsed.length ? mesAttParsed : null;
     const base = {
       role: "assistant",
       id: message.id,
       timestamp: message.timestamp != null ? message.timestamp : new Date().toISOString(),
-      attachments: message.attachments || null,
     };
     const out = [];
     const contentItems = Array.isArray(message.content) ? message.content : [];
@@ -4061,18 +4095,28 @@ async function renderChatUi() {
         ...out[lastIdx],
         tool_calls: message.tool_calls != null ? message.tool_calls : message.toolCalls,
       };
+      // Avoid duplicating blobs: attach WS/API root attachments to the latest assistant_text row only.
+      if (mesAtt && mesAtt.length) {
+        for (let i = out.length - 1; i >= 0; i -= 1) {
+          if (String(out[i].event_type || "") === "assistant_text") {
+            out[i] = { ...out[i], attachments: mesAtt };
+            break;
+          }
+        }
+      }
       return out;
     }
     const textFallback = decodeEscapedNewlines(
       typeof message.content === "string" ? message.content : typeof message.text === "string" ? message.text : "",
     ).trim();
-    if (textFallback) {
+    if (textFallback || (mesAtt && mesAtt.length)) {
       return [
         {
           ...base,
           content: textFallback,
           event_type: "assistant_text",
           tool_calls: message.tool_calls != null ? message.tool_calls : message.toolCalls,
+          ...(mesAtt && mesAtt.length ? { attachments: mesAtt } : {}),
         },
       ];
     }
@@ -4488,11 +4532,16 @@ ${autoLimit ? `<div style="margin-top:8px;"><span class="muted">auto-added claus
       chatStreamSegments.push({ type: "tool", key, title: `${name} ${liveTag}`, body, sqlAudit, images });
     };
     const appendFinalAssistant = async (message, fallbackText) => {
+      const wsAttachments =
+        message && typeof message === "object" && message.attachments != null ? message.attachments : null;
       const normalized = _normalizeAssistantMessage(message, { requireRole: false, requireContentArray: false });
       if (normalized) {
         const rows = _buildRenderRows(_expandAssistantMessageForRender(normalized));
         const last = rows && rows.length ? rows[rows.length - 1] : null;
         if (last) {
+          if (wsAttachments != null && (last.attachments == null || last.attachments === "")) {
+            last.attachments = wsAttachments;
+          }
           if (streamRow && streamRow.parentNode) streamRow.remove();
           await appendMessageRow(messagesEl, last, rowRenderOptions);
           scrollMessagesToBottom(true);
@@ -4502,11 +4551,16 @@ ${autoLimit ? `<div style="margin-top:8px;"><span class="muted">auto-added claus
       const t0 = String(fallbackText || "").trim();
       if (t0 && !_isSilentReplyStream(t0)) {
         if (streamRow && streamRow.parentNode) streamRow.remove();
-        await appendMessageRow(messagesEl, {
-          role: "assistant",
-          content: decodeEscapedNewlines(t0),
-          timestamp: new Date().toISOString(),
-        }, rowRenderOptions);
+        await appendMessageRow(
+          messagesEl,
+          {
+            role: "assistant",
+            content: decodeEscapedNewlines(t0),
+            timestamp: new Date().toISOString(),
+            ...(wsAttachments != null ? { attachments: wsAttachments } : {}),
+          },
+          rowRenderOptions,
+        );
         scrollMessagesToBottom(true);
         return true;
       }

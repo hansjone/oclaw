@@ -60,13 +60,13 @@
 ## 2026-05-10 / Unreleased
 
 ### Added
-- `AIA_OCR_BASE_URL`, `AIA_OCR_API_KEY`, `AIA_OCR_MODEL`, `AIA_OCR_CHAT_ENDPOINT`
-  - 默认值：`CHAT_ENDPOINT` 为 `/chat/completions`，其余无默认（三项主体必填方视为已配置）
-  - 用途：`query_image_attachment` / `send_ocr_image_messages` 等多模态 HTTP 通道命名（与主 LLM 分离）
-  - 影响模块：`oclaw/platform/llm/image_ocr_client.py`、`image_legacy_client.py`，`oclaw/runtime/tools/public/query_image_attachment_tool.py`，`oclaw/runtime/agents/specialist_agent.py`（图片专家走 OCR 多模态 HTTP）
+- `AIA_IMAGE_EXPERT_API_KEY`、`AIA_IMAGE_EXPERT_BASE_URL`、`AIA_IMAGE_EXPERT_MODEL`、`AIA_IMAGE_EXPERT_CHAT_ENDPOINT`：图片专家（`send_legacy_image_messages`）专线，与 **`AIA_OCR_*`** 互不继承。
+- `AIA_IMAGE_EXPERT_REQUEST_EXTRA`：图片专家顶层 JSON；旧名 **`AIA_LEGACY_IMAGE_REQUEST_EXTRA`** 仍作别名可读。
+- `DASHSCOPE_IMAGE_*`（零散变量）：由 `image_legacy_client` 映射为请求体顶层字段。
+- **`AIA_OCR_*`**（四项）：仅存 **`query_image_attachment` / OCR 降级** 链路；已与图片专家链路拆分。
 
 ### Changed
-- `send_ocr_image_messages` / `send_legacy_image_messages` 不再有隐式默认模型 id；未配 `AIA_OCR_MODEL`（且未传 `model`）将直接失败
+- `send_ocr_image_messages` 未配 `AIA_OCR_MODEL`（且未传 `model`）失败；图片专家 **`send_legacy_image_messages`** 首选 **用户所选会话/专家绑定的模型的 `model`/`base_url`/`api_key`**，缺省时再回落 **`AIA_IMAGE_EXPERT_*`**（不读取 `AIA_OCR_*`）；服务端若模型不支持看图则直接报错，不做备用 payload。
 
 ### Removed（OCR 通道）
 - `AIA_IMAGE_BASE_URL` / `AIA_IMAGE_API_KEY` / `AIA_IMAGE_MODEL` / `AIA_IMAGE_CHAT_ENDPOINT` **不再**作为看图/OCR 通道的环境变量读取（须改用 `AIA_OCR_*`）。与附件回放相关的 `AIA_IMAGE_TOOL_RESULT_REPLAY_CAP_CHARS` 等 **不受影响**。

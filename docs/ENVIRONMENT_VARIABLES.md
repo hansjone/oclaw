@@ -308,31 +308,68 @@
   - 作用：Gemini OpenAI 兼容下 tools 非流式开关
   - 生效：`oclaw/platform/llm/chat_models.py`
 
-## OCR / 看多模态专线
+## OCR / 看图工具与降级专线（``AIA_OCR_*``）
 
-用于工具 **`query_image_attachment`**、纯文本模型降级 OCR、**图片专家**单次看图与底层 **`send_ocr_image_messages`**：向 **OpenAI-compatible** 网关发送带图 `messages`（通常为 `POST …/chat/completions`）。旧版 DashScope 形态载荷见 **`send_legacy_image_messages`**（一般不再用于图片专家）。与主聊天模型配置的 Key/Base URL **互不继承**。
+仅用于：**`query_image_attachment`**、OpenAI-compatible **`send_ocr_image_messages`**、以及 **`openai_chat_completions`** 在纯文本模型上的多模态→OCR 降级。规范为 OpenAI **`image_url` + `messages`** Chat Completions 形态。**与下方「图片专家」专线互相独立**（不配齐不会自动复用另一端）。
 
 - `AIA_OCR_BASE_URL`
   - 默认：无（必填，否则工具判为未配置）
-  - 作用：多模态网关根地址（例如 `https://api.example.com/v1`；实际请求为 `BASE_URL` + `CHAT_ENDPOINT`）
+  - 作用：OCR / 看图工具网关根地址（实际请求为 `BASE_URL` + `CHAT_ENDPOINT`）
   - 生效：`oclaw/platform/llm/image_ocr_client.py`
 
 - `AIA_OCR_API_KEY`
   - 默认：无（必填）
-  - 作用：上述网关的 Bearer API Key
+  - 作用：上述网关 Bearer API Key
   - 生效：`oclaw/platform/llm/image_ocr_client.py`
 
 - `AIA_OCR_MODEL`
   - 默认：无（必填，**不提供默认模型 id**）
-  - 作用：网关上支持图+文的多模态模型名（由你的厂商决定）
-  - 生效：`oclaw/platform/llm/image_ocr_client.py`，`oclaw/runtime/agents/specialist_agent.py`
+  - 作用：支持 OCR/描述的 vision 模型 id
+  - 生效：`oclaw/platform/llm/image_ocr_client.py`
 
 - `AIA_OCR_CHAT_ENDPOINT`
   - 默认：`/chat/completions`
   - 作用：相对 `AIA_OCR_BASE_URL` 的路径
   - 生效：`oclaw/platform/llm/image_ocr_client.py`
 
-**动态参数：** 代码中也可在调用 `send_ocr_image_messages` / `send_legacy_image_messages` 时传入 `base_url` / `api_key` / `model`，优先级高于环境变量（见 `vision_llm_backend_status` 仅在未传参时使用 env 判断「是否已配置」）。
+**动态参数：** 调用 `send_ocr_image_messages` 时传入 `base_url` / `api_key` / `model` 优先于上述环境变量；`vision_llm_backend_status` 仅检查 `AIA_OCR_*` 是否在未显式传参时可用。
+
+---
+
+## 图片专家专线（``AIA_IMAGE_EXPERT_*``）
+
+**路由 specialist=`image`** 时由 **`send_legacy_image_messages`** 调用；可走 native `{"image"}`/`{"text"}` 或 compatible-mode **`image_url` + `text` 块状**载荷。**不使用 `AIA_OCR_*`**，也不在图片专家链路继承主会话模型的 Base URL/API Key。
+
+- `AIA_IMAGE_EXPERT_BASE_URL`
+  - 默认：无（必填，除非在代码中为 `send_legacy_image_messages(..., base_url=...)` 传入）
+  - 作用：图片专家 HTTP 网关根路径（兼容 OpenAI multimodal 时常见 `https://dashscope.aliyuncs.com/compatible-mode/v1` 等）。
+  - 生效：`oclaw/platform/llm/image_legacy_client.py`
+
+- `AIA_IMAGE_EXPERT_API_KEY`
+  - 默认：无（必填，除非显式传 `api_key`）
+  - 作用：Bearer API Key（可与百炼「图片/多模态」文档中的 Key 一致；与 OCR Key **可不同**）。
+  - 生效：`oclaw/platform/llm/image_legacy_client.py`
+
+- `AIA_IMAGE_EXPERT_MODEL`
+  - 默认：无（在用户界面已选会话模型时，`send_legacy_image_messages` **优先使用该模型的 `model` id**；仅当会话未带模型信息时才读本变量作补全）。
+  - 作用：无 UI 会话模型/`model=` 可传时的专家默认模型 id（与 OCR 所用 VL **无需相同**）。
+  - 生效：`oclaw/platform/llm/image_legacy_client.py`
+
+- `AIA_IMAGE_EXPERT_CHAT_ENDPOINT`
+  - 默认：`/chat/completions`
+  - 作用：相对 `AIA_IMAGE_EXPERT_BASE_URL` 的路径。
+  - 生效：`oclaw/platform/llm/image_legacy_client.py`
+
+- `AIA_IMAGE_EXPERT_REQUEST_EXTRA`
+  - 默认：无
+  - 别名：`AIA_LEGACY_IMAGE_REQUEST_EXTRA`（旧名仍可读）。
+  - 作用：发往图片专家请求的**顶层附加 JSON**。顶层 `model` / `messages` 仍由运行时代码覆盖。
+  - 生效：`oclaw/platform/llm/image_legacy_client.py`
+
+- `DASHSCOPE_IMAGE_STREAM` / `DASHSCOPE_IMAGE_N` / `DASHSCOPE_IMAGE_WATERMARK` / `DASHSCOPE_IMAGE_NEGATIVE_PROMPT` / `DASHSCOPE_IMAGE_PROMPT_EXTEND` / `DASHSCOPE_IMAGE_SIZE`
+  - 默认：均未设置则不附加对应字段。
+  - 作用：与 SDK 示例关键词对齐的零散变量；可被 `AIA_IMAGE_EXPERT_REQUEST_EXTRA`（或别名 JSON）中与同名键覆盖。
+  - 生效：`oclaw/platform/llm/image_legacy_client.py`
 
 > **说明：** 历史上曾使用 `AIA_IMAGE_BASE_URL` / `AIA_IMAGE_API_KEY` / `AIA_IMAGE_MODEL` / `AIA_IMAGE_CHAT_ENDPOINT` 作为同一路由；当前实现 **不再读取** 上述变量作 OCR 通道配置，请统一改为 `AIA_OCR_*`。（`AIA_IMAGE_TOOL_RESULT_REPLAY_CAP_CHARS` 等为 **另一用途**，与 OCR 网关无关，仍保留原名。）
 

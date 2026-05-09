@@ -1102,6 +1102,101 @@ def _execute_tool_step(
     return int((time.perf_counter() - t0) * 1000), results_by_id
 
 
+def _maybe_image_specialist_legacy_gateway_turn(
+    *,
+    store: Any,
+    session_id: str,
+    turn_uuid: str,
+    lang: str,
+    model: ChatModel,
+    user_text: str,
+    attachments: list[dict[str, Any]] | None,
+    skill_binding_role: str | None,
+    on_token: Optional[Callable[[str], None]],
+    on_progress: Optional[Callable[[str], None]],
+) -> TurnRunOutcome | None:
+    """When the UI selects **image** specialist, skip Responses/chat-model transports.
+
+    Vision/gen HTTP goes through :func:`oclaw.platform.llm.image_legacy_client.send_legacy_image_messages`
+    (``/chat/completions`` lane). Disable with ``AIA_IMAGE_SPECIALIST_DISABLE_LEGACY_GATEWAY_LANE=1``.
+
+    End-to-end notes and safe edit boundaries: ``docs/IMAGE_SPECIALIST_LANE.md``.
+    """
+    if str(os.getenv("AIA_IMAGE_SPECIALIST_DISABLE_LEGACY_GATEWAY_LANE") or "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    ):
+        return None
+    if str(skill_binding_role or "").strip().lower() != "image":
+        return None
+
+    from oclaw.platform.llm.image_legacy_client import (
+        IMAGE_SPECIALIST_DEFAULT_PROMPT_ZH,
+        collect_legacy_lane_images_from_attachments,
+        legacy_image_assistant_body_with_placeholder,
+        legacy_image_turn_bundle,
+        send_legacy_image_messages,
+    )
+
+    imgs = collect_legacy_lane_images_from_attachments(attachments)
+    if not imgs:
+        hint_en = "Image specialist received no image input. Attach an image and try again."
+        hint_zh = "图片专家未收到可用的图片输入；请先上传或附上图片后再试。"
+        hint = hint_en if str(lang or "").startswith("en") else hint_zh
+        store.add_message(
+            session_id=session_id,
+            role="assistant",
+            content=hint,
+            turn_uuid=turn_uuid,
+            event_type="assistant_text",
+        )
+        return TurnRunOutcome(
+            final_text=hint,
+            tool_traces=tuple(),
+            handoff_note="image_specialist_legacy_missing_attachment",
+            turn_uuid=turn_uuid,
+        )
+
+    if on_progress:
+        on_progress("oclaw: image specialist (legacy multimodal HTTP)…")
+
+    prompt_plain = str(user_text or "").strip()
+    if not prompt_plain:
+        prompt_plain = IMAGE_SPECIALIST_DEFAULT_PROMPT_ZH
+
+    resp = send_legacy_image_messages(
+        images=imgs,
+        prompt=prompt_plain,
+        model=str(getattr(model, "model", "") or "").strip() or None,
+        api_key=str(getattr(model, "api_key", "") or "").strip() or None,
+        base_url=str(getattr(model, "base_url", "") or "").strip() or None,
+    )
+    ok, body_text, produced = legacy_image_turn_bundle(resp)
+    body_text = legacy_image_assistant_body_with_placeholder(
+        lang=lang,
+        body_text=body_text,
+        produced=produced if ok else None,
+    )
+    store.add_message(
+        session_id=session_id,
+        role="assistant",
+        content=body_text,
+        turn_uuid=turn_uuid,
+        event_type="assistant_text",
+        attachments=(produced or None) if ok else None,
+    )
+    if ok and on_token and body_text:
+        on_token(body_text)
+    return TurnRunOutcome(
+        final_text=body_text,
+        tool_traces=tuple(),
+        handoff_note="image_specialist_legacy_http" if ok else "image_specialist_legacy_upstream_failed",
+        turn_uuid=turn_uuid,
+    )
+
+
 def run_oclaw_direct_loop(
     *,
     store: Any,
@@ -1149,6 +1244,20 @@ def run_oclaw_direct_loop(
             turn_uuid=turn_uuid,
             event_type="user_text",
         )
+        legacy_early = _maybe_image_specialist_legacy_gateway_turn(
+            store=store,
+            session_id=session_id,
+            turn_uuid=turn_uuid,
+            lang=lang,
+            model=model,
+            user_text=str(user_text or ""),
+            attachments=attachments,
+            skill_binding_role=skill_binding_role,
+            on_token=on_token,
+            on_progress=on_progress,
+        )
+        if legacy_early is not None:
+            return legacy_early
 
     skill_exec = SkillExecutor(config=ToolExecutionConfig(max_workers=max(1, min(int(max_tool_workers or 8), 32))))
     tool_traces: list[dict[str, Any]] = []

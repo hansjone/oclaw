@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from typing import Any, Callable, Optional
 
@@ -74,36 +75,67 @@ class AttemptRunnerOutput:
     outcome: TurnRunOutcome
 
 
+def _exception_reason_for_chat(exc: BaseException, *, max_chars: int = 12000) -> str:
+    """Human-visible attempt failure text (WS/chat reads ``AttemptState.reason``).
+
+    OpenAI Python SDK's ``APIError`` often carries a decoded JSON ``body``; include it so oclaw /chat
+    can show the full upstream validation payload instead of only ``str(exc)``.
+    """
+    head = f"{type(exc).__name__}:{exc}"
+    blob = ""
+    cur: BaseException | None = exc
+    seen_ids: set[int] = set()
+    depth = 0
+    while cur is not None and depth < 16:
+        if id(cur) in seen_ids:
+            break
+        seen_ids.add(id(cur))
+        depth += 1
+        body = getattr(cur, "body", None)
+        if body is not None:
+            try:
+                blob = json.dumps(body, ensure_ascii=False, indent=2) if isinstance(body, (dict, list)) else str(body)
+            except Exception:
+                blob = str(body)
+            break
+        cur = cur.__cause__
+    out = head if not blob else f"{head}\n\nupstream_json_body:\n{blob}"
+    if len(out) > max_chars:
+        out = out[: max_chars - 24] + "\n...[truncated]"
+    return out
+
+
 def _classify_attempt_error(exc: Exception) -> tuple[str, str, bool]:
     raw = f"{type(exc).__name__}:{exc}"
     low = raw.lower()
+    reason = _exception_reason_for_chat(exc)
     if "relay_envelope_unsupported_version" in low:
-        return ("relay_envelope_unsupported_version", raw[:500], False)
+        return ("relay_envelope_unsupported_version", reason, False)
     if "relay_envelope_invalid" in low:
-        return ("relay_envelope_invalid", raw[:500], False)
+        return ("relay_envelope_invalid", reason, False)
     if "interrupted" in low or "cancel" in low or "stopped" in low:
-        return ("control_interrupted", raw[:500], False)
+        return ("control_interrupted", reason, False)
     if "api_key" in low or "invalid api key" in low or "unauthorized" in low or "401" in low or "forbidden" in low or "403" in low:
-        return ("auth_invalid_credentials", raw[:500], False)
+        return ("auth_invalid_credentials", reason, False)
     if "invalid tool_result sequence" in low or "unexpected tool_use_id" in low:
-        return ("tool_replay_protocol_mismatch", raw[:500], True)
+        return ("tool_replay_protocol_mismatch", reason, True)
     if "invalid_request" in low or "bad_request" in low or "400" in low:
-        return ("input_invalid_request", raw[:500], False)
+        return ("input_invalid_request", reason, False)
     if "context_length" in low or "token limit" in low or "max context" in low:
-        return ("context_overflow", raw[:500], True)
+        return ("context_overflow", reason, True)
     if "tool_loop_guard" in low:
-        return ("tool_loop_guard", raw[:500], False)
+        return ("tool_loop_guard", reason, False)
     if "tool_timeout_or_failed" in low or "tool_execution_error" in low:
-        return ("tool_execution_failed", raw[:500], True)
+        return ("tool_execution_failed", reason, True)
     if "timeout" in low:
-        return ("provider_timeout", raw[:500], True)
+        return ("provider_timeout", reason, True)
     if "rate" in low and "limit" in low:
-        return ("provider_rate_limited", raw[:500], True)
+        return ("provider_rate_limited", reason, True)
     if "temporary" in low or "temporar" in low:
-        return ("provider_temporary_error", raw[:500], True)
+        return ("provider_temporary_error", reason, True)
     if "connection" in low or "network" in low or "503" in low or "502" in low:
-        return ("provider_unavailable", raw[:500], True)
-    return ("runtime_unknown_error", raw[:500], False)
+        return ("provider_unavailable", reason, True)
+    return ("runtime_unknown_error", reason, False)
 
 
 def run_attempt(*, store: Any, data: AttemptRunnerInput) -> AttemptRunnerOutput:

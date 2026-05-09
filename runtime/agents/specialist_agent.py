@@ -2,10 +2,9 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 import time
-import base64
 import hashlib
-import httpx
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, Optional
@@ -14,8 +13,13 @@ from oclaw.runtime.chat.agent import Agent
 from oclaw.runtime.chat.agent import GenerationInterrupted
 from oclaw.runtime.agents.network_ops_agent import NetworkOpsAgent
 from oclaw.platform.persistence.sqlite_store import SqliteStore
-from oclaw.platform.files.attachment_assets import AttachmentAssetStore, attachment_id_to_data_url
-from oclaw.platform.llm.image_ocr_client import send_ocr_image_messages
+from oclaw.platform.llm.image_legacy_client import (
+    IMAGE_SPECIALIST_DEFAULT_PROMPT_ZH,
+    collect_legacy_lane_images_from_attachments,
+    legacy_image_assistant_body_with_placeholder,
+    legacy_image_turn_bundle,
+    send_legacy_image_messages,
+)
 from oclaw.runtime.tools import default_registry
 from oclaw.runtime.agents.specialists import expert_name_for_specialist
 
@@ -233,56 +237,44 @@ class SpecialistAgentRunner:
         try:
             if step.specialist == "image":
                 image_protocol = "messages.content.image"
-                selected_images: list[str] = []
-                for att in parent_task.attachments or []:
-                    if not isinstance(att, dict):
-                        continue
-                    t = str(att.get("type") or "").strip().lower()
-                    if t == "image_ref":
-                        aid = str(att.get("attachment_id") or "").strip()
-                        if not aid:
-                            continue
-                        data_url = attachment_id_to_data_url(aid, mime=str(att.get("mime") or ""))
-                        if data_url:
-                            selected_images.append(data_url)
-                    elif t in ("input_image", "image"):
-                        raw = str(att.get("image_base64") or att.get("data") or "").strip()
-                        if raw:
-                            mime = str(att.get("mime") or "image/jpeg")
-                            if raw.startswith("data:"):
-                                selected_images.append(raw)
-                            else:
-                                selected_images.append(f"data:{mime};base64,{raw}")
-                    elif t == "image_url":
-                        u = str(att.get("url") or "").strip()
-                        if u:
-                            selected_images.append(u)
-                    if len(selected_images) >= 3:
-                        break
+                selected_images = collect_legacy_lane_images_from_attachments(
+                    list(parent_task.attachments or []),
+                    max_images=3,
+                )
                 image_input_count = len(selected_images)
                 image_input_kind = ["data_url" if s.startswith("data:") else "url" for s in selected_images]
                 if not selected_images:
                     output = "Image specialist received no image input."
                     ok = False
                 else:
+                    # Use the user's chosen model/session profile (same as specialist routing UI). Wrong model ⇒ upstream HTTP error as-is (no OCR lane, no alternate payload).
                     _, chosen_model, _ = self._resolve_profile_and_model(step.specialist)
-                    model_name = str(
-                        os.getenv("AIA_OCR_MODEL") or getattr(chosen_model, "model", None) or ""
-                    ).strip() or None
-                    api_key = str(getattr(chosen_model, "api_key", "") or "").strip() or None
-                    base_url = str(getattr(chosen_model, "base_url", "") or "").strip() or None
                     text_parts = [
                         str(x).strip()
                         for x in (step.objective, step.input_text, parent_task.user_text)
                         if str(x or "").strip()
                     ]
-                    user_text = "\n".join(text_parts) if text_parts else "请根据用户上传的图片作答：描述可见场景、物体与文字；不确定处请标明。"
-                    resp = send_ocr_image_messages(
+                    user_text = "\n".join(text_parts) if text_parts else IMAGE_SPECIALIST_DEFAULT_PROMPT_ZH
+                    if str(os.getenv("AIA_IMAGE_EXPERT_DEBUG_PRINT_PAYLOAD") or "").strip().lower() in (
+                        "1",
+                        "true",
+                        "yes",
+                        "on",
+                    ):
+                        try:
+                            sys.stderr.write(
+                                "[oclaw specialist:image] lane=legacy_http → send_legacy_image_messages "
+                                "(NOT OpenAIResponsesModel).\n"
+                            )
+                            sys.stderr.flush()
+                        except Exception:
+                            pass
+                    resp = send_legacy_image_messages(
                         images=selected_images,
                         prompt=user_text,
-                        model=model_name,
-                        api_key=api_key,
-                        base_url=base_url,
+                        model=str(getattr(chosen_model, "model", "") or "").strip() or None,
+                        api_key=str(getattr(chosen_model, "api_key", "") or "").strip() or None,
+                        base_url=str(getattr(chosen_model, "base_url", "") or "").strip() or None,
                     )
                     image_debug_schema = str(resp.get("debug_used_schema") or "").strip()
                     dbg = resp.get("debug_used_debug")
@@ -290,91 +282,12 @@ class SpecialistAgentRunner:
                         image_debug_payload = dbg
                     elif dbg is not None:
                         image_debug_payload = str(dbg)
-                    ok = bool(resp.get("ok"))
-                    output = str(resp.get("text") or "").strip()
-                    if not ok:
-                        err = str(resp.get("error") or "").strip()
-                        output = f"Image generation failed: {err or 'unknown error'}"
-                    elif not output:
-                        output = "Image processed."
-                    # persist output images as attachment assets for UI rendering
-                    produced_attachments: list[dict[str, Any]] = []
-                    if ok:
-                        out_images = resp.get("images")
-                        if isinstance(out_images, list):
-                            store = AttachmentAssetStore()
-                            for idx, item in enumerate(out_images[:3], start=1):
-                                s = str(item or "").strip()
-                                if not s:
-                                    continue
-                                if s.startswith("data:") and ";base64," in s:
-                                    head, b64 = s.split(";base64,", 1)
-                                    mime = head.replace("data:", "", 1) or "image/png"
-                                    try:
-                                        blob = base64.b64decode(b64.encode("ascii"))
-                                    except Exception:
-                                        continue
-                                    meta = store.save_bytes(
-                                        blob,
-                                        filename=f"image-output-{idx}.png",
-                                        mime=mime,
-                                    )
-                                    produced_attachments.append(
-                                        {
-                                            "type": "image_ref",
-                                            "attachment_id": meta.attachment_id,
-                                            "name": meta.name,
-                                            "mime": meta.mime,
-                                            "bytes": meta.bytes,
-                                            "width": meta.width,
-                                            "height": meta.height,
-                                        }
-                                    )
-                                elif s.startswith("http://") or s.startswith("https://"):
-                                    try:
-                                        with httpx.Client(timeout=20.0, follow_redirects=True) as client:
-                                            r = client.get(s)
-                                        if r.status_code < 400 and r.content:
-                                            mime = str(r.headers.get("content-type") or "image/png").split(";", 1)[0].strip() or "image/png"
-                                            ext = ".png"
-                                            if mime == "image/jpeg":
-                                                ext = ".jpg"
-                                            elif mime == "image/webp":
-                                                ext = ".webp"
-                                            elif mime == "image/gif":
-                                                ext = ".gif"
-                                            meta = store.save_bytes(
-                                                r.content,
-                                                filename=f"image-output-{idx}{ext}",
-                                                mime=mime,
-                                            )
-                                            produced_attachments.append(
-                                                {
-                                                    "type": "image_ref",
-                                                    "attachment_id": meta.attachment_id,
-                                                    "name": meta.name,
-                                                    "mime": meta.mime,
-                                                    "bytes": meta.bytes,
-                                                    "width": meta.width,
-                                                    "height": meta.height,
-                                                }
-                                            )
-                                            continue
-                                    except Exception:
-                                        pass
-                                    produced_attachments.append(
-                                        {
-                                            "type": "image_url",
-                                            "url": s,
-                                            "name": f"image-output-{idx}.png",
-                                        }
-                                    )
-                        # Treat missing image outputs as failure to avoid false "generated" state.
-                        if not produced_attachments:
-                            ok = False
-                            output = (
-                                "Image generation failed: response succeeded but no image output was returned."
-                            )
+                    ok, output, produced_attachments = legacy_image_turn_bundle(resp)
+                    output = legacy_image_assistant_body_with_placeholder(
+                        lang=self.lang,
+                        body_text=output,
+                        produced=produced_attachments if ok else None,
+                    )
                     self.store.add_message(
                         session_id=session_id,
                         role="assistant",

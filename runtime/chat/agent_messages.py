@@ -210,8 +210,10 @@ def build_llm_messages(
     :func:`~oclaw.runtime.direct_loop._guard_tool_results_for_llm_context`). Omit or leave empty
     to apply image-blob stripping for every tool row (safe default for callers without turn context).
 
-    Only the **last** user message may expand attachments into native multimodal ``input_image``;
-    older user attachments are replayed as text metadata only.
+    Only the **last** user message may expand attachments into native multimodal ``input_image``
+    blocks shaped like ``{"type":"input_image","image_base64","mime"}``; ``OpenAIChatModel`` and
+    ``OpenAIResponsesModel`` both accept this shape (see transport normalization code). Older user
+    attachments are replayed as text metadata only.
     """
     out: list[dict[str, Any]] = [{"role": "system", "content": (system_prompt or "").strip()}]
     dropped_unpaired_tool_rows = 0

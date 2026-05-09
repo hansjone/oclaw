@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import threading
 import uuid
 from datetime import datetime
@@ -11,6 +12,28 @@ from oclaw.runtime.gateway import OclawGateway
 from oclaw.runtime.types import StandardMessage
 from oclaw.platform.config.paths import db_path
 from oclaw.platform.persistence.sqlite_store import SqliteStore
+
+
+def _persisted_chat_attachments_nonempty(raw: Any) -> bool:
+    """True when chat_message.attachments has at least one JSON object (list or dict or encoded string)."""
+    if raw is None:
+        return False
+    if isinstance(raw, list):
+        return len(raw) > 0
+    if isinstance(raw, dict):
+        return bool(raw)
+    s = str(raw).strip()
+    if not s or s.lower() == "null":
+        return False
+    try:
+        parsed = json.loads(s)
+        if isinstance(parsed, list):
+            return len(parsed) > 0
+        if isinstance(parsed, dict):
+            return bool(parsed)
+    except Exception:
+        return bool(s)
+    return False
 
 
 async def run_agent_turn_via_bridge(
@@ -533,12 +556,13 @@ async def run_agent_turn_via_bridge(
             pass
     elif run_status != "failed":
         try:
-            persisted = store.get_messages(session_id=session_id, limit=12)
+            persisted = store.get_messages(session_id=session_id, limit=64)
             for m in reversed(list(persisted or [])):
                 if str(getattr(m, "role", "") or "").lower() != "assistant":
                     continue
                 content = str(getattr(m, "content", "") or "")
-                if not content.strip():
+                atraw = getattr(m, "attachments", None)
+                if not content.strip() and not _persisted_chat_attachments_nonempty(atraw):
                     continue
                 final_text = content
                 final_msg = {
@@ -547,7 +571,7 @@ async def run_agent_turn_via_bridge(
                     "content": content,
                     "timestamp": str(getattr(m, "timestamp", "") or ""),
                     "tool_calls": getattr(m, "tool_calls", None),
-                    "attachments": getattr(m, "attachments", None),
+                    "attachments": atraw,
                 }
                 break
         except Exception:

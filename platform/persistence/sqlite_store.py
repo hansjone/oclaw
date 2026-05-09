@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import json
 import os
+import re
 import sqlite3
 import sys
 import hashlib
@@ -1436,6 +1437,78 @@ class SqliteStore:
                 (aid, tid, uid, sid, src, ts),
             )
 
+    @staticmethod
+    def _attachment_ids_for_acl_from_payload_items(items: list[dict[str, Any]]) -> list[str]:
+        """Collect stable attachment ids from message attachment JSON (for ACL rows)."""
+        out: list[str] = []
+        seen: set[str] = set()
+        ref_types = {"image_ref", "video_ref", "text_ref", "binary_ref"}
+        relay_re = re.compile(r"^relay://attachments/[^/]+/([a-f0-9]{8,64})$", re.IGNORECASE)
+        for a in items:
+            if not isinstance(a, dict):
+                continue
+            typ = str(a.get("type") or "").strip().lower()
+            aid = str(a.get("attachment_id") or a.get("attachmentId") or "").strip().lower()
+            if typ in ref_types and aid:
+                if aid not in seen:
+                    seen.add(aid)
+                    out.append(aid)
+                continue
+            if typ != "relay_pointer":
+                continue
+            if not aid:
+                uri = str(a.get("pointer_uri") or "").strip()
+                m = relay_re.match(uri)
+                if m:
+                    aid = str(m.group(1) or "").strip().lower()
+            if aid and aid not in seen:
+                seen.add(aid)
+                out.append(aid)
+        return out
+
+    def sync_attachment_acl_from_chat_message_attachments(
+        self,
+        *,
+        session_id: str,
+        role: str,
+        event_type: str | None,
+        attachments: Any,
+    ) -> None:
+        """Best-effort: link chat_message attachments to session owner so strict ACL downloads work.
+
+        Tool results already link in runtime; assistant rows (image specialist, inbound, etc.)
+        historically did not, which breaks ``AIA_ATTACHMENT_ACL_STRICT=1``.
+        """
+        sid = str(session_id or "").strip()
+        if not sid or attachments is None:
+            return
+        owner = self.get_ui_session_owner(session_id=sid) or {}
+        tid = str(owner.get("tenant_id") or "").strip()
+        uid = str(owner.get("user_id") or "").strip()
+        if not tid or not uid:
+            return
+        items: list[dict[str, Any]] = []
+        if isinstance(attachments, list):
+            items = [x for x in attachments if isinstance(x, dict)]
+        elif isinstance(attachments, dict):
+            items = [attachments]
+        else:
+            return
+        ids = self._attachment_ids_for_acl_from_payload_items(items)
+        if not ids:
+            return
+        r = str(role or "").strip() or "-"
+        ev = str(event_type or "").strip() or "-"
+        src = f"chat_message:{r}:{ev}"[:240]
+        for aid in ids:
+            self.link_attachment_acl(
+                tenant_id=tid,
+                user_id=uid,
+                session_id=sid,
+                attachment_id=aid,
+                source=src,
+            )
+
     def attachment_acl_allows_user(self, *, tenant_id: str, user_id: str, attachment_id: str) -> bool:
         tid = str(tenant_id or "").strip()
         uid = str(user_id or "").strip()
@@ -1922,6 +1995,15 @@ class SqliteStore:
                 "UPDATE chat_session SET last_message_at = ? WHERE id = ?",
                 (ts, session_id),
             )
+        try:
+            self.sync_attachment_acl_from_chat_message_attachments(
+                session_id=str(session_id or "").strip(),
+                role=str(role or ""),
+                event_type=str(event_type or "").strip() or None,
+                attachments=attachments,
+            )
+        except Exception:
+            pass
         return ChatMessage(
             id=msg_id,
             session_id=session_id,

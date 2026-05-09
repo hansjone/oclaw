@@ -30,6 +30,11 @@ Transport selection happens in `oclaw/runtime/agents/factory.py`.
 - **Streaming**: output text deltas via `on_token` → WS `chat.delta`
 - **Key**: profile secret or `OPENAI_API_KEY`
 
+### Chat UI「图片专家」（绕行本矩阵）
+
+- **Not** a separate profile transport: when the user selects specialist **`image`** in `/chat`, `runtime/direct_loop.py` takes an early return and calls **`platform/llm/image_legacy_client.send_legacy_image_messages`** (DashScope-style `/chat/completions`), so that turn does **not** use `OpenAIResponsesModel` / chat transports above.
+- Details, env vars, ACL, and UI hooks: **`docs/IMAGE_SPECIALIST_LANE.md`**.
+
 ### `anthropic` (Anthropic Messages streaming)
 - **Transport**: `oclaw/platform/llm/transports/anthropic_messages.py::AnthropicMessagesModel`
 - **API**: Anthropic `messages.stream` surface (gateway must provide Anthropic-compatible protocol)

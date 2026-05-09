@@ -343,9 +343,10 @@ def _can_access_attachment(store: SqliteStore, ctx: dict[str, Any], *, attachmen
 def _rate_limit_attachment_download(*, actor_tenant_id: str, actor_user_id: str) -> bool:
     tid = str(actor_tenant_id or "").strip()
     uid = str(actor_user_id or "").strip()
-    if not tid or not uid:
+    # Require tenant; allow downloads when user id is unexpectedly empty (rate bucket is tenant-scoped).
+    if not tid:
         return False
-    key = f"{tid}:{uid}"
+    key = f"{tid}:{uid or '__actor__'}"
     now = time.time()
     with _ATT_DOWNLOAD_LOCK:
         tokens, last = _ATT_DOWNLOAD_BUCKET.get(key, (_ATT_DOWNLOAD_BURST, now))
