@@ -69,7 +69,8 @@ def _http_json(method: str, path: str, *, params: dict[str, Any] | None = None) 
     base = _netx_base_url()
     url = f"{base}{path}"
     try:
-        with httpx.Client(timeout=45.0) as client:
+        # Do not inherit system proxy settings for local netx calls.
+        with httpx.Client(timeout=45.0, trust_env=False) as client:
             resp = client.request(method, url, params=params or None, headers=_netx_headers())
             text = resp.text
             if not resp.is_success:
@@ -492,7 +493,8 @@ def netx_sql_query_tool() -> ToolSpec:
         base = _netx_base_url()
         url = f"{base}/v1/sql/query"
         try:
-            with httpx.Client(timeout=60.0) as client:
+            # Do not inherit system proxy settings for local netx calls.
+            with httpx.Client(timeout=60.0, trust_env=False) as client:
                 resp = client.post(url, json={"sql": sql, "batch_id": batch_id, "limit": limit}, headers=_netx_headers())
                 text = resp.text
                 if not resp.is_success:
@@ -751,7 +753,8 @@ def netx_sql_query_ume_tool() -> ToolSpec:
         base = _netx_base_url()
         url = f"{base}/v1/sql/ume_query"
         try:
-            with httpx.Client(timeout=60.0) as client:
+            # Do not inherit system proxy settings for local netx calls.
+            with httpx.Client(timeout=60.0, trust_env=False) as client:
                 resp = client.post(
                     url,
                     json={"sql": sql, "limit": limit, "statement_timeout_ms": statement_timeout_ms},
