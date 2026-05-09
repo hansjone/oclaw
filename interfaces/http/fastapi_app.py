@@ -236,6 +236,12 @@ async def _lifespan(app: FastAPI):  # type: ignore[no-untyped-def]
 def create_app() -> FastAPI:
     app = FastAPI(title="ops-gateway", version="0.1", lifespan=_lifespan)
     brand_assets_dir = (Path(PROJECT_ROOT) / "_local" / "branding").resolve()
+    try:
+        brand_assets_dir.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        # Branding assets are optional; if we can't create the directory (permissions),
+        # the static mount should still be safe when empty.
+        pass
     app.mount("/admin/brand-assets", StaticFiles(directory=str(brand_assets_dir), check_dir=False), name="admin-brand-assets")
     app.mount("/admin/assets", StaticFiles(directory=str(admin_static_dir())), name="admin-assets")
     app.include_router(build_admin_router())
