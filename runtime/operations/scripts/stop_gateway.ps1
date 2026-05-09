@@ -13,7 +13,12 @@ function Warn([string]$msg) {
     Write-Host "[WARN] $msg" -ForegroundColor Yellow
 }
 
-function Kill-ProcId([int]$procId) {
+function Warn-AccessHint([string]$contextMsg) {
+    Warn $contextMsg
+    Write-Host "      Hint: If you see 'Access is denied', re-run this terminal as Administrator." -ForegroundColor Yellow
+}
+
+function Kill-ProcId([int]$procId, [bool]$forceKill) {
     $exists = $null
     try {
         $exists = Get-Process -Id $procId -ErrorAction SilentlyContinue
@@ -25,11 +30,24 @@ function Kill-ProcId([int]$procId) {
         return $true
     }
     try {
-        Stop-Process -Id $procId -Force
+        Stop-Process -Id $procId -Force:$forceKill
         Write-Host "Stopped PID=$procId" -ForegroundColor Green
         return $true
     } catch {
-        Warn "Failed to stop PID=$procId : $($_.Exception.Message)"
+        $ex = $_.Exception
+        $msg = "$($ex.Message)"
+        $hresult = $null
+        try { $hresult = $ex.HResult } catch { $hresult = $null }
+        $isAccessDenied = $false
+        if ($msg -match "denied|Access is denied|0x80070005") { $isAccessDenied = $true }
+        if ($hresult -eq -2147024891) { $isAccessDenied = $true } # 0x80070005 Access is denied
+
+        if ($isAccessDenied) {
+            Warn-AccessHint "Failed to stop PID=$procId : $msg"
+        } else {
+            Warn "Failed to stop PID=$procId : $msg"
+            Write-Host "      Hint: If the process cannot be stopped due to permissions, re-run as Administrator." -ForegroundColor Yellow
+        }
         return $false
     }
 }
@@ -44,7 +62,8 @@ if (Test-Path $pidFile) {
     $procId = 0
     [void][int]::TryParse([string]$raw, [ref]$procId)
     if ($procId -gt 0) {
-        $ok = Kill-ProcId -procId $procId
+        Write-Step "Attempting to stop by PID file: $pidFile (PID=$procId)"
+        $ok = Kill-ProcId -procId $procId -forceKill ([bool]$Force)
         if ($ok) {
             Remove-Item $pidFile -Force -ErrorAction SilentlyContinue
             # Keep going to also clean up any orphan listeners on $Port.
@@ -59,7 +78,7 @@ if (Test-Path $pidFile) {
     }
 }
 
-Write-Step "No PID file; attempting to stop by port $Port"
+Write-Step "Attempting to stop by port $Port"
 try {
     $conns = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue
     if (-not $conns) {
@@ -68,11 +87,24 @@ try {
     }
     $pids = $conns | Select-Object -ExpandProperty OwningProcess -Unique
     foreach ($p in $pids) {
-        if ($p -gt 0) { [void](Kill-ProcId -procId $p) }
+        if ($p -gt 0) { [void](Kill-ProcId -procId $p -forceKill ([bool]$Force)) }
     }
     exit 0
 } catch {
-    Warn "Stop by port failed: $($_.Exception.Message)"
+    $ex = $_.Exception
+    $msg = "$($ex.Message)"
+    $hresult = $null
+    try { $hresult = $ex.HResult } catch { $hresult = $null }
+    $isAccessDenied = $false
+    if ($msg -match "denied|Access is denied|0x80070005") { $isAccessDenied = $true }
+    if ($hresult -eq -2147024891) { $isAccessDenied = $true } # 0x80070005 Access is denied
+
+    if ($isAccessDenied) {
+        Warn-AccessHint "Stop by port failed: $msg"
+    } else {
+        Warn "Stop by port failed: $msg"
+        Write-Host "      Hint: If the listener cannot be stopped due to permissions, re-run as Administrator." -ForegroundColor Yellow
+    }
     if (-not $Force) { exit 1 }
 }
 

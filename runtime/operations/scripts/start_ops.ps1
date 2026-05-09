@@ -15,7 +15,28 @@ function Fail([string]$msg) {
     exit 1
 }
 
-$repoRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))
+$repoRoot = $null
+function Resolve-RepoRoot([string]$fromDir) {
+    $cur = (Resolve-Path $fromDir).Path
+    for ($i = 0; $i -lt 12; $i++) {
+        $cfg = Join-Path $cur "oclaw.json"
+        if (Test-Path $cfg) {
+            return $cur
+        }
+        $parent = Split-Path -Parent $cur
+        if (-not $parent -or $parent -eq $cur) {
+            break
+        }
+        $cur = $parent
+    }
+    return $null
+}
+
+$repoRoot = Resolve-RepoRoot $PSScriptRoot
+if (-not $repoRoot) {
+    # Fallback: old relative layout assumption
+    $repoRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))
+}
 $repoParent = Split-Path -Parent $repoRoot
 Set-Location $repoRoot
 

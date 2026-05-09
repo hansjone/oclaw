@@ -12,6 +12,11 @@ function Warn([string]$msg) {
     Write-Host "[WARN] $msg" -ForegroundColor Yellow
 }
 
+function Warn-AccessHint([string]$contextMsg) {
+    Warn $contextMsg
+    Write-Host "      Hint: If you see 'Access is denied', re-run this terminal as Administrator." -ForegroundColor Yellow
+}
+
 $runDir = Join-Path $PSScriptRoot ".run"
 $pidFile = Join-Path $runDir "desktop.pid"
 
@@ -45,7 +50,13 @@ try {
     Remove-Item $pidFile -Force -ErrorAction SilentlyContinue
     exit 0
 } catch {
-    Warn "Failed to stop PID=$procId : $($_.Exception.Message)"
+    $msg = "$($_.Exception.Message)"
+    if ($msg -match "denied|Access is denied|0x80070005|拒绝访问|拒绝") {
+        Warn-AccessHint "Failed to stop PID=$procId : $msg"
+    } else {
+        Warn "Failed to stop PID=$procId : $msg"
+        Write-Host "      Hint: If the process cannot be stopped due to permissions, re-run as Administrator." -ForegroundColor Yellow
+    }
     if (-not $Force) { exit 1 }
     exit 0
 }
