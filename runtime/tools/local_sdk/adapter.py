@@ -108,11 +108,15 @@ class LocalAdapter:
             # It only uses explicit cwd; otherwise defaults to data/workspace.
             workdir = str(resolve_workspace_path(cwd or "data/workspace"))
             Path(workdir).mkdir(parents=True, exist_ok=True)
+            # Use UTF-8 for decoded streams: Windows defaults (e.g. GBK) break on UTF-8-only bytes from
+            # curl/wttr.in, git, ripgrep, etc.; subprocess may leave stdout None after UnicodeDecodeError.
             run_kwargs: dict[str, Any] = {
                 "cwd": workdir,
                 "shell": True,
                 "capture_output": True,
                 "text": True,
+                "encoding": "utf-8",
+                "errors": "replace",
                 "timeout": float(timeout_s),
             }
             if os.name == "nt":
