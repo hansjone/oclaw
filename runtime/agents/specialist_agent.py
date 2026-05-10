@@ -16,9 +16,16 @@ from oclaw.platform.persistence.sqlite_store import SqliteStore
 from oclaw.platform.llm.image_legacy_client import (
     IMAGE_SPECIALIST_DEFAULT_PROMPT_ZH,
     collect_legacy_lane_images_from_attachments,
+    collect_legacy_lane_images_with_session_fallback,
     legacy_image_assistant_body_with_placeholder,
     legacy_image_turn_bundle,
     send_legacy_image_messages,
+)
+from oclaw.platform.llm.video_generation_client import (
+    VIDEO_SPECIALIST_DEFAULT_PROMPT_ZH,
+    legacy_video_assistant_body_with_placeholder,
+    legacy_video_turn_bundle,
+    send_video_generation_request,
 )
 from oclaw.runtime.tools import default_registry
 from oclaw.runtime.agents.specialists import expert_name_for_specialist
@@ -300,6 +307,51 @@ class SpecialistAgentRunner:
                     answer_text=str(output or ""),
                     tool_traces=(),
                     notes="image_pipeline",
+                )
+            elif step.specialist == "video":
+                image_protocol = "video_generation.http"
+                _, chosen_model, _ = self._resolve_profile_and_model(step.specialist)
+                text_parts = [
+                    str(x).strip()
+                    for x in (step.objective, step.input_text, parent_task.user_text)
+                    if str(x or "").strip()
+                ]
+                user_text_v = "\n".join(text_parts) if text_parts else VIDEO_SPECIALIST_DEFAULT_PROMPT_ZH
+                policy_sid = str(policy_session_id or parent_task.session_id or session_id or "").strip()
+                v_frames, _v_src = collect_legacy_lane_images_with_session_fallback(
+                    store=self.store,
+                    session_id=policy_sid,
+                    attachments=list(parent_task.attachments or []),
+                    max_images=1,
+                )
+                v_frame = str(v_frames[0]).strip() if v_frames else None
+                resp_v = send_video_generation_request(
+                    prompt=user_text_v,
+                    model=str(getattr(chosen_model, "model", "") or "").strip() or None,
+                    api_key=str(getattr(chosen_model, "api_key", "") or "").strip() or None,
+                    base_url=str(getattr(chosen_model, "base_url", "") or "").strip() or None,
+                    img_url=v_frame,
+                    on_progress=on_progress,
+                    should_stop=should_stop,
+                )
+                ok, output, produced_attachments = legacy_video_turn_bundle(resp_v)
+                output = legacy_video_assistant_body_with_placeholder(
+                    lang=self.lang,
+                    body_text=output,
+                    produced=produced_attachments if ok else None,
+                )
+                self.store.add_message(
+                    session_id=session_id,
+                    role="assistant",
+                    content=output,
+                    attachments=(produced_attachments or None) if ok else None,
+                )
+                specialist_delivery = SpecialistDelivery(
+                    specialist=step.specialist,
+                    step_id=step.step_id,
+                    answer_text=str(output or ""),
+                    tool_traces=(),
+                    notes="video_pipeline",
                 )
             else:
                 agent = self._build_agent_for(

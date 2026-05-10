@@ -35,6 +35,11 @@ Transport selection happens in `oclaw/runtime/agents/factory.py`.
 - **Not** a separate profile transport: when the user selects specialist **`image`** in `/chat`, `runtime/direct_loop.py` takes an early return and calls **`platform/llm/image_legacy_client.send_legacy_image_messages`** (DashScope-style `/chat/completions`), so that turn does **not** use `OpenAIResponsesModel` / chat transports above.
 - Details, env vars, ACL, and UI hooks: **`docs/IMAGE_SPECIALIST_LANE.md`**.
 
+### Chat UI「视频生成专家」（绕行本矩阵）
+
+- When the user selects specialist **`video`**, `runtime/direct_loop.py` early-returns into **`platform/llm/video_generation_client.send_video_generation_request`** (DashScope async `video-synthesis` + task polling). Without an input image: **text-to-video**; with an image attachment (or session image fallback): **`input.img_url`** for **image-to-video** (use an i2v model id). That turn does **not** use the generic tool loop or `OpenAIResponsesModel`.
+- **`docs/VIDEO_SPECIALIST_LANE.md`**.
+
 ### `anthropic` (Anthropic Messages streaming)
 - **Transport**: `oclaw/platform/llm/transports/anthropic_messages.py::AnthropicMessagesModel`
 - **API**: Anthropic `messages.stream` surface (gateway must provide Anthropic-compatible protocol)

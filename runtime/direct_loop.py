@@ -1206,6 +1206,97 @@ def _maybe_image_specialist_legacy_gateway_turn(
     )
 
 
+def _maybe_video_specialist_legacy_gateway_turn(
+    *,
+    store: Any,
+    session_id: str,
+    turn_uuid: str,
+    lang: str,
+    model: ChatModel,
+    user_text: str,
+    attachments: list[dict[str, Any]] | None,
+    skill_binding_role: str | None,
+    on_token: Optional[Callable[[str], None]],
+    on_progress: Optional[Callable[[str], None]],
+    should_stop: Optional[Callable[[], bool]] = None,
+) -> TurnRunOutcome | None:
+    """When the UI selects **video** specialist, skip Responses/chat-model transports.
+
+    Uses DashScope async ``video-synthesis`` (see :mod:`oclaw.platform.llm.video_generation_client`).
+    With a user image (or session image fallback), sends ``input.img_url`` for **image-to-video**;
+    otherwise **text-to-video**. Disable with ``AIA_VIDEO_SPECIALIST_DISABLE_LEGACY_GATEWAY_LANE=1``.
+    """
+    if str(os.getenv("AIA_VIDEO_SPECIALIST_DISABLE_LEGACY_GATEWAY_LANE") or "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    ):
+        return None
+    if str(skill_binding_role or "").strip().lower() != "video":
+        return None
+
+    from oclaw.platform.llm.image_legacy_client import collect_legacy_lane_images_with_session_fallback
+    from oclaw.platform.llm.video_generation_client import (
+        VIDEO_SPECIALIST_DEFAULT_PROMPT_ZH,
+        legacy_video_assistant_body_with_placeholder,
+        legacy_video_turn_bundle,
+        send_video_generation_request,
+    )
+
+    frames, frame_src = collect_legacy_lane_images_with_session_fallback(
+        store=store,
+        session_id=session_id,
+        attachments=attachments,
+        max_images=1,
+    )
+    frame_url = str(frames[0]).strip() if frames else None
+
+    if on_progress:
+        if frame_url:
+            if frame_src.endswith("_history"):
+                if str(lang or "").startswith("en"):
+                    on_progress("oclaw: reusing an earlier session image as first frame…")
+                else:
+                    on_progress("oclaw: 使用会话中较早的图片作为图生视频首帧…")
+            on_progress("oclaw: video specialist (DashScope image-to-video)…")
+        else:
+            on_progress("oclaw: video specialist (DashScope text-to-video)…")
+
+    prompt_plain = str(user_text or "").strip() or VIDEO_SPECIALIST_DEFAULT_PROMPT_ZH
+    resp = send_video_generation_request(
+        prompt=prompt_plain,
+        model=str(getattr(model, "model", "") or "").strip() or None,
+        api_key=str(getattr(model, "api_key", "") or "").strip() or None,
+        base_url=str(getattr(model, "base_url", "") or "").strip() or None,
+        img_url=frame_url,
+        on_progress=on_progress,
+        should_stop=should_stop,
+    )
+    ok, body_text, produced = legacy_video_turn_bundle(resp)
+    body_text = legacy_video_assistant_body_with_placeholder(
+        lang=lang,
+        body_text=body_text,
+        produced=produced if ok else None,
+    )
+    store.add_message(
+        session_id=session_id,
+        role="assistant",
+        content=body_text,
+        turn_uuid=turn_uuid,
+        event_type="assistant_text",
+        attachments=(produced or None) if ok else None,
+    )
+    if ok and on_token and body_text:
+        on_token(body_text)
+    return TurnRunOutcome(
+        final_text=body_text,
+        tool_traces=tuple(),
+        handoff_note="video_specialist_legacy_http" if ok else "video_specialist_legacy_upstream_failed",
+        turn_uuid=turn_uuid,
+    )
+
+
 def run_oclaw_direct_loop(
     *,
     store: Any,
@@ -1267,6 +1358,21 @@ def run_oclaw_direct_loop(
         )
         if legacy_early is not None:
             return legacy_early
+        video_early = _maybe_video_specialist_legacy_gateway_turn(
+            store=store,
+            session_id=session_id,
+            turn_uuid=turn_uuid,
+            lang=lang,
+            model=model,
+            user_text=str(user_text or ""),
+            attachments=attachments,
+            skill_binding_role=skill_binding_role,
+            on_token=on_token,
+            on_progress=on_progress,
+            should_stop=should_stop,
+        )
+        if video_early is not None:
+            return video_early
 
     skill_exec = SkillExecutor(config=ToolExecutionConfig(max_workers=max(1, min(int(max_tool_workers or 8), 32))))
     tool_traces: list[dict[str, Any]] = []

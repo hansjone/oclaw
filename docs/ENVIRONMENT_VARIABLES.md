@@ -393,6 +393,67 @@
 
 > **说明：** 历史上曾使用 `AIA_IMAGE_BASE_URL` / `AIA_IMAGE_API_KEY` / `AIA_IMAGE_MODEL` / `AIA_IMAGE_CHAT_ENDPOINT` 作为同一路由；当前实现 **不再读取** 上述变量作 OCR 通道配置，请统一改为 `AIA_OCR_*`。（`AIA_IMAGE_TOOL_RESULT_REPLAY_CAP_CHARS` 等为 **另一用途**，与 OCR 网关无关，仍保留原名。）
 
+---
+
+## 视频生成专家专线（``AIA_VIDEO_EXPERT_*``）
+
+**路由 specialist=`video`** 时由 **`send_video_generation_request`** 调用百炼 / DashScope **异步文生视频** HTTP（``POST .../video-synthesis`` + ``GET .../api/v1/tasks/{task_id}``）。**区域**：北京 ``https://dashscope.aliyuncs.com``、新加坡 ``https://dashscope-intl.aliyuncs.com``、美东 ``https://dashscope-us.aliyuncs.com`` 等须与 API Key 一致。说明全文见 ``docs/VIDEO_SPECIALIST_LANE.md``。
+
+- `AIA_VIDEO_SPECIALIST_DISABLE_LEGACY_GATEWAY_LANE`
+  - 默认：未设置（关闭等价于 **启用** 专用 Early Return）
+  - 作用：设为 `1` / `true` / `yes` / `on` 时，网关 **不再** 走专用视频 HTTP 线，改与普通 Chat 相同的模型环路。
+  - 生效：`runtime/direct_loop.py`
+
+- `AIA_VIDEO_EXPERT_BASE_URL`
+  - 默认：无（必填，除非在调用处传入 `base_url`）
+  - 作用：DashScope 根 URL（可为 ``compatible-mode/v1`` 前缀，实现会剥离后拼接原生路径）。
+  - 生效：`oclaw/platform/llm/video_generation_client.py`
+
+- `AIA_VIDEO_EXPERT_API_KEY`
+  - 默认：无（必填，除非显式传 `api_key`）
+  - 作用：``Authorization: Bearer`` API Key。
+  - 生效：`oclaw/platform/llm/video_generation_client.py`
+
+- `AIA_VIDEO_EXPERT_MODEL`
+  - 默认：无（会话所选模型的 `model` 字段优先；无则读本变量）
+  - 作用：Wan 模型 id：**文生视频**用 t2v 系列（如 ``wan2.2-t2v-plus``）；**图生视频**（消息带首帧图时自动传 ``input.img_url``）须用 **i2v** 系列（如 ``wan2.6-i2v-flash``，以控制台为准）。
+  - 生效：`oclaw/platform/llm/video_generation_client.py`
+
+- `AIA_VIDEO_EXPERT_SYNTHESIS_PATH`
+  - 默认：`api/v1/services/aigc/video-generation/video-synthesis`
+  - 作用：相对 `AIA_VIDEO_EXPERT_BASE_URL` 剥离 compatible 后缀后的根路径拼接用。
+  - 生效：`oclaw/platform/llm/video_generation_client.py`
+
+- `AIA_VIDEO_EXPERT_POLL_INTERVAL_SEC`
+  - 默认：`15`（限制在约 `3`～`120` 秒）
+  - 作用：轮询任务状态间隔。
+  - 生效：`oclaw/platform/llm/video_generation_client.py`
+
+- `AIA_VIDEO_EXPERT_MAX_WAIT_SEC`
+  - 默认：`900`（限制在约 `30`～`3600` 秒）
+  - 作用：自提交任务起的最大等待时间；超时返回错误。
+  - 生效：`oclaw/platform/llm/video_generation_client.py`
+
+- `AIA_VIDEO_EXPERT_PARAMETERS_EXTRA`
+  - 默认：无
+  - 作用：JSON 对象，**浅合并**到请求体 `parameters`（后写入，故与 `DASHSCOPE_VIDEO_*` 同名键时 **以该 JSON 为准**）。
+  - 生效：`oclaw/platform/llm/video_generation_client.py`
+
+- `AIA_VIDEO_EXPERT_INPUT_EXTRA`
+  - 默认：无
+  - 作用：JSON 对象，合并到请求体 `input`（`prompt` 仍由运行时代码写入并覆盖同名键）。
+  - 生效：`oclaw/platform/llm/video_generation_client.py`
+
+- `AIA_VIDEO_EXPERT_DEBUG_PRINT_PAYLOAD`
+  - 默认：未设置
+  - 作用：设为 `1` 时在 stderr 打印提交 URL 与 JSON 请求体（勿在生产长期开启）。
+  - 生效：`oclaw/platform/llm/video_generation_client.py`
+
+- `DASHSCOPE_VIDEO_SIZE` / `DASHSCOPE_VIDEO_DURATION` / `DASHSCOPE_VIDEO_PROMPT_EXTEND` / `DASHSCOPE_VIDEO_NEGATIVE_PROMPT` / `DASHSCOPE_VIDEO_AUDIO_URL` / `DASHSCOPE_VIDEO_SHOT_TYPE` / `DASHSCOPE_VIDEO_WATERMARK` / `DASHSCOPE_VIDEO_SEED`
+  - 默认：均未设置则不附加对应字段。
+  - 作用：与官方示例字段对齐的便捷变量；细粒度控制可改用 `AIA_VIDEO_EXPERT_PARAMETERS_EXTRA` / `AIA_VIDEO_EXPERT_INPUT_EXTRA`。
+  - 生效：`oclaw/platform/llm/video_generation_client.py`
+
 ## Memory / RAG
 
 - `AIA_RAG_MODE`

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import base64
 import json
 import queue
 import threading
@@ -28,8 +27,8 @@ from oclaw.platform.files.file_attachments import (
     DEFAULT_MAX_EXCEL_SHEETS,
     DEFAULT_TABULAR_ROWS_READ,
     clear_attachment_limits_cache,
-    process_file_data,
 )
+from oclaw.interfaces.ws.common import normalize_ws_attachments
 from oclaw.platform.files.session_export import export_session_json, export_session_markdown
 from oclaw.platform.persistence.sqlite_store import SqliteStore
 from oclaw.runtime.gateway import OclawGateway
@@ -270,45 +269,9 @@ def _clear_stop(session_id: str) -> None:
         _CHAT_STOP_EVENTS.pop(str(session_id), None)
 
 
-def _decode_base64_payload(s: str) -> bytes | None:
-    """Decode base64 from browser (may lack padding; URL-safe variants)."""
-    raw = (s or "").strip()
-    if not raw:
-        return None
-    if raw.startswith("data:") and "," in raw:
-        raw = raw.split(",", 1)[1].strip()
-    raw = raw.replace("-", "+").replace("_", "/")
-    pad = (-len(raw)) % 4
-    if pad:
-        raw += "=" * pad
-    try:
-        return base64.b64decode(raw, validate=False)
-    except Exception:
-        try:
-            return base64.standard_b64decode(raw)
-        except Exception:
-            return None
-
-
 def _parse_attachments_payload(raw: Any) -> list[dict[str, Any]] | None:
-    if not raw:
-        return None
-    if not isinstance(raw, list):
-        return None
-    out: list[dict[str, Any]] = []
-    for item in raw:
-        if not isinstance(item, dict):
-            continue
-        name = str(item.get("name") or "file").strip() or "file"
-        b64 = item.get("data_base64") if "data_base64" in item else item.get("data")
-        if not isinstance(b64, str) or not b64.strip():
-            continue
-        data = _decode_base64_payload(b64)
-        if not data:
-            continue
-        got = process_file_data(name, data)
-        if got:
-            out.extend(got)
+    """Match WebSocket :func:`normalize_ws_attachments`: base64 uploads plus pass-through typed refs."""
+    out = normalize_ws_attachments(raw)
     return out if out else None
 
 

@@ -919,7 +919,7 @@ class OclawGateway:
                 attachments=list(msg.attachments or []),
                 metadata=dict(base_metadata),
             )
-            if manager_specialist in {"ops", "generalist", "image", "memory"}:
+            if manager_specialist in {"ops", "generalist", "image", "memory", "video"}:
                 if callable(specialist_executor_factory):
                     try:
                         selected_executor = specialist_executor_factory(manager_specialist)

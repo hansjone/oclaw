@@ -575,3 +575,16 @@ def test_excel_sheet_count_cap_applies_in_tool_mode(tmp_path: Path, monkeypatch)
     notes = [x for x in out if isinstance(x, dict) and str(x.get("name") or "").endswith(".sheet-limit")]
     assert notes
 
+
+def test_attachment_asset_store_mp4_load_bytes_roundtrip(tmp_path: Path) -> None:
+    """Regression: ``load_bytes`` must resolve ``.mp4`` on-disk blobs (not only image extensions)."""
+    from oclaw.platform.files.attachment_assets import AttachmentAssetStore
+
+    ast = AttachmentAssetStore(str(tmp_path))
+    payload = b"\x00\x00\x00\x18ftypmp42\x00\x00\x00\x00mp42isom" + b"vid" * 400
+    meta = ast.save_bytes(payload, filename="clip.mp4", mime="video/mp4")
+    blob, meta2 = ast.load_bytes(meta.attachment_id)
+    assert blob == payload
+    assert meta2 is not None
+    assert meta2.bytes == len(payload)
+

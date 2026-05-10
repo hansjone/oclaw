@@ -276,7 +276,7 @@ def build_ops_agent(
 
 
 # `default_registry` treats empty allow_tags + empty allow_tools as "no filter". Use an impossible
-# tool name so the image specialist gets an empty tool surface (vision-only turns).
+# tool name so image/video specialists get an empty tool surface (dedicated HTTP lanes).
 _IMAGE_SPECIALIST_TOOL_ALLOWLIST: tuple[str, ...] = ("__oclaw_image_specialist_no_tools__",)
 
 
@@ -334,7 +334,7 @@ def build_gateway_executor(
         "path_policy_user_id": path_policy_user_id,
         "store": store,
     }
-    if prof.name == "image":
+    if prof.name in {"image", "video"}:
         reg_kw["allow_tools"] = list(_IMAGE_SPECIALIST_TOOL_ALLOWLIST)
     tools = default_registry(**reg_kw)
     return Agent(

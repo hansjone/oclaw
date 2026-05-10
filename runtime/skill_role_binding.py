@@ -17,7 +17,7 @@ def _truthy(v: str | None) -> bool:
 
 def ordered_specialist_ids() -> list[str]:
     base = [str(k).strip().lower() for k in discover_specialist_ids() if str(k).strip()]
-    preferred = [x for x in ("generalist", "ops", "memory", "image") if x in set(base)]
+    preferred = [x for x in ("generalist", "ops", "memory", "image", "video") if x in set(base)]
     return preferred + [x for x in base if x not in set(preferred)]
 
 

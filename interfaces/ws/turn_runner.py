@@ -111,7 +111,7 @@ async def run_agent_turn_via_bridge(
 
     accepted_ms = now_ms()
     msg_text = str(p.get("message") or "").strip()
-    attachments = list(p.get("attachments") or [])
+    attachments = normalize_ws_attachments(p.get("attachments"))
     execution_mode = str(p.get("execution_mode") or "agent").strip().lower() or "agent"
     if execution_mode not in {"agent", "plan"}:
         execution_mode = "agent"

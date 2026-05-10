@@ -168,6 +168,7 @@ const I18N = {
     "chat.specialistGeneralistShort": "通用",
     "chat.specialistOpsShort": "运维",
     "chat.specialistImageShort": "图像",
+    "chat.specialistVideoShort": "视频",
     "chat.specialistMemoryShort": "记忆",
     "chat.specialistManagerSelfShort": "全能者",
     "chat.attachment.download": "下载",
@@ -344,6 +345,7 @@ const I18N = {
     "chat.specialistGeneralistShort": "Generalist",
     "chat.specialistOpsShort": "Ops",
     "chat.specialistImageShort": "Image",
+    "chat.specialistVideoShort": "Video",
     "chat.specialistMemoryShort": "Memory",
     "chat.specialistManagerSelfShort": "Manager",
     "chat.attachment.download": "Download",
@@ -649,6 +651,7 @@ function specialistLabel(specialist) {
   if (s === "manager_self") return t("chat.specialistManagerSelfShort");
   if (s === "ops") return t("chat.specialistOpsShort");
   if (s === "image") return t("chat.specialistImageShort");
+  if (s === "video") return t("chat.specialistVideoShort");
   if (s === "memory") return t("chat.specialistMemoryShort");
   return t("chat.specialistGeneralistShort");
 }
@@ -2187,6 +2190,39 @@ async function renderAttachmentsEl(raw) {
             target: "_blank",
             rel: "noopener noreferrer",
             download: name || undefined,
+            text: t("chat.attachment.download"),
+          }),
+        );
+        if (String(typ || "") === "video_ref" && mime.toLowerCase().startsWith("video/")) {
+          card.appendChild(
+            el("video", {
+              class: "chat-att-video",
+              controls: true,
+              preload: "metadata",
+              style: "max-width:100%;max-height:420px;margin-top:8px;border-radius:8px;",
+              src: url,
+            }),
+          );
+        }
+      }
+    } else {
+      const remote = String(att.url || "").trim();
+      if (remote && String(typ || "") === "video_ref" && mime.toLowerCase().startsWith("video/")) {
+        card.appendChild(
+          el("video", {
+            class: "chat-att-video",
+            controls: true,
+            preload: "metadata",
+            style: "max-width:100%;max-height:420px;margin-top:8px;border-radius:8px;",
+            src: remote,
+          }),
+        );
+        card.appendChild(
+          el("a", {
+            class: "chat-att-ref__link",
+            href: remote,
+            target: "_blank",
+            rel: "noopener noreferrer",
             text: t("chat.attachment.download"),
           }),
         );

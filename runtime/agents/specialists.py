@@ -43,10 +43,15 @@ SPECIALISTS: dict[SpecialistId, SpecialistConfig] = {
         expert_name="image",
         default_tool_tags=None,
     ),
+    "video": SpecialistConfig(
+        specialist_id="video",
+        expert_name="video",
+        default_tool_tags=None,
+    ),
 }
 
 def discover_specialist_ids() -> tuple[SpecialistId, ...]:
-    rows = specialist_registry_snapshot(base_order=("generalist", "ops", "memory", "image"))
+    rows = specialist_registry_snapshot(base_order=("generalist", "ops", "memory", "image", "video"))
     return tuple(str(x.get("id") or "").strip().lower() for x in rows if str(x.get("id") or "").strip())
 
 

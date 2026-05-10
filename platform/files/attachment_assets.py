@@ -8,11 +8,23 @@ import re
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Final, Optional
 
 from oclaw.platform.config.paths import attachments_dir
 _META_SUFFIX: Final[str] = ".meta.json"
 _ATTACHMENT_ID_RE: Final[re.Pattern[str]] = re.compile(r"^[a-f0-9]{64}$")
+# Must match extensions produced by ``save_bytes`` so ``load_bytes`` / ``get_local_path`` / ``gc`` can find blobs.
+_ATTACHMENT_BLOB_EXTENSIONS: Final[tuple[str, ...]] = (
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".webp",
+    ".gif",
+    ".mp4",
+    ".webm",
+    ".mov",
+    "",  # extensionless fallback
+)
 
 
 def _utc_ts() -> int:
@@ -35,6 +47,12 @@ def _ext_from_mime(mime: str | None) -> str:
         return ".webp"
     if m == "image/gif":
         return ".gif"
+    if m == "video/mp4":
+        return ".mp4"
+    if m == "video/webm":
+        return ".webm"
+    if m in ("video/quicktime", "video/mov"):
+        return ".mov"
     return ""
 
 
@@ -48,6 +66,12 @@ def _guess_mime_from_ext(ext: str) -> str:
         return "image/webp"
     if e == "gif":
         return "image/gif"
+    if e == "mp4":
+        return "video/mp4"
+    if e == "webm":
+        return "video/webm"
+    if e == "mov":
+        return "video/quicktime"
     return "application/octet-stream"
 
 
@@ -132,7 +156,7 @@ class AttachmentAssetStore:
         blob = bytes(data or b"")
         h = hashlib.sha256(blob).hexdigest()
         ext = _ext_from_mime(mime) or (("." + filename.split(".")[-1].lower()) if "." in filename else "")
-        ext = ext if ext in (".png", ".jpg", ".jpeg", ".webp", ".gif") else _ext_from_mime(mime) or ""
+        ext = ext if ext in _ATTACHMENT_BLOB_EXTENSIONS[:-1] else _ext_from_mime(mime) or ""
         data_path = self._data_path(h, ext=ext)
         meta_path = self._meta_path(h)
 
@@ -203,10 +227,9 @@ class AttachmentAssetStore:
         except Exception:
             return b"", None
         meta = self.get_meta(aid)
-        # try find data file by scanning common extensions
-        exts = (".png", ".jpg", ".jpeg", ".webp", ".gif", "")
+        # try find data file by scanning known extensions
         data_path = None
-        for ext in exts:
+        for ext in _ATTACHMENT_BLOB_EXTENSIONS:
             p = self._data_path(aid, ext=ext)
             if p.exists():
                 data_path = p
@@ -225,8 +248,7 @@ class AttachmentAssetStore:
             aid = self._normalize_attachment_id(attachment_id)
         except Exception:
             return None
-        exts = (".png", ".jpg", ".jpeg", ".webp", ".gif", "")
-        for ext in exts:
+        for ext in _ATTACHMENT_BLOB_EXTENSIONS:
             p = self._data_path(aid, ext=ext)
             if p.exists():
                 self.touch(aid)
@@ -287,7 +309,7 @@ class AttachmentAssetStore:
                 mp.unlink(missing_ok=True)  # py3.8+; on 3.14 ok
             except Exception:
                 pass
-            for ext in (".png", ".jpg", ".jpeg", ".webp", ".gif", ""):
+            for ext in _ATTACHMENT_BLOB_EXTENSIONS:
                 try:
                     self._data_path(aid, ext=ext).unlink(missing_ok=True)
                 except Exception:
