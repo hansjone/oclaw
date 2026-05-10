@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from oclaw.runtime.tools.base import ToolSpec
-from oclaw.runtime.tools.local_sdk import get_local_adapter
+from oclaw.runtime.tools.public.local_sdk import get_local_adapter
 
 
 def get_env_tool() -> ToolSpec:

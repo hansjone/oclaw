@@ -30,8 +30,8 @@ class LocalAdapter:
 
     def get_cwd(self) -> dict[str, Any]:
         try:
-            p = resolve_workspace_path(self._cwd or ".")
-            return {"ok": True, "cwd": str(p)}
+            root = resolve_workspace_path(".")
+            return {"ok": True, "cwd": str(root)}
         except Exception as exc:
             return {"ok": False, "error_code": "local_execution_error", "error": f"{type(exc).__name__}: {exc}"}
 
@@ -105,8 +105,8 @@ class LocalAdapter:
         try:
             timeout_s = max(1, min(int(timeout or 300), 600))
             # run_command never follows adapter cd state.
-            # It only uses explicit cwd; otherwise defaults to data/workspace.
-            workdir = str(resolve_workspace_path(cwd or "data/workspace"))
+            # It only uses explicit cwd; otherwise defaults to workspace root.
+            workdir = str(resolve_workspace_path(cwd or "."))
             Path(workdir).mkdir(parents=True, exist_ok=True)
             # Use UTF-8 for decoded streams: Windows defaults (e.g. GBK) break on UTF-8-only bytes from
             # curl/wttr.in, git, ripgrep, etc.; subprocess may leave stdout None after UnicodeDecodeError.
@@ -370,6 +370,8 @@ class LocalAdapter:
                     shell=True,
                     capture_output=True,
                     text=True,
+                    encoding="utf-8",
+                    errors="replace",
                     timeout=10.0,
                 )
                 out = str(cp.stdout or "")
@@ -393,6 +395,8 @@ class LocalAdapter:
                     shell=True,
                     capture_output=True,
                     text=True,
+                    encoding="utf-8",
+                    errors="replace",
                     timeout=10.0,
                 )
                 for line in str(cp.stdout or "").splitlines():
@@ -418,7 +422,7 @@ class LocalAdapter:
         try:
             if os.name == "nt":
                 cmd = f"taskkill /PID {p} " + ("/F" if force else "")
-                cp = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=10.0)
+                cp = subprocess.run(cmd, shell=True, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=10.0)
                 ok = cp.returncode == 0
                 return {"ok": ok, "pid": p, "stdout": str(cp.stdout or ""), "stderr": str(cp.stderr or ""), "exit_code": int(cp.returncode)}
             import signal
@@ -462,5 +466,3 @@ def local_adapter_startup_self_check() -> dict[str, Any]:
             "error": f"{type(exc).__name__}: {exc}",
         }
 
-
-__all__ = ["LocalAdapter", "LocalAdapterError", "get_local_adapter", "local_adapter_startup_self_check"]

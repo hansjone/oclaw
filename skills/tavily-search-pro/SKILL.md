@@ -38,7 +38,7 @@ Set in OpenClaw config:
 ## Script Location
 
 ```bash
-python3 skills/tavily/lib/tavily_search.py <command> "query" [options]
+python3 skills/tavily-search-pro/lib/tavily_search.py <command> "query" [options]
 ```
 
 ---
@@ -347,5 +347,5 @@ Sources:
 ## Install
 
 ```bash
-bash skills/tavily/install.sh
+bash skills/tavily-search-pro/install.sh
 ```

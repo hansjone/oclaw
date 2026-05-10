@@ -81,5 +81,7 @@ def run_cc_mini_cli(
         env=merged,
         check=False,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         **kwargs,
     )

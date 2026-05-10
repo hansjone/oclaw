@@ -128,13 +128,35 @@ def _extract_recent_topic(memory_text: str) -> str:
     return _last_nonempty_line(memory_text)
 
 
+def _extract_developer_name(raw_text: str) -> str:
+    lines = [ln.strip() for ln in str(raw_text or "").splitlines() if ln.strip()]
+    for ln in lines:
+        low = ln.lower()
+        if low.startswith("#"):
+            continue
+        if low.startswith("name:") or low.startswith("姓名:"):
+            name = ln.split(":", 1)[1].strip()
+            if name:
+                return name[:60]
+        if low.startswith("- name:") or low.startswith("- 姓名:"):
+            name = ln.split(":", 1)[1].strip()
+            if name:
+                return name[:60]
+        if ln.startswith("- "):
+            val = ln[2:].strip()
+            if val:
+                return val[:60]
+        return ln[:60]
+    return ""
+
+
 def _build_bootstrap_content(event: Any) -> str:
     ws_dir = _workspace_dir(event)
     repo = _repo_root()
     wiki = _wiki_root(repo)
 
-    soul = repo / "runtime" / "skills" / "session-bootstrap" / "SOUL.md"
-    ident = repo / "runtime" / "skills" / "session-bootstrap" / "IDENTITY.md"
+    soul = repo / "skills" / "session-bootstrap" / "SOUL.md"
+    ident = repo / "skills" / "session-bootstrap" / "IDENTITY.md"
     mem_file = _latest_memory_file(ws_dir)
 
     role_id = _agent_role(event)
@@ -158,10 +180,12 @@ def _build_bootstrap_content(event: Any) -> str:
         role_lines.append(f"### {p.name}\n{snap or '(缺失)'}")
     role_txt = "\n\n".join(role_lines).strip()
     lrn_txt = _safe_read(learnings, max_chars=900)
+    user_current = wiki / "users" / "current.md"
+    user_txt = _safe_read(user_current, max_chars=400)
 
     topic = _extract_recent_topic(mem_txt) or "近期项目上下文"
     learning = _extract_recent_learning(lrn_txt) or "待补充新的关键学习"
-    developer = "开发者"
+    developer = _extract_developer_name(user_txt) or "开发者"
     welcome = f"欢迎回来，{developer}。上次我们聊了{topic}，我学到了{learning}。"
 
     mem_path = str(mem_file) if mem_file else "(无)"
@@ -184,6 +208,7 @@ def _build_bootstrap_content(event: Any) -> str:
         f"- 当前角色: {role_id or '(未知)'}\n"
         f"- Wiki core 规则文件: {core_sources}\n"
         f"- Wiki 角色规则文件: {role_sources}\n"
+        f"- Wiki 当前用户: {user_current}\n"
         f"- Wiki 学习记录: {learnings}\n"
         f"- Wiki 错误记录: {errors}\n"
         f"- Wiki 需求记录: {feats}\n\n"
@@ -223,6 +248,13 @@ def handle(event: object) -> None:
         return
 
     content = _build_bootstrap_content(event)
+    try:
+        repo = _repo_root()
+        soul_ok = bool((repo / "skills" / "session-bootstrap" / "SOUL.md").exists())
+        ident_ok = bool((repo / "skills" / "session-bootstrap" / "IDENTITY.md").exists())
+        ctx["sessionBootstrapDiag"] = {"soul_found": soul_ok, "identity_found": ident_ok}
+    except Exception:
+        pass
     occupied = any(_is_record(f) and str(f.get("path")) == BOOT_PATH and not _is_bootstrap_file(f) for f in files)
     if occupied:
         return

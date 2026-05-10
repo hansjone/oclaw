@@ -20,7 +20,7 @@ from oclaw.runtime.tools.base import ToolSpec
 
 def _ffmpeg_exists() -> bool:
     try:
-        p = subprocess.run(["ffmpeg", "-version"], capture_output=True, text=True, timeout=3)
+        p = subprocess.run(["ffmpeg", "-version"], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=3)
         return p.returncode == 0
     except Exception:
         return False
@@ -41,6 +41,8 @@ def _ffprobe_json(path: Path) -> dict[str, Any] | None:
             ],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=8,
         )
         if p.returncode != 0:
@@ -179,6 +181,8 @@ def query_video_attachment_tool() -> ToolSpec:
                     ["ffmpeg", "-y", "-i", str(p), "-vn", "-ac", "1", "-ar", "16000", str(wav)],
                     capture_output=True,
                     text=True,
+                    encoding="utf-8",
+                    errors="replace",
                     timeout=60,
                 )
                 if not wav.exists() or wav.stat().st_size <= 0:

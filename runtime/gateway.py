@@ -42,7 +42,7 @@ from oclaw.runtime.session_auto_title import (
     finalize_auto_title,
 )
 from oclaw.runtime.tools.base import ToolRegistry
-from oclaw.runtime.tools.local_sdk import local_adapter_startup_self_check
+from oclaw.runtime.tools.public.local_sdk import local_adapter_startup_self_check
 
 logger = logging.getLogger(__name__)
 

@@ -42,12 +42,13 @@ def _session_bootstrap_content_signature(*, skill_binding_role: str | None, work
 
     targets: list[Path] = []
     # session-bootstrap static source files
-    targets.append((repo / "runtime" / "skills" / "session-bootstrap" / "SOUL.md").resolve())
-    targets.append((repo / "runtime" / "skills" / "session-bootstrap" / "IDENTITY.md").resolve())
+    targets.append((repo / "skills" / "session-bootstrap" / "SOUL.md").resolve())
+    targets.append((repo / "skills" / "session-bootstrap" / "IDENTITY.md").resolve())
     # wiki global memory/improvement sources
     targets.append((repo / "data" / "wiki" / "improvement" / "learnings.md").resolve())
     targets.append((repo / "data" / "wiki" / "improvement" / "errors.md").resolve())
     targets.append((repo / "data" / "wiki" / "improvement" / "feature-requests.md").resolve())
+    targets.append((repo / "data" / "wiki" / "users" / "current.md").resolve())
 
     core_dir = (repo / "data" / "wiki" / "core").resolve()
     if core_dir.exists() and core_dir.is_dir():
@@ -99,6 +100,7 @@ def _unified_skill_policy_guidance() -> str:
     # Global policy for all agents (including dynamic/ephemeral) — appended to base_system in build_executor_system_prompt.
     return (
         "## 技能使用政策（Skill Usage Policy）：\n"
+        "- 每次会话启动后，在进行文件/路径相关操作前，必须先读取 `skills/_workspace/public/path-convention/SKILL.md` 了解当前路径规范。\n"
         "- 如果用户问你有哪些技能（skill/技能），请直接根据已注入的技能目录及其 description 回答。\n"
         "- 不要为了“列出技能”而去读取 SKILL.md。只有在你确实需要某个技能的详细使用说明时，才读取对应 SKILL.md。\n"
         "- 当你需要技能细节时，请按目录中给出的 path 读取对应的 SKILL.md。\n"

@@ -23,7 +23,7 @@ Oclaw uses workspace-based prompt injection combined with event-driven hooks. Co
 └── hooks/                       # Custom hooks
     └── <hook-name>/
         ├── HOOK.md
-        └── handler.ts
+        └── handler.py
 ```
 
 ## 快速配置

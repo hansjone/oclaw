@@ -31,8 +31,6 @@ def _wiki_handlers() -> dict[str, Callable[[dict[str, Any]], dict[str, Any]]]:
     if spec is None or spec.loader is None:
         return {}
     mod = importlib.util.module_from_spec(spec)
-    # Register module before exec so decorators (e.g., @dataclass) can resolve
-    # cls.__module__ via sys.modules during import-time processing.
     sys.modules[spec.name] = mod
     spec.loader.exec_module(mod)  # type: ignore[assignment]
     fn = getattr(mod, "build_wiki_tool_specs", None)
@@ -67,7 +65,8 @@ def _status_tool(public_name: str, desc: str) -> ToolSpec:
         description=desc,
         parameters={"type": "object", "properties": {}, "required": [], "additionalProperties": False},
         handler=lambda args: _delegate("wiki_status", args),
-        tags=frozenset({"memory", "wiki", "curator"}),
+        tags=frozenset({"wiki", "curator"}),
+        risk_level="low",
         read_only=True,
     )
 
@@ -87,7 +86,8 @@ def _get_tool(public_name: str, desc: str) -> ToolSpec:
             "additionalProperties": False,
         },
         handler=lambda args: _delegate("wiki_get", args),
-        tags=frozenset({"memory", "wiki", "curator"}),
+        tags=frozenset({"wiki", "curator"}),
+        risk_level="low",
         read_only=True,
     )
 
@@ -108,7 +108,8 @@ def _search_tool(public_name: str, desc: str) -> ToolSpec:
             "additionalProperties": False,
         },
         handler=lambda args: _delegate("wiki_search", args),
-        tags=frozenset({"memory", "wiki", "curator"}),
+        tags=frozenset({"wiki", "curator"}),
+        risk_level="low",
         read_only=True,
     )
 
@@ -124,7 +125,8 @@ def _lint_tool(public_name: str, desc: str) -> ToolSpec:
             "additionalProperties": False,
         },
         handler=lambda args: _delegate("wiki_lint", args),
-        tags=frozenset({"memory", "wiki", "curator"}),
+        tags=frozenset({"wiki", "curator"}),
+        risk_level="low",
         read_only=True,
     )
 
@@ -144,8 +146,8 @@ def _apply_tool(public_name: str, desc: str) -> ToolSpec:
             "additionalProperties": False,
         },
         handler=lambda args: _delegate("wiki_apply", args),
-        tags=frozenset({"memory", "wiki", "curator", "write"}),
-        risk_level="high",
+        tags=frozenset({"wiki", "curator", "write"}),
+        risk_level="low",
         read_only=False,
     )
 

@@ -154,6 +154,8 @@ def _run_dep_install(command: list[str], *, cwd: Path) -> tuple[bool, str]:
             cwd=str(cwd),
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=600,
             check=False,
         )

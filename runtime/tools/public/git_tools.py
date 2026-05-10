@@ -15,6 +15,8 @@ def _git(command: str, *, cwd: str) -> dict[str, Any]:
         shell=True,
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         timeout=60.0,
     )
     out = (cp.stdout or "") + (("\n" + cp.stderr) if cp.stderr else "")

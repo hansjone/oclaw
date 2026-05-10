@@ -156,6 +156,8 @@ def _run(argv: list[str], *, cwd: Path, stdin_json: dict[str, Any], timeout_s: f
         argv,
         input=json.dumps(stdin_json, ensure_ascii=False),
         text=True,
+        encoding="utf-8",
+        errors="replace",
         capture_output=True,
         cwd=str(cwd),
         timeout=max(1, int(timeout_s)),

@@ -4,7 +4,7 @@ import tempfile
 from pathlib import Path
 
 from oclaw.runtime.tools.catalog import default_registry
-from oclaw.runtime.tools.local_sdk.adapter import LocalAdapter
+from oclaw.runtime.tools.public.local_sdk import LocalAdapter
 from oclaw.runtime.tools.public.edit_file_tool import edit_file_tool
 from oclaw.runtime.tools.public.run_command_tool import run_command_tool
 from oclaw.runtime.tools.public.read_file_tool import read_file_tool
@@ -13,7 +13,6 @@ from oclaw.runtime.tools.public_registry import clear_public_tool_cache
 from oclaw.runtime.tools.public.list_directory_tool import list_directory_tool
 from oclaw.runtime.tools.public.search_files_tool import search_files_tool
 from oclaw.runtime.tools.public.get_cwd_tool import get_cwd_tool
-from oclaw.runtime.tools.public.cd_tool import cd_tool
 from oclaw.runtime.tools.public.get_env_tool import get_env_tool
 from oclaw.runtime.tools.public.set_env_tool import set_env_tool
 
@@ -33,7 +32,6 @@ def test_local_public_read_tool_visible_by_default() -> None:
     assert "mkdir" not in names
     assert "delete_file" not in names
     assert "move_file" not in names
-    assert "cd" not in names
     assert "set_env" not in names
     assert "kill_process" not in names
 
@@ -54,7 +52,6 @@ def test_local_public_high_risk_tools_visible_when_enabled(monkeypatch) -> None:
     assert "mkdir" in names
     assert "delete_file" in names
     assert "move_file" in names
-    assert "cd" in names
     assert "set_env" in names
     assert "kill_process" in names
 
@@ -160,14 +157,10 @@ def test_p1_p2_read_tools_smoke(tmp_path: Path, monkeypatch) -> None:
     out_s = search_files_tool().handler({"pattern": "hell", "root": "d", "regex": False})
     assert out_s.get("ok") is True
     assert (out_s.get("count") or 0) >= 1
-    # get_cwd / cd
+    # get_cwd
     out_cwd0 = get_cwd_tool().handler({})
     assert out_cwd0.get("ok") is True
-    out_cd = cd_tool().handler({"cwd": "d"})
-    assert out_cd.get("ok") is True
-    out_cwd1 = get_cwd_tool().handler({})
-    assert out_cwd1.get("ok") is True
-    assert str(out_cwd1.get("cwd") or "").replace("\\", "/").endswith("/d")
+    assert str(out_cwd0.get("cwd") or "").replace("\\", "/").rstrip("/") == str(tmp_path).replace("\\", "/").rstrip("/")
     # get_env / set_env
     out_get0 = get_env_tool().handler({"key": "LOCAL_PUBLIC_TOOLS_TEST_KEY", "default": "x"})
     assert out_get0.get("ok") is True
@@ -176,6 +169,34 @@ def test_p1_p2_read_tools_smoke(tmp_path: Path, monkeypatch) -> None:
     out_get1 = get_env_tool().handler({"key": "LOCAL_PUBLIC_TOOLS_TEST_KEY"})
     assert out_get1.get("ok") is True
     assert out_get1.get("value") == "y"
+
+
+def test_get_cwd_returns_workspace_root_when_at_data_workspace(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("OPS_WORKSPACE_ROOT", str(tmp_path))
+    (tmp_path / "data" / "workspace").mkdir(parents=True, exist_ok=True)
+    adapter = LocalAdapter()
+
+    out_cd = adapter.cd(cwd="data/workspace")
+    assert out_cd.get("ok") is True
+
+    out_cwd = adapter.get_cwd()
+    assert out_cwd.get("ok") is True
+    norm = str(out_cwd.get("cwd") or "").replace("\\", "/").rstrip("/")
+    assert norm == str(tmp_path).replace("\\", "/").rstrip("/")
+
+
+def test_get_cwd_returns_workspace_root_even_after_cd(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("OPS_WORKSPACE_ROOT", str(tmp_path))
+    (tmp_path / "subdir").mkdir(parents=True, exist_ok=True)
+    adapter = LocalAdapter()
+
+    out_cd = adapter.cd(cwd="subdir")
+    assert out_cd.get("ok") is True
+
+    out_cwd = adapter.get_cwd()
+    assert out_cwd.get("ok") is True
+    norm = str(out_cwd.get("cwd") or "").replace("\\", "/").rstrip("/")
+    assert norm == str(tmp_path).replace("\\", "/").rstrip("/")
 
 
 def test_run_command_does_not_follow_cd_state(tmp_path: Path, monkeypatch) -> None:
@@ -194,8 +215,8 @@ def test_run_command_does_not_follow_cd_state(tmp_path: Path, monkeypatch) -> No
 
     out_run = adapter.run_command(command='python -c "import os; print(os.path.basename(os.getcwd()))"', timeout=20)
     assert out_run.get("ok") is True, out_run
-    # If run_command follows cd state this would be "subdir"; default should be data/workspace.
-    assert str(out_run.get("cwd") or "").replace("\\", "/").rstrip("/").endswith("/data/workspace")
+    # If run_command follows cd state this would be "subdir"; default should be workspace root.
+    assert str(out_run.get("cwd") or "").replace("\\", "/").rstrip("/") == str(tmp_path).replace("\\", "/").rstrip("/")
 
 
 def test_run_command_reads_db_toggle_without_ops_db_env(tmp_path: Path, monkeypatch) -> None:

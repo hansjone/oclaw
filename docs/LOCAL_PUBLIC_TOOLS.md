@@ -43,5 +43,5 @@ This project exposes local atomic capabilities as shared `public` tools for all 
 
 ## Path behavior defaults
 
-- `run_command`: when `cwd` is omitted, it runs in `data/workspace`.
+- `run_command`: when `cwd` is omitted, it runs in workspace root.
 - `write_file`: absolute path is used directly; relative path is written under `data/workspace`.

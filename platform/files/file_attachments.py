@@ -54,7 +54,7 @@ def _sniff_image_mime(data: bytes) -> str | None:
 
 def _ffprobe_exists() -> bool:
     try:
-        p = subprocess.run(["ffprobe", "-version"], capture_output=True, text=True, timeout=3)
+        p = subprocess.run(["ffprobe", "-version"], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=3)
         return p.returncode == 0
     except Exception:
         return False
@@ -115,6 +115,8 @@ def _ffprobe_video_meta(path: Path) -> dict[str, Any]:
             ["ffprobe", "-v", "error", "-print_format", "json", "-show_format", "-show_streams", str(path)],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=8,
         )
         if p.returncode != 0:
