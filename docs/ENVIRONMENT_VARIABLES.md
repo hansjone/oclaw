@@ -338,7 +338,27 @@
 
 ## 图片专家专线（``AIA_IMAGE_EXPERT_*``）
 
-**路由 specialist=`image`** 时由 **`send_legacy_image_messages`** 调用；可走 native `{"image"}`/`{"text"}` 或 compatible-mode **`image_url` + `text` 块状**载荷。**不使用 `AIA_OCR_*`**，也不在图片专家链路继承主会话模型的 Base URL/API Key。
+**路由 specialist=`image`** 时由 **`send_legacy_image_messages`** 调用。**`compatible-mode/v1` + `/chat/completions`** 与 OpenAI 视觉接口一致：每条 `content[]` 必须含 **`type`**（默认使用 `image_url` + `text`）。若网关只吃 DashScope 无 `type` 的 `{"image"}`/`{"text}`，再设 **`AIA_IMAGE_EXPERT_COMPAT_USE_DASHSCOPE_NATIVE_BLOCKS=1`**。**不使用 `AIA_OCR_*`**。
+
+- `AIA_IMAGE_EXPERT_COMPAT_USE_DASHSCOPE_NATIVE_BLOCKS`
+  - 默认：未设置（等价关闭）
+  - 作用：设为 `1` 时，在 **`compatible-mode`** Base URL 上仍发送 DashScope 文档形态（无 `type` 的 `image`/`text` 块）。仅当你的兼容网关明确支持该形态时使用；否则会遇到上游 `missing_required_parameter … content[n].type`。
+  - 生效：`oclaw/platform/llm/image_legacy_client.py`
+
+- `AIA_IMAGE_EXPERT_MAX_INPUT_IMAGES`
+  - 默认：`8`（上限 `12`）
+  - 作用：单轮发往模型的输入图数量上限（与 `collect_legacy_lane_images_from_attachments` / `send_legacy_image_messages` 裁剪一致）。
+  - 生效：`oclaw/platform/llm/image_legacy_client.py`
+
+- `AIA_IMAGE_SPECIALIST_SESSION_IMAGE_FALLBACK`
+  - 默认：未设置（启用）
+  - 作用：设为 `0` / `false` / `off` 时，**关闭** Chat 图片专家在多轮对话中「本轮无新图」时从会话历史继承图片（否则会在助手产出图与用户上传图之间回退）。关闭后与旧行为一致：无附件即提示不上图。
+  - 生效：`oclaw/platform/llm/image_legacy_client.py`（经 `runtime/direct_loop.py` 的 `_maybe_image_specialist_legacy_gateway_turn` 调用）
+
+- `AIA_IMAGE_SPECIALIST_FALLBACK_SCAN_MESSAGES`
+  - 默认：`400`
+  - 作用：历史回退时最多加载的最近消息条数（与 `SqliteStore.get_messages` 上限一致范围内）。
+  - 生效：`oclaw/platform/llm/image_legacy_client.py`
 
 - `AIA_IMAGE_EXPERT_BASE_URL`
   - 默认：无（必填，除非在代码中为 `send_legacy_image_messages(..., base_url=...)` 传入）
@@ -418,6 +438,12 @@
   - 默认：`8787`
   - 作用：网关监听端口
   - 生效：`oclaw/app_server/fastapi_main.py`, `oclaw/runtime/operations/main.py`
+
+- `OCLAW_UVICORN_WS_MAX_SIZE`
+  - 默认：未设置时由 `oclaw.interfaces.http.fastapi_app:main` 使用与 `MAX_PAYLOAD_BYTES`（约 25MB）相同的值传入 uvicorn `ws_max_size`
+  - 作用：**uvicorn 对 WebSocket 单帧的字节上限**（与 hello 里 `maxPayload` 应对齐）。uvicorn 自带默认约 **16MB**；两张高清图经 base64 塞进一条 `chat.send` 常超过 16MB，服务端直接断连，浏览器侧表现为 **`ws_closed`** / 请求失败
+  - 说明：若用命令行 `uvicorn ...` 启动而未走 `fastapi_app.main()`，需自行加 `--ws-max-size` 或设置本变量（取决于你的启动入口是否读取）
+  - 生效：`oclaw/interfaces/http/fastapi_app.py`
 
 - `AIA_RUNTIME_LOG_DIR`
   - 默认：空（使用内部默认目录）

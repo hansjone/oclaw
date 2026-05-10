@@ -1134,13 +1134,17 @@ def _maybe_image_specialist_legacy_gateway_turn(
 
     from oclaw.platform.llm.image_legacy_client import (
         IMAGE_SPECIALIST_DEFAULT_PROMPT_ZH,
-        collect_legacy_lane_images_from_attachments,
+        collect_legacy_lane_images_with_session_fallback,
         legacy_image_assistant_body_with_placeholder,
         legacy_image_turn_bundle,
         send_legacy_image_messages,
     )
 
-    imgs = collect_legacy_lane_images_from_attachments(attachments)
+    imgs, legacy_img_src = collect_legacy_lane_images_with_session_fallback(
+        store=store,
+        session_id=session_id,
+        attachments=attachments,
+    )
     if not imgs:
         hint_en = "Image specialist received no image input. Attach an image and try again."
         hint_zh = "图片专家未收到可用的图片输入；请先上传或附上图片后再试。"
@@ -1160,6 +1164,11 @@ def _maybe_image_specialist_legacy_gateway_turn(
         )
 
     if on_progress:
+        if legacy_img_src.endswith("_history"):
+            if str(lang or "").startswith("en"):
+                on_progress("oclaw: reusing earlier session images (no new upload this turn)…")
+            else:
+                on_progress("oclaw: 本轮未上传新图，使用会话中较早的图片作为输入…")
         on_progress("oclaw: image specialist (legacy multimodal HTTP)…")
 
     prompt_plain = str(user_text or "").strip()

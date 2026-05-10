@@ -17,6 +17,7 @@ const I18N = {
     "chat.noSessions": "暂无会话，点击新建开始。",
     "chat.loading": "加载中…",
     "chat.sending": "发送中…",
+    "chat.encodingAttachments": "编码附件中…",
     "chat.error": "请求失败",
     "chat.loadMore": "加载更多",
     "chat.sessionMenu": "会话操作",
@@ -193,6 +194,7 @@ const I18N = {
     "chat.noSessions": "No sessions yet. Create one to start.",
     "chat.loading": "Loading…",
     "chat.sending": "Sending…",
+    "chat.encodingAttachments": "Encoding attachments…",
     "chat.error": "Request failed",
     "chat.loadMore": "Load more",
     "chat.sessionMenu": "Session actions",
@@ -2588,12 +2590,17 @@ function syncAuthUserLabel() {
 }
 
 async function fileToPayloadEntry(file) {
-  const buf = await file.arrayBuffer();
-  const bytes = new Uint8Array(buf);
-  let binary = "";
-  for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
-  const data_base64 = btoa(binary);
-  return { name: file.name || "file", data_base64 };
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => {
+      const dataUrl = String(r.result || "");
+      const idx = dataUrl.indexOf(",");
+      const data_base64 = idx >= 0 ? dataUrl.slice(idx + 1) : dataUrl;
+      resolve({ name: file.name || "file", data_base64 });
+    };
+    r.onerror = () => reject(r.error || new Error("file_read_failed"));
+    r.readAsDataURL(file);
+  });
 }
 
 async function renderLogin() {
@@ -4939,16 +4946,10 @@ ${autoLimit ? `<div style="margin-top:8px;"><span class="muted">auto-added claus
     btnSend.disabled = true;
     statusBar.textContent = t("chat.sending");
     let attPayload = null;
-    if (filesSnapshot.length) {
-      statusBar.textContent = currentLang === "zh" ? "准备附件中…" : "Preparing attachments…";
-      attPayload = await Promise.all(filesSnapshot.map((f) => fileToPayloadEntry(f)));
-      pendingFiles = [];
-      syncPendingUi();
-    }
     const userText =
       textRaw ||
       (hasFiles ? (currentLang === "zh" ? "（已上传附件）" : "(attachment uploaded)") : "");
-    /** 发送过程中用本地 blob 预览，避免只显示文件名直到回合结束再拉历史 */
+    /** 发送过程中用本地 blob 预览；先插入气泡再编码，避免大图 base64 阻塞主线程时长时间只有「准备附件」无预览 */
     const previewBlobUrls = [];
     try {
       textarea.value = "";
@@ -4974,6 +4975,13 @@ ${autoLimit ? `<div style="margin-top:8px;"><span class="muted">auto-added claus
       messagesEl.appendChild(userWrap);
       scrollMessagesToBottom(true);
       fitComposerTextarea();
+      if (filesSnapshot.length) {
+        await new Promise((resolve) => requestAnimationFrame(() => resolve()));
+        statusBar.textContent = t("chat.encodingAttachments");
+        attPayload = await Promise.all(filesSnapshot.map((f) => fileToPayloadEntry(f)));
+        pendingFiles = [];
+        syncPendingUi();
+      }
       const turnId = `idem_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
       statusBar.textContent = currentLang === "zh" ? "连接中…" : "Connecting…";
       const doneMeta = await sendMessageStream(userText, attPayload, turnId);

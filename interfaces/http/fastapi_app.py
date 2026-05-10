@@ -20,6 +20,7 @@ from fastapi.staticfiles import StaticFiles
 from oclaw.runtime.application.gateway import process_inbound_payload_usecase
 from oclaw.interfaces.gateway.http_adapter import dispatch_gateway_http_method
 from oclaw.interfaces.ws import ws_gateway_loop
+from oclaw.interfaces.ws.common import MAX_PAYLOAD_BYTES
 from oclaw.interfaces.admin.routes import admin_static_dir, build_admin_router
 from oclaw.runtime.agents.agent_scope import list_agent_ids, resolve_agent_workspace_dir, resolve_default_agent_id
 from oclaw.interfaces.gateway.server_startup_plugins import prepare_gateway_plugin_bootstrap
@@ -305,7 +306,21 @@ def main() -> int:
         import uvicorn
     except Exception as exc:
         raise RuntimeError("missing dependency: uvicorn (pip install -r requirements.txt)") from exc
-    uvicorn.run("oclaw.interfaces.http.fastapi_app:create_app", host=host, port=port, reload=False, factory=True)
+    # Uvicorn default ws_max_size is 16MB; two photos as base64 in one chat.send often exceed that and the
+    # server drops the socket (client sees Error: ws_closed). Default aligns with WS hello maxPayload.
+    try:
+        ws_max_size = int(os.getenv("OCLAW_UVICORN_WS_MAX_SIZE") or str(MAX_PAYLOAD_BYTES))
+    except Exception:
+        ws_max_size = int(MAX_PAYLOAD_BYTES)
+    ws_max_size = max(1024, min(int(ws_max_size), 200_000_000))
+    uvicorn.run(
+        "oclaw.interfaces.http.fastapi_app:create_app",
+        host=host,
+        port=port,
+        reload=False,
+        factory=True,
+        ws_max_size=ws_max_size,
+    )
     return 0
 
 

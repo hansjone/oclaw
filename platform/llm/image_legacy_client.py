@@ -21,7 +21,7 @@ SDK-style extras:
   use ``DASHSCOPE_IMAGE_*`` env vars or JSON in ``AIA_IMAGE_EXPERT_REQUEST_EXTRA`` (alias: ``AIA_LEGACY_IMAGE_REQUEST_EXTRA``).
 
 Compatibility roots:
-- For OpenAI-compat multimodal, use ``AIA_IMAGE_EXPERT_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1`` etc.
+- ``compatible-mode/v1`` **默认**使用 OpenAI Chat Completions 视觉块（每条含 ``type``：``image_url`` / ``text``）；百炼兼容网关否则会报 ``missing_required_parameter … content[n].type``。若网关只吃 DashScope 文档形态（无 ``type`` 的 ``{"image"}``/``{"text"}``），设置 ``AIA_IMAGE_EXPERT_COMPAT_USE_DASHSCOPE_NATIVE_BLOCKS=1``。
 
 For OpenAI-style ``image_url`` chat payloads (tool OCR / multimodal downgrade), use :mod:`oclaw.platform.llm.image_ocr_client`.
 
@@ -33,6 +33,7 @@ from __future__ import annotations
 import base64
 import json
 import os
+import re
 import sys
 from typing import Any
 
@@ -63,15 +64,46 @@ IMAGE_SPECIALIST_DEFAULT_PROMPT_ZH = (
 )
 
 
+def _max_legacy_input_images() -> int:
+    try:
+        v = int(os.getenv("AIA_IMAGE_EXPERT_MAX_INPUT_IMAGES") or "8")
+    except Exception:
+        v = 8
+    return max(1, min(int(v), 12))
+
+
+def parse_message_attachments_json(raw: Any) -> list[dict[str, Any]]:
+    """Decode ``chat_message.attachments`` (JSON string, list, or dict) into attachment dict rows."""
+    if raw is None:
+        return []
+    if isinstance(raw, list):
+        return [x for x in raw if isinstance(x, dict)]
+    if isinstance(raw, dict):
+        return [raw]
+    if isinstance(raw, str):
+        s = raw.strip()
+        if not s or s.lower() == "null":
+            return []
+        try:
+            v = json.loads(s)
+            if isinstance(v, list):
+                return [x for x in v if isinstance(x, dict)]
+            if isinstance(v, dict):
+                return [v]
+        except Exception:
+            pass
+    return []
+
+
 def collect_legacy_lane_images_from_attachments(
     attachments: list[dict[str, Any]] | None,
     *,
-    max_images: int = 3,
+    max_images: int | None = None,
 ) -> list[str]:
     """Normalize incoming UI/store attachments to URLs/data URLs for :func:`send_legacy_image_messages`."""
     from oclaw.platform.files.attachment_assets import attachment_id_to_data_url
 
-    cap = max(1, min(int(max_images), 12))
+    cap = max(1, min(int(max_images if max_images is not None else _max_legacy_input_images()), 12))
     out: list[str] = []
     for att in attachments or []:
         if not isinstance(att, dict):
@@ -96,9 +128,89 @@ def collect_legacy_lane_images_from_attachments(
             u = str(att.get("url") or "").strip()
             if u:
                 out.append(u)
+        elif t == "relay_pointer":
+            mime = str(att.get("mime") or "").strip().lower()
+            if mime and not mime.startswith("image/"):
+                continue
+            uri = str(att.get("pointer_uri") or "").strip()
+            aid = str(att.get("attachment_id") or "").strip()
+            if not aid and uri:
+                m = re.match(r"^relay://attachments/[^/]+/([a-f0-9]{8,128})$", uri, re.I)
+                if m:
+                    aid = str(m.group(1)).lower()
+            if aid:
+                data_url = attachment_id_to_data_url(aid, mime=str(att.get("mime") or ""))
+                if data_url:
+                    out.append(data_url)
         if len(out) >= cap:
             break
     return out
+
+
+def collect_legacy_lane_images_with_session_fallback(
+    *,
+    store: Any,
+    session_id: str,
+    attachments: list[dict[str, Any]] | None,
+    max_images: int | None = None,
+) -> tuple[list[str], str]:
+    """Resolve legacy multimodal image URLs for the current turn, then session history.
+
+    When the current request has no embedded/URL images, scan persisted messages (newest→oldest):
+    1) assistant rows with usable image attachments (e.g. last model output);
+    2) user rows with images.
+
+    The trailing user bubble for this turn (text-only) is skipped when scanning.
+
+    Returns ``(images, source)`` where ``source`` is ``current``, ``assistant_history``,
+    ``user_history``, or empty when nothing was found.
+
+    Disable with ``AIA_IMAGE_SPECIALIST_SESSION_IMAGE_FALLBACK=0`` (default: on).
+    """
+    cap = max_images if max_images is not None else _max_legacy_input_images()
+    primary = collect_legacy_lane_images_from_attachments(attachments, max_images=cap)
+    if primary:
+        return primary, "current"
+    if str(os.getenv("AIA_IMAGE_SPECIALIST_SESSION_IMAGE_FALLBACK") or "").strip().lower() in (
+        "0",
+        "false",
+        "no",
+        "off",
+    ):
+        return [], ""
+
+    try:
+        scan_n = int(os.getenv("AIA_IMAGE_SPECIALIST_FALLBACK_SCAN_MESSAGES") or "400")
+    except Exception:
+        scan_n = 400
+    scan_n = max(1, min(scan_n, 2000))
+
+    try:
+        msgs = store.get_messages(str(session_id or "").strip(), limit=scan_n)
+    except Exception:
+        msgs = []
+
+    if not msgs:
+        return [], ""
+
+    hi = len(msgs) - 1
+    if hi >= 0:
+        last = msgs[hi]
+        if str(getattr(last, "role", "") or "").strip().lower() == "user":
+            la = parse_message_attachments_json(getattr(last, "attachments", None))
+            if not collect_legacy_lane_images_from_attachments(la, max_images=1):
+                hi -= 1
+
+    for phase in ("assistant", "user"):
+        for i in range(hi, -1, -1):
+            m = msgs[i]
+            if str(getattr(m, "role", "") or "").strip().lower() != phase:
+                continue
+            la = parse_message_attachments_json(getattr(m, "attachments", None))
+            got = collect_legacy_lane_images_from_attachments(la, max_images=cap)
+            if got:
+                return got, f"{phase}_history"
+    return [], ""
 
 
 def normalize_legacy_output_image_urls(resp_images: Any, *, max_items: int = 12) -> list[str]:
@@ -340,12 +452,26 @@ def _dashscope_image_env_kw() -> dict[str, Any]:
 
 
 def _openai_compatible_vision_content(images: list[str], prompt_text: str) -> list[dict[str, Any]]:
-    """DashScope *compatible-mode* / OpenAI Chat Completions vision shape (NOT ``{"image":..., "text":...}``)."""
+    """OpenAI Chat Completions vision shape (``type`` + ``image_url`` / ``text``).
+
+    Required for typical ``compatible-mode/v1`` ``/chat/completions`` (each part must have ``type``).
+    Image URLs may be ``https://…`` or ``data:image/…;base64,…``.
+    """
     blocks: list[dict[str, Any]] = []
     for img in images:
         blocks.append({"type": "image_url", "image_url": {"url": img}})
     blocks.append({"type": "text", "text": str(prompt_text or "").strip()})
     return blocks
+
+
+def _compat_use_dashscope_native_blocks() -> bool:
+    """When ``1``, ``compatible-mode`` URLs use DashScope doc blocks without ``type`` (see :func:`_http_content_blocks`)."""
+    return str(os.getenv("AIA_IMAGE_EXPERT_COMPAT_USE_DASHSCOPE_NATIVE_BLOCKS") or "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
 
 
 def _model_triggers_dashscope_native_fallback(model_name: str) -> bool:
@@ -408,7 +534,7 @@ def send_legacy_image_messages(
     if not images:
         return {"ok": False, "error": "at least one image input is required"}
 
-    raw_selected = [str(x).strip() for x in images if str(x).strip()][:3]
+    raw_selected = [str(x).strip() for x in images if str(x).strip()][: _max_legacy_input_images()]
     selected: list[str] = []
     input_kind: list[str] = []
     for img in raw_selected:
@@ -423,10 +549,11 @@ def send_legacy_image_messages(
     if not selected:
         return {"ok": False, "error": "no usable image input (expected URL or data URL)"}
 
-    # Compatible-mode expects OpenAI-style ``image_url`` + ``text`` parts; DashScope-native HTTP uses plain ``{"image"}`` blocks.
-    use_openai_blocks = "compatible-mode" in resolved_base_url.lower()
+    # compatible-mode /chat/completions is OpenAI-shaped: every content part needs ``type`` (else 400 missing content[n].type).
+    # Native DashScope HTTP (non-compatible base) uses ``{"image"}`` / ``{"text"}`` without ``type``.
+    use_compatible_base = "compatible-mode" in resolved_base_url.lower()
     prompt_plain = str(prompt or "").strip() or render_prompt("image/default_edit_prompt.zh.md", strict=True)
-    if use_openai_blocks:
+    if use_compatible_base and not _compat_use_dashscope_native_blocks():
         content_multi = _openai_compatible_vision_content(selected, prompt_plain)
     else:
         content_multi = _http_content_blocks(selected, prompt, typed=False)
@@ -482,7 +609,7 @@ def send_legacy_image_messages(
         if (
             not str(text or "").strip()
             and not out_images
-            and use_openai_blocks
+            and use_compatible_base
             and _model_triggers_dashscope_native_fallback(model_name)
         ):
             compat_extract_diag = build_extract_diag_empty(body)
@@ -596,6 +723,8 @@ def send_legacy_image_messages(
 __all__ = [
     "IMAGE_SPECIALIST_DEFAULT_PROMPT_ZH",
     "collect_legacy_lane_images_from_attachments",
+    "collect_legacy_lane_images_with_session_fallback",
+    "parse_message_attachments_json",
     "legacy_image_assistant_body_with_placeholder",
     "legacy_image_turn_bundle",
     "materialize_legacy_response_output_attachments",

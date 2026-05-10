@@ -21,8 +21,8 @@
 ## 2. 运行时数据流（网关 → 落库）
 
 1. **`run_oclaw_direct_loop`** 在用户消息落库后立刻调用 **`_maybe_image_specialist_legacy_gateway_turn`**。
-2. **输入附件**：`collect_legacy_lane_images_from_attachments` 将 UI 附件规范为 `data:` URL 或 HTTP URL（`image_ref` / `input_image` / `image_url` 等）。
-3. **无图**：直接写入一条 `assistant` / `assistant_text` 提示语并返回，不调用上游。
+2. **输入附件**：`collect_legacy_lane_images_from_attachments` 将 UI 附件规范为 `data:` URL 或 HTTP URL（`image_ref` / `input_image` / `image_url` / `relay_pointer` 等）。若本轮无可用图且未关闭 **`AIA_IMAGE_SPECIALIST_SESSION_IMAGE_FALLBACK`**，则 **`collect_legacy_lane_images_with_session_fallback`** 按「最近一条带图的助手消息 → 更早的用户上传」从落库历史中补齐。**非 compatible** 的 native 网关：`messages[0].content` 为 DashScope 文档形态（若干 **`{"image": …}`** + **`{"text": …}`**）。**`compatible-mode/v1`** 默认改为 OpenAI 形状（每条含 **`type`**：`image_url` / `text`），否则上游常报缺少 `content[n].type`；仅当网关明确要求无 `type` 的旧形态时设 **`AIA_IMAGE_EXPERT_COMPAT_USE_DASHSCOPE_NATIVE_BLOCKS=1`**。
+3. **仍无图**（本轮与历史均未解析出输入图）：直接写入一条 `assistant` / `assistant_text` 提示语并返回，不调用上游。
 4. **有图**：调用 **`send_legacy_image_messages`**（`/chat/completions` 兼容路径，非 Responses API）。
 5. **输出解析**：**`legacy_image_turn_bundle`**  
    - 文本可为空；若有生成图则 **`materialize_legacy_response_output_attachments`** 写入本地 blob，产出 **`image_ref`**（或退化为 **`image_url`**）。
