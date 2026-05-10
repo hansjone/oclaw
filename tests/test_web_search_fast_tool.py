@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
+from oclaw.platform.config.runtime_paths import runtime_skills_root
 from oclaw.runtime.tools.public.web_search_fast_tool import _ENGINE_URLS, _normalize_engine_name, web_search_fast_tool
 
 
@@ -131,9 +131,7 @@ def test_web_search_fast_engine_alias_from_skill_config_name(monkeypatch) -> Non
 
 def test_web_search_fast_covers_all_multi_search_engine_config_names() -> None:
     config_path = (
-        Path(__file__).resolve().parents[1]
-        / "runtime"
-        / "skills"
+        runtime_skills_root()
         / "_workspace"
         / "generalist"
         / "multi-search-engine"
