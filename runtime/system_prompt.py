@@ -98,6 +98,7 @@ def _executor_prompt_settings_signature(store: Any) -> tuple[str, ...]:
 def _unified_skill_policy_guidance() -> str:
     # Global policy for all agents (including dynamic/ephemeral) — appended to base_system in build_executor_system_prompt.
     return (
+        "## 技能使用政策（Skill Usage Policy）：\n"
         "- 如果用户问你有哪些技能（skill/技能），请直接根据已注入的技能目录及其 description 回答。\n"
         "- 不要为了“列出技能”而去读取 SKILL.md。只有在你确实需要某个技能的详细使用说明时，才读取对应 SKILL.md。\n"
         "- 当你需要技能细节时，请按目录中给出的 path 读取对应的 SKILL.md。\n"
@@ -113,6 +114,8 @@ def _unified_skill_policy_guidance() -> str:
         "- 如果脚本依赖相对路径（例如 `.learnings/`），请将工作目录设置为用户工作区。\n"
         "- 在没有显式工具调用成功结果前，不要假设脚本已经执行。\n"
         "- 在 Windows 上，`.sh` 可能需要 Git Bash、WSL 或等效环境。\n"
+        "- 工具调用必须通过模型的原生 `tool_calls` 协议返回；不要在正文输出 DSML/XML/工具协议 JSON 模板。\n"
+        "- 若当前模型链路不支持原生 `tool_calls`，请用自然语言明确说明“当前无法发起工具调用”，并请求切换到支持该协议的链路；不要伪造或模拟工具调用。\n"
         "- 当用户目标是“安装 skill/技能”时，必须遵循 `oclaw-skill-manager` 的安装策略，并以其为唯一规范来源。\n"
         "- 安装路径强约束：仅允许 `skill_auto_install`（`_workspace` lane）；不得改用任何非 auto 路径或脚本绕过。\n"
         "- 严禁臆测前置条件：不要把未在规范中声明的环境变量、端口、服务启动状态当作必需前提。\n"
