@@ -551,8 +551,11 @@ class OpenAIChatModel(ChatModel):
         reasoning_parts = getattr(msg, "reasoning_content", None) or ""
         reasoning_text = str(reasoning_parts).strip() if reasoning_parts else ""
         content = msg.content or ""
-        if on_token and content:
-            on_token(content)
+        if on_token:
+            if reasoning_text:
+                on_token(reasoning_text)
+            if content:
+                on_token(content)
 
         tool_calls: list[LLMToolCall] = []
         if msg.tool_calls:
@@ -620,6 +623,8 @@ class OpenAIChatModel(ChatModel):
                 rc = getattr(delta, "reasoning_content", None) or ""
                 if rc:
                     reasoning_parts.append(rc)
+                    if on_token:
+                        on_token(rc)
                 if delta.tool_calls:
                     for tc in delta.tool_calls:
                         idx = int(tc.index)

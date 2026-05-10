@@ -1730,6 +1730,21 @@ function formatToolPanelText(name, payload, options = {}) {
   };
   const n = String(name || "").trim() || "tool";
   const p = payload && typeof payload === "object" ? payload : {};
+  if (String(p.phase || "") === "call" && (p.tool_name != null || p.arguments !== undefined)) {
+    const tn = String(p.tool_name || "").trim() || "tool";
+    let argsStr = "";
+    try {
+      argsStr =
+        p.arguments && typeof p.arguments === "object"
+          ? JSON.stringify(p.arguments, null, 2)
+          : String(p.arguments ?? "");
+    } catch (_) {
+      argsStr = String(p.arguments ?? "");
+    }
+    const tid = String(p.tool_call_id || "").trim();
+    const head = currentLang === "zh" ? `[调用] ${tn}` : `[call] ${tn}`;
+    return normalizeStreamText([head, tid ? `tool_call_id: ${tid}` : "", "", argsStr].filter(Boolean).join("\n"));
+  }
   const r = p.result && typeof p.result === "object" ? p.result : p;
   // SQL audit payload: keep line breaks and key fields visible.
   if (r && typeof r === "object" && (r.input_sql || r.executed_sql || r.sql_guard)) {
@@ -4370,16 +4385,15 @@ async function renderChatUi() {
             const title = String(seg.title || "tool");
             const body = String(seg.body || "");
             const images = Array.isArray(seg.images) ? seg.images : [];
-            if (!showToolOutput && !images.length) continue;
+            // Live stream: always render tool cards from session.tool so过程态完整；showToolOutput 仍用于历史聚合气泡。
             flushTextBuf();
             const audit = seg.sqlAudit && typeof seg.sqlAudit === "object" ? seg.sqlAudit : null;
-            if (showToolOutput) {
-              if (audit) {
-                const guard = audit.guard && typeof audit.guard === "object" ? audit.guard : {};
-                const autoLimit = _sqlLimitSuffix(audit.inputSql, audit.executedSql);
-                const executedDiffHtml = _renderExecutedSqlWithAddedHighlight(audit.inputSql, audit.executedSql);
-                blocks.push(
-                  `<details class="chat-msg__reasoning"><summary>${escapeHtml(title)} · SQL audit</summary>
+            if (audit) {
+              const guard = audit.guard && typeof audit.guard === "object" ? audit.guard : {};
+              const autoLimit = _sqlLimitSuffix(audit.inputSql, audit.executedSql);
+              const executedDiffHtml = _renderExecutedSqlWithAddedHighlight(audit.inputSql, audit.executedSql);
+              blocks.push(
+                `<details class="chat-msg__reasoning"><summary>${escapeHtml(title)} · SQL audit</summary>
 <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px;">
   <div><div class="muted" style="margin-bottom:4px;">input SQL</div><pre class="chat-msg__reasoning-pre">${escapeHtml(String(audit.inputSql || ""))}</pre></div>
   <div><div class="muted" style="margin-bottom:4px;">executed SQL (added highlighted)</div><pre class="chat-msg__reasoning-pre">${executedDiffHtml}</pre></div>
@@ -4394,12 +4408,11 @@ ${autoLimit ? `<div style="margin-top:8px;"><span class="muted">auto-added claus
   rows_returned=${escapeHtml(String(audit.rowsReturned != null ? audit.rowsReturned : ""))}
 </div>
 </details>`,
-                );
-              } else {
-                blocks.push(
-                  `<details class="chat-msg__reasoning"><summary>${escapeHtml(title)}</summary><pre class="chat-msg__reasoning-pre">${escapeHtml(body)}</pre></details>`,
-                );
-              }
+              );
+            } else {
+              blocks.push(
+                `<details class="chat-msg__reasoning"><summary>${escapeHtml(title)}</summary><pre class="chat-msg__reasoning-pre">${escapeHtml(body)}</pre></details>`,
+              );
             }
             for (const im of images) {
               const src = String((im && im.src) || "").trim();
@@ -4508,6 +4521,14 @@ ${autoLimit ? `<div style="margin-top:8px;"><span class="muted">auto-added claus
       const liveTag = currentLang === "zh" ? "[实时全量]" : "[LIVE FULL]";
       const key = `${name}:${++toolSeq}`;
       const rawPayload = p.payload != null ? p.payload : p;
+      const titleTool =
+        rawPayload && typeof rawPayload === "object" && String(rawPayload.tool_name || "").trim()
+          ? String(rawPayload.tool_name || "").trim()
+          : "";
+      const displayName =
+        name === "tool_use_call" && titleTool
+          ? `${currentLang === "zh" ? "调用" : "call"} · ${titleTool}`
+          : name;
       const body = formatToolPanelText(name, rawPayload, { streamMode: true });
       const sqlAudit = extractSqlAuditPayload(rawPayload);
       const images = extractToolImageItems(rawPayload);
@@ -4536,7 +4557,14 @@ ${autoLimit ? `<div style="margin-top:8px;"><span class="muted">auto-added claus
         return false;
       };
       if (_containsRefAttachments(rawPayload)) sawStreamToolRefAttachments = true;
-      chatStreamSegments.push({ type: "tool", key, title: `${name} ${liveTag}`, body, sqlAudit, images });
+      chatStreamSegments.push({
+        type: "tool",
+        key,
+        title: `${displayName} ${liveTag}`.trim(),
+        body,
+        sqlAudit,
+        images,
+      });
     };
     const appendFinalAssistant = async (message, fallbackText) => {
       const wsAttachments =

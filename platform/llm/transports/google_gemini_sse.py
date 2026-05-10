@@ -224,6 +224,8 @@ class GoogleGeminiChatModel(ChatModel):
                                 txt = str(p.get("text") or "")
                                 if txt:
                                     thinking_parts.append(txt)
+                                    if on_token:
+                                        on_token(txt)
                                 sig = p.get("thoughtSignature")
                                 if isinstance(sig, str) and sig:
                                     thinking_signature = sig

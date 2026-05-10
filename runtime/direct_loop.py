@@ -1354,6 +1354,22 @@ def run_oclaw_direct_loop(
             # force one no-tool synthesis pass to guarantee a visible assistant body.
             hit_tool_round_limit = True
 
+        # Stream UI: emit one session.tool per pending call before execution (tool_use_result fires after).
+        if callable(on_tool_ui):
+            for tc in step.llm_tool_calls:
+                try:
+                    on_tool_ui(
+                        "tool_use_call",
+                        {
+                            "phase": "call",
+                            "tool_name": str(getattr(tc, "name", "") or ""),
+                            "tool_call_id": str(getattr(tc, "id", "") or ""),
+                            "arguments": dict(getattr(tc, "arguments", {}) or {}),
+                        },
+                    )
+                except Exception:
+                    pass
+
         elapsed_ms, results_by_id = _execute_tool_step(
             skill_exec=skill_exec,
             store=store,
