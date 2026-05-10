@@ -74,6 +74,6 @@ This repository now uses **repo-root relative** runtime wiring.
 - Role context is loaded from `oclaw/runtime/workspaces/*`.
 - Skills root priority:
   1. `AIA_SKILLS_ROOT`
-  2. `oclaw/runtime/skills`
-  3. `skills/` (legacy fallback)
+  2. `oclaw/skills`（仓库根）
+  3. `oclaw/runtime/skills`（旧布局，若仍存在则 `runtime_skills_root()` 会回退）
 

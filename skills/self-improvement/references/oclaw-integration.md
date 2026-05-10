@@ -37,7 +37,7 @@ clawdhub install self-improving-agent
 Or copy manually:
 
 ```bash
-cp -r self-improving-agent ~/.oclaw/runtime/skills/
+cp -r self-improving-agent ~/.oclaw/skills/
 ```
 
 ### 2. Install the Hook (Optional)

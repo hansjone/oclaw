@@ -23,7 +23,7 @@ Create `.claude/settings.json` in your project root:
         "hooks": [
           {
             "type": "command",
-            "command": "./runtime/skills/self-improvement/scripts/activator.sh"
+            "command": "./skills/self-improvement/scripts/activator.sh"
           }
         ]
       }
@@ -34,7 +34,7 @@ Create `.claude/settings.json` in your project root:
         "hooks": [
           {
             "type": "command",
-            "command": "./runtime/skills/self-improvement/scripts/error-detector.sh"
+            "command": "./skills/self-improvement/scripts/error-detector.sh"
           }
         ]
       }
@@ -78,7 +78,7 @@ For lower overhead, use only the UserPromptSubmit hook:
         "hooks": [
           {
             "type": "command",
-            "command": "./runtime/skills/self-improvement/scripts/activator.sh"
+            "command": "./skills/self-improvement/scripts/activator.sh"
           }
         ]
       }
@@ -100,7 +100,7 @@ Codex uses the same hook system as Claude Code. Create `.codex/settings.json`:
         "hooks": [
           {
             "type": "command",
-            "command": "./runtime/skills/self-improvement/scripts/activator.sh"
+            "command": "./skills/self-improvement/scripts/activator.sh"
           }
         ]
       }
@@ -145,7 +145,7 @@ For high-value learnings that would benefit other sessions, consider skill extra
 ### Dry Run Extract Script
 
 ```bash
-./runtime/skills/self-improvement/scripts/extract-skill.sh test-skill --dry-run
+./skills/self-improvement/scripts/extract-skill.sh test-skill --dry-run
 ```
 
 Expected output shows the skill scaffold that would be created.
@@ -162,9 +162,9 @@ Expected output shows the skill scaffold that would be created.
 ### Permission Denied
 
 ```bash
-chmod +x ./runtime/skills/self-improvement/scripts/activator.sh
-chmod +x ./runtime/skills/self-improvement/scripts/error-detector.sh
-chmod +x ./runtime/skills/self-improvement/scripts/extract-skill.sh
+chmod +x ./skills/self-improvement/scripts/activator.sh
+chmod +x ./skills/self-improvement/scripts/error-detector.sh
+chmod +x ./skills/self-improvement/scripts/extract-skill.sh
 ```
 
 ### Script Not Found
@@ -173,7 +173,7 @@ If using relative paths, ensure you're in the correct directory or use absolute 
 
 ```json
 {
-  "command": "/absolute/path/to/runtime/skills/self-improvement/scripts/activator.sh"
+  "command": "/absolute/path/to/skills/self-improvement/scripts/activator.sh"
 }
 ```
 

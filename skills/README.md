@@ -8,25 +8,25 @@
 - 技能说明正文请优先使用中文，便于团队统一维护。
 
 ## 示例结构
-- `oclaw/runtime/skills/<skill_name>/SKILL.md`
+- `oclaw/skills/<skill_name>/SKILL.md`
 
 ## 目录分层（重要）
-- **主目录**：`oclaw/runtime/skills/<skill_name>/`  
+- **主目录**：`oclaw/skills/<skill_name>/`  
   用于官方/手工管理的稳定技能（安装、维护、评审都在这层）。
-- **自写目录（扁平）**：`oclaw/runtime/skills/_workspace/<skill_name>/`  
+- **自写目录（扁平）**：`oclaw/skills/_workspace/<skill_name>/`  
   兼容旧行为；新装技能优先按角色分桶（见下）。
-- **公共目录**：`oclaw/runtime/skills/_workspace/public/<skill_name>/`  
-  与 **按专家/角色目录** `oclaw/runtime/skills/_workspace/<role>/<skill_name>/`（如 `generalist`、`ops`）**平级**；`public` 下技能默认全员可用，不需角色绑定。
-- **遗留会话桶**：`oclaw/runtime/skills/_workspace/_agent/<segment>/` 仅用于无绑定角色时的回退（如旧会话 id），新逻辑不应依赖该层。
+- **公共目录**：`oclaw/skills/_workspace/public/<skill_name>/`  
+  与 **按专家/角色目录** `oclaw/skills/_workspace/<role>/<skill_name>/`（如 `generalist`、`ops`）**平级**；`public` 下技能默认全员可用，不需角色绑定。
+- **遗留会话桶**：`oclaw/skills/_workspace/_agent/<segment>/` 仅用于无绑定角色时的回退（如旧会话 id），新逻辑不应依赖该层。
 
 说明：
 - `auto_install_skill_from_payload` 产物默认落在 `_workspace` 下。
 - 这样可以把“生产稳定技能”和“实验/自写技能”分开治理，便于审计与回滚。
 
 ## 兼容说明
-- 运行时优先读取 `oclaw/runtime/skills`。
+- 运行时默认读取仓库根 `oclaw/skills`（见 `platform.config.runtime_paths.runtime_skills_root`）。
 - 若设置了环境变量 `AIA_SKILLS_ROOT`，以该变量为准。
-- 为兼容旧工程，仍可回退读取旧路径 `oclaw/runtime/skills/`（如存在）。
+- 若根目录 `skills/` 不存在而仍存在旧布局 `oclaw/runtime/skills/`，会自动回退到后者。
 
 ## 技能市场（安装来源）
 

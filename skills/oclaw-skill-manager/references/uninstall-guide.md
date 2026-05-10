@@ -7,7 +7,7 @@
 1. `<skills_root>/<name>/`
 2. `<skills_root>/_workspace/<name>/`
 
-其中 `<skills_root>` 为 `AIA_SKILLS_ROOT` 或默认 `runtime/skills/`。
+其中 `<skills_root>` 为 `AIA_SKILLS_ROOT` 或默认仓库根 `skills/`。
 
 `<name>` 为 **`SKILL.md` frontmatter 中的 `name`**（与 `skill_list` 中 `name` 字段一致），不一定等于 ClawHub **slug**。
 

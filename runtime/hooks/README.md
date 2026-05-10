@@ -32,7 +32,7 @@ Each hook directory needs `HOOK.md` (YAML frontmatter with `metadata.oclaw.event
 
 `session-bootstrap` is wired into the hooks runtime and loads on `agent:bootstrap`.
 
-- Hook package path: `runtime/skills/session-bootstrap/hooks/runtime/`
+- Hook package path: `skills/session-bootstrap/hooks/runtime/`
 - Manifest: `HOOK.md` (`metadata.oclaw.events: ["agent:bootstrap"]`)
 - Handler: `handler.py` (`handle(event)`)
 - Runtime source type: `oclaw-managed` (skill `hooks/` dirs are merged into `hooks.internal.load.extraDirs`)

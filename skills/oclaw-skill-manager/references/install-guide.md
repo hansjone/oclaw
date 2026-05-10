@@ -10,7 +10,7 @@
 
 ## 1. 技能根目录
 
-- 默认：`runtime/skills/`（或环境变量 `AIA_SKILLS_ROOT` 指向的目录）
+- 默认：仓库根 `skills/`（或环境变量 `AIA_SKILLS_ROOT` 指向的目录）
 - **主目录**：`<skills_root>/<name>/` — Admin 市场 / registry / 本地目录安装默认落点
 - **智能体自写目录**：`<skills_root>/_workspace/<name>/` — `skill_auto_install` / `auto_install_skill_from_payload` 等
 

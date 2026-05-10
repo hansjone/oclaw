@@ -16,7 +16,7 @@
 - `runtime/core/`：可复用执行内核（如 agent 执行管线聚合入口）。
 - `runtime/app/`：应用侧入口组织（面向外部流程的 runtime 编排）。
 - `runtime/agents|chat|orchestration|workers`：领域能力模块。
-- `runtime/skills|hooks|extensions`：可扩展能力载体。
+- `skills/`、`runtime/hooks`、`runtime/extensions`：可扩展能力载体（技能包在仓库根 `skills/`）。
 - `runtime/operations/scripts`：运维脚本与生成器。
 
 ## 路径规范

@@ -14,7 +14,14 @@ def runtime_root() -> Path:
 
 
 def runtime_skills_root() -> Path:
-    return (runtime_root() / "skills").resolve()
+    """Canonical skills tree lives at repo ``skills/``; ``runtime/skills`` remains a migration fallback."""
+    root_skills = (oclaw_root() / "skills").resolve()
+    legacy_runtime_skills = (runtime_root() / "skills").resolve()
+    if root_skills.is_dir():
+        return root_skills
+    if legacy_runtime_skills.is_dir():
+        return legacy_runtime_skills
+    return root_skills
 
 
 def runtime_hooks_root() -> Path:

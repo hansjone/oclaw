@@ -20,8 +20,8 @@ Use this checklist to verify readiness and post-delete safety for `oclaw/app_ser
 - [x] Runtime role context now loads from `oclaw/runtime/workspaces/*`.
 - [x] Skill root priority still effective:
   - [x] `AIA_SKILLS_ROOT`
-  - [x] `oclaw/runtime/skills`
-  - [x] `skills/` fallback
+  - [x] `oclaw/skills`（仓库根）
+  - [x] `oclaw/runtime/skills`（旧路径回退）
 
 ## Extension policy checks
 - [x] Primary extension source remains `oclaw/extensions/`.

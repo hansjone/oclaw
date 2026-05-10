@@ -117,7 +117,7 @@ description: "What this skill does and when to use it."
 ### Automated (Recommended)
 
 \`\`\`bash
-./runtime/skills/skill-name/scripts/helper.sh [args]
+./skills/skill-name/scripts/helper.sh [args]
 \`\`\`
 
 ### Manual Steps

@@ -26,8 +26,9 @@ def _workspace_dir(event: Any) -> Path | None:
 
 
 def _repo_root() -> Path:
-    # .../runtime/skills/session-bootstrap/hooks/runtime/handler.py
-    return Path(__file__).resolve().parents[5]
+    from oclaw.platform.config.paths import PROJECT_ROOT
+
+    return Path(PROJECT_ROOT).resolve()
 
 
 def _wiki_root(repo_root: Path) -> Path:

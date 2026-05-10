@@ -31,7 +31,7 @@ usage() {
 示例:
   $(basename "$0") docker-m1-fixes
   $(basename "$0") api-timeout-patterns --dry-run
-  $(basename "$0") pnpm-setup --output-dir ./runtime/skills/custom
+  $(basename "$0") pnpm-setup --output-dir ./skills/custom
 
 技能将创建在: \$SKILLS_DIR/<skill-name>/
 EOF

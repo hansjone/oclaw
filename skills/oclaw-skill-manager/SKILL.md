@@ -5,13 +5,13 @@ description: Oclaw 官方 Skill 生命周期手册：安装、更新、卸载、
 
 # Oclaw Skill 管理器（官方手册）
 
-本技能是 **Oclaw 自有** 的 Skill 运维说明，用于指导模型与运维在**同一套契约**下管理 `runtime/skills` 下的技能包。
+本技能是 **Oclaw 自有** 的 Skill 运维说明，用于指导模型与运维在**同一套契约**下管理仓库根 `skills/` 下的技能包。
 
 ## 系统强约束（模型必须遵守）
 
 - 规范优先：安装决策只依据本文件，不依据临时推断或“经验性排障说法”。
 - 路径约束：当任务目标是“为当前会话/用户安装 skill”时，**只允许**走 `skill_auto_install`（`_workspace` lane）。
-- 禁止绕路：不得调用任何非 auto 安装路径（包括但不限于 `skill_market_install`、`skill_registry_install`、Admin 安装 API、手写下载/解压脚本落盘到 `runtime/skills`）。
+- 禁止绕路：不得调用任何非 auto 安装路径（包括但不限于 `skill_market_install`、`skill_registry_install`、Admin 安装 API、手写下载/解压脚本落盘到仓库根 `skills/`）。
 - 失败处理：`skill_auto_install` 失败后，**不得继续安装**；只报告 `error_code/detail` 与最小下一步，等待用户指示。
 - 禁止臆测前置条件：未在本规范显式声明的环境变量/端口/服务状态，不得被表述为“安装必经条件”。
 
@@ -28,7 +28,7 @@ description: Oclaw 官方 Skill 生命周期手册：安装、更新、卸载、
 | 人工 / Admin 市场或 registry 安装 | `<skills_root>/<manifest_name>/` |
 | 智能体 payload 自动安装 | `<skills_root>/_workspace/<manifest_name>/` |
 
-`<skills_root>` 默认 `runtime/skills/`，可被 **`AIA_SKILLS_ROOT`** 覆盖。
+`<skills_root>` 默认仓库根 `skills/`，可被 **`AIA_SKILLS_ROOT`** 覆盖。
 
 ## 技能市场提供方（ClawHub + CocoLoop）
 
