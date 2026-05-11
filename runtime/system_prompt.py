@@ -9,6 +9,7 @@ from oclaw.platform.config.paths import PROJECT_ROOT
 from oclaw.runtime.memory_stage import render_memory_context_block
 from oclaw.runtime.project_context_prompt import build_project_context_block
 from oclaw.runtime.skill_role_binding import SKILL_ROLE_BINDING_KEY
+from oclaw.runtime.skills import workspace_skills_layout_signature
 from oclaw.runtime.skills_prompt import build_skills_catalog_block
 from oclaw.runtime.skills_workspace_lane import (
     fs_safe_workspace_lane_segment,
@@ -205,6 +206,7 @@ def get_executor_prompt_static(
         str(skill_binding_role or "").strip().lower(),
         expert_workspace_signature_token(),
         _executor_prompt_settings_signature(store),
+        workspace_skills_layout_signature(),
         bool(tools is not None),
         int(bool(excl)),
         str(lane_seg or ""),

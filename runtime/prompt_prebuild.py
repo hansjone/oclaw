@@ -10,6 +10,7 @@ from oclaw.runtime.agent_context import build_role_system_context
 from oclaw.runtime.agents.specialists import discover_specialist_ids
 from oclaw.runtime.direct_loop import tool_wire_freeze_status, warm_tool_wire_cache
 from oclaw.runtime.skill_role_binding import SKILL_ROLE_BINDING_KEY
+from oclaw.runtime.skills import workspace_skills_layout_signature
 from oclaw.runtime.system_prompt import get_executor_prompt_static, warm_executor_prompt_cache
 from oclaw.runtime.tools.catalog import default_registry
 from oclaw.runtime.workspaces.experts import expert_workspace_signature_token, list_experts
@@ -84,6 +85,7 @@ def get_manager_prompt_prebuild(
         bool(memory_enabled),
         expert_workspace_signature_token(),
         _manager_settings_signature(store),
+        workspace_skills_layout_signature(),
     )
     with _MANAGER_PREBUILD_CACHE_LOCK:
         cached = _MANAGER_PREBUILD_CACHE.get(cache_key)

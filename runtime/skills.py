@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -168,6 +169,38 @@ def discover_public_workspace_skill_names(skills_root: str | Path | None = None)
     except Exception:
         return set()
     return out
+
+
+def workspace_skills_layout_signature(skills_root: str | Path | None = None) -> str:
+    """Short hex signature that changes when any ``SKILL.md`` under the skills root moves or changes on disk.
+
+    Used to bust executor/manager prompt caches after install/uninstall/edit of workspace skills without
+    touching SQLite settings.
+    """
+    base = Path(skills_root).resolve() if skills_root else default_skills_root()
+    if not base.exists() or not base.is_dir():
+        return "0"
+    h = hashlib.sha256()
+    h.update(str(base).encode("utf-8", errors="ignore"))
+    h.update(b"\n")
+    try:
+        for skill_md in sorted(base.rglob("SKILL.md"), key=lambda p: str(p).lower()):
+            if not skill_md.is_file():
+                continue
+            try:
+                st = skill_md.stat()
+                rel = skill_md.relative_to(base).as_posix().lower()
+                h.update(rel.encode("utf-8", errors="ignore"))
+                h.update(str(int(st.st_mtime_ns)).encode("ascii", errors="ignore"))
+                h.update(b":")
+                h.update(str(int(st.st_size)).encode("ascii", errors="ignore"))
+                h.update(b"\n")
+            except OSError:
+                h.update(str(skill_md.resolve()).encode("utf-8", errors="ignore"))
+                h.update(b"\n?")
+    except OSError:
+        return "0:err"
+    return h.hexdigest()[:24]
 
 
 def _tool_origin(tool: "ToolSpec") -> str:
@@ -344,6 +377,7 @@ __all__ = [
     "build_skill_registry",
     "default_skills_root",
     "discover_workspace_skill_manifests",
+    "workspace_skills_layout_signature",
     "load_skill_manifest",
     "materialize_skills_from_tool_specs",
     "skill_runtime_diagnostics",
