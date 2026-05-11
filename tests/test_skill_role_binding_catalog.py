@@ -8,6 +8,9 @@ from oclaw.runtime.skill_role_binding import (
     SKILL_ROLE_BINDING_KEY,
     normalize_skill_role_binding,
     ordered_binding_roles,
+    skill_role_binding_enabled,
+    skill_role_binding_enabled_env_present,
+    skill_role_binding_enabled_stored,
 )
 from oclaw.runtime.skills_prompt import collect_skill_catalog_entries
 from oclaw.runtime.skills_workspace_lane import skill_dir_private_lane_segment
@@ -122,3 +125,13 @@ def test_normalize_drops_unknown_skills(tmp_path: Path) -> None:
     )
     assert out["manager"] == ["skill-x"]
     assert out["generalist"] == ["skill-x"]
+
+
+def test_skill_role_binding_env_overrides_store_value(tmp_path: Path, monkeypatch) -> None:
+    db = tmp_path / "rolebind.sqlite"
+    store = SqliteStore(str(db))
+    store.set_setting(SKILL_ROLE_BINDING_ENABLED_SETTING, "1")
+    monkeypatch.setenv("AIA_SKILL_ROLE_BINDING_ENABLED", "0")
+    assert skill_role_binding_enabled_env_present() is True
+    assert skill_role_binding_enabled_stored(store=store) is True
+    assert skill_role_binding_enabled(store=store) is False

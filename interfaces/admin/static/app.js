@@ -7792,6 +7792,15 @@ async function renderSkills() {
 
   const skillBindingState = { roles: [], names: [], mapping: {}, enabled: false, managerInherit: true };
   const skillBindingStatus = el("div", { class: "muted", text: "" });
+  const skillBindingPersistHint = el("div", {
+    class: "muted",
+    style: "margin:6px 0;line-height:1.5;",
+    text: "Checkboxes and per-role skill lists are not saved until you click Save skill role binding.",
+  });
+  const skillBindingEnvHint = el("div", {
+    class: "muted",
+    style: "margin:6px 0;line-height:1.5;display:none;",
+  });
   const skillEffectiveState = { items: [] };
   const skillBindingEnabledCb = el("input", { type: "checkbox" });
   const skillBindingManagerInheritCb = el("input", { type: "checkbox" });
@@ -7910,6 +7919,18 @@ async function renderSkills() {
       skillBindingState.managerInherit = Object.prototype.hasOwnProperty.call(r, "manager_inherit") ? !!r.manager_inherit : true;
       skillBindingEnabledCb.checked = skillBindingState.enabled;
       skillBindingManagerInheritCb.checked = skillBindingState.managerInherit;
+      if (r.enabled_env_present) {
+        skillBindingEnvHint.style.display = "block";
+        const stored = !!r.enabled_stored;
+        const eff = !!r.enabled;
+        skillBindingEnvHint.textContent =
+          "Process env AIA_SKILL_ROLE_BINDING_ENABLED is set: it overrides the Admin/SQLite value at runtime. " +
+          "The checkbox reflects the effective (env) value. Remove or unset that variable on the oclaw process to use Admin only. " +
+          `(stored in DB: ${String(stored)}, effective: ${String(eff)}).`;
+      } else {
+        skillBindingEnvHint.style.display = "none";
+        skillBindingEnvHint.textContent = "";
+      }
       skillRoleSelect.innerHTML = "";
       skillBindingState.roles.forEach((role) => {
         skillRoleSelect.appendChild(el("option", { value: role, text: role }));
@@ -7942,6 +7963,18 @@ async function renderSkills() {
         skillBindingState.managerInherit = Object.prototype.hasOwnProperty.call(r, "manager_inherit") ? !!r.manager_inherit : true;
         skillBindingEnabledCb.checked = skillBindingState.enabled;
         skillBindingManagerInheritCb.checked = skillBindingState.managerInherit;
+        if (r.enabled_env_present) {
+          skillBindingEnvHint.style.display = "block";
+          const stored = !!r.enabled_stored;
+          const eff = !!r.enabled;
+          skillBindingEnvHint.textContent =
+            "Process env AIA_SKILL_ROLE_BINDING_ENABLED is set: it overrides the Admin/SQLite value at runtime. " +
+            "The checkbox reflects the effective (env) value. Remove or unset that variable on the oclaw process to use Admin only. " +
+            `(stored in DB: ${String(stored)}, effective: ${String(eff)}).`;
+        } else {
+          skillBindingEnvHint.style.display = "none";
+          skillBindingEnvHint.textContent = "";
+        }
         skillBindingStatus.textContent = `saved: enabled=${String(r.enabled)} manager_inherit=${String(skillBindingState.managerInherit)}`;
         renderSkillBindingList();
         renderSkillBindingDashboard();
@@ -7960,6 +7993,8 @@ async function renderSkills() {
         "When enabled, installed workspace skills only appear in the model skills catalog for the selected role. You can optionally inherit manager-bound skills to other roles.",
     }),
     skillBindingStatus,
+    skillBindingPersistHint,
+    skillBindingEnvHint,
     el("label", { class: "row", style: "gap:8px;align-items:center;margin-top:6px;" }, [
       skillBindingEnabledCb,
       el("span", { text: "Enable role binding (AIA_SKILL_ROLE_BINDING_ENABLED)" }),

@@ -27,6 +27,8 @@ from oclaw.runtime.skill_role_binding import (
     normalize_skill_role_binding,
     ordered_binding_roles,
     skill_role_binding_enabled,
+    skill_role_binding_enabled_env_present,
+    skill_role_binding_enabled_stored,
 )
 from oclaw.runtime.skills_prompt import collect_skill_catalog_entries
 from oclaw.runtime.skills import _allowed_tool_names_after_wire_policy, discover_workspace_skill_manifests
@@ -352,6 +354,8 @@ def include_skill_routes(
         return {
             "ok": True,
             "enabled": bool(skill_role_binding_enabled(store=store)),
+            "enabled_stored": bool(skill_role_binding_enabled_stored(store=store)),
+            "enabled_env_present": bool(skill_role_binding_enabled_env_present()),
             "manager_inherit": str(store.get_setting(SKILL_ROLE_BINDING_MANAGER_INHERIT_SETTING) or "").strip() not in {"0", "false", "False"},
             "available_roles": roles,
             "installed_skills": items,
@@ -390,6 +394,8 @@ def include_skill_routes(
         return {
             "ok": True,
             "enabled": bool(skill_role_binding_enabled(store=store)),
+            "enabled_stored": bool(skill_role_binding_enabled_stored(store=store)),
+            "enabled_env_present": bool(skill_role_binding_enabled_env_present()),
             "manager_inherit": str(store.get_setting(SKILL_ROLE_BINDING_MANAGER_INHERIT_SETTING) or "").strip() not in {"0", "false", "False"},
             "available_roles": roles,
             "mapping": mapping,

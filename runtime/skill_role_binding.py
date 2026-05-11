@@ -25,6 +25,20 @@ def ordered_binding_roles() -> list[str]:
     return ["manager", *ordered_specialist_ids()]
 
 
+def skill_role_binding_enabled_env_present() -> bool:
+    """True when ``AIA_SKILL_ROLE_BINDING_ENABLED`` is set in the process environment (any value)."""
+    return bool(str(os.getenv(SKILL_ROLE_BINDING_ENABLED_SETTING) or "").strip())
+
+
+def skill_role_binding_enabled_stored(*, store: Any) -> bool:
+    """SQLite/Admin value only; ignores environment (contrast :func:`skill_role_binding_enabled`)."""
+    try:
+        raw = str(store.get_setting(SKILL_ROLE_BINDING_ENABLED_SETTING) or "").strip()
+    except Exception:
+        raw = ""
+    return _truthy(raw) if raw else False
+
+
 def skill_role_binding_enabled(*, store: Any) -> bool:
     raw_env = str(os.getenv(SKILL_ROLE_BINDING_ENABLED_SETTING) or "").strip()
     if raw_env:
@@ -132,6 +146,8 @@ __all__ = [
     "SKILL_ROLE_BINDING_KEY",
     "SKILL_ROLE_BINDING_ENABLED_SETTING",
     "SKILL_ROLE_BINDING_MANAGER_INHERIT_SETTING",
+    "skill_role_binding_enabled_env_present",
+    "skill_role_binding_enabled_stored",
     "allowed_workspace_skill_names_for_role",
     "load_skill_role_binding_dict",
     "mapping_has_any_skill_names",
