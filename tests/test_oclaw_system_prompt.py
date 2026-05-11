@@ -129,6 +129,67 @@ def test_executor_static_prompt_cache_invalidates_on_settings_change(monkeypatch
     assert calls["n"] == 2
 
 
+def test_executor_static_prompt_cache_invalidates_on_skill_role_binding_change(monkeypatch: pytest.MonkeyPatch) -> None:
+    from oclaw.runtime import system_prompt as sp
+
+    class DummyStore:
+        def __init__(self) -> None:
+            self.values: dict[str, str] = {"skill_role_binding": "{}"}
+
+        def get_setting(self, key: str) -> str:
+            return str(self.values.get(key, ""))
+
+    class DummyReg:
+        pass
+
+    calls = {"n": 0}
+
+    def _skills_block(**kwargs) -> str:
+        _ = kwargs
+        calls["n"] += 1
+        return "skills-block"
+
+    monkeypatch.setattr(sp, "expert_workspace_signature_token", lambda: ("sig",))
+    monkeypatch.setattr(sp, "build_project_context_block", lambda **kwargs: "")
+    monkeypatch.setattr(sp, "build_skills_catalog_block", _skills_block)
+    monkeypatch.setattr(
+        sp,
+        "render_runtime_prompt",
+        lambda prompt_id, variables, strict: f"{prompt_id}\n{variables.get('skills_catalog') or ''}",
+    )
+
+    store = DummyStore()
+    reg = DummyReg()
+    _ = sp.get_executor_prompt_static(
+        store=store,
+        tools=reg,  # type: ignore[arg-type]
+        base_url="",
+        base_system="base",
+        workspace_dir=None,
+        skill_binding_role="generalist",
+    )
+    _ = sp.get_executor_prompt_static(
+        store=store,
+        tools=reg,  # type: ignore[arg-type]
+        base_url="",
+        base_system="base",
+        workspace_dir=None,
+        skill_binding_role="generalist",
+    )
+    assert calls["n"] == 1
+
+    store.values["skill_role_binding"] = '{"generalist": ["alpha-skill"]}'
+    _ = sp.get_executor_prompt_static(
+        store=store,
+        tools=reg,  # type: ignore[arg-type]
+        base_url="",
+        base_system="base",
+        workspace_dir=None,
+        skill_binding_role="generalist",
+    )
+    assert calls["n"] == 2
+
+
 def test_executor_static_prompt_cache_invalidates_on_workspace_revision_change(monkeypatch: pytest.MonkeyPatch) -> None:
     from oclaw.runtime import system_prompt as sp
 

@@ -9,6 +9,7 @@ from oclaw.platform.persistence.sqlite_store import SqliteStore
 from oclaw.runtime.agent_context import build_role_system_context
 from oclaw.runtime.agents.specialists import discover_specialist_ids
 from oclaw.runtime.direct_loop import tool_wire_freeze_status, warm_tool_wire_cache
+from oclaw.runtime.skill_role_binding import SKILL_ROLE_BINDING_KEY
 from oclaw.runtime.system_prompt import get_executor_prompt_static, warm_executor_prompt_cache
 from oclaw.runtime.tools.catalog import default_registry
 from oclaw.runtime.workspaces.experts import expert_workspace_signature_token, list_experts
@@ -36,6 +37,7 @@ def _manager_settings_signature(store: Any) -> tuple[str, ...]:
         "AIA_SKILL_DISABLED_NAMES",
         "AIA_SKILL_ROLE_BINDING_ENABLED",
         "AIA_SKILL_ROLE_BINDING_MANAGER_INHERIT",
+        SKILL_ROLE_BINDING_KEY,
         "AIA_CHAT_SPECIALIST_FLAGS_JSON",
     )
     parts: list[str] = []

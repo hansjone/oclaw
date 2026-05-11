@@ -8,6 +8,7 @@ from typing import Any
 from oclaw.platform.config.paths import PROJECT_ROOT
 from oclaw.runtime.memory_stage import render_memory_context_block
 from oclaw.runtime.project_context_prompt import build_project_context_block
+from oclaw.runtime.skill_role_binding import SKILL_ROLE_BINDING_KEY
 from oclaw.runtime.skills_prompt import build_skills_catalog_block
 from oclaw.runtime.skills_workspace_lane import (
     fs_safe_workspace_lane_segment,
@@ -83,6 +84,7 @@ def _executor_prompt_settings_signature(store: Any) -> tuple[str, ...]:
         "AIA_SKILL_DISABLED_NAMES",
         "AIA_SKILL_ROLE_BINDING_ENABLED",
         "AIA_SKILL_ROLE_BINDING_MANAGER_INHERIT",
+        SKILL_ROLE_BINDING_KEY,
         "AIA_PROJECT_CONTEXT_MAX_FILE_CHARS",
         "AIA_PROJECT_CONTEXT_MAX_TOTAL_CHARS",
     )

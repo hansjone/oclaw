@@ -1643,10 +1643,27 @@ async function renderStack() {
     class: "btn btn--primary",
     text: currentLang === "zh" ? "立即预热" : "Run prewarm now",
     onclick: async () => {
+      prewarmStatus.textContent = currentLang === "zh" ? "[预热] 提交中…" : "[prewarm] submitting…";
       const resp = await apiPost("/admin/api/runtime/prewarm", { mode: "async", reason: "admin_manual" });
-      prewarmStatus.textContent = `[prewarm] accepted=${Boolean(resp && resp.accepted)}`;
+      if (!(resp && resp.accepted)) {
+        prewarmStatus.textContent = `[prewarm] accepted=${Boolean(resp && resp.accepted)}`;
+        return;
+      }
+      prewarmStatus.textContent =
+        currentLang === "zh"
+          ? "[预热] 后台执行中，完成后自动刷新本页数据（含提示词）…"
+          : "[prewarm] running in background; refreshing this page when finished…";
       runtimePrewarmReminder = "";
-      router();
+      const maxWaitMs = 120000;
+      const stepMs = 400;
+      let waited = 0;
+      while (waited < maxWaitMs) {
+        await new Promise((r) => setTimeout(r, stepMs));
+        waited += stepMs;
+        const st = await apiGet("/admin/api/runtime/prewarm/status");
+        if (!(st && st.running)) break;
+      }
+      await router();
     },
   });
   const prewarmSummary = [
