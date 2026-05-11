@@ -128,16 +128,14 @@ def _all_installed_skill_names(store: Any) -> set[str]:
 
 
 def should_apply_workspace_role_filter(*, store: Any, skill_binding_role: str | None) -> bool:
+    """When role binding is enabled, always filter the workspace skill catalog by role.
+
+    Empty binding maps still apply: each role then only sees ``public`` workspace skills
+    (see :func:`allowed_workspace_skill_names_for_role`), not the full install tree.
+    """
     if not str(skill_binding_role or "").strip():
         return False
     if not skill_role_binding_enabled(store=store):
-        return False
-    raw = load_skill_role_binding_dict(store)
-    normalized = normalize_skill_role_binding(
-        mapping_raw=raw,
-        valid_skill_names=_all_installed_skill_names(store),
-    )
-    if not mapping_has_any_skill_names(normalized):
         return False
     return True
 

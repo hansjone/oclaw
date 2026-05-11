@@ -95,6 +95,30 @@ def test_collect_includes_own_private_lane_without_role_mapping(tmp_path: Path, 
     assert "lane-bound-skill" in names
 
 
+def test_collect_when_binding_enabled_empty_mapping_shows_only_public(tmp_path: Path, monkeypatch) -> None:
+    db = tmp_path / "ops.sqlite"
+    store = SqliteStore(str(db))
+    skills_root = tmp_path / "skills_empty_bind"
+    skills_root.mkdir(parents=True, exist_ok=True)
+    _write_skill(skills_root, "skill-root-only")
+    _write_skill(skills_root / "_workspace" / "public", "skill-public")
+
+    monkeypatch.setenv("AIA_SKILLS_ROOT", str(skills_root))
+    store.set_setting(SKILL_ROLE_BINDING_ENABLED_SETTING, "1")
+    store.set_setting(SKILL_ROLE_BINDING_KEY, "{}")
+
+    reg = default_registry(store=store)
+    entries = collect_skill_catalog_entries(
+        store=store,
+        registry=reg,
+        base_url="",
+        skill_binding_role="generalist",
+    )
+    names = {e[0] for e in entries}
+    assert "skill-public" in names
+    assert "skill-root-only" not in names
+
+
 def test_collect_unfiltered_when_binding_disabled(tmp_path: Path, monkeypatch) -> None:
     db = tmp_path / "ops.sqlite"
     store = SqliteStore(str(db))

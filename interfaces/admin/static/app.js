@@ -7990,7 +7990,7 @@ async function renderSkills() {
       class: "muted",
       style: "margin:8px 0;line-height:1.5;",
       text:
-        "When enabled, installed workspace skills only appear in the model skills catalog for the selected role. You can optionally inherit manager-bound skills to other roles.",
+        "When enabled, the model skills catalog is filtered per role: each role sees only skills bound to that role (and optionally manager-bound skills), plus skills under skills/_workspace/public/. If nothing is bound yet, non-public skills are hidden until you assign them.",
     }),
     skillBindingStatus,
     skillBindingPersistHint,
