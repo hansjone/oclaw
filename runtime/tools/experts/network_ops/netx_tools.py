@@ -628,8 +628,8 @@ def netx_query_ume_ne_inventory_tool() -> ToolSpec:
         name="netx_query_ume_ne_inventory",
         description=(
             "查询 netx 已同步的 UME 网元清单（读 /v1/ume/inventory/ne，与 netx Web「网元清单」同源）。"
-            "keyword 可选：匹配 ne_id / ne_name / user_label / ip_address 包含。"
-            "返回 total、page、page_size、items（含在线状态、地址、类型等）。"
+            "keyword 可选：匹配 ne_id / ne_name / user_label / ip_address / host_name（主机名）包含。"
+            "返回 total、page、page_size、items（含 host_name、在线状态、地址、类型等）。"
         ),
         parameters={
             "type": "object",
