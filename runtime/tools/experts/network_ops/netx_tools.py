@@ -164,12 +164,14 @@ def _format_ops_netx_system_extension(r: dict[str, Any], *, lang_en: bool) -> st
                 f"- last_error: {err[:200]}" if lang_en else f"- 最近错误: {err[:200]}"
             )
         tail_en = (
-            "- tools: netx_query_ume_alarms, netx_aggregate_ume_alarms, netx_run_ume_diagnostics\n"
-            "- note: this is only runtime anchor; use tools for alarm evidence."
+            "- tools: netx_query_ume_alarms, netx_aggregate_ume_alarms, netx_run_ume_diagnostics, "
+            "netx_query_ume_ne_inventory, netx_get_ume_ne\n"
+            "- note: this is only runtime anchor; use tools for alarm/ne evidence."
         )
         tail_zh = (
-            "- 工具: netx_query_ume_alarms、netx_aggregate_ume_alarms、netx_run_ume_diagnostics\n"
-            "- 说明: 此处仅为运行锚点；具体告警必须以工具返回为准，勿臆测。"
+            "- 工具: netx_query_ume_alarms、netx_aggregate_ume_alarms、netx_run_ume_diagnostics、"
+            "netx_query_ume_ne_inventory、netx_get_ume_ne\n"
+            "- 说明: 此处仅为运行锚点；具体告警/网元信息必须以工具返回为准，勿臆测。"
         )
         return "\n".join(lines_en + [tail_en]) if lang_en else "\n".join(lines_zh + [tail_zh])
     err = str(r.get("error") or "")
@@ -611,6 +613,74 @@ def netx_run_ume_diagnostics_tool() -> ToolSpec:
     )
 
 
+def netx_query_ume_ne_inventory_tool() -> ToolSpec:
+    """Paged UME NE inventory synced in netx (PostgreSQL-backed)."""
+
+    def handler(args: dict[str, Any]) -> dict[str, Any]:
+        page = max(1, int(args.get("page") or 1))
+        page_size = min(500, max(1, int(args.get("page_size") or 50)))
+        params: dict[str, Any] = {"page": page, "page_size": page_size}
+        if str(args.get("keyword") or "").strip():
+            params["keyword"] = str(args.get("keyword")).strip()
+        return _http_json("GET", "/v1/ume/inventory/ne", params=params)
+
+    return ToolSpec(
+        name="netx_query_ume_ne_inventory",
+        description=(
+            "查询 netx 已同步的 UME 网元清单（读 /v1/ume/inventory/ne，与 netx Web「网元清单」同源）。"
+            "keyword 可选：匹配 ne_id / ne_name / user_label / ip_address 包含。"
+            "返回 total、page、page_size、items（含在线状态、地址、类型等）。"
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "keyword": {"type": "string", "description": "关键字过滤（可选）"},
+                "page": {"type": "integer", "minimum": 1, "default": 1},
+                "page_size": {"type": "integer", "minimum": 1, "maximum": 500, "default": 50},
+            },
+            "required": [],
+            "additionalProperties": False,
+        },
+        handler=handler,
+        tags=frozenset({"netx", "ops", "ume", "inventory", "ne", "read_only"}),
+        risk_level="low",
+        read_only=True,
+    )
+
+
+def netx_get_ume_ne_tool() -> ToolSpec:
+    """Single UME NE detail by ne_id from netx."""
+
+    def handler(args: dict[str, Any]) -> dict[str, Any]:
+        from urllib.parse import quote
+
+        ne_id = str(args.get("ne_id") or "").strip()
+        if not ne_id:
+            return {"ok": False, "error": "ne_id_required", "error_code": "ne_id_required"}
+        safe = quote(ne_id, safe="")
+        return _http_json("GET", f"/v1/ume/inventory/ne/{safe}", params=None)
+
+    return ToolSpec(
+        name="netx_get_ume_ne",
+        description=(
+            "按网元 UUID（ne_id）读取 netx 中单条 UME 网元详情（GET /v1/ume/inventory/ne/{ne_id}）。"
+            "含 vendor、source_type、raw_json 等；404 时上游返回 ume_ne_not_found。"
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "ne_id": {"type": "string", "description": "网元 UUID（与清单中 ne_id 一致）"},
+            },
+            "required": ["ne_id"],
+            "additionalProperties": False,
+        },
+        handler=handler,
+        tags=frozenset({"netx", "ops", "ume", "inventory", "ne", "read_only"}),
+        risk_level="low",
+        read_only=True,
+    )
+
+
 def netx_query_ume_alarms_raw_tool() -> ToolSpec:
     """Power query UME current alarms with full alarm+NE fields."""
 
@@ -868,6 +938,8 @@ __all__ = [
     "netx_query_ume_alarms_tool",
     "netx_aggregate_ume_alarms_tool",
     "netx_run_ume_diagnostics_tool",
+    "netx_query_ume_ne_inventory_tool",
+    "netx_get_ume_ne_tool",
     "netx_query_ume_alarms_raw_tool",
     "netx_aggregate_ume_alarms_raw_tool",
     "netx_list_ume_alarm_fields_tool",

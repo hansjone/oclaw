@@ -43,6 +43,14 @@
 - 工具：`netx_run_ume_diagnostics`
 - 用途：在深挖前先快速形成“概览简报”（严重度、Top 网元、Top 事件类型等）
 
+## 4b) 网元清单与详情
+
+- 工具：`netx_query_ume_ne_inventory` — 对应 netx `GET /v1/ume/inventory/ne`
+  - 参数：`keyword`（可选，匹配 ne_id/ne_name/user_label/ip）、`page`、`page_size`（最大 500）
+- 工具：`netx_get_ume_ne` — `GET /v1/ume/inventory/ne/{ne_id}`
+  - 参数：`ne_id`（UUID，与清单字段一致）
+- 与告警 raw 中的 `ne_*` 字段互补：需要 UME 原始 JSON 时用 `netx_get_ume_ne` 的 `raw_json`。
+
 ## 5) SQL 深度分析（受限）
 
 - 工具：`netx_sql_query_ume`
