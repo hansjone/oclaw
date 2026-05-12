@@ -51,6 +51,7 @@ class AdminToolPolicyOclawRetryCodesTests(unittest.TestCase):
         self.assertEqual(r1.status_code, 200)
         b1 = r1.json()
         self.assertTrue(b1.get("ok"))
+        self.assertFalse(bool(b1.get("enable_run_command")))
         self.assertTrue(str(b1.get("oclaw_retryable_error_codes") or "").strip())
         self.assertFalse(bool(b1.get("oclaw_retry_codes_strict_mode")))
 

@@ -1974,8 +1974,14 @@ def build_admin_router() -> APIRouter:
         enable_mcp_tools = emcp_raw not in ("0", "false", "no", "off")
         epl_raw = str(store.get_setting("AIA_ENABLE_PLUGIN_TOOLS") or "").strip().lower()
         enable_plugin_tools = epl_raw in ("1", "true", "yes", "on")
-        erc_raw = str(store.get_setting("AIA_ENABLE_RUN_COMMAND") or "").strip().lower()
-        enable_run_command = erc_raw not in ("0", "false", "no", "off")
+        # Absent DB row must read as OFF: matches LocalAdapter.run_command (no row → env only; no env → disabled).
+        # Previously `str(None or "")` made the UI show ON while execution stayed disabled (confusing on new machines).
+        erc_sv = store.get_setting("AIA_ENABLE_RUN_COMMAND")
+        if erc_sv is None:
+            enable_run_command = False
+        else:
+            erc_raw = str(erc_sv).strip().lower()
+            enable_run_command = erc_raw not in ("0", "false", "no", "off")
         tctx_raw = str(store.get_setting("AIA_TOOL_CONTEXT_TRUNCATE_ENABLED") or "").strip().lower()
         tool_context_truncate_enabled = tctx_raw not in ("0", "false", "no", "off")
         ttft_raw = str(store.get_setting("AIA_CHAT_SHOW_TTFT_DEBUG") or "").strip().lower()

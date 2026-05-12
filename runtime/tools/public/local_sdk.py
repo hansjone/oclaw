@@ -99,9 +99,23 @@ class LocalAdapter:
                 raw_env = str(os.getenv("AIA_ENABLE_RUN_COMMAND") or "").strip()
                 enabled = _truthy(raw_env) if raw_env else False
             if not enabled:
-                return {"ok": False, "error_code": "disabled", "error": "disabled"}
+                return {
+                    "ok": False,
+                    "error_code": "disabled",
+                    "error": "disabled",
+                    "hint": (
+                        "run_command is off: save Admin → Tool policy with run_command enabled (writes AIA_ENABLE_RUN_COMMAND "
+                        "into the same SQLite the gateway uses), or set env AIA_ENABLE_RUN_COMMAND=1. "
+                        "Check OPS_ASSISTANT_DB_PATH / db_path() if another machine uses a different DB file."
+                    ),
+                }
         except Exception:
-            return {"ok": False, "error_code": "disabled", "error": "disabled"}
+            return {
+                "ok": False,
+                "error_code": "disabled",
+                "error": "disabled",
+                "hint": "run_command gate failed unexpectedly; check gateway logs and SQLite app_setting access.",
+            }
         try:
             timeout_s = max(1, min(int(timeout or 300), 600))
             # run_command never follows adapter cd state.
