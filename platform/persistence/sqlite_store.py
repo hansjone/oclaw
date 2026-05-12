@@ -997,6 +997,21 @@ class SqliteStore:
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_chat_message_session_id_id ON chat_message(session_id, id)"
             )
+            # 若历史上曾在未开启 foreign_keys 的连接里删除过 ``chat_session``，或表创建时未带外键，
+            # 会留下指向已不存在会话的行。每次初始化库时做一次幂等清理。
+            self._prune_rows_for_missing_chat_session(conn)
+
+    def _prune_rows_for_missing_chat_session(self, conn: sqlite3.Connection) -> None:
+        sid_alive = "(SELECT id FROM chat_session)"
+        conn.execute(f"DELETE FROM chat_message WHERE session_id NOT IN {sid_alive}")
+        conn.execute(f"DELETE FROM tool_log WHERE session_id NOT IN {sid_alive}")
+        conn.execute(
+            "DELETE FROM oclaw_attempt WHERE run_id NOT IN (SELECT run_id FROM oclaw_run) "
+            f"OR run_id IN (SELECT run_id FROM oclaw_run WHERE session_id NOT IN {sid_alive})"
+        )
+        conn.execute(f"DELETE FROM oclaw_run WHERE session_id NOT IN {sid_alive}")
+        conn.execute(f"DELETE FROM oclaw_task WHERE session_id NOT IN {sid_alive}")
+        conn.execute(f"DELETE FROM attachment_acl WHERE session_id NOT IN {sid_alive}")
 
     def _seed_builtin_llm_profiles(self, conn: sqlite3.Connection) -> None:
         ts = utc_now_iso()
