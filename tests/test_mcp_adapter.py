@@ -159,6 +159,9 @@ class McpAdapterTests(unittest.TestCase):
         from oclaw.runtime.operations import mcp_env
 
         old = os.environ.pop("OPS_MCP_ENV_ALLOWLIST", None)
+        old_aia = os.environ.pop("AIA_MCP_ENV_ALLOWLIST", None)
+        old_extra = os.environ.pop("AIA_MCP_ENV_ALLOWLIST_EXTRA", None)
+        old_ops_extra = os.environ.pop("OPS_MCP_ENV_ALLOWLIST_EXTRA", None)
         try:
             keys = mcp_env.mcp_env_allowlist_keys()
             self.assertIn("GOOGLE_OAUTH_CREDENTIALS", keys)
@@ -167,9 +170,58 @@ class McpAdapterTests(unittest.TestCase):
             self.assertIn("GITHUB_PERSONAL_ACCESS_TOKEN", keys)
             self.assertIn("CONTEXT7_API_KEY", keys)
             self.assertIn("DASHSCOPE_API_KEY", keys)
+            self.assertIn("TRILIUM_API_TOKEN", keys)
         finally:
             if old is not None:
                 os.environ["OPS_MCP_ENV_ALLOWLIST"] = old
+            if old_aia is not None:
+                os.environ["AIA_MCP_ENV_ALLOWLIST"] = old_aia
+            if old_extra is not None:
+                os.environ["AIA_MCP_ENV_ALLOWLIST_EXTRA"] = old_extra
+            if old_ops_extra is not None:
+                os.environ["OPS_MCP_ENV_ALLOWLIST_EXTRA"] = old_ops_extra
+
+    def test_mcp_env_allowlist_extra_merges_with_default(self) -> None:
+        from oclaw.runtime.operations import mcp_env
+
+        old_aia = os.environ.pop("AIA_MCP_ENV_ALLOWLIST", None)
+        old_extra = os.environ.pop("AIA_MCP_ENV_ALLOWLIST_EXTRA", None)
+        old_ops_extra = os.environ.pop("OPS_MCP_ENV_ALLOWLIST_EXTRA", None)
+        try:
+            os.environ["AIA_MCP_ENV_ALLOWLIST_EXTRA"] = "MY_CUSTOM_MCP_SECRET,CONTEXT7_API_KEY"
+            keys = mcp_env.mcp_env_allowlist_keys()
+            self.assertIn("BRAVE_API_KEY", keys)
+            self.assertIn("CONTEXT7_API_KEY", keys)
+            self.assertIn("MY_CUSTOM_MCP_SECRET", keys)
+            self.assertEqual(keys.index("MY_CUSTOM_MCP_SECRET"), len(keys) - 1)
+        finally:
+            if old_aia is not None:
+                os.environ["AIA_MCP_ENV_ALLOWLIST"] = old_aia
+            if old_extra is not None:
+                os.environ["AIA_MCP_ENV_ALLOWLIST_EXTRA"] = old_extra
+            if old_ops_extra is not None:
+                os.environ["OPS_MCP_ENV_ALLOWLIST_EXTRA"] = old_ops_extra
+
+    def test_mcp_env_allowlist_explicit_replace_plus_extra(self) -> None:
+        from oclaw.runtime.operations import mcp_env
+
+        old_aia = os.environ.pop("AIA_MCP_ENV_ALLOWLIST", None)
+        old_extra = os.environ.pop("AIA_MCP_ENV_ALLOWLIST_EXTRA", None)
+        try:
+            os.environ["AIA_MCP_ENV_ALLOWLIST"] = "ONLY_A,ONLY_B"
+            os.environ["AIA_MCP_ENV_ALLOWLIST_EXTRA"] = "ONLY_B,ONLY_C"
+            keys = mcp_env.mcp_env_allowlist_keys()
+            self.assertEqual(keys, ["ONLY_A", "ONLY_B", "ONLY_C"])
+            self.assertNotIn("BRAVE_API_KEY", keys)
+        finally:
+            if old_aia is not None:
+                os.environ["AIA_MCP_ENV_ALLOWLIST"] = old_aia
+            else:
+                os.environ.pop("AIA_MCP_ENV_ALLOWLIST", None)
+            if old_extra is not None:
+                os.environ["AIA_MCP_ENV_ALLOWLIST_EXTRA"] = old_extra
+            else:
+                os.environ.pop("AIA_MCP_ENV_ALLOWLIST_EXTRA", None)
 
     def test_materialize_bailian_webparser_compat_tool(self) -> None:
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as td:

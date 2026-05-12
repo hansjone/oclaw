@@ -232,8 +232,13 @@
   - 生效：`oclaw/tools/mcp/adapter.py`
 
 - `AIA_MCP_ENV_ALLOWLIST`
-  - 默认：内置 allowlist（Brave/Google/GitHub/Context7/DashScope）
-  - 作用：MCP 子进程可透传环境变量白名单
+  - 默认：未设置时使用内置 allowlist（Brave/Google/GitHub/Context7/DashScope、Trilium MCP 等，见 `mcp_env._DEFAULT_ALLOWLIST`）
+  - 作用：若**非空**，则整表替换内置默认（仅列出的名可传入 MCP 子进程）；用于刻意缩小暴露面
+  - 生效：`oclaw/runtime/operations/mcp_env.py`
+
+- `AIA_MCP_ENV_ALLOWLIST_EXTRA`（兼容 `OPS_MCP_ENV_ALLOWLIST_EXTRA`）
+  - 默认：空
+  - 作用：在「当前主列表」（内置默认，或 `AIA_MCP_ENV_ALLOWLIST` 替换后的列表）之后**追加**变量名，合并去重；新增第三方 MCP 时优先用此项，无需手抄整份默认名单
   - 生效：`oclaw/runtime/operations/mcp_env.py`
 
 - `AIA_MCP_FILESYSTEM_EXTRA_ROOTS`

@@ -9,15 +9,40 @@ from oclaw.platform.config.paths import PROJECT_ROOT, db_path
 
 _DEFAULT_ALLOWLIST = (
     "BRAVE_API_KEY,GOOGLE_OAUTH_CREDENTIALS,GOOGLE_CALENDAR_MCP_TOKEN_PATH,"
-    "GITHUB_PERSONAL_ACCESS_TOKEN,CONTEXT7_API_KEY,DASHSCOPE_API_KEY"
+    "GITHUB_PERSONAL_ACCESS_TOKEN,CONTEXT7_API_KEY,DASHSCOPE_API_KEY,"
+    "TRILIUM_API_URL,TRILIUM_API_TOKEN,PERMISSIONS,VERBOSE"
 )
 
 
+def _split_csv_keys(raw: str) -> list[str]:
+    return [x.strip() for x in str(raw or "").split(",") if x.strip()]
+
+
+def _dedupe_preserve_order(keys: list[str]) -> list[str]:
+    seen: set[str] = set()
+    out: list[str] = []
+    for k in keys:
+        if k not in seen:
+            seen.add(k)
+            out.append(k)
+    return out
+
+
 def mcp_env_allowlist_keys() -> list[str]:
-    raw = str(os.getenv("AIA_MCP_ENV_ALLOWLIST") or "").strip()
-    if not raw:
-        return [x.strip() for x in _DEFAULT_ALLOWLIST.split(",") if x.strip()]
-    return [x.strip() for x in raw.split(",") if x.strip()]
+    """MCP 子进程可继承的环境变量名：主列表 + EXTRA 合并去重。
+
+    - 未设置 ``AIA_MCP_ENV_ALLOWLIST``：主列表为内置默认（含常用 MCP 密钥名）。
+    - 已设置：主列表仅为该项（完全替换默认），用于刻意缩小暴露面。
+    - ``AIA_MCP_ENV_ALLOWLIST_EXTRA``（或兼容 ``OPS_MCP_ENV_ALLOWLIST_EXTRA``）：
+      始终在主列表之后追加，避免为新增 MCP 手抄整份默认名单。
+    """
+    primary_raw = str(os.getenv("AIA_MCP_ENV_ALLOWLIST") or "").strip()
+    primary = _split_csv_keys(primary_raw) if primary_raw else _split_csv_keys(_DEFAULT_ALLOWLIST)
+    extra_raw = str(os.getenv("AIA_MCP_ENV_ALLOWLIST_EXTRA") or "").strip()
+    if not extra_raw:
+        extra_raw = str(os.getenv("OPS_MCP_ENV_ALLOWLIST_EXTRA") or "").strip()
+    extra = _split_csv_keys(extra_raw)
+    return _dedupe_preserve_order([*primary, *extra])
 
 
 def _parse_env_file(path: Path) -> dict[str, str]:

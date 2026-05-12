@@ -64,8 +64,11 @@
 - `AIA_IMAGE_EXPERT_REQUEST_EXTRA`：图片专家顶层 JSON；旧名 **`AIA_LEGACY_IMAGE_REQUEST_EXTRA`** 仍作别名可读。
 - `DASHSCOPE_IMAGE_*`（零散变量）：由 `image_legacy_client` 映射为请求体顶层字段。
 - **`AIA_OCR_*`**（四项）：仅存 **`query_image_attachment` / OCR 降级** 链路；已与图片专家链路拆分。
+- `AIA_MCP_ENV_ALLOWLIST_EXTRA`（兼容 `OPS_MCP_ENV_ALLOWLIST_EXTRA`）：在默认主表或 `AIA_MCP_ENV_ALLOWLIST` 替换表之后追加 MCP 子进程可透传的变量名，合并去重，避免为单个 MCP 手抄整份默认名单。
+- 内置 MCP 环境透传默认名单增加 `TRILIUM_API_URL`、`TRILIUM_API_TOKEN`、`PERMISSIONS`、`VERBOSE`（[triliumnext-mcp](https://github.com/tan-yong-sheng/triliumnext-mcp)）。
 
 ### Changed
+- `mcp_env.mcp_env_allowlist_keys()`：除「`AIA_MCP_ENV_ALLOWLIST` 非空则整表替换内置默认」外，`EXTRA` 始终追加到当前主表之后。
 - `send_ocr_image_messages` 未配 `AIA_OCR_MODEL`（且未传 `model`）失败；图片专家 **`send_legacy_image_messages`** 首选 **用户所选会话/专家绑定的模型的 `model`/`base_url`/`api_key`**，缺省时再回落 **`AIA_IMAGE_EXPERT_*`**（不读取 `AIA_OCR_*`）；服务端若模型不支持看图则直接报错，不做备用 payload。
 
 ### Removed（OCR 通道）
