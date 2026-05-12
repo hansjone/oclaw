@@ -384,7 +384,8 @@ const CONFIRM_STRATEGY_AUTO = "auto";
 const CONFIRM_STRATEGY_OFF = "off";
 const PLAN_AGENT_V1 = "v1";
 const PLAN_AGENT_V2 = "v2";
-const ADMIN_CHAT_SHOW_TOOL_OUTPUT_DEFAULT = false;
+/** Default on: reasoning/tool fold matches streamed behavior; new browsers have no localStorage yet. */
+const ADMIN_CHAT_SHOW_TOOL_OUTPUT_DEFAULT = true;
 const REASONING_BLOCK_MAX_CHARS = 12000;
 const CHAT_ENABLE_WIKI_EVENT_POLLER = false;
 const _rt = String(localStorage.getItem(CHAT_REASONING_TOGGLE_KEY) || "").trim().toLowerCase();
