@@ -185,20 +185,88 @@ def _collect_tool_calls_from_response_dict(resp: dict[str, Any]) -> list[LLMTool
     return out
 
 
+def _stream_reasoning_delta_text(ev: dict[str, Any]) -> str:
+    """Extract a textual chunk from a Responses streaming reasoning-related event."""
+    delta = ev.get("delta")
+    if isinstance(delta, dict):
+        for k in ("text", "delta", "summary", "content"):
+            v = delta.get(k)
+            if isinstance(v, str) and v:
+                return v
+        return ""
+    if delta is not None:
+        s = str(delta)
+        return s
+    for k in ("text", "summary", "content"):
+        v = ev.get(k)
+        if isinstance(v, str) and v:
+            return v
+    return ""
+
+
+def _reasoning_from_completed_response(resp: dict[str, Any]) -> str:
+    """Best-effort reasoning string from a terminal Responses ``response`` object."""
+    for key in ("reasoning", "reasoning_summary", "reasoning_text", "reasoning_content"):
+        v = resp.get(key)
+        if isinstance(v, str) and v.strip():
+            return v.strip()
+    items = resp.get("output")
+    if not isinstance(items, list):
+        return ""
+    chunks: list[str] = []
+    for it in items:
+        d = _as_dict(it) or {}
+        typ = str(d.get("type") or "").lower()
+        if "reasoning" not in typ:
+            continue
+        for k in ("summary", "text", "content"):
+            x = d.get(k)
+            if isinstance(x, str) and x.strip():
+                chunks.append(x.strip())
+                break
+    return "\n".join(chunks).strip()
+
+
 def parse_openai_responses_stream_events(
     events: Iterable[Any],
     *,
     on_token: Optional[Callable[[str], None]] = None,
-) -> tuple[str, list[LLMToolCall], dict[str, Any] | None]:
+) -> tuple[str, list[LLMToolCall], dict[str, Any] | None, str]:
     """Pure stream parser (offline-testable).
 
-    Returns: (assembled_text, tool_calls, final_response_dict?)
+    Returns: (assembled_output_text, tool_calls, final_response_dict?, reasoning_text)
+
+    Reasoning models emit ``response.reasoning_summary_text.delta`` (and similar) events; those are
+    forwarded to ``on_token`` for live UI, accumulated into ``reasoning_text`` for persistence, and
+    are **not** merged into the returned ``assembled_output_text`` (assistant body).
     """
     parts: list[str] = []
+    reasoning_parts: list[str] = []
     final_resp: dict[str, Any] | None = None
+
+    def _emit_reasoning_chunk(s: str) -> None:
+        s = str(s or "")
+        if not s:
+            return
+        reasoning_parts.append(s)
+        if on_token:
+            on_token(s)
+
     for ev in events:
         d = _as_dict(ev) or {}
         typ = str(d.get("type") or "")
+        # Reasoning / thinking summary stream (do not append to output_text body).
+        if typ in (
+            "response.reasoning_summary_text.delta",
+            "response.reasoning_summary_text",
+            "response.reasoning_text.delta",
+            "response.reasoning_text",
+            "response.reasoning_summary.delta",
+        ) or (typ.startswith("response.reasoning") and typ.endswith(".delta")):
+            rs = _stream_reasoning_delta_text(d)
+            if rs:
+                _emit_reasoning_chunk(rs)
+            continue
         # Text deltas
         if typ in ("response.output_text.delta", "response.output_text"):
             delta = d.get("delta")
@@ -219,6 +287,10 @@ def parse_openai_responses_stream_events(
                     parts.append(txt)
                     if on_token:
                         on_token(txt)
+                for rkey in ("reasoning_summary_text", "reasoning_text", "reasoning"):
+                    rv = delta.get(rkey)
+                    if isinstance(rv, str) and rv:
+                        _emit_reasoning_chunk(rv)
             continue
         # Terminal response object
         if typ in ("response.completed", "response.complete", "response.done"):
@@ -233,7 +305,10 @@ def parse_openai_responses_stream_events(
 
     text = "".join(parts)
     tool_calls = _collect_tool_calls_from_response_dict(final_resp) if final_resp else []
-    return text, tool_calls, final_resp
+    reasoning_text = "".join(reasoning_parts).strip()
+    if not reasoning_text and final_resp:
+        reasoning_text = _reasoning_from_completed_response(final_resp)
+    return text, tool_calls, final_resp, reasoning_text
 
 
 class OpenAIResponsesModel(ChatModel):
@@ -606,7 +681,9 @@ class OpenAIResponsesModel(ChatModel):
                 _log_openai_responses_wire_kwargs(payload, variant=str(cand_label), phase="stream")
                 try:
                     stream = self._client.responses.create(**payload)
-                    text, tool_calls, final_resp = parse_openai_responses_stream_events(stream, on_token=on_token)
+                    text, tool_calls, final_resp, reasoning_text = parse_openai_responses_stream_events(
+                        stream, on_token=on_token
+                    )
                     if (not text.strip()) and final_resp:
                         ot = final_resp.get("output_text")
                         if isinstance(ot, str) and ot.strip():
@@ -615,7 +692,7 @@ class OpenAIResponsesModel(ChatModel):
                                 on_token(text)
                     if cand_label != input_candidates[0][0]:
                         logger.info("openai_responses: succeeded with input variant %s", cand_label)
-                    return LLMResponse(content=text, tool_calls=tool_calls)
+                    return LLMResponse(content=text, tool_calls=tool_calls, reasoning_content=reasoning_text)
                 except Exception as exc:
                     emsg = str(exc)
                     # Fallback: provider thinking-mode replay contract.
@@ -633,7 +710,9 @@ class OpenAIResponsesModel(ChatModel):
                                 phase="stream_retry_thinking",
                             )
                             stream = self._client.responses.create(**forced)
-                            text, tool_calls, final_resp = parse_openai_responses_stream_events(stream, on_token=on_token)
+                            text, tool_calls, final_resp, reasoning_text = parse_openai_responses_stream_events(
+                                stream, on_token=on_token
+                            )
                             if (not text.strip()) and final_resp:
                                 ot = final_resp.get("output_text")
                                 if isinstance(ot, str) and ot.strip():
@@ -642,7 +721,7 @@ class OpenAIResponsesModel(ChatModel):
                                         on_token(text)
                             if cand_label != input_candidates[0][0]:
                                 logger.info("openai_responses: succeeded with input variant %s", cand_label)
-                            return LLMResponse(content=text, tool_calls=tool_calls)
+                            return LLMResponse(content=text, tool_calls=tool_calls, reasoning_content=reasoning_text)
                         except Exception:
                             pass
                     if _env_truthy("AIA_RESPONSES_LOG_API_ERROR_DETAIL"):
@@ -675,11 +754,12 @@ class OpenAIResponsesModel(ChatModel):
                     d = _as_dict(resp) or {}
                     text = str(d.get("output_text") or "")
                     tool_calls = _collect_tool_calls_from_response_dict(d)
+                    reasoning_text = _reasoning_from_completed_response(d)
                     if on_token and text:
                         on_token(text)
                     if cand_label != input_candidates[0][0]:
                         logger.info("openai_responses non-stream: succeeded with input variant %s", cand_label)
-                    return LLMResponse(content=text, tool_calls=tool_calls)
+                    return LLMResponse(content=text, tool_calls=tool_calls, reasoning_content=reasoning_text)
                 except Exception as e2:
                     emsg2 = str(e2)
                     if "reasoning_content" in emsg2 and "thinking mode" in emsg2 and "must be passed back" in emsg2:
@@ -699,6 +779,7 @@ class OpenAIResponsesModel(ChatModel):
                             d = _as_dict(resp) or {}
                             text = str(d.get("output_text") or "")
                             tool_calls = _collect_tool_calls_from_response_dict(d)
+                            reasoning_text = _reasoning_from_completed_response(d)
                             if on_token and text:
                                 on_token(text)
                             if cand_label != input_candidates[0][0]:
@@ -706,7 +787,7 @@ class OpenAIResponsesModel(ChatModel):
                                     "openai_responses non-stream: succeeded with input variant %s",
                                     cand_label,
                                 )
-                            return LLMResponse(content=text, tool_calls=tool_calls)
+                            return LLMResponse(content=text, tool_calls=tool_calls, reasoning_content=reasoning_text)
                         except Exception:
                             pass
                     if _env_truthy("AIA_RESPONSES_LOG_API_ERROR_DETAIL"):

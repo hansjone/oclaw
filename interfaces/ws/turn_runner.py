@@ -556,7 +556,18 @@ async def run_agent_turn_via_bridge(
             pass
     elif run_status != "failed":
         try:
-            persisted = store.get_messages(session_id=session_id, limit=64)
+            def _event_payload_as_dict(raw: Any) -> dict[str, Any]:
+                if raw is None or not str(raw).strip():
+                    return {}
+                if isinstance(raw, dict):
+                    return dict(raw)
+                try:
+                    obj = json.loads(str(raw))
+                except Exception:
+                    return {}
+                return dict(obj) if isinstance(obj, dict) else {}
+
+            persisted = store.get_messages(session_id=session_id, limit=200)
             for m in reversed(list(persisted or [])):
                 if str(getattr(m, "role", "") or "").lower() != "assistant":
                     continue
@@ -565,6 +576,8 @@ async def run_agent_turn_via_bridge(
                 if not content.strip() and not _persisted_chat_attachments_nonempty(atraw):
                     continue
                 final_text = content
+                et = str(getattr(m, "event_type", "") or "").strip()
+                ep = getattr(m, "event_payload", None)
                 final_msg = {
                     "id": int(getattr(m, "id", 0) or 0),
                     "role": "assistant",
@@ -573,6 +586,31 @@ async def run_agent_turn_via_bridge(
                     "tool_calls": getattr(m, "tool_calls", None),
                     "attachments": atraw,
                 }
+                # Admin / WS clients build the reasoning fold from event_payload.reasoning_content (thinking mode)
+                # or event_type=reasoning rows after reload; including these on ``final`` avoids "stream had
+                # reasoning but terminal bubble only shows tools" when the UI hydrates from this snapshot.
+                if et:
+                    final_msg["event_type"] = et
+                if ep is not None and str(ep).strip():
+                    final_msg["event_payload"] = ep
+                # Thinking-mode: reasoning_content is often stored on an earlier assistant row in the same turn
+                # (e.g. first tool_call snapshot) while the newest row is post-tool prose only — merge it in.
+                ep_d = _event_payload_as_dict(final_msg.get("event_payload"))
+                rc0 = str(ep_d.get("reasoning_content") or "").strip()
+                turn_key = str(getattr(m, "turn_uuid", "") or "").strip()
+                if not rc0 and turn_key:
+                    for m2 in reversed(list(persisted or [])):
+                        if str(getattr(m2, "role", "") or "").lower() != "assistant":
+                            continue
+                        if str(getattr(m2, "turn_uuid", "") or "").strip() != turn_key:
+                            continue
+                        ep2 = _event_payload_as_dict(getattr(m2, "event_payload", None))
+                        rc2 = str(ep2.get("reasoning_content") or "").strip()
+                        if rc2:
+                            merged = dict(ep_d)
+                            merged["reasoning_content"] = rc2
+                            final_msg["event_payload"] = json.dumps(merged, ensure_ascii=False)
+                            break
                 break
         except Exception:
             pass

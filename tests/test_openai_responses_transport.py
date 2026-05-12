@@ -25,12 +25,46 @@ def test_openai_responses_stream_parses_text_deltas_and_final_response_tool_call
         },
     ]
     buf: list[str] = []
-    text, tool_calls, final_resp = parse_openai_responses_stream_events(events, on_token=buf.append)
+    text, tool_calls, final_resp, reasoning_text = parse_openai_responses_stream_events(events, on_token=buf.append)
     assert text == "Hello"
     assert "".join(buf) == "Hello"
+    assert reasoning_text == ""
     assert final_resp and final_resp.get("id") == "resp_1"
     assert len(tool_calls) == 1
     assert tool_calls[0].id == "call_1"
     assert tool_calls[0].name == "query_route"
     assert tool_calls[0].arguments.get("destination") == "1.1.1.1"
+
+
+def test_openai_responses_stream_emits_reasoning_summary_deltas() -> None:
+    events = [
+        {"type": "response.reasoning_summary_text.delta", "delta": "step "},
+        {"type": "response.reasoning_summary_text.delta", "delta": "one"},
+        {"type": "response.output_text.delta", "delta": "Hi"},
+        {"type": "response.completed", "response": {"id": "resp_2", "output_text": "Hi"}},
+    ]
+    buf: list[str] = []
+    text, tool_calls, final_resp, reasoning_text = parse_openai_responses_stream_events(events, on_token=buf.append)
+    assert text == "Hi"
+    assert reasoning_text == "step one"
+    assert "".join(buf) == "step oneHi"
+    assert final_resp and final_resp.get("id") == "resp_2"
+    assert tool_calls == []
+
+
+def test_openai_responses_stream_reasoning_fallback_from_completed_output() -> None:
+    events = [
+        {"type": "response.output_text.delta", "delta": "Z"},
+        {
+            "type": "response.completed",
+            "response": {
+                "id": "resp_3",
+                "output_text": "Z",
+                "output": [{"type": "reasoning", "summary": "silent plan"}],
+            },
+        },
+    ]
+    text, _, _, reasoning_text = parse_openai_responses_stream_events(events)
+    assert text == "Z"
+    assert reasoning_text == "silent plan"
 
