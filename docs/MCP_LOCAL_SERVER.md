@@ -505,13 +505,13 @@ Keep responses deterministic and JSON-serializable.
 
 - **作用**：按库名/版本拉取较新的官方文档片段，减少「API 记错版本」类幻觉。  
 - **安装**：`python scripts/install_mcp_context7.py`，或管理台 `POST /admin/api/mcp/install` 使用 [`examples/mcp_install_context7.json`](../examples/mcp_install_context7.json) 中的 `payload`。
-- **密钥**：在 **`oclaw/_local/mcp_local.env`**（推荐）或 `data/mcp_local.env`（兼容）设置 `CONTEXT7_API_KEY`（见 [context7.com/dashboard](https://context7.com/dashboard)）。两处都存在时**同键以 `oclaw/_local/mcp_local.env` 为准**（覆盖 `data` 中的同键）。内置默认 allowlist 已包含 `CONTEXT7_API_KEY`（见 `oclaw/runtime/operations/mcp_env.py`）；若你用 **`AIA_MCP_ENV_ALLOWLIST` 整表替换**默认，须在该列表里显式保留 `CONTEXT7_API_KEY`，或改用 **`AIA_MCP_ENV_ALLOWLIST_EXTRA`** 只追加新变量名而不动默认集合。  
+- **密钥**：在 **`oclaw/_local/mcp_local.env`**（推荐）或 `data/mcp_local.env`（兼容）设置 `CONTEXT7_API_KEY`（见 [context7.com/dashboard](https://context7.com/dashboard)）。两处都存在时**同键以 `oclaw/_local/mcp_local.env` 为准**（覆盖 `data` 中的同键）。**写入任一合并 `mcp_local.env` 的键会自动传入 MCP 子进程**；若密钥只配在宿主/Docker 环境、不进文件，才依赖内置或自定义的 `AIA_MCP_ENV_ALLOWLIST` 补充名单。  
 - **装完后**：`Health` → `Sync Tools` → 将 `mcp-context7` 加入通识 specialist 的 MCP 绑定（若脚本已成功 Sync，会自动追加）。
 
 ### Bailian WebSearch（DashScope）
 
 - **密钥**：在 `oclaw/_local/mcp_local.env`（推荐）设置 `DASHSCOPE_API_KEY=...`。
-- **关键注意**：若使用 **`AIA_MCP_ENV_ALLOWLIST` 整表替换**内置默认，须在该列表里显式包含 `DASHSCOPE_API_KEY`，否则 MCP 子进程拿不到该密钥。更省事的做法是：**不要设置** `AIA_MCP_ENV_ALLOWLIST`，只在 **`AIA_MCP_ENV_ALLOWLIST_EXTRA`** 里追加其它 MCP 需要的变量名（与默认名单自动合并）。常见表现是：
+- **关键注意**：密钥写在 **`mcp_local.env` 里即可传入 MCP**。若 **`DASHSCOPE_API_KEY` 只存在于宿主环境**、未写入 `mcp_local.env`，须确保其出现在 **`AIA_MCP_ENV_ALLOWLIST` 默认或自定义补充名单**中（或用 **`AIA_MCP_ENV_ALLOWLIST_EXTRA`** 追加）。常见表现是：
   - `error_code: mcp_runtime_empty_response`
   - `error: empty_response`
 - **排查顺序**：

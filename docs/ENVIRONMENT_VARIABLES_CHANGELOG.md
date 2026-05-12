@@ -69,6 +69,7 @@
 
 ### Changed
 - `mcp_env.mcp_env_allowlist_keys()`：除「`AIA_MCP_ENV_ALLOWLIST` 非空则整表替换内置默认」外，`EXTRA` 始终追加到当前主表之后。
+- **MCP 子进程环境**：`mcp_local.env`（合并路径）中**声明且非空**的键一律传入 MCP，与 allowlist 取并集；allowlist 仅补充「只存在于宿主环境、未写入 mcp_local 文件」的变量名。
 - `send_ocr_image_messages` 未配 `AIA_OCR_MODEL`（且未传 `model`）失败；图片专家 **`send_legacy_image_messages`** 首选 **用户所选会话/专家绑定的模型的 `model`/`base_url`/`api_key`**，缺省时再回落 **`AIA_IMAGE_EXPERT_*`**（不读取 `AIA_OCR_*`）；服务端若模型不支持看图则直接报错，不做备用 payload。
 
 ### Removed（OCR 通道）

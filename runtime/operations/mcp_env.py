@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-"""MCP 相关进程环境：默认 allowlist + 可选本地 env 文件（首选 `oclaw/_local/mcp_local.env`）。"""
+"""MCP 相关进程环境：``mcp_local.env`` 中的键视为 MCP 专用并传入子进程；allowlist 仅补充宿主环境里未写入该文件的变量名。"""
 
 import os
 from pathlib import Path
@@ -29,12 +29,14 @@ def _dedupe_preserve_order(keys: list[str]) -> list[str]:
 
 
 def mcp_env_allowlist_keys() -> list[str]:
-    """MCP 子进程可继承的环境变量名：主列表 + EXTRA 合并去重。
+    """宿主环境 → MCP 子进程的补充白名单（与 ``mcp_local.env`` 中的键取并集）。
 
-    - 未设置 ``AIA_MCP_ENV_ALLOWLIST``：主列表为内置默认（含常用 MCP 密钥名）。
-    - 已设置：主列表仅为该项（完全替换默认），用于刻意缩小暴露面。
-    - ``AIA_MCP_ENV_ALLOWLIST_EXTRA``（或兼容 ``OPS_MCP_ENV_ALLOWLIST_EXTRA``）：
-      始终在主列表之后追加，避免为新增 MCP 手抄整份默认名单。
+    ``mcp_local.env``（含 ``data/mcp_local.env`` 等合并路径）里**出现且非空**的变量名会始终尝试传入
+    MCP 子进程（见 ``McpProcessRuntime._build_runtime_env``），无需出现在本列表中。
+
+    - 未设置 ``AIA_MCP_ENV_ALLOWLIST``：本列表为内置默认（常用仅写在 Docker/系统 env 的密钥名）。
+    - 已设置：本列表仅为该项（完全替换内置默认），用于补充「未写入 mcp_local 文件」的透传名。
+    - ``AIA_MCP_ENV_ALLOWLIST_EXTRA``（或 ``OPS_MCP_ENV_ALLOWLIST_EXTRA``）：始终追加到本列表之后，合并去重。
     """
     primary_raw = str(os.getenv("AIA_MCP_ENV_ALLOWLIST") or "").strip()
     primary = _split_csv_keys(primary_raw) if primary_raw else _split_csv_keys(_DEFAULT_ALLOWLIST)

@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import os
 import tempfile
 import textwrap
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from oclaw.runtime.tools.mcp.runtime import McpProcessRuntime
 
@@ -68,6 +70,16 @@ class McpRuntimeTests(unittest.TestCase):
             self.assertEqual(str(out.get("error_code") or ""), "mcp_runtime_timeout")
         finally:
             rt.stop()
+
+    @patch("oclaw.runtime.operations.mcp_env.mcp_local_env_merged", return_value={"MCP_ONLY_FROM_FILE": "fileval"})
+    def test_mcp_local_env_keys_passed_without_allowlist_name(self, _mock_merged: object) -> None:
+        os.environ["MCP_ONLY_FROM_FILE"] = "liveval"
+        try:
+            env = McpProcessRuntime._build_runtime_env([])
+            assert env is not None
+            self.assertEqual(env.get("MCP_ONLY_FROM_FILE"), "liveval")
+        finally:
+            os.environ.pop("MCP_ONLY_FROM_FILE", None)
 
     def test_empty_allowlist_keeps_path_for_subprocess(self) -> None:
         script = self._write_server(

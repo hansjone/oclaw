@@ -25,14 +25,26 @@ class McpProcessRuntime:
     def _build_runtime_env(env_allowlist: list[str] | None) -> dict[str, str] | None:
         if env_allowlist is None:
             return None
+        from oclaw.runtime.operations.mcp_env import mcp_local_env_merged
+
         keep_keys = {"PATH", "PATHEXT", "SYSTEMROOT", "WINDIR", "COMSPEC", "TEMP", "TMP", "HOME", "USERPROFILE", "APPDATA", "LOCALAPPDATA", "PROGRAMDATA", "PROGRAMFILES", "PROGRAMFILES(X86)", "SYSTEMDRIVE"}
         env: dict[str, str] = {}
         for k in keep_keys:
             if k in os.environ:
                 env[k] = os.environ[k]
+        # Keys declared in mcp_local.env (any merged path): treat as MCP-scoped; always pass
+        # through when non-empty (values come from os.environ after gateway merge, else file literal).
+        for k, v in mcp_local_env_merged().items():
+            if not str(v or "").strip():
+                continue
+            live = str(os.environ.get(k, "") or "").strip()
+            if live:
+                env[k] = os.environ[k]
+            else:
+                env[k] = str(v).strip()
         for k in env_allowlist:
             key = str(k or "").strip()
-            if key and key in os.environ:
+            if key and key in os.environ and str(os.environ[key] or "").strip():
                 env[key] = os.environ[key]
         return env
 

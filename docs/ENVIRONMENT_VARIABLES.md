@@ -232,13 +232,13 @@
   - 生效：`oclaw/tools/mcp/adapter.py`
 
 - `AIA_MCP_ENV_ALLOWLIST`
-  - 默认：未设置时使用内置 allowlist（Brave/Google/GitHub/Context7/DashScope、Trilium MCP 等，见 `mcp_env._DEFAULT_ALLOWLIST`）
-  - 作用：若**非空**，则整表替换内置默认（仅列出的名可传入 MCP 子进程）；用于刻意缩小暴露面
-  - 生效：`oclaw/runtime/operations/mcp_env.py`
+  - 默认：未设置时使用内置补充名单（仅用于**未**出现在 `mcp_local.env` 里、但要从宿主环境透传的变量名，见 `mcp_env._DEFAULT_ALLOWLIST`）
+  - 作用：**`oclaw/_local/mcp_local.env`（及合并路径）里声明且非空的键**会由 `McpProcessRuntime` 直接传入 MCP，与本项无关；若**非空**设置本项，则整表替换该「补充」默认（不影響 mcp_local 文件中的键）
+  - 生效：`oclaw/runtime/operations/mcp_env.py`、`oclaw/runtime/tools/mcp/runtime.py`
 
 - `AIA_MCP_ENV_ALLOWLIST_EXTRA`（兼容 `OPS_MCP_ENV_ALLOWLIST_EXTRA`）
   - 默认：空
-  - 作用：在「当前主列表」（内置默认，或 `AIA_MCP_ENV_ALLOWLIST` 替换后的列表）之后**追加**变量名，合并去重；新增第三方 MCP 时优先用此项，无需手抄整份默认名单
+  - 作用：在「补充主列表」（内置默认，或 `AIA_MCP_ENV_ALLOWLIST` 替换后的列表）之后追加变量名，合并去重；适用于密钥只写在 Docker `-e` / 系统环境、不进 `mcp_local.env` 的情况
   - 生效：`oclaw/runtime/operations/mcp_env.py`
 
 - `AIA_MCP_FILESYSTEM_EXTRA_ROOTS`
