@@ -57,6 +57,7 @@ const I18N = {
     "chat.marker.reclaimed": "本轮回收 turn 标记 {n}",
     "chat.historyTruncated": "仅显示最近 {shown} 条，共 {total} 条",
     "reasoning.summary": "模型推理片段",
+    "reasoning.processNotes": "主通道过程说明",
     "tool.streamTitle": "工具与进度（本轮）",
     "auth.login": "登录",
     "auth.logout": "退出登录",
@@ -235,6 +236,7 @@ const I18N = {
     "chat.marker.reclaimed": "Turn markers reclaimed {n}",
     "chat.historyTruncated": "Showing last {shown} of {total} messages",
     "reasoning.summary": "Model reasoning",
+    "reasoning.processNotes": "Main-channel notes",
     "tool.streamTitle": "Tools & progress (this turn)",
     "auth.login": "Login",
     "auth.logout": "Logout",
@@ -482,6 +484,25 @@ function _appendAssistantTextSegments(inner, rawText, collapsedItems) {
   }
 }
 
+function _normFoldDedupText(s) {
+  return String(s || "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+/** True when ``processText`` is already covered by text already queued for the reasoning fold. */
+function _foldProcessTextRedundant(processText, collapsedItems) {
+  const p = _normFoldDedupText(processText);
+  if (!p) return true;
+  const hay = (Array.isArray(collapsedItems) ? collapsedItems : [])
+    .map((x) => _normFoldDedupText((x && x.text) || ""))
+    .join("\n\n");
+  if (!hay) return false;
+  if (hay.includes(p)) return true;
+  return false;
+}
+
 async function _buildAggregatedAssistantBubble(tsIso, items) {
   const inner = el("div", { class: "chat-msg chat-msg--assistant chat-msg--rich" });
   const collapsedItems = [];
@@ -498,9 +519,19 @@ async function _buildAggregatedAssistantBubble(tsIso, items) {
       continue;
     }
     if (kind === "assistant_text") {
-      _appendAssistantTextSegments(inner, text, collapsedItems);
-      const attsAssistant = await renderAttachmentsEl(it && it.attachments);
-      if (attsAssistant) inner.appendChild(attsAssistant);
+      const aet = String((it && it.assistantEventType) || "assistant_text").toLowerCase();
+      if (aet === "tool_call" && adminChatShowToolOutput) {
+        const t0 = String(text || "").trim();
+        if (t0 && !_foldProcessTextRedundant(t0, collapsedItems)) {
+          collapsedItems.push({ title: t("reasoning.processNotes"), text: t0 });
+        }
+        const attsAssistant = await renderAttachmentsEl(it && it.attachments);
+        if (attsAssistant) inner.appendChild(attsAssistant);
+      } else {
+        _appendAssistantTextSegments(inner, text, collapsedItems);
+        const attsAssistant = await renderAttachmentsEl(it && it.attachments);
+        if (attsAssistant) inner.appendChild(attsAssistant);
+      }
     } else if (kind === "reasoning") {
       if (adminChatShowToolOutput) collapsedItems.push({ title: t("reasoning.summary"), text });
     } else if (kind === "tool_call") {
@@ -605,11 +636,23 @@ function _buildRenderRows(msgs) {
           if (String(content || "").trim()) {
             agg._items.push({ kind: "reasoning", text: content });
           }
+        } else if (eventType === "tool_call") {
+          const hasText = !!String(content || "").trim();
+          const attsParsed = parseAttachments(m && m.attachments);
+          if (hasText || attsParsed.length) {
+            const piece = { kind: "assistant_text", text: content, assistantEventType: "tool_call" };
+            if (attsParsed.length) piece.attachments = attsParsed;
+            agg._items.push(piece);
+          }
         } else if (eventType === "assistant_text" || eventType === "assistant" || !eventType) {
           const hasText = !!String(content || "").trim();
           const attsParsed = parseAttachments(m && m.attachments);
           if (hasText || attsParsed.length) {
-            const piece = { kind: "assistant_text", text: content };
+            const piece = {
+              kind: "assistant_text",
+              text: content,
+              assistantEventType: eventType || "assistant_text",
+            };
             if (attsParsed.length) piece.attachments = attsParsed;
             agg._items.push(piece);
           }
