@@ -585,6 +585,21 @@ function _buildRenderRows(msgs) {
       }
       if (m && m.id != null) agg._message_ids.push(m.id);
       if (role === "assistant") {
+        // thinking_mode_enabled: reasoning lives in event_payload.reasoning_content (no separate reasoning rows).
+        let ep = m && m.event_payload;
+        if (typeof ep === "string" && String(ep).trim()) {
+          try {
+            ep = JSON.parse(ep);
+          } catch (_) {
+            ep = null;
+          }
+        }
+        if (ep && typeof ep === "object" && !Array.isArray(ep)) {
+          const rc = String(ep.reasoning_content || "").trim();
+          if (rc) {
+            agg._items.push({ kind: "reasoning", text: rc });
+          }
+        }
         if (eventType === "reasoning") {
           if (String(content || "").trim()) {
             agg._items.push({ kind: "reasoning", text: content });
@@ -4130,6 +4145,18 @@ async function renderChatUi() {
       timestamp: message.timestamp != null ? message.timestamp : new Date().toISOString(),
     };
     const out = [];
+    let ep = message.event_payload;
+    if (typeof ep === "string" && String(ep).trim()) {
+      try {
+        ep = JSON.parse(ep);
+      } catch (_) {
+        ep = null;
+      }
+    }
+    if (ep && typeof ep === "object" && !Array.isArray(ep)) {
+      const rc = decodeEscapedNewlines(String(ep.reasoning_content || "")).trim();
+      if (rc) out.push({ ...base, content: rc, event_type: "reasoning" });
+    }
     const contentItems = Array.isArray(message.content) ? message.content : [];
     for (const item of contentItems) {
       if (!item || typeof item !== "object") continue;
@@ -4147,10 +4174,34 @@ async function renderChatUi() {
         out.push({ ...base, content: textBody, event_type: "assistant_text" });
       }
     }
+    const textFallback = decodeEscapedNewlines(
+      typeof message.content === "string" ? message.content : typeof message.text === "string" ? message.text : "",
+    ).trim();
+    const hasAssistantText = out.some((row) => String(row.event_type || "") === "assistant_text");
+    if (textFallback && !hasAssistantText) {
+      out.push({ ...base, content: textFallback, event_type: "assistant_text" });
+    }
+    if (!out.length && (textFallback || (mesAtt && mesAtt.length))) {
+      return [
+        {
+          ...base,
+          content: textFallback,
+          event_type: "assistant_text",
+          tool_calls: message.tool_calls != null ? message.tool_calls : message.toolCalls,
+          ...(mesAtt && mesAtt.length ? { attachments: mesAtt } : {}),
+        },
+      ];
+    }
     if (out.length) {
-      const lastIdx = out.length - 1;
-      out[lastIdx] = {
-        ...out[lastIdx],
+      let attachIdx = out.length - 1;
+      for (let i = out.length - 1; i >= 0; i -= 1) {
+        if (String(out[i].event_type || "") === "assistant_text") {
+          attachIdx = i;
+          break;
+        }
+      }
+      out[attachIdx] = {
+        ...out[attachIdx],
         tool_calls: message.tool_calls != null ? message.tool_calls : message.toolCalls,
       };
       // Avoid duplicating blobs: attach WS/API root attachments to the latest assistant_text row only.
@@ -4163,20 +4214,6 @@ async function renderChatUi() {
         }
       }
       return out;
-    }
-    const textFallback = decodeEscapedNewlines(
-      typeof message.content === "string" ? message.content : typeof message.text === "string" ? message.text : "",
-    ).trim();
-    if (textFallback || (mesAtt && mesAtt.length)) {
-      return [
-        {
-          ...base,
-          content: textFallback,
-          event_type: "assistant_text",
-          tool_calls: message.tool_calls != null ? message.tool_calls : message.toolCalls,
-          ...(mesAtt && mesAtt.length ? { attachments: mesAtt } : {}),
-        },
-      ];
     }
     return [];
   };
