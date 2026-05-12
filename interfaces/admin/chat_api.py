@@ -238,12 +238,20 @@ def _filter_internal_instruction_user_messages(msgs: list[Any]) -> list[Any]:
     instruction_texts: set[str] = set()
     for m in msgs:
         role = str(getattr(m, "role", "") or "")
-        event_type = str(getattr(m, "event_type", "") or "")
-        if role != "assistant" or event_type != "reasoning":
+        if role != "assistant":
             continue
-        instr = _extract_manager_instruction_text(str(getattr(m, "content", "") or ""))
-        if instr:
-            instruction_texts.add(instr)
+        event_type = str(getattr(m, "event_type", "") or "")
+        candidates: list[str] = []
+        if event_type == "reasoning":
+            candidates.append(str(getattr(m, "content", "") or ""))
+        ep = _safe_json_object(getattr(m, "event_payload", None))
+        rc = str(ep.get("reasoning_content") or "").strip()
+        if rc:
+            candidates.append(rc)
+        for text in candidates:
+            instr = _extract_manager_instruction_text(text)
+            if instr:
+                instruction_texts.add(instr)
     if not instruction_texts:
         return msgs
     filtered: list[Any] = []

@@ -21,6 +21,22 @@ def test_filter_internal_instruction_user_messages_hides_polluted_user_row() -> 
     assert [str(getattr(x, "event_type", "")) for x in out] == ["reasoning", "assistant_text"]
 
 
+def test_filter_internal_instruction_user_messages_hides_from_assistant_event_payload() -> None:
+    polluted_text = "请检查并修复网关启动失败。"
+    rows = [
+        SimpleNamespace(role="user", event_type="user_text", content=polluted_text),
+        SimpleNamespace(
+            role="assistant",
+            event_type="assistant_text",
+            content="已修复",
+            event_payload={"reasoning_content": f"任务分配\nspecialist=ops\ninstruction:\n{polluted_text}"},
+        ),
+    ]
+    out = _filter_internal_instruction_user_messages(rows)
+    assert len(out) == 1
+    assert str(getattr(out[0], "event_type", "")) == "assistant_text"
+
+
 def test_filter_internal_instruction_user_messages_keeps_normal_user_rows() -> None:
     rows = [
         SimpleNamespace(role="user", event_type="user_text", content="你好"),
