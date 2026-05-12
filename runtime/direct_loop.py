@@ -35,7 +35,10 @@ _DIRECT_LOOP_OC_STAGE: dict[str, str] = {
     "tool_result_context_guard": "tool_context_guard",
     "tool_pairing_guard": "tool_pairing_guard",
 }
-_THINK_BLOCK_RE = re.compile(r"<(think|redacted_thinking)>\s*(.*?)\s*</\1>\s*", flags=re.IGNORECASE | re.DOTALL)
+_THINK_BLOCK_RE = re.compile(
+    r"<\s*(?:antml:)?(think|thinking|thought|redacted_thinking)\s*>\s*(.*?)\s*</\s*(?:antml:)?\1\s*>",
+    flags=re.IGNORECASE | re.DOTALL,
+)
 _DSML_INVOKE_NAME_RE = re.compile(r"invoke\s+name\s*=\s*['\"]([^'\"\s>]+)['\"]", flags=re.IGNORECASE)
 _JSON_TOOL_NAME_RE = re.compile(r"['\"]name['\"]\s*:\s*['\"]([^'\"\s]{1,120})['\"]", flags=re.IGNORECASE)
 _TOOL_WIRE_CACHE_LOCK = threading.Lock()

@@ -1547,10 +1547,12 @@ function hydrateMermaidIn(root) {
 
 const RE_REDACTED_THINKING = new RegExp("<redacted_thinking>\\s*([\\s\\S]*?)\\s*</redacted_thinking>", "i");
 const RE_THINK_TAG = new RegExp("<think\\s*>\\s*([\\s\\S]*?)\\s*</think\\s*>", "i");
+const RE_THINKING_TAG = new RegExp("<thinking\\s*>\\s*([\\s\\S]*?)\\s*</thinking\\s*>", "i");
+const RE_THOUGHT_TAG = new RegExp("<thought\\s*>\\s*([\\s\\S]*?)\\s*</thought\\s*>", "i");
 
 function _findEarliestReasoningBlock(remaining) {
   let best = null;
-  for (const re of [RE_REDACTED_THINKING, RE_THINK_TAG]) {
+  for (const re of [RE_REDACTED_THINKING, RE_THINK_TAG, RE_THINKING_TAG, RE_THOUGHT_TAG]) {
     const m = re.exec(remaining);
     re.lastIndex = 0;
     if (!m) continue;
@@ -1657,7 +1659,7 @@ function extractThinkingFromText(text) {
   const raw = String(text || "");
   if (!raw) return "";
   const blocks = [];
-  for (const re of [RE_REDACTED_THINKING, RE_THINK_TAG]) {
+  for (const re of [RE_REDACTED_THINKING, RE_THINK_TAG, RE_THINKING_TAG, RE_THOUGHT_TAG]) {
     const rr = new RegExp(re.source, "gi");
     for (const m of raw.matchAll(rr)) {
       const inner = String(m[1] || "").trim();
