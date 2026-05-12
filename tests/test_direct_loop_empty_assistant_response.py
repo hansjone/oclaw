@@ -218,3 +218,107 @@ def test_direct_loop_mixed_text_with_tool_intent_is_blocked(tmp_path, monkeypatc
     assert tool_rows
     assert any("run_command" in str(getattr(r, "tool_calls", "") or "") for r in tool_rows)
 
+
+class _ModelDeepseekDsmlThenPlain:
+    base_url = "https://api.deepseek.com/v1"
+    thinking_mode_enabled = False
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def chat(self, msgs, tools, on_token=None):  # noqa: ANN001,ARG002
+        self.calls += 1
+        if self.calls == 1:
+            return SimpleNamespace(
+                content=(
+                    "<||DSML||tool_calls>\n"
+                    "<||DSML||invoke name=\"run_command\">\n"
+                    '<||DSML||parameter name="command" string="true">echo dsml</||DSML||parameter>\n'
+                    "</||DSML||invoke>\n"
+                    "</||DSML||tool_calls>"
+                ),
+                reasoning_content="",
+                tool_calls=[],
+            )
+        return SimpleNamespace(content="after-tools", reasoning_content="", tool_calls=[])
+
+
+def test_direct_loop_dsml_text_tools_executed_for_deepseek_base_url(tmp_path, monkeypatch) -> None:  # noqa: ANN001
+    db = tmp_path / "ops.sqlite"
+    store = SqliteStore(str(db))
+    sess = store.create_session("t")
+    model = _ModelDeepseekDsmlThenPlain()
+    monkeypatch.setenv("AIA_EMPTY_ASSISTANT_RETRY_DELAY_MS", "0")
+    dummy_tool = ToolSpec(
+        name="run_command",
+        description="dummy",
+        parameters={"type": "object", "properties": {}, "additionalProperties": True},
+        handler=lambda args: {"ok": True, "args": args},
+        read_only=True,
+    )
+    out = run_oclaw_direct_loop(
+        store=store,
+        session_id=sess.id,
+        lang="zh",
+        system_prompt="x",
+        model=model,
+        tools=ToolRegistry([dummy_tool]),
+        user_text="hi",
+        persist_user_message=True,
+        max_tool_rounds=2,
+    )
+    assert out.final_text == "after-tools"
+    assert model.calls == 2
+    rows = store.get_messages(session_id=sess.id, limit=30)
+    tool_rows = [r for r in rows if getattr(r, "role", "") == "tool"]
+    assert tool_rows
+    assert any('"ok": true' in str(getattr(r, "content", "") or "") for r in tool_rows)
+
+
+def test_direct_loop_dsml_text_tools_env_forces_on(tmp_path, monkeypatch) -> None:  # noqa: ANN001
+    """Non-DeepSeek base URL still parses DSML when ``AIA_DSML_TEXT_TOOLS=1``."""
+
+    class _LocalModel:
+        base_url = "http://127.0.0.1:9999/v1"
+        thinking_mode_enabled = False
+
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def chat(self, msgs, tools, on_token=None):  # noqa: ANN001,ARG002
+            self.calls += 1
+            if self.calls == 1:
+                return SimpleNamespace(
+                    content='<||DSML||tool_calls><||DSML||invoke name="run_command"></||DSML||invoke></||DSML||tool_calls>',
+                    reasoning_content="",
+                    tool_calls=[],
+                )
+            return SimpleNamespace(content="ok", reasoning_content="", tool_calls=[])
+
+    db = tmp_path / "ops.sqlite"
+    store = SqliteStore(str(db))
+    sess = store.create_session("t")
+    model = _LocalModel()
+    monkeypatch.setenv("AIA_DSML_TEXT_TOOLS", "1")
+    monkeypatch.setenv("AIA_EMPTY_ASSISTANT_RETRY_DELAY_MS", "0")
+    dummy_tool = ToolSpec(
+        name="run_command",
+        description="dummy",
+        parameters={"type": "object", "properties": {}, "additionalProperties": True},
+        handler=lambda args: {"ok": True, "args": args},
+        read_only=True,
+    )
+    out = run_oclaw_direct_loop(
+        store=store,
+        session_id=sess.id,
+        lang="zh",
+        system_prompt="x",
+        model=model,
+        tools=ToolRegistry([dummy_tool]),
+        user_text="hi",
+        persist_user_message=True,
+        max_tool_rounds=2,
+    )
+    assert out.final_text == "ok"
+    assert model.calls == 2
+

@@ -24,6 +24,7 @@ from oclaw.runtime.types import OclawMemoryContext
 from oclaw.runtime.orchestration.trace import new_span_id
 from oclaw.runtime.tools.base import ToolRegistry
 from oclaw.runtime.hooks_runtime import trigger_hook_event
+from oclaw.runtime.dsml_tool_parse import strip_first_dsml_tool_calls_block, try_parse_deepseek_v4_dsml_tool_calls
 from oclaw.runtime.tools.experts.network_ops.netx_tools import ops_netx_system_context_extension
 
 _OCLAW_TOOL_RESULT_HARD_CAP_CHARS = 24_000
@@ -829,6 +830,24 @@ def _prepare_llm_tools(
     return llm_tools
 
 
+def _dsml_text_tools_enabled(*, base_url: str, model_id: str = "") -> bool:
+    """When true, treat DeepSeek-V4-style DSML in assistant ``content`` as native tool calls.
+
+    Opt-in via ``AIA_DSML_TEXT_TOOLS=1``, opt-out via ``=0``. When unset, defaults on if
+    ``base_url`` or ``model_id`` looks like DeepSeek (per upstream DSML tool spec).
+    """
+    env = str(os.getenv("AIA_DSML_TEXT_TOOLS") or "").strip().lower()
+    if env in {"0", "false", "no", "off"}:
+        return False
+    if env in {"1", "true", "yes", "on"}:
+        return True
+    bu = str(base_url or "").strip().lower()
+    mid = str(model_id or "").strip().lower()
+    if "deepseek" in bu or "deepseek" in mid:
+        return True
+    return False
+
+
 def _tool_names_for_trace(tools: list[dict[str, Any]]) -> list[str]:
     out: list[str] = []
     for t in tools or []:
@@ -851,6 +870,7 @@ def _chat_with_empty_body_retry(
     on_token: Optional[Callable[[str], None]],
     on_progress: Optional[Callable[[str], None]],
     progress_label: str = "oclaw: think",
+    allow_dsml_text_tools: bool = False,
 ) -> Any:
     # Empty assistant body can occur transiently at upstream gateways.
     # Retry until non-empty (bounded by retry count and total timeout).
@@ -864,6 +884,8 @@ def _chat_with_empty_body_retry(
         content = str(getattr(resp, "content", "") or "")
         tool_calls = list(getattr(resp, "tool_calls", []) or [])
         textual_tool_intent = (not tool_calls) and bool(_extract_textual_tool_intent_names(content))
+        if allow_dsml_text_tools and try_parse_deepseek_v4_dsml_tool_calls(content) is not None:
+            textual_tool_intent = False
         if (content.strip() or tool_calls) and not textual_tool_intent:
             return resp
         elapsed_ms = int((time.perf_counter() - started) * 1000.0)
@@ -1378,6 +1400,8 @@ def run_oclaw_direct_loop(
     workspace_lane_role = str(skill_binding_role or wire_policy_role or "generalist").strip().lower() or "generalist"
 
     base_url = str(getattr(model, "base_url", "") or "")
+    model_id = str(getattr(model, "model", "") or "")
+    allow_dsml_text_tools = _dsml_text_tools_enabled(base_url=base_url, model_id=model_id)
 
     max_rounds = max(1, int(max_tool_rounds or 1))
     for round_idx in range(max_rounds):
@@ -1425,10 +1449,18 @@ def run_oclaw_direct_loop(
             on_token=on_token,
             on_progress=on_progress,
             progress_label="oclaw: think",
+            allow_dsml_text_tools=allow_dsml_text_tools,
         )
         assistant_text = str(getattr(resp, "content", "") or "")
         reasoning_text = str(getattr(resp, "reasoning_content", "") or "")
         llm_tool_calls = list(getattr(resp, "tool_calls", []) or [])
+        if allow_dsml_text_tools and not llm_tool_calls:
+            dsml_parsed = try_parse_deepseek_v4_dsml_tool_calls(assistant_text)
+            if dsml_parsed is not None:
+                llm_tool_calls = dsml_parsed
+                stripped = strip_first_dsml_tool_calls_block(assistant_text)
+                if stripped is not None:
+                    assistant_text = stripped
         textual_tool_intent_names = _extract_textual_tool_intent_names(assistant_text) if not llm_tool_calls else []
 
         if textual_tool_intent_names:
@@ -1544,6 +1576,7 @@ def run_oclaw_direct_loop(
             on_token=on_token,
             on_progress=on_progress,
             progress_label="oclaw: finalize",
+            allow_dsml_text_tools=False,
         )
         step = _persist_assistant_step(
             store=store,
