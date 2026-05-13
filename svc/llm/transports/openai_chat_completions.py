@@ -109,11 +109,13 @@ def _messages_contain_list_with_image(messages: list[dict[str, Any]]) -> bool:
     return False
 
 
-def _deepseek_strict_tool_mode_enabled(*, base_url: str | None, model: str | None) -> bool:
-    """DeepSeek OpenAI-compat: optional ``strict_tool_mode`` in request body (via ``extra_body``).
+def _deepseek_strict_tools_enabled(*, base_url: str | None, model: str | None) -> bool:
+    """Whether to set ``strict: true`` on each OpenAI-style ``tools[].function`` for DeepSeek.
 
-    Upstream documents this as reducing DSML-in-text tool output in favor of native ``tool_calls``.
-    Opt out with ``AIA_DEEPSEEK_STRICT_TOOL_MODE=0`` when a proxy rejects unknown fields.
+    DeepSeek documents strict tool output in
+    https://api-docs.deepseek.com/zh-cn/guides/tool_calls :
+    each ``function`` should include ``\"strict\": true`` (Beta; also needs ``/beta`` base URL
+    and JSON Schema rules on the provider side). Opt out with ``AIA_DEEPSEEK_STRICT_TOOL_MODE=0``.
     """
     raw = str(os.getenv("AIA_DEEPSEEK_STRICT_TOOL_MODE") or "").strip().lower()
     if raw in ("0", "false", "no", "off"):
@@ -122,19 +124,28 @@ def _deepseek_strict_tool_mode_enabled(*, base_url: str | None, model: str | Non
     return "deepseek" in hay
 
 
-def _merge_deepseek_strict_tool_mode_extra_body(
-    kwargs: dict[str, Any],
-    *,
-    base_url: str | None,
-    model: str | None,
-    use_tools: bool,
-) -> None:
-    if not use_tools or not _deepseek_strict_tool_mode_enabled(base_url=base_url, model=model):
-        return
-    extra_body = kwargs.get("extra_body") if isinstance(kwargs.get("extra_body"), dict) else {}
-    extra_body = dict(extra_body)
-    extra_body["strict_tool_mode"] = True
-    kwargs["extra_body"] = extra_body
+def _apply_deepseek_strict_tools(tools: list[dict[str, Any]] | None) -> list[dict[str, Any]] | None:
+    """Return a shallow-copied tools list with ``function.strict: true`` on each function tool."""
+    if not tools:
+        return tools
+    out: list[dict[str, Any]] = []
+    for raw in tools:
+        if not isinstance(raw, dict):
+            out.append(raw)  # type: ignore[arg-type]
+            continue
+        if str(raw.get("type") or "").strip().lower() != "function":
+            out.append(dict(raw))
+            continue
+        t = dict(raw)
+        fn = t.get("function")
+        if isinstance(fn, dict):
+            fn2 = dict(fn)
+            fn2["strict"] = True
+            t["function"] = fn2
+        else:
+            t["function"] = {"strict": True}
+        out.append(t)
+    return out
 
 
 def _should_proactively_downgrade_multimodal_messages(
@@ -556,9 +567,10 @@ class OpenAIChatModel(ChatModel):
                 kwargs["tools"] = plan.tools_wired
             except Exception:
                 kwargs["tools"] = complete_openai_tools_wire_parameters(tools)
-        _merge_deepseek_strict_tool_mode_extra_body(
-            kwargs, base_url=self.base_url, model=self.model, use_tools=use_tools
-        )
+        if use_tools and _deepseek_strict_tools_enabled(base_url=self.base_url, model=self.model):
+            tw = kwargs.get("tools")
+            if isinstance(tw, list):
+                kwargs["tools"] = _apply_deepseek_strict_tools(tw)
         try:
             return self._client.chat.completions.create(**kwargs)
         except Exception as exc:
@@ -712,8 +724,8 @@ __all__ = [
     "OpenAIChatModel",
     "_likely_gemini_openai_compat_base_url",
     "_model_id_suggests_gemini",
-    "_deepseek_strict_tool_mode_enabled",
-    "_merge_deepseek_strict_tool_mode_extra_body",
+    "_deepseek_strict_tools_enabled",
+    "_apply_deepseek_strict_tools",
 ]
 
 
