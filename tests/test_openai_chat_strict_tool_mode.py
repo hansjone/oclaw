@@ -13,15 +13,12 @@ from svc.llm.transports.openai_chat_completions import (
 
 class OpenAIToolFunctionStrictTests(unittest.TestCase):
     def test_enabled_by_default(self) -> None:
-        prev_t = os.environ.pop("AIA_TOOL_FUNCTION_STRICT", None)
-        prev_d = os.environ.pop("AIA_DEEPSEEK_STRICT_TOOL_MODE", None)
+        prev = os.environ.pop("AIA_TOOL_FUNCTION_STRICT", None)
         try:
             self.assertTrue(_openai_tool_function_strict_enabled())
         finally:
-            if prev_t is not None:
-                os.environ["AIA_TOOL_FUNCTION_STRICT"] = prev_t
-            if prev_d is not None:
-                os.environ["AIA_DEEPSEEK_STRICT_TOOL_MODE"] = prev_d
+            if prev is not None:
+                os.environ["AIA_TOOL_FUNCTION_STRICT"] = prev
 
     def test_disabled_when_tool_function_strict_off(self) -> None:
         prev = os.environ.get("AIA_TOOL_FUNCTION_STRICT")
@@ -33,37 +30,6 @@ class OpenAIToolFunctionStrictTests(unittest.TestCase):
                 os.environ.pop("AIA_TOOL_FUNCTION_STRICT", None)
             else:
                 os.environ["AIA_TOOL_FUNCTION_STRICT"] = prev
-
-    def test_disabled_legacy_deepseek_env_when_primary_unset(self) -> None:
-        prev_t = os.environ.pop("AIA_TOOL_FUNCTION_STRICT", None)
-        prev_d = os.environ.get("AIA_DEEPSEEK_STRICT_TOOL_MODE")
-        try:
-            os.environ["AIA_DEEPSEEK_STRICT_TOOL_MODE"] = "0"
-            self.assertFalse(_openai_tool_function_strict_enabled())
-        finally:
-            if prev_t is not None:
-                os.environ["AIA_TOOL_FUNCTION_STRICT"] = prev_t
-            if prev_d is None:
-                os.environ.pop("AIA_DEEPSEEK_STRICT_TOOL_MODE", None)
-            else:
-                os.environ["AIA_DEEPSEEK_STRICT_TOOL_MODE"] = prev_d
-
-    def test_primary_env_overrides_legacy_off(self) -> None:
-        prev_t = os.environ.get("AIA_TOOL_FUNCTION_STRICT")
-        prev_d = os.environ.get("AIA_DEEPSEEK_STRICT_TOOL_MODE")
-        try:
-            os.environ["AIA_DEEPSEEK_STRICT_TOOL_MODE"] = "0"
-            os.environ["AIA_TOOL_FUNCTION_STRICT"] = "1"
-            self.assertTrue(_openai_tool_function_strict_enabled())
-        finally:
-            if prev_t is None:
-                os.environ.pop("AIA_TOOL_FUNCTION_STRICT", None)
-            else:
-                os.environ["AIA_TOOL_FUNCTION_STRICT"] = prev_t
-            if prev_d is None:
-                os.environ.pop("AIA_DEEPSEEK_STRICT_TOOL_MODE", None)
-            else:
-                os.environ["AIA_DEEPSEEK_STRICT_TOOL_MODE"] = prev_d
 
     def test_apply_sets_strict_on_function_tools(self) -> None:
         tools = [

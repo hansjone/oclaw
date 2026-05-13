@@ -115,17 +115,11 @@ def _openai_tool_function_strict_enabled() -> bool:
     Default **on** for every provider/model: many gateways ignore unknown ``function`` keys; some
     reject them—use ``AIA_TOOL_FUNCTION_STRICT=0`` to disable.
 
-    ``AIA_DEEPSEEK_STRICT_TOOL_MODE=0`` is still honored as a legacy global opt-out when
-    ``AIA_TOOL_FUNCTION_STRICT`` is unset. DeepSeek strict mode details:
+    DeepSeek documents ``function.strict`` in strict (Beta) tool mode:
     https://api-docs.deepseek.com/zh-cn/guides/tool_calls
     """
-    primary = str(os.getenv("AIA_TOOL_FUNCTION_STRICT") or "").strip().lower()
-    if primary in ("0", "false", "no", "off"):
-        return False
-    if primary in ("1", "true", "yes", "on"):
-        return True
-    legacy = str(os.getenv("AIA_DEEPSEEK_STRICT_TOOL_MODE") or "").strip().lower()
-    if legacy in ("0", "false", "no", "off"):
+    raw = str(os.getenv("AIA_TOOL_FUNCTION_STRICT") or "").strip().lower()
+    if raw in ("0", "false", "no", "off"):
         return False
     return True
 
