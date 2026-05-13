@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from .api import build_anthropic_provider
-from oclaw.runtime.extensions.plugin_api import PluginEntry, define_plugin_entry
+from runtime.extensions.plugin_api import PluginEntry, define_plugin_entry
 
 
 PLUGIN_ID = "anthropic"

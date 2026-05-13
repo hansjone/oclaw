@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from oclaw.platform.llm.transports.openai_chat_completions import (
+from svc.llm.transports.openai_chat_completions import (
     _is_text_only_gateway_error,
     _messages_contain_list_with_image,
     _should_proactively_downgrade_multimodal_messages,

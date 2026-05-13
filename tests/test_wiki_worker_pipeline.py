@@ -3,8 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from oclaw.platform.persistence.sqlite_store import OclawTask
-from oclaw.runtime.workers.wiki.main import _capture_after_turn, _dedup_merge, _process_task
+from svc.persistence.sqlite_store import OclawTask
+from runtime.workers.wiki.main import _capture_after_turn, _dedup_merge, _process_task
 
 
 def _task(task_id: str = "t1") -> OclawTask:

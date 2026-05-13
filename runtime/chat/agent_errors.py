@@ -6,7 +6,7 @@ from __future__ import annotations
 """
 
 from typing import Any
-from oclaw.runtime.prompt_templates import render_prompt
+from runtime.prompt_templates import render_prompt
 
 
 def format_ollama_failure_banner(*, lang: str, exc: BaseException) -> str:

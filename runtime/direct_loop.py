@@ -12,20 +12,20 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Callable, Optional
 
-from oclaw.runtime.chat.agent_messages import build_llm_messages, get_last_build_llm_messages_stats
-from oclaw.runtime.chat.media_redact import redact_embedded_image_blobs
-from oclaw.runtime.chat.tool_runtime import ToolExecutionConfig
-from oclaw.runtime.chat.turn_types import TurnRunOutcome
-from oclaw.runtime.skill_executor import SkillExecutionContext, SkillExecutor
-from oclaw.runtime.skills import build_skill_manifest
-from oclaw.platform.llm.chat_models import ChatModel
-from oclaw.runtime.system_prompt import build_oclaw_executor_system_prompt
-from oclaw.runtime.types import OclawMemoryContext
-from oclaw.runtime.orchestration.trace import new_span_id
-from oclaw.runtime.tools.base import ToolRegistry
-from oclaw.runtime.hooks_runtime import trigger_hook_event
-from oclaw.runtime.dsml_tool_parse import strip_first_dsml_tool_calls_block, try_parse_deepseek_v4_dsml_tool_calls
-from oclaw.runtime.tools.experts.network_ops.netx_tools import ops_netx_system_context_extension
+from runtime.chat.agent_messages import build_llm_messages, get_last_build_llm_messages_stats
+from runtime.chat.media_redact import redact_embedded_image_blobs
+from runtime.chat.tool_runtime import ToolExecutionConfig
+from runtime.chat.turn_types import TurnRunOutcome
+from runtime.skill_executor import SkillExecutionContext, SkillExecutor
+from runtime.skills import build_skill_manifest
+from svc.llm.chat_models import ChatModel
+from runtime.system_prompt import build_oclaw_executor_system_prompt
+from runtime.types import OclawMemoryContext
+from runtime.orchestration.trace import new_span_id
+from runtime.tools.base import ToolRegistry
+from runtime.hooks_runtime import trigger_hook_event
+from runtime.dsml_tool_parse import strip_first_dsml_tool_calls_block, try_parse_deepseek_v4_dsml_tool_calls
+from runtime.tools.experts.network_ops.netx_tools import ops_netx_system_context_extension
 
 _OCLAW_TOOL_RESULT_HARD_CAP_CHARS = 24_000
 _OCLAW_ATTACHMENT_TEXT_REPLAY_CAP_CHARS = 4_000
@@ -726,7 +726,7 @@ def _prepare_llm_tools(
         raw_llm_tools = [s.as_openai_tool() for s in skill_specs]
     else:
         raw_llm_tools = tools.as_openai_tools()
-    from oclaw.runtime.tools.exposure_plan import build_llm_tools_plan
+    from runtime.tools.exposure_plan import build_llm_tools_plan
 
     plan = build_llm_tools_plan(
         store=store,
@@ -1136,7 +1136,7 @@ def _maybe_image_specialist_legacy_gateway_turn(
 ) -> TurnRunOutcome | None:
     """When the UI selects **image** specialist, skip Responses/chat-model transports.
 
-    Vision/gen HTTP goes through :func:`oclaw.platform.llm.image_legacy_client.send_legacy_image_messages`
+    Vision/gen HTTP goes through :func:`svc.llm.image_legacy_client.send_legacy_image_messages`
     (``/chat/completions`` lane). Disable with ``AIA_IMAGE_SPECIALIST_DISABLE_LEGACY_GATEWAY_LANE=1``.
 
     End-to-end notes and safe edit boundaries: ``docs/IMAGE_SPECIALIST_LANE.md``.
@@ -1151,7 +1151,7 @@ def _maybe_image_specialist_legacy_gateway_turn(
     if str(skill_binding_role or "").strip().lower() != "image":
         return None
 
-    from oclaw.platform.llm.image_legacy_client import (
+    from svc.llm.image_legacy_client import (
         IMAGE_SPECIALIST_DEFAULT_PROMPT_ZH,
         collect_legacy_lane_images_with_session_fallback,
         legacy_image_assistant_body_with_placeholder,
@@ -1241,7 +1241,7 @@ def _maybe_video_specialist_legacy_gateway_turn(
 ) -> TurnRunOutcome | None:
     """When the UI selects **video** specialist, skip Responses/chat-model transports.
 
-    Uses DashScope async ``video-synthesis`` (see :mod:`oclaw.platform.llm.video_generation_client`).
+    Uses DashScope async ``video-synthesis`` (see :mod:`svc.llm.video_generation_client`).
     With a user image (or session image fallback), sends ``input.img_url`` for **image-to-video**;
     otherwise **text-to-video**. Disable with ``AIA_VIDEO_SPECIALIST_DISABLE_LEGACY_GATEWAY_LANE=1``.
     """
@@ -1255,8 +1255,8 @@ def _maybe_video_specialist_legacy_gateway_turn(
     if str(skill_binding_role or "").strip().lower() != "video":
         return None
 
-    from oclaw.platform.llm.image_legacy_client import collect_legacy_lane_images_with_session_fallback
-    from oclaw.platform.llm.video_generation_client import (
+    from svc.llm.image_legacy_client import collect_legacy_lane_images_with_session_fallback
+    from svc.llm.video_generation_client import (
         VIDEO_SPECIALIST_DEFAULT_PROMPT_ZH,
         legacy_video_assistant_body_with_placeholder,
         legacy_video_turn_bundle,

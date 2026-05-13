@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from oclaw.platform.config.bootstrap_env import load_system_env
+from svc.config.bootstrap_env import load_system_env
 
 load_system_env()
 
@@ -17,24 +17,24 @@ from fastapi import Request
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
-from oclaw.runtime.application.gateway import process_inbound_payload_usecase
-from oclaw.interfaces.gateway.http_adapter import dispatch_gateway_http_method
-from oclaw.interfaces.ws import ws_gateway_loop
-from oclaw.interfaces.ws.common import MAX_PAYLOAD_BYTES
-from oclaw.interfaces.admin.routes import admin_static_dir, build_admin_router
-from oclaw.runtime.agents.agent_scope import list_agent_ids, resolve_agent_workspace_dir, resolve_default_agent_id
-from oclaw.interfaces.gateway.server_startup_plugins import prepare_gateway_plugin_bootstrap
-from oclaw.runtime.hooks_runtime import (
+from runtime.application.gateway import process_inbound_payload_usecase
+from interfaces.gateway.http_adapter import dispatch_gateway_http_method
+from interfaces.ws import ws_gateway_loop
+from interfaces.ws.common import MAX_PAYLOAD_BYTES
+from interfaces.admin.routes import admin_static_dir, build_admin_router
+from runtime.agents.agent_scope import list_agent_ids, resolve_agent_workspace_dir, resolve_default_agent_id
+from interfaces.gateway.server_startup_plugins import prepare_gateway_plugin_bootstrap
+from runtime.hooks_runtime import (
     initialize_hooks_runtime,
     resolve_runtime_config,
     trigger_hook_event,
 )
-from oclaw.runtime.skills import skill_runtime_diagnostics
-from oclaw.runtime.prompt_prebuild import run_runtime_prewarm
-from oclaw.platform.config.paths import PROJECT_ROOT, db_path
-from oclaw.platform.persistence.sqlite_store import SqliteStore
-from oclaw.interfaces.http.weixin_ilink_api import router as weixin_ilink_router
-from oclaw.runtime.workspaces.experts import warm_expert_workspace_cache
+from runtime.skills import skill_runtime_diagnostics
+from runtime.prompt_prebuild import run_runtime_prewarm
+from svc.config.paths import PROJECT_ROOT, db_path
+from svc.persistence.sqlite_store import SqliteStore
+from interfaces.http.weixin_ilink_api import router as weixin_ilink_router
+from runtime.workspaces.experts import warm_expert_workspace_cache
 
 
 def _resolve_startup_workspace_dir(cfg: dict[str, Any]) -> str:
@@ -314,7 +314,7 @@ def main() -> int:
         ws_max_size = int(MAX_PAYLOAD_BYTES)
     ws_max_size = max(1024, min(int(ws_max_size), 200_000_000))
     uvicorn.run(
-        "oclaw.interfaces.http.fastapi_app:create_app",
+        "interfaces.http.fastapi_app:create_app",
         host=host,
         port=port,
         reload=False,

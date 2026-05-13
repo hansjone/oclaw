@@ -11,8 +11,8 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
-from oclaw.platform.config.paths import PROJECT_ROOT, db_path
-from oclaw.platform.persistence.sqlite_store import SqliteStore
+from svc.config.paths import PROJECT_ROOT, db_path
+from svc.persistence.sqlite_store import SqliteStore
 
 
 def _load_cfg() -> dict:

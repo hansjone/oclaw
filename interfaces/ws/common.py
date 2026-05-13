@@ -5,7 +5,7 @@ import os
 import time
 from typing import Any
 
-from oclaw.platform.files.file_attachments import process_file_data
+from svc.files.file_attachments import process_file_data
 
 PROTOCOL_VERSION = 3
 MAX_PAYLOAD_BYTES = 26_214_400

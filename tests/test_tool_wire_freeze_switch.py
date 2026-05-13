@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from oclaw.runtime import direct_loop as dl
+from runtime import direct_loop as dl
 
 
 class _DummyStore:

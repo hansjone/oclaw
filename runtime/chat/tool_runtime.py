@@ -17,16 +17,16 @@ from concurrent.futures import TimeoutError as FuturesTimeoutError
 from dataclasses import dataclass
 from typing import Any, Callable, Optional
 
-from oclaw.platform.persistence.sqlite_store import SqliteStore
-from oclaw.runtime.tools.base import ToolRegistry
-from oclaw.platform.llm.chat_models import LLMToolCall
-from oclaw.runtime.tools.tool_validation import validate_tool_arguments
-from oclaw.runtime.chat.media_redact import ingest_embedded_image_blobs_as_refs
-from oclaw.runtime.tools.path_guard import (
+from svc.persistence.sqlite_store import SqliteStore
+from runtime.tools.base import ToolRegistry
+from svc.llm.chat_models import LLMToolCall
+from runtime.tools.tool_validation import validate_tool_arguments
+from runtime.chat.media_redact import ingest_embedded_image_blobs_as_refs
+from runtime.tools.path_guard import (
     workspace_path_access_scope,
     workspace_write_namespace_scope,
 )
-from oclaw.runtime.chat.tool_invocation_context import tool_workspace_lane_scope
+from runtime.chat.tool_invocation_context import tool_workspace_lane_scope
 
 logger = logging.getLogger(__name__)
 _tool_exec_log = logging.getLogger("oclaw.tool_exec")
@@ -628,7 +628,7 @@ class ToolExecutor:
             if not ctx.trace_id:
                 return
             try:
-                from oclaw.runtime.orchestration.trace import new_span_id
+                from runtime.orchestration.trace import new_span_id
 
                 ctx.store.add_trace_event(
                     session_id=ctx.session_id,

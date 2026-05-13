@@ -5,9 +5,9 @@ import re
 import uuid
 from typing import Any
 
-from oclaw.platform.persistence.sqlite_store import SqliteStore
-from oclaw.platform.embeddings.embedding_client import build_default_embedding_client
-from oclaw.runtime.orchestration.vector_store import (
+from svc.persistence.sqlite_store import SqliteStore
+from svc.embeddings.embedding_client import build_default_embedding_client
+from runtime.orchestration.vector_store import (
     MemoryVectorItem,
     read_vector_memory_runtime,
     semantic_search,

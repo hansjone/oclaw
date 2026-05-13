@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import platform
 
-from oclaw.runtime.hooks.config import should_include_hook
-from oclaw.runtime.hooks.eligibility_from_metadata import hook_eligibility_from_message_metadata
-from oclaw.runtime.hooks.hook_types import HookEntry, HookInvocation, HookRef
+from runtime.hooks.config import should_include_hook
+from runtime.hooks.eligibility_from_metadata import hook_eligibility_from_message_metadata
+from runtime.hooks.hook_types import HookEntry, HookInvocation, HookRef
 
 
 def _entry(*, name: str = "x", bins: tuple[str, ...] = (), os_list: tuple[str, ...] = ()) -> HookEntry:

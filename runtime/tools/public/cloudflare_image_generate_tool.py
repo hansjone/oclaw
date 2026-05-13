@@ -10,9 +10,9 @@ from urllib import request as urllib_request
 
 from PIL import Image
 
-from oclaw.platform.files.attachment_assets import AttachmentAssetStore
-from oclaw.runtime.operations.mcp_env import apply_gateway_mcp_env_to_os
-from oclaw.runtime.tools.base import ToolSpec
+from svc.files.attachment_assets import AttachmentAssetStore
+from runtime.operations.mcp_env import apply_gateway_mcp_env_to_os
+from runtime.tools.base import ToolSpec
 
 
 def _to_image_bytes(resp_body: bytes, content_type: str) -> tuple[bytes, str]:

@@ -3,13 +3,13 @@ from __future__ import annotations
 import unittest
 from unittest.mock import patch
 
-from oclaw.runtime.tools.mcp.market import infer_install_template, search_mcp_market, trending_mcp_market
+from runtime.tools.mcp.market import infer_install_template, search_mcp_market, trending_mcp_market
 
 
 class McpMarketTests(unittest.TestCase):
-    @patch("oclaw.runtime.tools.mcp.market.search_github_repos")
-    @patch("oclaw.runtime.tools.mcp.market.search_npm_packages")
-    @patch("oclaw.runtime.tools.mcp.market.search_pypi_packages")
+    @patch("runtime.tools.mcp.market.search_github_repos")
+    @patch("runtime.tools.mcp.market.search_npm_packages")
+    @patch("runtime.tools.mcp.market.search_pypi_packages")
     def test_aggregate_results(self, pypi_mock, npm_mock, gh_mock) -> None:
         gh_mock.return_value = [{"source_type": "github", "name": "a"}]
         npm_mock.return_value = [{"source_type": "npm", "name": "b"}]
@@ -28,7 +28,7 @@ class McpMarketTests(unittest.TestCase):
         self.assertEqual(t2["entry_command"], "python")
         self.assertEqual(t2["entry_args"][:1], ["-m"])
 
-    @patch("oclaw.runtime.tools.mcp.market.search_mcp_market")
+    @patch("runtime.tools.mcp.market.search_mcp_market")
     def test_trending_cache(self, search_mock) -> None:
         search_mock.return_value = [{"source_type": "github", "name": "a", "stars": 9}]
         rows = trending_mcp_market(force_refresh=True, per_source_limit=2)

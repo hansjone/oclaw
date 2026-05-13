@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from oclaw.platform.persistence.sqlite_store import SqliteStore
-from oclaw.runtime.plan_agent_v2_gateway_cutover import maybe_handle_expert_turn_v2_draft
-from oclaw.runtime.types import StandardMessage
+from svc.persistence.sqlite_store import SqliteStore
+from runtime.plan_agent_v2_gateway_cutover import maybe_handle_expert_turn_v2_draft
+from runtime.types import StandardMessage
 
 
 def _msg(text: str) -> StandardMessage:

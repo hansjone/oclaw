@@ -9,9 +9,9 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Optional
 
-from oclaw.runtime.tools.base import ToolRegistry
-from oclaw.platform.persistence.sqlite_store import SqliteStore
-from oclaw.platform.llm.chat_models import (
+from runtime.tools.base import ToolRegistry
+from svc.persistence.sqlite_store import SqliteStore
+from svc.llm.chat_models import (
     ChatModel,
     LLMResponse,
     LLMToolCall,
@@ -22,8 +22,8 @@ from oclaw.platform.llm.chat_models import (
     build_default_model,
     gemini_openai_compat_client,
 )
-from oclaw.runtime.prompt_templates import render_prompt_for_lang
-from oclaw.runtime.tools.tool_validation import validate_tool_arguments
+from runtime.prompt_templates import render_prompt_for_lang
+from runtime.tools.tool_validation import validate_tool_arguments
 
 logger = logging.getLogger(__name__)
 
@@ -81,13 +81,13 @@ class Agent:
 
     def _format_ollama_failure_banner(self, exc: BaseException) -> str:
         # Backward compat wrapper; implementation lives in `src.chat.agent_errors`.
-        from oclaw.runtime.chat.agent_errors import format_ollama_failure_banner
+        from runtime.chat.agent_errors import format_ollama_failure_banner
 
         return format_ollama_failure_banner(lang=self.lang, exc=exc)
 
     def _format_openai_transport_error(self, exc: BaseException) -> str:
         # Backward compat wrapper; implementation lives in `src.chat.agent_errors`.
-        from oclaw.runtime.chat.agent_errors import format_openai_transport_error
+        from runtime.chat.agent_errors import format_openai_transport_error
 
         return format_openai_transport_error(lang=self.lang, exc=exc)
 
@@ -197,8 +197,8 @@ class Agent:
         interaction_mode: str | None = None,
         selected_specialist: str | None = None,
     ) -> str:
-        from oclaw.runtime.gateway import OclawGateway
-        from oclaw.runtime.types import StandardMessage
+        from runtime.gateway import OclawGateway
+        from runtime.types import StandardMessage
 
         tenant_id = str(path_policy_tenant_id or "").strip()
         user_id = str(path_policy_user_id or "").strip()
@@ -256,7 +256,7 @@ class Agent:
         return str(res.reply_text or "")
 
     def _build_llm_messages(self, session_id: str) -> list[dict[str, Any]]:
-        from oclaw.runtime.chat.agent_messages import build_llm_messages
+        from runtime.chat.agent_messages import build_llm_messages
 
         msgs = self.store.get_messages(session_id=session_id, limit=self.config.max_messages)
         trunc_raw = str(self.store.get_setting("AIA_TOOL_CONTEXT_TRUNCATE_ENABLED") or "").strip().lower()

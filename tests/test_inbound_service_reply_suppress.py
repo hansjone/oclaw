@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from oclaw.runtime.application.gateway.inbound_service import (
+from runtime.application.gateway.inbound_service import (
     _collect_reply_attachments_from_history,
     _collect_recent_tool_attachments,
     _maybe_add_media_path_for_wechat_reply,
@@ -74,7 +74,7 @@ def test_maybe_add_media_path_for_wechat_reply_sets_media_path(monkeypatch) -> N
         return Path("D:/tmp/fake.png")
 
     monkeypatch.setattr(
-        "oclaw.platform.files.attachment_assets.AttachmentAssetStore.get_local_path",
+        "svc.files.attachment_assets.AttachmentAssetStore.get_local_path",
         _fake_get_local_path,
     )
     r = {"channel": "wechat", "text": "hi", "attachments": [{"type": "image_ref", "attachment_id": "a1"}]}
@@ -94,7 +94,7 @@ def test_maybe_expand_reply_attachments_for_channel_converts_ref_to_base64(monke
         return b"abc", _Meta()
 
     monkeypatch.setattr(
-        "oclaw.platform.files.attachment_assets.AttachmentAssetStore.load_bytes",
+        "svc.files.attachment_assets.AttachmentAssetStore.load_bytes",
         _fake_load_bytes,
     )
     r = {"channel": "wechat", "attachments": [{"type": "image_ref", "attachment_id": "a1"}]}
@@ -117,7 +117,7 @@ def test_maybe_expand_reply_attachments_for_channel_works_for_whatsapp(monkeypat
         return b"wa", _Meta()
 
     monkeypatch.setattr(
-        "oclaw.platform.files.attachment_assets.AttachmentAssetStore.load_bytes",
+        "svc.files.attachment_assets.AttachmentAssetStore.load_bytes",
         _fake_load_bytes,
     )
     r = {"channel": "whatsapp", "attachments": [{"type": "image_ref", "attachment_id": "wa1"}]}

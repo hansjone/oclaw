@@ -5,8 +5,8 @@ import sys
 from types import SimpleNamespace
 from typing import Any, Callable
 
-from oclaw.platform.config.paths import PROJECT_ROOT
-from oclaw.runtime.tools.base import ToolSpec
+from svc.config.paths import PROJECT_ROOT
+from runtime.tools.base import ToolSpec
 
 
 def _plugin_cfg() -> dict[str, Any]:

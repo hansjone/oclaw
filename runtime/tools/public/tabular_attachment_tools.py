@@ -2,13 +2,13 @@ from __future__ import annotations
 
 from typing import Any
 
-from oclaw.platform.files.tabular_attachment_store import (
+from svc.files.tabular_attachment_store import (
     aggregate_table,
     analyze_table_full_scan,
     query_table,
     run_table_sql,
 )
-from oclaw.runtime.tools.base import ToolSpec
+from runtime.tools.base import ToolSpec
 
 
 def query_tabular_attachment_tool() -> ToolSpec:

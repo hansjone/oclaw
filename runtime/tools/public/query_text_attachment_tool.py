@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from oclaw.platform.files.text_attachment_store import query_text_document
-from oclaw.runtime.tools.base import ToolSpec
+from svc.files.text_attachment_store import query_text_document
+from runtime.tools.base import ToolSpec
 
 
 def query_text_attachment_tool() -> ToolSpec:

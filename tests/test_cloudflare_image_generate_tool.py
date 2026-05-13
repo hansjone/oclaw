@@ -5,7 +5,7 @@ import json
 
 import pytest
 
-from oclaw.runtime.tools.public.cloudflare_image_generate_tool import _to_image_bytes
+from runtime.tools.public.cloudflare_image_generate_tool import _to_image_bytes
 
 
 def test_to_image_bytes_accepts_direct_image_content_type() -> None:

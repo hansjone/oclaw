@@ -43,9 +43,8 @@ if (-not $repoRoot) {
     # Fallback: old relative layout assumption
     $repoRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))
 }
-$repoParent = Split-Path -Parent $repoRoot
 Set-Location $repoRoot
-$env:PYTHONPATH = $repoParent
+$env:PYTHONPATH = $repoRoot
 $env:PYTHONSAFEPATH = "1"
 $env:AIA_WORKSPACE_ROOT = $repoRoot
 $env:OPS_WORKSPACE_ROOT = $repoRoot

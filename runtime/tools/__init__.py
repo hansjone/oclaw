@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from oclaw.runtime.tools.catalog import (
+from runtime.tools.catalog import (
     TOOL_FACTORIES,
     default_registry,
     materialize_tool_specs,

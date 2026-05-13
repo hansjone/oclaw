@@ -4,7 +4,7 @@ import json
 import os
 from typing import Any
 
-from oclaw.runtime.agents.specialists import discover_specialist_ids
+from runtime.agents.specialists import discover_specialist_ids
 
 SKILL_ROLE_BINDING_KEY = "skill_role_binding"
 SKILL_ROLE_BINDING_ENABLED_SETTING = "AIA_SKILL_ROLE_BINDING_ENABLED"
@@ -100,7 +100,7 @@ def allowed_workspace_skill_names_for_role(*, store: Any, role: str) -> set[str]
     r = str(role or "").strip().lower()
     if not r:
         return set()
-    from oclaw.runtime.skills import discover_public_workspace_skill_names
+    from runtime.skills import discover_public_workspace_skill_names
 
     public = discover_public_workspace_skill_names()
     mapping = normalize_skill_role_binding(
@@ -122,7 +122,7 @@ def allowed_workspace_skill_names_for_role(*, store: Any, role: str) -> set[str]
 
 
 def _all_installed_skill_names(store: Any) -> set[str]:
-    from oclaw.runtime.skills import discover_workspace_skill_manifests
+    from runtime.skills import discover_workspace_skill_manifests
 
     return {str(m.name).strip() for m in discover_workspace_skill_manifests() if str(m.name or "").strip()}
 

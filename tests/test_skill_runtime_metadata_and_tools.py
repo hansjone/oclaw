@@ -5,8 +5,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from oclaw.runtime.skills import discover_workspace_skill_manifests
-from oclaw.runtime.tools.skills_runtime.materialize_skill_tools import materialize_executable_skill_tools
+from runtime.skills import discover_workspace_skill_manifests
+from runtime.tools.skills_runtime.materialize_skill_tools import materialize_executable_skill_tools
 
 
 class SkillRuntimeMetadataAndToolsTests(unittest.TestCase):

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 
-from oclaw.runtime.tools.public.bailian_webparser_tool import bailian_webparser_tool
+from runtime.tools.public.bailian_webparser_tool import bailian_webparser_tool
 
 
 class _SseResp:

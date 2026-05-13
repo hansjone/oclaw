@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from oclaw.runtime import prompt_prebuild as pp
+from runtime import prompt_prebuild as pp
 
 
 class _DummyStore:

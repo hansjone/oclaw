@@ -1,9 +1,9 @@
-"""Regression tests for Oclaw-style tool_call_id replay (see src/platform/llm/tool_call_id.py)."""
+"""Regression tests for Oclaw-style tool_call_id replay (see svc/llm/tool_call_id.py)."""
 
 from __future__ import annotations
 
-from oclaw.platform.llm.replay_policy import apply_replay_policy_to_messages, resolve_replay_policy
-from oclaw.platform.llm.tool_call_id import repair_orphan_tool_messages, rewrite_openai_chat_messages_tool_ids
+from svc.llm.replay_policy import apply_replay_policy_to_messages, resolve_replay_policy
+from svc.llm.tool_call_id import repair_orphan_tool_messages, rewrite_openai_chat_messages_tool_ids
 
 
 def test_rewrite_pairs_assistant_and_tool_ids() -> None:

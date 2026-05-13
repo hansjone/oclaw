@@ -5,10 +5,10 @@ import os
 from dataclasses import dataclass
 from typing import Any
 
-from oclaw.runtime.types import StandardMessage
-from oclaw.runtime.types import normalize_interaction_mode, normalize_requested_specialist
-from oclaw.runtime.prompt_templates import render_runtime_prompt
-from oclaw.runtime.chat.model_path_audit import ensure_no_tool_or_embedded_image_payload
+from runtime.types import StandardMessage
+from runtime.types import normalize_interaction_mode, normalize_requested_specialist
+from runtime.prompt_templates import render_runtime_prompt
+from runtime.chat.model_path_audit import ensure_no_tool_or_embedded_image_payload
 
 
 @dataclass(frozen=True)

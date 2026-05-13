@@ -59,7 +59,7 @@ For role-specific behavior, contributors can add files under `data/wiki/experts/
 #### Quick check
 
 ```bash
-python -m oclaw.runtime.operations hooks info session-bootstrap --workspace "D:/project/chatgpt/oclaw" --json
+python -m runtime.operations hooks info session-bootstrap --workspace "D:/project/chatgpt/oclaw" --json
 ```
 
 Expected key fields: `enabled_by_config=true`, `eligible=true`, `loadable=true`.
@@ -99,7 +99,7 @@ Legend: **Done** / **Partial** / **TODO**
 | package.json `openclaw.hooks` / `oclaw.hooks` | Done |
 | plugin hook dirs (`.codex-plugin` + `hooks`) | Done |
 | legacy `hooks.internal.handlers` | Done |
-| `hooks list/check/info` CLI (`python -m oclaw.runtime.operations hooks …`) | Done |
+| `hooks list/check/info` CLI (`python -m runtime.operations hooks …`) | Done |
 | `hooks enable` / `hooks disable` (config file patch) | Done |
 | install / update hook packs (npm/git; TS `install.ts` / `update.ts`) | Partial (`hooks install` / `hooks update` print deprecation + manual/OpenClaw guidance; no npm/git runner) |
 | gmail watcher family | Partial (config gates + ``initialize_hooks_runtime`` → ``start_gmail_watcher_with_logs``; ``gog``/API loop not ported). Set ``OCLAW_SKIP_GMAIL_WATCHER=1`` (or ``OPENCLAW_SKIP_GMAIL_WATCHER``) to no-op. |
@@ -122,14 +122,14 @@ pytest tests/test_oclaw_hooks_bundled_parity.py tests/test_oclaw_hooks_runtime.p
 ### Operations CLI (from parent of this repo on `sys.path`, see `tests/conftest.py`)
 
 ```bash
-python -m oclaw.runtime.operations hooks list
-python -m oclaw.runtime.operations hooks list --eligible --verbose
-python -m oclaw.runtime.operations hooks check --json
-python -m oclaw.runtime.operations hooks info session-memory --workspace /path/to/workspace
-python -m oclaw.runtime.operations hooks enable session-memory --workspace /path/to/workspace
-python -m oclaw.runtime.operations hooks disable command-logger --workspace /path/to/workspace
-python -m oclaw.runtime.operations hooks install ./path-or-npm-spec   # deprecated, exit 2 + hints
-python -m oclaw.runtime.operations hooks update --dry-run             # deprecated, exit 2 + hints
+python -m runtime.operations hooks list
+python -m runtime.operations hooks list --eligible --verbose
+python -m runtime.operations hooks check --json
+python -m runtime.operations hooks info session-memory --workspace /path/to/workspace
+python -m runtime.operations hooks enable session-memory --workspace /path/to/workspace
+python -m runtime.operations hooks disable command-logger --workspace /path/to/workspace
+python -m runtime.operations hooks install ./path-or-npm-spec   # deprecated, exit 2 + hints
+python -m runtime.operations hooks update --dry-run             # deprecated, exit 2 + hints
 ```
 
 Uses the same merged config as the agent runtime (including skill `hooks/` extra dirs via `merge_skill_hook_extra_dirs_into_config`).

@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import json
 
-from oclaw.runtime.chat.agent_messages import build_llm_messages
-from oclaw.platform.llm.chat_models import RuleBasedChatModel
+from runtime.chat.agent_messages import build_llm_messages
+from svc.llm.chat_models import RuleBasedChatModel
 
 
 class _Msg:

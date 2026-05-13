@@ -4,9 +4,9 @@ import json
 from pathlib import Path
 from typing import Any
 
-from oclaw.runtime.types import OclawMemoryContext
-from oclaw.runtime.orchestration.memory import semantic_retrieve, session_memory_digest
-from oclaw.runtime.prompt_templates import render_runtime_prompt
+from runtime.types import OclawMemoryContext
+from runtime.orchestration.memory import semantic_retrieve, session_memory_digest
+from runtime.prompt_templates import render_runtime_prompt
 
 _SPECIALIST_FLAGS_SETTING_KEY = "AIA_CHAT_SPECIALIST_FLAGS_JSON"
 
@@ -145,8 +145,8 @@ def after_turn_memory(
         assistant_text=assistant_text,
     )
     try:
-        from oclaw.runtime.orchestration.memory import maybe_write_turn_memory
-        from oclaw.platform.persistence.sqlite_store import SqliteStore
+        from runtime.orchestration.memory import maybe_write_turn_memory
+        from svc.persistence.sqlite_store import SqliteStore
 
         if isinstance(store, SqliteStore):
             maybe_write_turn_memory(

@@ -3,8 +3,8 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from oclaw.runtime.agents.factory import build_gateway_executor
-from oclaw.platform.persistence.sqlite_store import SqliteStore
+from runtime.agents.factory import build_gateway_executor
+from svc.persistence.sqlite_store import SqliteStore
 
 
 def test_build_gateway_executor_defaults_to_generalist(tmp_path: Path) -> None:

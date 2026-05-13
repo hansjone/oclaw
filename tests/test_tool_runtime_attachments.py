@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from oclaw.runtime.chat.tool_runtime import _attachments_from_tool_result
+from runtime.chat.tool_runtime import _attachments_from_tool_result
 
 
 def test_attachments_from_tool_result_preserves_non_image_ref_types() -> None:

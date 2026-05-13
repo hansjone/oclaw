@@ -5,9 +5,9 @@ import os
 from pathlib import Path
 import sys
 
-from oclaw.interfaces.gateway.python_extensions_loader import build_python_extensions_registry
-from oclaw.interfaces.gateway.server_plugins import load_gateway_plugins
-from oclaw.runtime.tools.catalog import materialize_tool_specs
+from interfaces.gateway.python_extensions_loader import build_python_extensions_registry
+from interfaces.gateway.server_plugins import load_gateway_plugins
+from runtime.tools.catalog import materialize_tool_specs
 
 
 def _load_memory_wiki_api_module():

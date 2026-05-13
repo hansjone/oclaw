@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from oclaw.runtime.extensions.plugin_api import PluginEntry, define_plugin_entry
+from runtime.extensions.plugin_api import PluginEntry, define_plugin_entry
 from .api import build_plugin_config_schema, build_wiki_tool_specs
 
 

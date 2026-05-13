@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from oclaw.runtime.tools.public.skills_install_tool import skill_market_install_tool, skill_registry_install_tool
+from runtime.tools.public.skills_install_tool import skill_market_install_tool, skill_registry_install_tool
 
 
 def test_skill_registry_install_tool_forces_workspace_root(monkeypatch, tmp_path: Path) -> None:
@@ -24,8 +24,8 @@ def test_skill_registry_install_tool_forces_workspace_root(monkeypatch, tmp_path
 
         return _Out()
 
-    monkeypatch.setattr("oclaw.runtime.tools.public.skills_install_tool.default_skills_root", _mock_default_root)
-    monkeypatch.setattr("oclaw.runtime.tools.public.skills_install_tool.install_skill_from_registry_archive", _mock_install)
+    monkeypatch.setattr("runtime.tools.public.skills_install_tool.default_skills_root", _mock_default_root)
+    monkeypatch.setattr("runtime.tools.public.skills_install_tool.install_skill_from_registry_archive", _mock_install)
     tool = skill_registry_install_tool()
     result = tool.handler({"archive_url": "https://example.com/demo.zip"})
     assert bool(result.get("ok")) is True
@@ -70,10 +70,10 @@ def test_skill_market_install_tool_provider_arg_overrides_setting(monkeypatch, t
 
         return _Out()
 
-    monkeypatch.setattr("oclaw.runtime.tools.public.skills_install_tool._store", _mock_store)
-    monkeypatch.setattr("oclaw.runtime.tools.public.skills_install_tool.default_skills_root", _mock_default_root)
-    monkeypatch.setattr("oclaw.runtime.tools.public.skills_install_tool.get_market_adapter", _mock_get_market_adapter)
-    monkeypatch.setattr("oclaw.runtime.tools.public.skills_install_tool.install_skill_from_registry_archive", _mock_install)
+    monkeypatch.setattr("runtime.tools.public.skills_install_tool._store", _mock_store)
+    monkeypatch.setattr("runtime.tools.public.skills_install_tool.default_skills_root", _mock_default_root)
+    monkeypatch.setattr("runtime.tools.public.skills_install_tool.get_market_adapter", _mock_get_market_adapter)
+    monkeypatch.setattr("runtime.tools.public.skills_install_tool.install_skill_from_registry_archive", _mock_install)
 
     tool = skill_market_install_tool()
     result = tool.handler({"slug": "demo", "provider": "cocoloop", "version": "latest"})

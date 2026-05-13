@@ -4,7 +4,7 @@ import logging
 from dataclasses import dataclass
 from typing import Any, Callable
 
-from oclaw.runtime.tools.base import ToolSpec
+from runtime.tools.base import ToolSpec
 
 logger = logging.getLogger(__name__)
 

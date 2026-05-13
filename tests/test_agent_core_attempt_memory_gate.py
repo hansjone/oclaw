@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from oclaw.runtime.agent_core_attempt import _should_after_turn_memory
-from oclaw.runtime.types import StandardMessage
+from runtime.agent_core_attempt import _should_after_turn_memory
+from runtime.types import StandardMessage
 
 
 def _msg(interaction_mode: str, extra: dict | None = None) -> StandardMessage:

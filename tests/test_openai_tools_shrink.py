@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import unittest
 
-from oclaw.platform.llm.chat_models import shrink_openai_tools_payload_for_api, _openai_tools_json_byte_length
+from svc.llm.chat_models import shrink_openai_tools_payload_for_api, _openai_tools_json_byte_length
 
 
 class OpenAiToolsShrinkTests(unittest.TestCase):

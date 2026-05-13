@@ -11,7 +11,7 @@ from fastapi import APIRouter, Header, HTTPException, Request
 
 def _process_inbound_payload_usecase(payload: dict[str, Any]) -> dict[str, Any]:
     # Lazy import to avoid circular imports during FastAPI app bootstrap.
-    from oclaw.runtime.application.gateway import process_inbound_payload_usecase
+    from runtime.application.gateway import process_inbound_payload_usecase
 
     return process_inbound_payload_usecase(payload)
 

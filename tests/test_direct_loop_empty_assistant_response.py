@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from oclaw.platform.persistence.sqlite_store import SqliteStore
-from oclaw.runtime.direct_loop import run_oclaw_direct_loop
-from oclaw.runtime.tools.base import ToolRegistry, ToolSpec
+from svc.persistence.sqlite_store import SqliteStore
+from runtime.direct_loop import run_oclaw_direct_loop
+from runtime.tools.base import ToolRegistry, ToolSpec
 
 
 class _Model:

@@ -4,13 +4,13 @@ import json
 
 import pytest
 
-from oclaw.platform.llm.image_http_common import (
+from svc.llm.image_http_common import (
     dashscope_multimodal_http_ok,
     dashscope_native_multimodal_url_from_compatible_base,
     extract_text_and_images,
 )
-from oclaw.platform.llm.image_http_common import build_extract_diag_empty
-from oclaw.platform.llm.image_legacy_client import (
+from svc.llm.image_http_common import build_extract_diag_empty
+from svc.llm.image_legacy_client import (
     collect_legacy_lane_images_from_attachments,
     collect_legacy_lane_images_with_session_fallback,
     legacy_image_assistant_body_with_placeholder,
@@ -18,8 +18,8 @@ from oclaw.platform.llm.image_legacy_client import (
     normalize_legacy_output_image_urls,
     parse_message_attachments_json,
 )
-from oclaw.platform.llm.image_legacy_client import _http_content_blocks
-from oclaw.platform.llm.image_legacy_client import _openai_compatible_vision_content
+from svc.llm.image_legacy_client import _http_content_blocks
+from svc.llm.image_legacy_client import _openai_compatible_vision_content
 
 
 def test_openai_compatible_vision_has_type_per_part() -> None:

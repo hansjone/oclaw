@@ -5,7 +5,7 @@ from pathlib import Path
 import sys
 from types import SimpleNamespace
 
-from oclaw.platform.config.paths import PROJECT_ROOT
+from svc.config.paths import PROJECT_ROOT
 
 
 def _wiki_search_handler(tmp_path: Path):

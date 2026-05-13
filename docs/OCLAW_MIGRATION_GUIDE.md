@@ -26,10 +26,10 @@ This repository now uses **repo-root relative** runtime wiring.
 ## Runtime notes
 - Gateway HTTP method adapter: `POST /gateway/method`
 - WS dispatch first resolves method handlers from shared dispatcher.
-- Inbound payload use-case entrypoint: `oclaw.runtime.application.gateway.process_inbound_payload_usecase`
-- HTTP app entrypoint moved to: `oclaw.interfaces.http.fastapi_app`
-- WS entrypoint moved to: `oclaw.interfaces.ws.entrypoint`
-- WS runtime bridge path: `oclaw.interfaces.ws.runtime`
+- Inbound payload use-case entrypoint: `runtime.application.gateway.process_inbound_payload_usecase`
+- HTTP app entrypoint moved to: `interfaces.http.fastapi_app`
+- WS entrypoint moved to: `interfaces.ws.entrypoint`
+- WS runtime bridge path: `interfaces.ws.runtime`
 - WS runtime implementation seam:
   - `oclaw/interfaces/ws/runtime_impl.py`
   - `runtime.py` points to this module as stable import surface.

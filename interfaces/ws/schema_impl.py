@@ -6,7 +6,7 @@ from typing import Any
 
 from jsonschema import Draft202012Validator
 
-from oclaw.platform.config.runtime_paths import ws_protocol_schemas_root
+from svc.config.runtime_paths import ws_protocol_schemas_root
 
 _SCHEMA_DIR = ws_protocol_schemas_root()
 

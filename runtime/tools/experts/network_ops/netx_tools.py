@@ -14,7 +14,7 @@ from typing import Any
 
 import httpx
 
-from oclaw.runtime.tools.base import ToolSpec
+from runtime.tools.base import ToolSpec
 
 _UME_RAW_GROUP_FIELDS = [
     "alarm_alarm_key",

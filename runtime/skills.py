@@ -8,17 +8,17 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from oclaw.platform.config.paths import PROJECT_ROOT
-from oclaw.platform.config.runtime_paths import runtime_skills_root
-from oclaw.runtime.prompt_templates.frontmatter import parse_frontmatter_dict, split_markdown_frontmatter
-from oclaw.runtime.skill_manifest_core import (
+from svc.config.paths import PROJECT_ROOT
+from svc.config.runtime_paths import runtime_skills_root
+from runtime.prompt_templates.frontmatter import parse_frontmatter_dict, split_markdown_frontmatter
+from runtime.skill_manifest_core import (
     SkillInstallSpec,
     normalize_frontmatter,
     parse_skill_frontmatter,
 )
 
 if TYPE_CHECKING:
-    from oclaw.runtime.tools.base import ToolRegistry, ToolSpec
+    from runtime.tools.base import ToolRegistry, ToolSpec
 
 
 @dataclass(frozen=True)
@@ -221,7 +221,7 @@ def _allowed_tool_names_after_wire_policy(
 ) -> tuple[set[str], list[str]]:
     raw = registry.as_openai_tools()
     try:
-        from oclaw.platform.llm.tool_wire_policy import prepare_openai_tools_for_llm_api
+        from svc.llm.tool_wire_policy import prepare_openai_tools_for_llm_api
 
         prepared = prepare_openai_tools_for_llm_api(
             raw,

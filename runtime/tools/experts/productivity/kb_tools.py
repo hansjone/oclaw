@@ -3,10 +3,10 @@ from __future__ import annotations
 import hashlib
 from typing import Any
 
-from oclaw.platform.config.paths import db_path
-from oclaw.platform.embeddings.embedding_client import build_default_embedding_client
-from oclaw.platform.persistence.sqlite_store import SqliteStore
-from oclaw.runtime.tools.base import ToolSpec
+from svc.config.paths import db_path
+from svc.embeddings.embedding_client import build_default_embedding_client
+from svc.persistence.sqlite_store import SqliteStore
+from runtime.tools.base import ToolSpec
 
 
 def _chunk_id(source: str, text: str) -> str:
@@ -64,7 +64,7 @@ def kb_search_tool() -> ToolSpec:
             if not tenant_id or not query:
                 return {"ok": False, "error": "tenant_id and query are required"}
             store = SqliteStore(db_path())
-            from oclaw.runtime.orchestration.memory import retrieve_context
+            from runtime.orchestration.memory import retrieve_context
 
             rows = retrieve_context(store, query, limit=max(1, min(limit, 6)))
             filtered = [r for r in rows if str(r.get("source") or "").startswith(f"builtin:tenant:{tenant_id}:")]

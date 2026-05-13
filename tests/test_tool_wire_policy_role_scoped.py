@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from oclaw.platform.persistence.sqlite_store import SqliteStore
-from oclaw.platform.llm.tool_wire_policy import prepare_openai_tools_for_llm_api
+from svc.persistence.sqlite_store import SqliteStore
+from svc.llm.tool_wire_policy import prepare_openai_tools_for_llm_api
 
 
 def test_manager_role_respects_permanent_ban_by_default(tmp_path: Path) -> None:

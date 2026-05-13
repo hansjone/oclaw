@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import patch
 
-import oclaw.platform.config.paths as paths_mod
+import svc.config.paths as paths_mod
 
 
 def _legacy_dir(tmp_path: Path) -> Path:

@@ -6,12 +6,12 @@ from pathlib import Path
 from dataclasses import dataclass
 from typing import Any
 
-from oclaw.runtime.agents.factory import build_gateway_executor
-from oclaw.platform.persistence.sqlite_store import SqliteStore
-from oclaw.runtime.orchestration.evaluation import eval_summary
-from oclaw.platform.config.paths import db_path
-from oclaw.runtime.gateway import OclawGateway
-from oclaw.runtime.types import StandardMessage
+from runtime.agents.factory import build_gateway_executor
+from svc.persistence.sqlite_store import SqliteStore
+from runtime.orchestration.evaluation import eval_summary
+from svc.config.paths import db_path
+from runtime.gateway import OclawGateway
+from runtime.types import StandardMessage
 
 
 @dataclass(frozen=True)

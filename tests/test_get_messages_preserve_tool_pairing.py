@@ -3,9 +3,9 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from oclaw.runtime.chat.agent_messages import build_llm_messages
-from oclaw.platform.llm.chat_models import RuleBasedChatModel
-from oclaw.platform.persistence.sqlite_store import SqliteStore
+from runtime.chat.agent_messages import build_llm_messages
+from svc.llm.chat_models import RuleBasedChatModel
+from svc.persistence.sqlite_store import SqliteStore
 
 
 def test_get_messages_limit_preserves_tool_pairing(tmp_path: Path) -> None:

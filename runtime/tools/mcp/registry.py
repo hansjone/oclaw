@@ -3,8 +3,8 @@ from __future__ import annotations
 from dataclasses import asdict
 from typing import Any
 
-from oclaw.platform.persistence.sqlite_store import SqliteStore
-from oclaw.runtime.tools.mcp.manifest import McpServerManifest
+from svc.persistence.sqlite_store import SqliteStore
+from runtime.tools.mcp.manifest import McpServerManifest
 
 
 class McpRegistry:

@@ -4,13 +4,13 @@ from pathlib import Path
 
 import pytest
 
-from oclaw.platform.llm.chat_models import RuleBasedChatModel
-from oclaw.platform.persistence.sqlite_store import SqliteStore
-from oclaw.runtime.direct_loop import _build_model_context
+from svc.llm.chat_models import RuleBasedChatModel
+from svc.persistence.sqlite_store import SqliteStore
+from runtime.direct_loop import _build_model_context
 
 
 def test_ops_role_injects_netx_batch_anchor_into_system(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    import oclaw.runtime.tools.experts.network_ops.netx_tools as nt
+    import runtime.tools.experts.network_ops.netx_tools as nt
 
     def _fake_anchor() -> dict:
         return {
@@ -61,7 +61,7 @@ def test_non_ops_role_skips_netx_inject(tmp_path: Path, monkeypatch: pytest.Monk
         calls["n"] += 1
         return {"ok": True, "anchor": {}}
 
-    import oclaw.runtime.tools.experts.network_ops.netx_tools as nt
+    import runtime.tools.experts.network_ops.netx_tools as nt
 
     monkeypatch.setattr(nt, "_resolve_ume_anchor", _spy_anchor)
 

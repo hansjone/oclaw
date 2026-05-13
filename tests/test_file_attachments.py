@@ -8,16 +8,16 @@ import zipfile
 from pathlib import Path
 
 import pandas as pd
-import oclaw.platform.files.file_attachments as fa
-from oclaw.platform.files.file_attachments import process_file_data
-from oclaw.platform.files.tabular_attachment_store import (
+import svc.files.file_attachments as fa
+from svc.files.file_attachments import process_file_data
+from svc.files.tabular_attachment_store import (
     aggregate_table,
     analyze_table_full_scan,
     query_table,
     run_table_sql,
     save_workbook,
 )
-from oclaw.platform.files.text_attachment_store import query_text_document
+from svc.files.text_attachment_store import query_text_document
 
 
 def _zip_bytes(files: dict[str, bytes]) -> bytes:
@@ -335,12 +335,37 @@ def test_large_csv_emits_tabular_ref_and_can_query() -> None:
     assert str(got.get("engine") or "") in {"builtin_sqlite", "mcp_sqlite"}
 
 
-def test_medium_csv_enters_tool_mode_with_default_threshold() -> None:
-    rows = ["c1,c2"] + [f"{i},row-{i}" for i in range(0, 6000)]
-    payload = ("\n".join(rows)).encode("utf-8")
-    out = process_file_data("medium-default.csv", payload)
-    tab_refs = [x for x in out if isinstance(x, dict) and str(x.get("type") or "") == "tabular_ref"]
-    assert tab_refs
+def test_medium_csv_enters_tool_mode_with_default_threshold(tmp_path: Path, monkeypatch) -> None:
+    """Isolate from repo ``oclaw.json`` (may raise ``tool_mode_min_rows`` above this test's row count)."""
+    cfg = {
+        "plugins": {
+            "entries": {
+                "memory-wiki": {
+                    "auto": {
+                        "attachments": {
+                            "tabular": {
+                                "tool_mode_enabled": True,
+                                "tool_mode_min_rows": 5000,
+                                "tool_mode_max_bytes": 30 * 1024 * 1024,
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    cfg_path = tmp_path / "oclaw.json"
+    cfg_path.write_text(json.dumps(cfg), encoding="utf-8")
+    monkeypatch.setenv("AIA_OCLAW_CONFIG_PATH", str(cfg_path))
+    fa._attachments_limits.cache_clear()
+    try:
+        rows = ["c1,c2"] + [f"{i},row-{i}" for i in range(0, 6000)]
+        payload = ("\n".join(rows)).encode("utf-8")
+        out = process_file_data("medium-default.csv", payload)
+        tab_refs = [x for x in out if isinstance(x, dict) and str(x.get("type") or "") == "tabular_ref"]
+        assert tab_refs
+    finally:
+        fa._attachments_limits.cache_clear()
 
 
 def test_large_csv_can_aggregate_grouped_sum() -> None:
@@ -578,7 +603,7 @@ def test_excel_sheet_count_cap_applies_in_tool_mode(tmp_path: Path, monkeypatch)
 
 def test_attachment_asset_store_mp4_load_bytes_roundtrip(tmp_path: Path) -> None:
     """Regression: ``load_bytes`` must resolve ``.mp4`` on-disk blobs (not only image extensions)."""
-    from oclaw.platform.files.attachment_assets import AttachmentAssetStore
+    from svc.files.attachment_assets import AttachmentAssetStore
 
     ast = AttachmentAssetStore(str(tmp_path))
     payload = b"\x00\x00\x00\x18ftypmp42\x00\x00\x00\x00mp42isom" + b"vid" * 400

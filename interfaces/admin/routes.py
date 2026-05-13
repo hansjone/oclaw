@@ -16,12 +16,12 @@ from fastapi import APIRouter, Body, Header, Query
 from fastapi import HTTPException
 from fastapi.responses import HTMLResponse
 
-from oclaw.runtime.operations.mcp_env import apply_gateway_mcp_env_to_os
-from oclaw.runtime.agents.factory import build_gateway_executor
-from oclaw.runtime.gateway import OclawGateway
-from oclaw.runtime.types import StandardMessage, normalize_interaction_mode, normalize_requested_specialist
-from oclaw.runtime.operations.providers.registry import build_channel_registry
-from oclaw.runtime.operations.runtime import (
+from runtime.operations.mcp_env import apply_gateway_mcp_env_to_os
+from runtime.agents.factory import build_gateway_executor
+from runtime.gateway import OclawGateway
+from runtime.types import StandardMessage, normalize_interaction_mode, normalize_requested_specialist
+from runtime.operations.providers.registry import build_channel_registry
+from runtime.operations.runtime import (
     cleanup_service_processes_by_pid,
     detect_orphan_service_processes,
     is_pid_running,
@@ -29,37 +29,37 @@ from oclaw.runtime.operations.runtime import (
     list_service_process_pids,
     status_services,
 )
-from oclaw.runtime.operations.stack import cmd_stack_down, cmd_stack_status, cmd_stack_up
-from oclaw.runtime.orchestration.vector_store import read_vector_memory_runtime
-from oclaw.platform.config.paths import PROJECT_ROOT, db_path
-from oclaw.platform.config.passwords import load_expected_password
-from oclaw.platform.persistence.sqlite_store import SqliteStore
-from oclaw.runtime.agents.specialists import discover_specialist_ids, parse_agent_profile_bindings
-from oclaw.runtime.tools.mcp.installer import (
+from runtime.operations.stack import cmd_stack_down, cmd_stack_status, cmd_stack_up
+from runtime.orchestration.vector_store import read_vector_memory_runtime
+from svc.config.paths import PROJECT_ROOT, db_path
+from svc.config.passwords import load_expected_password
+from svc.persistence.sqlite_store import SqliteStore
+from runtime.agents.specialists import discover_specialist_ids, parse_agent_profile_bindings
+from runtime.tools.mcp.installer import (
     _safe_server_id,
     detect_local_dependencies,
     install_mcp_server,
     preflight_mcp_server,
     uninstall_mcp_server,
 )
-from oclaw.runtime.tools.mcp.market import search_mcp_market, trending_mcp_market
-from oclaw.runtime.tools.mcp.manifest import McpServerManifest
-from oclaw.runtime.operations.mcp_registry_export import (
+from runtime.tools.mcp.market import search_mcp_market, trending_mcp_market
+from runtime.tools.mcp.manifest import McpServerManifest
+from runtime.operations.mcp_registry_export import (
     build_mcp_install_export_document,
     mcp_migrated_json_path,
     persist_mcp_migrated_file,
 )
-from oclaw.runtime.tools.mcp.filesystem_argv import build_mcp_process_command
-from oclaw.runtime.tools.mcp.registry import McpRegistry
-from oclaw.runtime.tools.mcp.runtime import McpProcessRuntime
-from oclaw.interfaces.admin.mcp_e2e_probe import build_mcp_e2e_probe_plans
-from oclaw.runtime.tools.catalog import default_registry
-from oclaw.runtime.chat.tool_runtime import ToolExecutionContext, ToolExecutor
-from oclaw.platform.llm.chat_models import LLMToolCall
-from oclaw.runtime.agent_core_attempt import ALL_ATTEMPT_ERROR_CODES
-from oclaw.runtime.agent_core_run import DEFAULT_RETRYABLE_ERROR_CODES, resolve_retryable_error_codes
-from oclaw.runtime.prompt_prebuild import run_runtime_prewarm, runtime_prewarm_prompts_snapshot, runtime_prewarm_status
-from oclaw.runtime.workspaces.experts import (
+from runtime.tools.mcp.filesystem_argv import build_mcp_process_command
+from runtime.tools.mcp.registry import McpRegistry
+from runtime.tools.mcp.runtime import McpProcessRuntime
+from interfaces.admin.mcp_e2e_probe import build_mcp_e2e_probe_plans
+from runtime.tools.catalog import default_registry
+from runtime.chat.tool_runtime import ToolExecutionContext, ToolExecutor
+from svc.llm.chat_models import LLMToolCall
+from runtime.agent_core_attempt import ALL_ATTEMPT_ERROR_CODES
+from runtime.agent_core_run import DEFAULT_RETRYABLE_ERROR_CODES, resolve_retryable_error_codes
+from runtime.prompt_prebuild import run_runtime_prewarm, runtime_prewarm_prompts_snapshot, runtime_prewarm_status
+from runtime.workspaces.experts import (
     create_expert,
     delete_expert,
     list_experts,
@@ -446,8 +446,8 @@ def build_admin_router() -> APIRouter:
         ctx = _resolve_auth(store, authorization)
         _require_permission(ctx, "admin:tenant:write")
 
-        from oclaw.runtime.tools.expert_registry import clear_expert_tool_cache
-        from oclaw.runtime.tools.public_registry import clear_public_tool_cache
+        from runtime.tools.expert_registry import clear_expert_tool_cache
+        from runtime.tools.public_registry import clear_public_tool_cache
 
         clear_public_tool_cache()
         clear_expert_tool_cache()
@@ -504,7 +504,7 @@ def build_admin_router() -> APIRouter:
         store = SqliteStore(db_path())
         ctx = _resolve_auth(store, authorization)
         _require_permission(ctx, "admin:tenant:write")
-        from oclaw.runtime.tools.exposure_plan import build_internal_tool_specs
+        from runtime.tools.exposure_plan import build_internal_tool_specs
 
         r = str(role or "").strip().lower()
         available_roles = _ordered_roles()
@@ -543,8 +543,8 @@ def build_admin_router() -> APIRouter:
         ctx = _resolve_auth(store, authorization)
         _require_permission(ctx, "admin:tenant:write")
 
-        from oclaw.platform.llm.tool_wire_policy import load_role_mode_for_role, load_tool_policies_dict_for_role
-        from oclaw.runtime.tools.exposure_plan import build_internal_tool_specs, build_llm_tools_plan
+        from svc.llm.tool_wire_policy import load_role_mode_for_role, load_tool_policies_dict_for_role
+        from runtime.tools.exposure_plan import build_internal_tool_specs, build_llm_tools_plan
 
         roles = _ordered_roles()
         items: list[dict[str, Any]] = []
@@ -607,7 +607,7 @@ def build_admin_router() -> APIRouter:
         store = SqliteStore(db_path())
         ctx = _resolve_auth(store, authorization)
         _require_permission(ctx, "admin:tenant:write")
-        from oclaw.runtime.tools.exposure_plan import build_llm_tools_plan
+        from runtime.tools.exposure_plan import build_llm_tools_plan
 
         r = str(role or "").strip().lower()
         available_roles = _ordered_roles()
@@ -2295,7 +2295,7 @@ def build_admin_router() -> APIRouter:
         store = SqliteStore(db_path())
         ctx = _resolve_auth(store, authorization)
         _require_permission(ctx, "admin:tenant:write")
-        from oclaw.platform.llm.tool_wire_policy import build_tool_wire_snapshot
+        from svc.llm.tool_wire_policy import build_tool_wire_snapshot
 
         return build_tool_wire_snapshot(store, role=str(role or "").strip().lower() or None)
 
@@ -2304,7 +2304,7 @@ def build_admin_router() -> APIRouter:
         payload: dict[str, Any] | None = Body(default=None),
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
-        from oclaw.platform.llm.tool_wire_policy import SETTINGS_KEY_ADMIN_CONFIG, load_merged_admin_config
+        from svc.llm.tool_wire_policy import SETTINGS_KEY_ADMIN_CONFIG, load_merged_admin_config
 
         payload = payload or {}
         store = SqliteStore(db_path())
@@ -2356,7 +2356,7 @@ def build_admin_router() -> APIRouter:
         payload: dict[str, Any] | None = Body(default=None),
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
-        from oclaw.platform.llm.tool_wire_policy import SETTINGS_KEY_ROLE_MODE_BY_ROLE
+        from svc.llm.tool_wire_policy import SETTINGS_KEY_ROLE_MODE_BY_ROLE
 
         payload = payload or {}
         store = SqliteStore(db_path())
@@ -2396,7 +2396,7 @@ def build_admin_router() -> APIRouter:
         role: str | None = Query(default=None),
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
-        from oclaw.platform.llm.tool_wire_policy import SETTINGS_KEY_PENALTY_STATE, SETTINGS_KEY_PENALTY_STATE_BY_ROLE
+        from svc.llm.tool_wire_policy import SETTINGS_KEY_PENALTY_STATE, SETTINGS_KEY_PENALTY_STATE_BY_ROLE
 
         store = SqliteStore(db_path())
         ctx = _resolve_auth(store, authorization)
@@ -2433,7 +2433,7 @@ def build_admin_router() -> APIRouter:
         payload: dict[str, Any] | None = Body(default=None),
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
-        from oclaw.platform.llm.tool_wire_policy import (
+        from svc.llm.tool_wire_policy import (
             SETTINGS_KEY_TOOL_POLICIES,
             SETTINGS_KEY_TOOL_POLICIES_BY_ROLE,
             load_tool_policies_dict_for_role,
@@ -2504,7 +2504,7 @@ def build_admin_router() -> APIRouter:
         payload: dict[str, Any] | None = Body(default=None),
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
-        from oclaw.platform.llm.tool_wire_policy import (
+        from svc.llm.tool_wire_policy import (
             SETTINGS_KEY_TOOL_POLICIES,
             SETTINGS_KEY_TOOL_POLICIES_BY_ROLE,
             load_tool_policies_dict_for_role,
@@ -3604,8 +3604,8 @@ def build_admin_router() -> APIRouter:
         if tenant_id:
             _require_tenant_scope(ctx, tenant_id)
         user_id = str(payload.get("user_id") or "").strip() or None
-        from oclaw.platform.embeddings.embedding_client import build_default_embedding_client
-        from oclaw.runtime.orchestration.vector_store import build_vector_store, MemoryVectorItem
+        from svc.embeddings.embedding_client import build_default_embedding_client
+        from runtime.orchestration.vector_store import build_vector_store, MemoryVectorItem
 
         client = build_default_embedding_client()
         vector = build_vector_store(store)
@@ -4114,9 +4114,9 @@ def build_admin_router() -> APIRouter:
             "offset": int(off),
         }
 
-    from oclaw.interfaces.admin.chat_api import include_chat_routes
-    from oclaw.interfaces.admin.models_api import include_model_mgmt_routes
-    from oclaw.interfaces.admin.skills_api import include_skill_routes
+    from interfaces.admin.chat_api import include_chat_routes
+    from interfaces.admin.models_api import include_model_mgmt_routes
+    from interfaces.admin.skills_api import include_skill_routes
 
     include_chat_routes(router, resolve_auth=_resolve_auth)
     include_model_mgmt_routes(router, resolve_auth=_resolve_auth)

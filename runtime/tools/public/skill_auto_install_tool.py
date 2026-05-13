@@ -3,16 +3,16 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from oclaw.platform.config.paths import db_path
-from oclaw.platform.persistence.sqlite_store import SqliteStore
-from oclaw.runtime.chat.tool_invocation_context import (
+from svc.config.paths import db_path
+from svc.persistence.sqlite_store import SqliteStore
+from runtime.chat.tool_invocation_context import (
     current_tool_lane_sessions,
     current_tool_workspace_lane_role,
 )
-from oclaw.runtime.skill_installer import auto_install_skill_from_payload, install_skill_from_registry_archive
-from oclaw.runtime.skills_market import get_market_adapter, normalize_skill_market_provider_setting
-from oclaw.runtime.skills_workspace_lane import resolve_auto_install_parent
-from oclaw.runtime.tools.base import ToolSpec
+from runtime.skill_installer import auto_install_skill_from_payload, install_skill_from_registry_archive
+from runtime.skills_market import get_market_adapter, normalize_skill_market_provider_setting
+from runtime.skills_workspace_lane import resolve_auto_install_parent
+from runtime.tools.base import ToolSpec
 
 
 def _store() -> SqliteStore:

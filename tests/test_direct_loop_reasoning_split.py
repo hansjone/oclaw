@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from oclaw.runtime.direct_loop import _split_reasoning_and_body
+from runtime.direct_loop import _split_reasoning_and_body
 
 
 def test_split_reasoning_extracts_thinking_tags() -> None:

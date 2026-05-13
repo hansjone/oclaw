@@ -26,7 +26,7 @@ def _workspace_dir(event: Any) -> Path | None:
 
 
 def _repo_root() -> Path:
-    from oclaw.platform.config.paths import PROJECT_ROOT
+    from svc.config.paths import PROJECT_ROOT
 
     return Path(PROJECT_ROOT).resolve()
 

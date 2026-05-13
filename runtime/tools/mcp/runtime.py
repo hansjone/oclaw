@@ -25,7 +25,7 @@ class McpProcessRuntime:
     def _build_runtime_env(env_allowlist: list[str] | None) -> dict[str, str] | None:
         if env_allowlist is None:
             return None
-        from oclaw.runtime.operations.mcp_env import mcp_local_env_merged
+        from runtime.operations.mcp_env import mcp_local_env_merged
 
         keep_keys = {"PATH", "PATHEXT", "SYSTEMROOT", "WINDIR", "COMSPEC", "TEMP", "TMP", "HOME", "USERPROFILE", "APPDATA", "LOCALAPPDATA", "PROGRAMDATA", "PROGRAMFILES", "PROGRAMFILES(X86)", "SYSTEMDRIVE"}
         env: dict[str, str] = {}

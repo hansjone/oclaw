@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import sys
 
-from oclaw.platform.config.paths import db_path
-from oclaw.platform.persistence.sqlite_store import SqliteStore
+from svc.config.paths import db_path
+from svc.persistence.sqlite_store import SqliteStore
 
 
 def main() -> int:

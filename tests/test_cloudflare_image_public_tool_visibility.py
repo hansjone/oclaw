@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from oclaw.runtime.tools.catalog import default_registry
+from runtime.tools.catalog import default_registry
 
 
 def test_cloudflare_image_generate_in_public_registry() -> None:

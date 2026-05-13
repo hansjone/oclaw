@@ -8,8 +8,8 @@ from types import ModuleType
 from typing import Any, Iterable
 from types import SimpleNamespace
 
-from oclaw.platform.config.runtime_paths import runtime_extensions_root
-from oclaw.runtime.extensions.plugin_api import PluginEntry
+from svc.config.runtime_paths import runtime_extensions_root
+from runtime.extensions.plugin_api import PluginEntry
 
 
 def _sanitize_module_name(value: str) -> str:

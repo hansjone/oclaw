@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from .api import QWEN_BASE_URL, build_qwen_provider
-from oclaw.runtime.extensions.plugin_api import PluginEntry, define_plugin_entry
+from runtime.extensions.plugin_api import PluginEntry, define_plugin_entry
 
 PROVIDER_ID = "qwen"
 

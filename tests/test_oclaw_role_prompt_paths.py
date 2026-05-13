@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from oclaw.runtime.agents.specialists import default_system_prefix_for_specialist
+from runtime.agents.specialists import default_system_prefix_for_specialist
 
 
 def test_specialist_prompts_loaded_from_oclaw_tree() -> None:

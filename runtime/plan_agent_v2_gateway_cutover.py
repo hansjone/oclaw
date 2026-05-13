@@ -5,12 +5,12 @@ import uuid
 from dataclasses import dataclass
 from typing import Any
 
-from oclaw.runtime.gateway import OclawGatewayResult
-from oclaw.runtime.plan_agent_v2 import (
+from runtime.gateway import OclawGatewayResult
+from runtime.plan_agent_v2 import (
     build_shadow_gateway_result,
     evaluate_gateway_expert_turn_shadow,
 )
-from oclaw.runtime.types import StandardMessage
+from runtime.types import StandardMessage
 
 
 @dataclass(frozen=True)

@@ -122,8 +122,8 @@ def handle(event: Any) -> None:
     # Fetch recent messages from sqlite.
     try:
         _ensure_repo_imports()
-        from oclaw.platform.config.paths import db_path  # type: ignore
-        from oclaw.platform.persistence.sqlite_store import SqliteStore  # type: ignore
+        from svc.config.paths import db_path  # type: ignore
+        from svc.persistence.sqlite_store import SqliteStore  # type: ignore
 
         store = SqliteStore(db_path())
         msgs = store.get_messages(session_id=session_id, limit=max_msgs_n)

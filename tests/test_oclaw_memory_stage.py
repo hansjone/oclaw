@@ -4,9 +4,9 @@ from pathlib import Path
 
 import pytest
 
-from oclaw.runtime.memory_stage import after_turn_memory, render_memory_context_block
-from oclaw.runtime.types import OclawMemoryContext
-from oclaw.platform.persistence.sqlite_store import SqliteStore
+from runtime.memory_stage import after_turn_memory, render_memory_context_block
+from runtime.types import OclawMemoryContext
+from svc.persistence.sqlite_store import SqliteStore
 
 
 def test_render_memory_context_block_contains_sections() -> None:
@@ -28,7 +28,7 @@ def test_after_turn_memory_invokes_maybe_write_turn_memory(tmp_path: Path, monke
         calls.append({"store": store, **kwargs})
         return {"ok": True, "written": 0, "reason": "stub"}
 
-    monkeypatch.setattr("oclaw.runtime.orchestration.memory.maybe_write_turn_memory", _fake_maybe_write)
+    monkeypatch.setattr("runtime.orchestration.memory.maybe_write_turn_memory", _fake_maybe_write)
 
     store = SqliteStore(str(tmp_path / "m.sqlite"))
     store.create_session("s1")

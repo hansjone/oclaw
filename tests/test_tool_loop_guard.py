@@ -4,10 +4,10 @@ import base64
 import json
 from pathlib import Path
 
-from oclaw.runtime.chat.tool_runtime import ToolExecutionContext, ToolExecutor
-from oclaw.platform.llm.chat_models import LLMToolCall
-from oclaw.platform.persistence.sqlite_store import SqliteStore
-from oclaw.runtime.tools.base import ToolRegistry, ToolSpec
+from runtime.chat.tool_runtime import ToolExecutionContext, ToolExecutor
+from svc.llm.chat_models import LLMToolCall
+from svc.persistence.sqlite_store import SqliteStore
+from runtime.tools.base import ToolRegistry, ToolSpec
 
 
 def test_tool_loop_guard_blocks_repeated_signature(tmp_path: Path) -> None:

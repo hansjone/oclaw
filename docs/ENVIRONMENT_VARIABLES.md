@@ -506,7 +506,7 @@
   - 生效：`oclaw/app_server/fastapi_main.py`, `oclaw/runtime/operations/main.py`
 
 - `OCLAW_UVICORN_WS_MAX_SIZE`
-  - 默认：未设置时由 `oclaw.interfaces.http.fastapi_app:main` 使用与 `MAX_PAYLOAD_BYTES`（约 25MB）相同的值传入 uvicorn `ws_max_size`
+  - 默认：未设置时由 `interfaces.http.fastapi_app:main` 使用与 `MAX_PAYLOAD_BYTES`（约 25MB）相同的值传入 uvicorn `ws_max_size`
   - 作用：**uvicorn 对 WebSocket 单帧的字节上限**（与 hello 里 `maxPayload` 应对齐）。uvicorn 自带默认约 **16MB**；两张高清图经 base64 塞进一条 `chat.send` 常超过 16MB，服务端直接断连，浏览器侧表现为 **`ws_closed`** / 请求失败
   - 说明：若用命令行 `uvicorn ...` 启动而未走 `fastapi_app.main()`，需自行加 `--ws-max-size` 或设置本变量（取决于你的启动入口是否读取）
   - 生效：`oclaw/interfaces/http/fastapi_app.py`

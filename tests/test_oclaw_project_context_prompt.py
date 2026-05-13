@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from oclaw.runtime.project_context_prompt import build_project_context_block
+from runtime.project_context_prompt import build_project_context_block
 
 
 class _Store:
@@ -17,21 +17,21 @@ def test_build_project_context_block_reads_workspace_bootstrap(monkeypatch, tmp_
     ws = tmp_path / "runtime" / "workspaces" / "main"
     ws.mkdir(parents=True, exist_ok=True)
     (ws / "TOOLS.md").write_text("tooling note", encoding="utf-8")
-    monkeypatch.setattr("oclaw.runtime.project_context_prompt.PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr("runtime.project_context_prompt.PROJECT_ROOT", tmp_path)
     out = build_project_context_block(store=_Store())
     assert "[project_context]" in out
     assert "[TOOLS.md]" in out
 
 
 def test_build_project_context_block_empty_when_no_files(monkeypatch, tmp_path: Path) -> None:
-    monkeypatch.setattr("oclaw.runtime.project_context_prompt.PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr("runtime.project_context_prompt.PROJECT_ROOT", tmp_path)
     out = build_project_context_block(store=_Store())
     assert out == ""
 
 
 def test_build_project_context_block_fallback_to_project_root(monkeypatch, tmp_path: Path) -> None:
     (tmp_path / "TOOLS.md").write_text("legacy root tools", encoding="utf-8")
-    monkeypatch.setattr("oclaw.runtime.project_context_prompt.PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr("runtime.project_context_prompt.PROJECT_ROOT", tmp_path)
     out = build_project_context_block(store=_Store())
     assert "[TOOLS.md]" in out
     assert "legacy root tools" in out
@@ -41,16 +41,16 @@ def test_build_project_context_block_triggers_bootstrap_for_each_root(monkeypatc
     ws_agent = tmp_path / "runtime" / "workspaces" / "main"
     ws_agent.mkdir(parents=True, exist_ok=True)
     (ws_agent / "TOOLS.md").write_text("agent root", encoding="utf-8")
-    monkeypatch.setattr("oclaw.runtime.project_context_prompt.PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr("runtime.project_context_prompt.PROJECT_ROOT", tmp_path)
 
     calls: list[dict] = []
 
     def _capture(**kwargs):
         calls.append(dict(kwargs))
 
-    monkeypatch.setattr("oclaw.runtime.project_context_prompt.trigger_hook_event", _capture)
+    monkeypatch.setattr("runtime.project_context_prompt.trigger_hook_event", _capture)
     monkeypatch.setattr(
-        "oclaw.runtime.project_context_prompt.get_active_hooks_config",
+        "runtime.project_context_prompt.get_active_hooks_config",
         lambda: {"hooks": {"internal": {"enabled": True}}},
     )
     _ = build_project_context_block(store=_Store())
@@ -68,16 +68,16 @@ def test_project_context_bootstrap_includes_agent_id_when_config_matches(monkeyp
     ws_social.mkdir(parents=True, exist_ok=True)
     (ws_agent / "TOOLS.md").write_text("agent root", encoding="utf-8")
     (ws_social / "TOOLS.md").write_text("social root", encoding="utf-8")
-    monkeypatch.setattr("oclaw.runtime.project_context_prompt.PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr("runtime.project_context_prompt.PROJECT_ROOT", tmp_path)
 
     calls: list[dict] = []
 
     def _capture(**kwargs):
         calls.append(dict(kwargs))
 
-    monkeypatch.setattr("oclaw.runtime.project_context_prompt.trigger_hook_event", _capture)
+    monkeypatch.setattr("runtime.project_context_prompt.trigger_hook_event", _capture)
     monkeypatch.setattr(
-        "oclaw.runtime.project_context_prompt.get_active_hooks_config",
+        "runtime.project_context_prompt.get_active_hooks_config",
         lambda: {
             "hooks": {"internal": {"enabled": True}},
             "agents": {

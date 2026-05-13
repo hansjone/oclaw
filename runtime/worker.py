@@ -6,13 +6,13 @@ import time
 import uuid
 from typing import Any
 
-from oclaw.runtime.agents.factory import build_gateway_executor
-from oclaw.runtime.agent_core_run import AgentCoreRunInput, run_agent_core
-from oclaw.runtime.memory_stage import build_memory_context
-from oclaw.runtime.relay_pointer import build_acp_relay_result, validate_relay_share_envelope
-from oclaw.runtime.types import StandardMessage
-from oclaw.runtime.chat.model_path_audit import ensure_no_tool_or_embedded_image_payload
-from oclaw.runtime.session_auto_title import (
+from runtime.agents.factory import build_gateway_executor
+from runtime.agent_core_run import AgentCoreRunInput, run_agent_core
+from runtime.memory_stage import build_memory_context
+from runtime.relay_pointer import build_acp_relay_result, validate_relay_share_envelope
+from runtime.types import StandardMessage
+from runtime.chat.model_path_audit import ensure_no_tool_or_embedded_image_payload
+from runtime.session_auto_title import (
     AUTO_TITLE_SYSTEM_PROMPT_EN,
     AUTO_TITLE_SYSTEM_PROMPT_ZH,
     finalize_auto_title,

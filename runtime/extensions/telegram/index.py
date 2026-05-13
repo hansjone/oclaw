@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from .api import telegram_plugin
-from oclaw.runtime.extensions.plugin_api import PluginEntry, define_plugin_entry
+from runtime.extensions.plugin_api import PluginEntry, define_plugin_entry
 
 
 def register_telegram_channel(api) -> None:

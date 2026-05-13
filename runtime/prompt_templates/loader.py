@@ -6,8 +6,8 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-from oclaw.platform.config.paths import PROJECT_ROOT
-from oclaw.runtime.prompt_templates.frontmatter import parse_markdown_document
+from svc.config.paths import PROJECT_ROOT
+from runtime.prompt_templates.frontmatter import parse_markdown_document
 
 _VAR_RE = re.compile(r"\{\{\s*([a-zA-Z0-9_]+)\s*\}\}")
 

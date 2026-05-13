@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from oclaw.runtime.relay_pointer import (
+from runtime.relay_pointer import (
     RelayPointerError,
     build_pointer_uri,
     decode_base64_payload,

@@ -5,9 +5,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from oclaw.platform.embeddings.embedding_client import build_default_embedding_client
-from oclaw.platform.persistence.sqlite_store import SqliteStore
-from oclaw.platform.config.paths import PROJECT_ROOT
+from svc.embeddings.embedding_client import build_default_embedding_client
+from svc.persistence.sqlite_store import SqliteStore
+from svc.config.paths import PROJECT_ROOT
 
 
 def _default_workspace_root() -> Path:

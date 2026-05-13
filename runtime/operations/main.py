@@ -4,10 +4,10 @@ import argparse
 import os
 import sys
 
-from oclaw.runtime.operations.hooks_cmd import register_hooks_parser
-from oclaw.runtime.operations.memory import register_memory_parser
-from oclaw.runtime.operations.providers.registry import build_channel_registry
-from oclaw.runtime.operations.stack import register_stack_parser
+from runtime.operations.hooks_cmd import register_hooks_parser
+from runtime.operations.memory import register_memory_parser
+from runtime.operations.providers.registry import build_channel_registry
+from runtime.operations.stack import register_stack_parser
 
 
 def _cmd_gateway_start(args: argparse.Namespace) -> int:
@@ -15,16 +15,16 @@ def _cmd_gateway_start(args: argparse.Namespace) -> int:
         os.environ["AIA_ASSISTANT_GATEWAY_HOST"] = args.host
     if args.port is not None:
         os.environ["AIA_ASSISTANT_GATEWAY_PORT"] = str(args.port)
-    from oclaw.runtime.operations.mcp_env import apply_gateway_mcp_env_to_os
+    from runtime.operations.mcp_env import apply_gateway_mcp_env_to_os
 
     apply_gateway_mcp_env_to_os()
-    from oclaw.interfaces.http.fastapi_app import main as fastapi_main
+    from interfaces.http.fastapi_app import main as fastapi_main
 
     return fastapi_main()
 
 
 def _build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(prog="python -m oclaw.runtime.operations", description="Unified operational CLI")
+    p = argparse.ArgumentParser(prog="python -m runtime.operations", description="Unified operational CLI")
     root_sub = p.add_subparsers(dest="root_cmd", required=True)
 
     registry = build_channel_registry()

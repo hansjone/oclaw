@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from oclaw.interfaces.admin.chat_api import _filter_internal_instruction_user_messages
+from interfaces.admin.chat_api import _filter_internal_instruction_user_messages
 
 
 def test_filter_internal_instruction_user_messages_hides_polluted_user_row() -> None:

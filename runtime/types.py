@@ -45,7 +45,7 @@ def normalize_requested_specialist(raw: Any) -> SpecialistId:
     # Accept dynamic specialists discovered from workspaces (e.g. "stock").
     # Fallback to "generalist" when unknown.
     try:
-        from oclaw.runtime.agents.specialists import normalize_specialist_id
+        from runtime.agents.specialists import normalize_specialist_id
 
         return normalize_specialist_id(specialist)
     except Exception:

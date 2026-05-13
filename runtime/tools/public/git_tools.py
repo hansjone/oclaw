@@ -3,8 +3,8 @@ from __future__ import annotations
 import subprocess
 from typing import Any
 
-from oclaw.runtime.tools.base import ToolSpec
-from oclaw.runtime.tools.path_guard import resolve_workspace_path, sanitize_git_ref, truncate_text
+from runtime.tools.base import ToolSpec
+from runtime.tools.path_guard import resolve_workspace_path, sanitize_git_ref, truncate_text
 
 
 def _git(command: str, *, cwd: str) -> dict[str, Any]:

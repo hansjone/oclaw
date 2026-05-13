@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from oclaw.platform.persistence.sqlite_store import SqliteStore
+from svc.persistence.sqlite_store import SqliteStore
 
 
 @dataclass(frozen=True)

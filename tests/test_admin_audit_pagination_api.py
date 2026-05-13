@@ -7,9 +7,9 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from oclaw.interfaces.http.fastapi_app import create_app
-from oclaw.platform.config.paths import db_path
-from oclaw.platform.persistence.sqlite_store import SqliteStore
+from interfaces.http.fastapi_app import create_app
+from svc.config.paths import db_path
+from svc.persistence.sqlite_store import SqliteStore
 
 
 class AdminAuditPaginationApiTests(unittest.TestCase):

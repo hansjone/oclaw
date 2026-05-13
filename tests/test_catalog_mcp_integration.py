@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from oclaw.platform.persistence.sqlite_store import SqliteStore
-from oclaw.runtime.tools.catalog import materialize_tool_specs
+from svc.persistence.sqlite_store import SqliteStore
+from runtime.tools.catalog import materialize_tool_specs
 
 
 def _seed_single_mcp_tool(store: SqliteStore) -> None:

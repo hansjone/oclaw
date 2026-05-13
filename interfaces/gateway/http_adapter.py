@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from oclaw.platform.config.paths import db_path
-from oclaw.platform.persistence.sqlite_store import SqliteStore
+from svc.config.paths import db_path
+from svc.persistence.sqlite_store import SqliteStore
 
 from .context_builder import build_common_gateway_context
 from .dispatcher import build_gateway_method_handlers

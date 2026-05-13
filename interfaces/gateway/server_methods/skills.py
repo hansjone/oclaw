@@ -3,14 +3,14 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from oclaw.runtime.skill_installer import (
+from runtime.skill_installer import (
     create_skill_from_template,
     install_skill_from_local_dir,
     install_skill_from_registry_archive,
     list_skills_with_status,
     set_skill_enabled,
 )
-from oclaw.runtime.skills import discover_workspace_skill_manifests, load_skill_manifest
+from runtime.skills import discover_workspace_skill_manifests, load_skill_manifest
 
 from .shared_types import GatewayRequestHandlers
 from .validation import error_shape

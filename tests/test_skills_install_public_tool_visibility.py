@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from oclaw.runtime.tools.catalog import default_registry
+from runtime.tools.catalog import default_registry
 
 
 def test_skill_install_public_tools_hidden_for_specialist_auto_only() -> None:

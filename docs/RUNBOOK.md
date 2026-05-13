@@ -11,7 +11,7 @@
 
 ## 1. 统一入口（只保留最新）
 
-所有运维命令统一通过 `scripts/`，不要再使用 `python -m oclaw.runtime.operations ...` 或历史 `.bat` 方式。
+所有运维命令统一通过 `scripts/`，不要再使用 `python -m runtime.operations ...` 或历史 `.bat` 方式。
 
 补充：工具脚本也统一放在 `scripts/`（例如 `seed_mcp_registry.py`、`ws_probe.py`）。
 

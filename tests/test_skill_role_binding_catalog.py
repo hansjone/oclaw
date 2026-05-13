@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from oclaw.runtime.skill_role_binding import (
+from runtime.skill_role_binding import (
     SKILL_ROLE_BINDING_ENABLED_SETTING,
     SKILL_ROLE_BINDING_KEY,
     normalize_skill_role_binding,
@@ -12,10 +12,10 @@ from oclaw.runtime.skill_role_binding import (
     skill_role_binding_enabled_env_present,
     skill_role_binding_enabled_stored,
 )
-from oclaw.runtime.skills_prompt import collect_skill_catalog_entries
-from oclaw.runtime.skills_workspace_lane import skill_dir_private_lane_segment
-from oclaw.platform.persistence.sqlite_store import SqliteStore
-from oclaw.runtime.tools.catalog import default_registry
+from runtime.skills_prompt import collect_skill_catalog_entries
+from runtime.skills_workspace_lane import skill_dir_private_lane_segment
+from svc.persistence.sqlite_store import SqliteStore
+from runtime.tools.catalog import default_registry
 
 
 def _write_skill(root: Path, name: str) -> None:

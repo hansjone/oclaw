@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from oclaw.platform.llm.transports.openai_responses import parse_openai_responses_stream_events
+from svc.llm.transports.openai_responses import parse_openai_responses_stream_events
 
 
 def test_openai_responses_stream_parses_text_deltas_and_final_response_tool_calls() -> None:

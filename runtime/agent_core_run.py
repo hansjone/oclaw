@@ -4,12 +4,12 @@ import uuid
 from dataclasses import dataclass
 from typing import Any, Callable, Optional
 
-from oclaw.runtime.chat.turn_types import TurnRunOutcome
-from oclaw.runtime.agent_core_attempt import ALL_ATTEMPT_ERROR_CODES
-from oclaw.runtime.agent_core_attempt import AttemptRunnerInput, run_attempt
-from oclaw.runtime.memory_stage import compact_memory_context
-from oclaw.runtime.types import AttemptState, OclawMemoryContext, RunState, StandardMessage
-from oclaw.runtime.orchestration.trace import new_span_id
+from runtime.chat.turn_types import TurnRunOutcome
+from runtime.agent_core_attempt import ALL_ATTEMPT_ERROR_CODES
+from runtime.agent_core_attempt import AttemptRunnerInput, run_attempt
+from runtime.memory_stage import compact_memory_context
+from runtime.types import AttemptState, OclawMemoryContext, RunState, StandardMessage
+from runtime.orchestration.trace import new_span_id
 
 _AGENT_CORE_OC_STAGE: dict[str, str] = {
     "run_started": "run_start",

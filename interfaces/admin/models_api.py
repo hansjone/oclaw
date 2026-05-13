@@ -12,16 +12,16 @@ from typing import Any
 from fastapi import APIRouter, Body, Header, HTTPException, Query
 from fastapi.responses import Response
 
-from oclaw.runtime.agents.factory import DEFAULT_OLLAMA_BASE_URL, DEFAULT_OLLAMA_MODEL
-from oclaw.runtime.agents.specialists import (
+from runtime.agents.factory import DEFAULT_OLLAMA_BASE_URL, DEFAULT_OLLAMA_MODEL
+from runtime.agents.specialists import (
     AGENT_PROFILE_BINDINGS_KEY,
     agent_role_ids,
     dump_agent_profile_bindings,
     parse_agent_profile_bindings,
 )
-from oclaw.platform.config.paths import db_path
-from oclaw.runtime.orchestration.evaluation import eval_summary
-from oclaw.platform.persistence.sqlite_store import (
+from svc.config.paths import db_path
+from runtime.orchestration.evaluation import eval_summary
+from svc.persistence.sqlite_store import (
     LLM_BUILTIN_OLLAMA_PROFILE_ID,
     SqliteStore,
     active_llm_profile_setting_key,

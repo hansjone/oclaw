@@ -4,8 +4,8 @@ import json
 from dataclasses import dataclass
 from typing import Any
 
-from oclaw.runtime.chat.media_redact import redact_embedded_image_blobs
-from oclaw.runtime.direct_loop import (
+from runtime.chat.media_redact import redact_embedded_image_blobs
+from runtime.direct_loop import (
     _OCLAW_TOOL_RESULT_HARD_CAP_CHARS,
     _image_tool_result_replay_cap_chars,
     _video_tool_result_replay_cap_chars,

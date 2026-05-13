@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from oclaw.interfaces.gateway.server_methods.telegram_send_normalize import normalize_transport_target_for_channel
+from interfaces.gateway.server_methods.telegram_send_normalize import normalize_transport_target_for_channel
 
 
 def test_normalize_transport_target_for_channel_non_telegram_passthrough() -> None:

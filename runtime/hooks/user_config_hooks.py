@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 from typing import Any
 
-from oclaw.platform.config.paths import PROJECT_ROOT
+from svc.config.paths import PROJECT_ROOT
 
 
 def resolve_hooks_config_storage_path() -> Path:

@@ -4,7 +4,7 @@ import argparse
 import json
 from pathlib import Path
 
-from oclaw.runtime.hooks.user_config_hooks import apply_hook_entry_enabled, load_storage_config_document, save_storage_config_document
+from runtime.hooks.user_config_hooks import apply_hook_entry_enabled, load_storage_config_document, save_storage_config_document
 
 
 def test_apply_hook_entry_enabled_roundtrip(tmp_path, monkeypatch) -> None:
@@ -52,7 +52,7 @@ def test_hooks_enable_disable_workspace_hook(tmp_path, monkeypatch) -> None:
     )
     (h / "handler.py").write_text("def handle(event):\n    return None\n", encoding="utf-8")
 
-    from oclaw.runtime.operations.hooks_cmd import _cmd_hooks_disable, _cmd_hooks_enable
+    from runtime.operations.hooks_cmd import _cmd_hooks_disable, _cmd_hooks_enable
 
     assert _cmd_hooks_enable(argparse.Namespace(workspace=str(ws), name="toggle-hook")) == 0
     doc = json.loads((tmp_path / "cfg.json").read_text(encoding="utf-8"))

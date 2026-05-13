@@ -30,9 +30,8 @@ if (-not $repoRoot) {
     # Fallback: old relative layout assumption
     $repoRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))
 }
-$repoParent = Split-Path -Parent $repoRoot
 Set-Location $repoRoot
-$env:PYTHONPATH = $repoParent
+$env:PYTHONPATH = $repoRoot
 $env:PYTHONSAFEPATH = "1"
 $env:AIA_WORKSPACE_ROOT = $repoRoot
 $env:OPS_WORKSPACE_ROOT = $repoRoot
@@ -50,7 +49,7 @@ Write-Step "Working directory: $repoRoot"
 Write-Step "Stopping stack services..."
 
 try {
-    & $pythonExe -m oclaw.runtime.operations stack down
+    & $pythonExe -m runtime.operations stack down
     Write-Host "Stack stopped." -ForegroundColor Green
 } catch {
     Write-Host "[WARN] stack down failed: $($_.Exception.Message)" -ForegroundColor Yellow
@@ -61,7 +60,7 @@ try {
 
 Write-Step "Current status"
 try {
-    & $pythonExe -m oclaw.runtime.operations stack status
+    & $pythonExe -m runtime.operations stack status
 } catch {
     Write-Host "[WARN] Unable to read status after stop." -ForegroundColor Yellow
 }

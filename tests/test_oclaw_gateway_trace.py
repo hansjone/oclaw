@@ -4,10 +4,10 @@ import json
 from types import SimpleNamespace
 import pytest
 
-from oclaw.platform.llm.chat_models import LLMResponse
-from oclaw.runtime.gateway import OclawGateway
-from oclaw.runtime.tools.base import ToolRegistry, ToolSpec
-from oclaw.runtime.types import StandardMessage
+from svc.llm.chat_models import LLMResponse
+from runtime.gateway import OclawGateway
+from runtime.tools.base import ToolRegistry, ToolSpec
+from runtime.types import StandardMessage
 
 
 def test_gateway_async_trace_payload_has_pipeline_and_oc_stage(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -28,7 +28,7 @@ def test_gateway_async_trace_payload_has_pipeline_and_oc_stage(monkeypatch: pyte
 
             return T()
 
-    monkeypatch.setattr("oclaw.runtime.gateway.ensure_worker_started", lambda store: "worker-1")
+    monkeypatch.setattr("runtime.gateway.ensure_worker_started", lambda store: "worker-1")
 
     gw = OclawGateway(store=Store())
     msg = StandardMessage(
@@ -69,7 +69,7 @@ def test_gateway_received_trace_includes_relay_pointer_stats(monkeypatch: pytest
 
             return T()
 
-    monkeypatch.setattr("oclaw.runtime.gateway.ensure_worker_started", lambda store: "worker-1")
+    monkeypatch.setattr("runtime.gateway.ensure_worker_started", lambda store: "worker-1")
 
     gw = OclawGateway(store=Store())
     msg = StandardMessage(
@@ -119,7 +119,7 @@ def test_gateway_async_task_payload_preserves_relay_envelope(monkeypatch: pytest
 
             return T()
 
-    monkeypatch.setattr("oclaw.runtime.gateway.ensure_worker_started", lambda store: "worker-1")
+    monkeypatch.setattr("runtime.gateway.ensure_worker_started", lambda store: "worker-1")
     gw = OclawGateway(store=Store())
     msg = StandardMessage(
         session_id="sid-3",
@@ -165,7 +165,7 @@ def test_gateway_async_task_payload_preserves_acp_ids(monkeypatch: pytest.Monkey
 
             return T()
 
-    monkeypatch.setattr("oclaw.runtime.gateway.ensure_worker_started", lambda store: "worker-1")
+    monkeypatch.setattr("runtime.gateway.ensure_worker_started", lambda store: "worker-1")
     gw = OclawGateway(store=Store())
     msg = StandardMessage(
         session_id="sid-4",
@@ -249,7 +249,7 @@ def test_gateway_expert_plan_execution_mode_runs_v2_with_plan_prompt(monkeypatch
         captured["system_prompt"] = str(getattr(data, "system_prompt", "") or "")
         return SimpleNamespace(outcome=SimpleNamespace(final_text="plan_llm_reply", turn_uuid="turn-1"))
 
-    monkeypatch.setattr("oclaw.runtime.gateway.run_agent_core", _run_agent_core_ok)
+    monkeypatch.setattr("runtime.gateway.run_agent_core", _run_agent_core_ok)
 
     gw = OclawGateway(store=Store())
     msg = StandardMessage(
@@ -309,7 +309,7 @@ def test_gateway_expert_plan_mode_filters_non_readonly_tools(monkeypatch: pytest
         captured["tool_names"] = [t.name for t in tools.list()] if hasattr(tools, "list") else []
         return SimpleNamespace(outcome=SimpleNamespace(final_text="ok", turn_uuid="turn-1"))
 
-    monkeypatch.setattr("oclaw.runtime.gateway.run_agent_core", _run_agent_core_ok)
+    monkeypatch.setattr("runtime.gateway.run_agent_core", _run_agent_core_ok)
 
     gw = OclawGateway(store=Store())
     msg = StandardMessage(
@@ -368,7 +368,7 @@ def test_gateway_expert_agent_mode_injects_plan_control_tools(monkeypatch: pytes
         captured["tool_names"] = [t.name for t in tools.list()] if hasattr(tools, "list") else []
         return SimpleNamespace(outcome=SimpleNamespace(final_text="ok", turn_uuid="turn-1"))
 
-    monkeypatch.setattr("oclaw.runtime.gateway.run_agent_core", _run_agent_core_ok)
+    monkeypatch.setattr("runtime.gateway.run_agent_core", _run_agent_core_ok)
 
     store = Store()
     store.kv["AIA_EXPERT_PLAN_AGENT_V2_ENABLED"] = "1"
@@ -413,7 +413,7 @@ def test_gateway_comprehensive_mode_manager_first_selects_specialist(monkeypatch
             self.system_prompt = ""
 
     monkeypatch.setattr(
-        "oclaw.runtime.gateway.get_manager_prompt_prebuild",
+        "runtime.gateway.get_manager_prompt_prebuild",
         lambda **kwargs: {
             "manager_context": "manager",
             "allowed_fixed": ("generalist", "ops", "memory", "image"),
@@ -428,7 +428,7 @@ def test_gateway_comprehensive_mode_manager_first_selects_specialist(monkeypatch
         captured["persisted_user_text"] = getattr(data, "persisted_user_text", None)
         return SimpleNamespace(outcome=SimpleNamespace(final_text="specialist_answer"))
 
-    monkeypatch.setattr("oclaw.runtime.gateway.run_agent_core", _run_agent_core)
+    monkeypatch.setattr("runtime.gateway.run_agent_core", _run_agent_core)
 
     chosen: dict[str, str] = {}
 
@@ -482,7 +482,7 @@ def test_gateway_comprehensive_mode_writes_task_assignment_reasoning(monkeypatch
             self.system_prompt = ""
 
     monkeypatch.setattr(
-        "oclaw.runtime.gateway.get_manager_prompt_prebuild",
+        "runtime.gateway.get_manager_prompt_prebuild",
         lambda **kwargs: {
             "manager_context": "manager",
             "allowed_fixed": ("generalist", "ops", "memory", "image"),
@@ -490,7 +490,7 @@ def test_gateway_comprehensive_mode_writes_task_assignment_reasoning(monkeypatch
         },
     )
     monkeypatch.setattr(
-        "oclaw.runtime.gateway.run_agent_core",
+        "runtime.gateway.run_agent_core",
         lambda **kwargs: SimpleNamespace(outcome=SimpleNamespace(final_text="specialist_answer")),
     )
 
@@ -541,7 +541,7 @@ def test_gateway_comprehensive_ignores_wiki_inject_flags(monkeypatch: pytest.Mon
             self.system_prompt = ""
 
     monkeypatch.setattr(
-        "oclaw.runtime.gateway.get_manager_prompt_prebuild",
+        "runtime.gateway.get_manager_prompt_prebuild",
         lambda **kwargs: {
             "manager_context": "manager",
             "allowed_fixed": ("generalist", "ops", "memory", "image"),
@@ -556,7 +556,7 @@ def test_gateway_comprehensive_ignores_wiki_inject_flags(monkeypatch: pytest.Mon
         captured["metadata"] = dict(getattr(msg, "metadata", {}) or {})
         return SimpleNamespace(outcome=SimpleNamespace(final_text="ok"))
 
-    monkeypatch.setattr("oclaw.runtime.gateway.run_agent_core", _run_agent_core)
+    monkeypatch.setattr("runtime.gateway.run_agent_core", _run_agent_core)
 
     gw = OclawGateway(store=Store())
     msg = StandardMessage(
@@ -604,7 +604,7 @@ def test_gateway_comprehensive_mode_has_manager_final_pass(monkeypatch: pytest.M
             self.system_prompt = ""
 
     monkeypatch.setattr(
-        "oclaw.runtime.gateway.get_manager_prompt_prebuild",
+        "runtime.gateway.get_manager_prompt_prebuild",
         lambda **kwargs: {
             "manager_context": "manager",
             "allowed_fixed": ("generalist", "ops", "memory", "image"),
@@ -612,7 +612,7 @@ def test_gateway_comprehensive_mode_has_manager_final_pass(monkeypatch: pytest.M
         },
     )
     monkeypatch.setattr(
-        "oclaw.runtime.gateway.run_agent_core",
+        "runtime.gateway.run_agent_core",
         lambda **kwargs: SimpleNamespace(outcome=SimpleNamespace(final_text="specialist_answer")),
     )
 
@@ -660,14 +660,14 @@ def test_gateway_comprehensive_mode_dynamic_agent_dispatches_instruction_only(mo
             self.system_prompt = ""
 
     monkeypatch.setattr(
-        "oclaw.runtime.gateway.get_manager_prompt_prebuild",
+        "runtime.gateway.get_manager_prompt_prebuild",
         lambda **kwargs: {
             "manager_context": "manager",
             "allowed_fixed": ("generalist", "ops", "memory", "image"),
             "allowed_fixed_quoted": '"generalist", "ops", "memory", "image"',
         },
     )
-    monkeypatch.setattr("oclaw.runtime.gateway.build_ephemeral_executor", lambda *args, **kwargs: _Exec(model=object()))
+    monkeypatch.setattr("runtime.gateway.build_ephemeral_executor", lambda *args, **kwargs: _Exec(model=object()))
 
     captured: dict = {}
 
@@ -676,7 +676,7 @@ def test_gateway_comprehensive_mode_dynamic_agent_dispatches_instruction_only(mo
         captured["exec_text"] = getattr(getattr(data, "msg", None), "text", None)
         return SimpleNamespace(outcome=SimpleNamespace(final_text="dynamic_specialist_answer"))
 
-    monkeypatch.setattr("oclaw.runtime.gateway.run_agent_core", _run_agent_core)
+    monkeypatch.setattr("runtime.gateway.run_agent_core", _run_agent_core)
 
     gw = OclawGateway(store=Store())
     msg = StandardMessage(
@@ -723,7 +723,7 @@ def test_gateway_comprehensive_mode_ignores_manager_self_and_dispatches_speciali
             self.system_prompt = ""
 
     monkeypatch.setattr(
-        "oclaw.runtime.gateway.get_manager_prompt_prebuild",
+        "runtime.gateway.get_manager_prompt_prebuild",
         lambda **kwargs: {
             "manager_context": "manager",
             "allowed_fixed": ("generalist", "ops", "memory", "image"),
@@ -745,7 +745,7 @@ def test_gateway_comprehensive_mode_ignores_manager_self_and_dispatches_speciali
 
         return _Out()
 
-    monkeypatch.setattr("oclaw.runtime.gateway.run_agent_core", _run_agent_core)
+    monkeypatch.setattr("runtime.gateway.run_agent_core", _run_agent_core)
 
     gw = OclawGateway(store=Store())
     msg = StandardMessage(
@@ -800,7 +800,7 @@ def test_gateway_comprehensive_mode_suppresses_instruction_echo(monkeypatch: pyt
             self.system_prompt = ""
 
     monkeypatch.setattr(
-        "oclaw.runtime.gateway.get_manager_prompt_prebuild",
+        "runtime.gateway.get_manager_prompt_prebuild",
         lambda **kwargs: {
             "manager_context": "manager",
             "allowed_fixed": ("generalist", "ops", "memory", "image"),
@@ -818,7 +818,7 @@ def test_gateway_comprehensive_mode_suppresses_instruction_echo(monkeypatch: pyt
 
         return _Out()
 
-    monkeypatch.setattr("oclaw.runtime.gateway.run_agent_core", _run_agent_core)
+    monkeypatch.setattr("runtime.gateway.run_agent_core", _run_agent_core)
 
     gw = OclawGateway(store=Store())
     msg = StandardMessage(
@@ -856,17 +856,17 @@ def test_gateway_command_hook_uses_parsed_command_and_context(monkeypatch: pytes
 
             return T()
 
-    monkeypatch.setattr("oclaw.runtime.gateway.ensure_worker_started", lambda store: "worker-1")
-    monkeypatch.setattr("oclaw.runtime.gateway.initialize_hooks_runtime", lambda **kwargs: 0)
+    monkeypatch.setattr("runtime.gateway.ensure_worker_started", lambda store: "worker-1")
+    monkeypatch.setattr("runtime.gateway.initialize_hooks_runtime", lambda **kwargs: 0)
     monkeypatch.setattr(
-        "oclaw.runtime.gateway.get_active_hooks_config",
+        "runtime.gateway.get_active_hooks_config",
         lambda: {"hooks": {"internal": {"enabled": True, "entries": {"session-memory": {"messages": 33}}}}},
     )
 
     def _capture(**kwargs):
         calls.append(dict(kwargs))
 
-    monkeypatch.setattr("oclaw.runtime.gateway.trigger_hook_event", _capture)
+    monkeypatch.setattr("runtime.gateway.trigger_hook_event", _capture)
 
     gw = OclawGateway(store=Store())
     msg = StandardMessage(

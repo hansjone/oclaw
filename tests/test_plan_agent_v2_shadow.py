@@ -2,22 +2,22 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from oclaw.platform.persistence.sqlite_store import SqliteStore
-from oclaw.runtime.plan_agent_v2_adapter import evaluate_for_expert_mode
-from oclaw.runtime.plan_agent_v2_compat import build_shadow_gateway_result, legacy_gateway_result_keys
-from oclaw.runtime.plan_agent_v2_gateway_adapter import evaluate_gateway_expert_turn_shadow
-from oclaw.runtime.plan_agent_v2_manager import PlanModeManagerV2
-from oclaw.runtime.plan_agent_v2_models import PLAN_MODE_PLAN, PlanAgentStateV2
-from oclaw.runtime.plan_agent_v2_prompt_injector import build_plan_mode_prefix
-from oclaw.runtime.plan_agent_v2_state_store import PlanAgentStateStoreV2
-from oclaw.runtime.plan_agent_v2_switch import should_route_to_v2, v2_feature_enabled
-from oclaw.runtime.plan_agent_v2_tool_specs import materialize_plan_mode_v2_tools
-from oclaw.runtime.plan_agent_v2_tool_policy import filter_tools_for_mode
-from oclaw.runtime.plan_agent_v2_trace import emit_plan_agent_v2_trace
-from oclaw.runtime.plan_agent_v2 import should_route_to_v2 as should_route_to_v2_pkg
-from oclaw.runtime.gateway import OclawGatewayResult
-from oclaw.runtime.tools.base import ToolRegistry, ToolSpec
-from oclaw.runtime.types import StandardMessage
+from svc.persistence.sqlite_store import SqliteStore
+from runtime.plan_agent_v2_adapter import evaluate_for_expert_mode
+from runtime.plan_agent_v2_compat import build_shadow_gateway_result, legacy_gateway_result_keys
+from runtime.plan_agent_v2_gateway_adapter import evaluate_gateway_expert_turn_shadow
+from runtime.plan_agent_v2_manager import PlanModeManagerV2
+from runtime.plan_agent_v2_models import PLAN_MODE_PLAN, PlanAgentStateV2
+from runtime.plan_agent_v2_prompt_injector import build_plan_mode_prefix
+from runtime.plan_agent_v2_state_store import PlanAgentStateStoreV2
+from runtime.plan_agent_v2_switch import should_route_to_v2, v2_feature_enabled
+from runtime.plan_agent_v2_tool_specs import materialize_plan_mode_v2_tools
+from runtime.plan_agent_v2_tool_policy import filter_tools_for_mode
+from runtime.plan_agent_v2_trace import emit_plan_agent_v2_trace
+from runtime.plan_agent_v2 import should_route_to_v2 as should_route_to_v2_pkg
+from runtime.gateway import OclawGatewayResult
+from runtime.tools.base import ToolRegistry, ToolSpec
+from runtime.types import StandardMessage
 
 
 def _dummy_tool(name: str, read_only: bool) -> ToolSpec:
@@ -429,7 +429,7 @@ def test_shadow_gateway_result_defaults_align_legacy_baseline(tmp_path: Path) ->
 
 
 def test_package_exports_stable_symbols() -> None:
-    import oclaw.runtime.plan_agent_v2 as p
+    import runtime.plan_agent_v2 as p
 
     required = [
         "PlanAgentStateV2",

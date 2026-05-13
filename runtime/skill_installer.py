@@ -17,19 +17,19 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from oclaw.runtime.skills_market import get_market_adapter
-from oclaw.runtime.skill_role_binding import (
+from runtime.skills_market import get_market_adapter
+from runtime.skill_role_binding import (
     SKILL_ROLE_BINDING_ENABLED_SETTING,
     SKILL_ROLE_BINDING_KEY,
     normalize_skill_role_binding,
     ordered_binding_roles,
 )
-from oclaw.runtime.skills import (
+from runtime.skills import (
     default_skills_root,
     discover_workspace_skill_manifests,
     load_skill_manifest,
 )
-from oclaw.runtime.skills_workspace_lane import skills_home_containing_workspace_lane
+from runtime.skills_workspace_lane import skills_home_containing_workspace_lane
 
 _DISABLED_SKILLS_KEY = "AIA_SKILL_DISABLED_NAMES"
 _AUTO_INSTALL_KEY = "AIA_SKILL_AUTO_INSTALL_ENABLED"
@@ -459,7 +459,7 @@ def _resolve_registry_archive_url(url: str) -> str:
     # Resolve via clawhub client first (matches test + avoids adapter drift).
     try:
         if len(segs) >= 2:
-            from oclaw.runtime.tools.skills.clawhub_client import get_skill_detail
+            from runtime.tools.skills.clawhub_client import get_skill_detail
 
             slug = str(segs[-1] or "").strip()
             if slug:

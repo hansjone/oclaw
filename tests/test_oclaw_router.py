@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from oclaw.platform.llm.chat_models import LLMResponse
-from oclaw.runtime.router import decide_route
-from oclaw.runtime.types import StandardMessage, normalize_interaction_mode, normalize_requested_specialist
+from svc.llm.chat_models import LLMResponse
+from runtime.router import decide_route
+from runtime.types import StandardMessage, normalize_interaction_mode, normalize_requested_specialist
 
 
 def _msg(text: str, attachments: list[dict] | None = None) -> StandardMessage:

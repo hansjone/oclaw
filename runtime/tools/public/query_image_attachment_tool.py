@@ -2,14 +2,14 @@ from __future__ import annotations
 
 from typing import Any
 
-from oclaw.platform.files.attachment_assets import attachment_id_to_data_url
-from oclaw.platform.llm.image_ocr_client import (
+from svc.files.attachment_assets import attachment_id_to_data_url
+from svc.llm.image_ocr_client import (
     VISION_DESCRIBE_PROMPT_ZH,
     VISION_OCR_EXTRACT_PROMPT_ZH,
     send_ocr_image_messages,
     vision_llm_backend_status,
 )
-from oclaw.runtime.tools.base import ToolSpec
+from runtime.tools.base import ToolSpec
 
 
 def query_image_attachment_tool() -> ToolSpec:

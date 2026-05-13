@@ -3,12 +3,12 @@ from __future__ import annotations
 import json
 import unittest
 
-from oclaw.runtime.chat.tool_runtime import (
+from runtime.chat.tool_runtime import (
     compact_turn_tool_messages_for_storage,
     tool_llm_message_max_chars,
     truncate_tool_result_for_llm_messages,
 )
-from oclaw.platform.persistence.sqlite_store import SqliteStore
+from svc.persistence.sqlite_store import SqliteStore
 
 
 class ToolLlmTruncationTests(unittest.TestCase):

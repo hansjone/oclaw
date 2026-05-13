@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from oclaw.runtime.prompt_templates import (
+from runtime.prompt_templates import (
     load_prompt_doc,
     load_runtime_prompt_doc,
     render_prompt,

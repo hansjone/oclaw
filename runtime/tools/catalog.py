@@ -7,14 +7,14 @@ import os
 from pathlib import Path
 from typing import Any
 
-from oclaw.interfaces.gateway.python_extensions_loader import build_python_extensions_registry
-from oclaw.platform.config.paths import PROJECT_ROOT
-from oclaw.runtime.tools.base import ToolRegistry, ToolSpec
-from oclaw.runtime.tools.expert_registry import materialize_tools_for_expert
-from oclaw.runtime.tools.mcp.adapter import materialize_mcp_tools_for_specialist
-from oclaw.runtime.tools.public_registry import materialize_public_tools
-from oclaw.runtime.tools.skills_runtime.materialize_skill_tools import materialize_executable_skill_tools
-from oclaw.runtime.skills import SkillSpec, materialize_skills_from_tool_specs
+from interfaces.gateway.python_extensions_loader import build_python_extensions_registry
+from svc.config.paths import PROJECT_ROOT
+from runtime.tools.base import ToolRegistry, ToolSpec
+from runtime.tools.expert_registry import materialize_tools_for_expert
+from runtime.tools.mcp.adapter import materialize_mcp_tools_for_specialist
+from runtime.tools.public_registry import materialize_public_tools
+from runtime.tools.skills_runtime.materialize_skill_tools import materialize_executable_skill_tools
+from runtime.skills import SkillSpec, materialize_skills_from_tool_specs
 
 logger = logging.getLogger(__name__)
 # Tools hidden from model-facing registry to enforce auto-install only policy.

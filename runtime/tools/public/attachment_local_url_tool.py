@@ -4,8 +4,8 @@ import re
 from typing import Any
 from pathlib import Path
 
-from oclaw.platform.files.attachment_assets import AttachmentAssetStore
-from oclaw.runtime.tools.base import ToolSpec
+from svc.files.attachment_assets import AttachmentAssetStore
+from runtime.tools.base import ToolSpec
 
 _ATTACHMENT_ID_RE = re.compile(r"^[a-f0-9]{64}$")
 

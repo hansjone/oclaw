@@ -3,16 +3,16 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Callable, Optional
 
-from oclaw.runtime.chat.tool_runtime import (
+from runtime.chat.tool_runtime import (
     ToolExecutionConfig,
     ToolExecutionContext,
     ToolExecutor,
 )
-from oclaw.runtime.hooks.hook_types import HookEligibilityContext
-from oclaw.runtime.hooks_runtime import get_active_hooks_config, initialize_hooks_runtime, trigger_hook_event
-from oclaw.runtime.orchestration.trace import new_span_id
-from oclaw.platform.llm.chat_models import LLMToolCall
-from oclaw.runtime.tools.base import ToolRegistry
+from runtime.hooks.hook_types import HookEligibilityContext
+from runtime.hooks_runtime import get_active_hooks_config, initialize_hooks_runtime, trigger_hook_event
+from runtime.orchestration.trace import new_span_id
+from svc.llm.chat_models import LLMToolCall
+from runtime.tools.base import ToolRegistry
 
 
 @dataclass(frozen=True)

@@ -4,20 +4,20 @@ import os
 from dataclasses import dataclass
 from typing import Any
 
-from oclaw.platform.llm.tool_schema import default_max_openai_tools_json_bytes
-from oclaw.platform.llm.tool_wire_policy import (
+from svc.llm.tool_schema import default_max_openai_tools_json_bytes
+from svc.llm.tool_wire_policy import (
     load_merged_admin_config,
     load_role_mode_for_role,
     load_tool_policies_dict_for_role,
     prepare_openai_tools_for_llm_api,
     wire_graduation_effective,
 )
-from oclaw.runtime.tools.base import ToolSpec
-from oclaw.runtime.tools.catalog import _is_truthy
-from oclaw.runtime.tools.expert_registry import materialize_tools_for_expert, preview_expert_tools
-from oclaw.runtime.tools.mcp.adapter import materialize_mcp_tools_for_specialist
-from oclaw.runtime.tools.plugin_loader import materialize_plugin_tools
-from oclaw.runtime.tools.public_registry import materialize_public_tools, preview_public_tools
+from runtime.tools.base import ToolSpec
+from runtime.tools.catalog import _is_truthy
+from runtime.tools.expert_registry import materialize_tools_for_expert, preview_expert_tools
+from runtime.tools.mcp.adapter import materialize_mcp_tools_for_specialist
+from runtime.tools.plugin_loader import materialize_plugin_tools
+from runtime.tools.public_registry import materialize_public_tools, preview_public_tools
 
 
 @dataclass(frozen=True)

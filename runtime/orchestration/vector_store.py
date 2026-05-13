@@ -6,8 +6,8 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Protocol
 
-from oclaw.platform.embeddings.embedding_client import EmbeddingClient
-from oclaw.platform.persistence.sqlite_store import SqliteStore
+from svc.embeddings.embedding_client import EmbeddingClient
+from svc.persistence.sqlite_store import SqliteStore
 
 
 def _utc_now_iso() -> str:

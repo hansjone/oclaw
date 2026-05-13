@@ -15,26 +15,26 @@ from pathlib import Path
 from fastapi import APIRouter, Body, File, Header, HTTPException, Query, UploadFile
 from fastapi.responses import Response, StreamingResponse
 
-from oclaw.runtime.operations.mcp_env import apply_gateway_mcp_env_to_os
-from oclaw.runtime.agents.specialists import specialist_ids
-from oclaw.runtime.agents.factory import build_gateway_executor
-from oclaw.runtime.chat.agent import GenerationInterrupted
-from oclaw.platform.config.paths import db_path
-from oclaw.platform.files.attachment_assets import AttachmentAssetStore
-from oclaw.platform.files.file_attachments import (
+from runtime.operations.mcp_env import apply_gateway_mcp_env_to_os
+from runtime.agents.specialists import specialist_ids
+from runtime.agents.factory import build_gateway_executor
+from runtime.chat.agent import GenerationInterrupted
+from svc.config.paths import db_path
+from svc.files.attachment_assets import AttachmentAssetStore
+from svc.files.file_attachments import (
     DEFAULT_TABULAR_CELL_CHARS,
     DEFAULT_TABULAR_COLUMNS,
     DEFAULT_MAX_EXCEL_SHEETS,
     DEFAULT_TABULAR_ROWS_READ,
     clear_attachment_limits_cache,
 )
-from oclaw.interfaces.ws.common import normalize_ws_attachments
-from oclaw.platform.files.session_export import export_session_json, export_session_markdown
-from oclaw.platform.persistence.sqlite_store import SqliteStore
-from oclaw.runtime.gateway import OclawGateway
-from oclaw.runtime.plan_agent_v2.switch import v2_feature_enabled
-from oclaw.runtime.types import StandardMessage, normalize_interaction_mode, normalize_requested_specialist
-from oclaw.runtime.chat.history_tool_result_compact import compact_tool_results_in_session_history
+from interfaces.ws.common import normalize_ws_attachments
+from svc.files.session_export import export_session_json, export_session_markdown
+from svc.persistence.sqlite_store import SqliteStore
+from runtime.gateway import OclawGateway
+from runtime.plan_agent_v2.switch import v2_feature_enabled
+from runtime.types import StandardMessage, normalize_interaction_mode, normalize_requested_specialist
+from runtime.chat.history_tool_result_compact import compact_tool_results_in_session_history
 
 
 def _oclaw_config_path() -> Path:

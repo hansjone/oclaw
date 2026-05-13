@@ -7,8 +7,8 @@ from typing import Any
 
 from fastapi import APIRouter, Body, Header, HTTPException
 
-from oclaw.runtime.agents.factory import build_gateway_executor
-from oclaw.runtime.skill_installer import (
+from runtime.agents.factory import build_gateway_executor
+from runtime.skill_installer import (
     auto_install_skill_from_payload,
     create_skill_from_template,
     create_workspace_skill,
@@ -19,7 +19,7 @@ from oclaw.runtime.skill_installer import (
     set_skill_enabled,
     uninstall_skill,
 )
-from oclaw.runtime.skill_role_binding import (
+from runtime.skill_role_binding import (
     SKILL_ROLE_BINDING_ENABLED_SETTING,
     SKILL_ROLE_BINDING_KEY,
     SKILL_ROLE_BINDING_MANAGER_INHERIT_SETTING,
@@ -30,12 +30,12 @@ from oclaw.runtime.skill_role_binding import (
     skill_role_binding_enabled_env_present,
     skill_role_binding_enabled_stored,
 )
-from oclaw.runtime.skills_prompt import collect_skill_catalog_entries
-from oclaw.runtime.skills import _allowed_tool_names_after_wire_policy, discover_workspace_skill_manifests
-from oclaw.runtime.skills_market import get_market_adapter, normalize_skill_market_provider_setting
-from oclaw.runtime.tools.skills_runtime.subprocess_exec import run_skill_runtime_entry
-from oclaw.platform.config.paths import db_path
-from oclaw.platform.persistence.sqlite_store import SqliteStore
+from runtime.skills_prompt import collect_skill_catalog_entries
+from runtime.skills import _allowed_tool_names_after_wire_policy, discover_workspace_skill_manifests
+from runtime.skills_market import get_market_adapter, normalize_skill_market_provider_setting
+from runtime.tools.skills_runtime.subprocess_exec import run_skill_runtime_entry
+from svc.config.paths import db_path
+from svc.persistence.sqlite_store import SqliteStore
 
 _SKILL_MARKET_PROVIDER_KEY = "AIA_SKILL_MARKET_PROVIDER"
 

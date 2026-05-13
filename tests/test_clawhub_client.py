@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from oclaw.runtime.tools.skills import clawhub_client
+from runtime.tools.skills import clawhub_client
 
 
 def test_get_skill_detail_handles_latest_version_object(monkeypatch) -> None:

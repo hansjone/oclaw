@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from oclaw.runtime.types import SharedAttachmentManifest, SharedFilePointer
+from runtime.types import SharedAttachmentManifest, SharedFilePointer
 
 _SAFE_FILE_NAME = re.compile(r"^[A-Za-z0-9._-]{1,128}$")
 _SAFE_SCOPE_ID = re.compile(r"^[A-Za-z0-9._-]{1,128}$")

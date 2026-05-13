@@ -4,7 +4,7 @@ from pathlib import Path
 import zipfile
 import subprocess
 
-from oclaw.runtime.skill_installer import (
+from runtime.skill_installer import (
     auto_install_skill_from_payload,
     create_skill_from_template,
     install_skill_from_local_dir,
@@ -13,7 +13,7 @@ from oclaw.runtime.skill_installer import (
     repair_skill_dependencies,
     set_skill_enabled,
 )
-from oclaw.platform.persistence.sqlite_store import SqliteStore
+from svc.persistence.sqlite_store import SqliteStore
 
 
 def test_create_list_and_disable_skill(tmp_path: Path) -> None:
@@ -173,7 +173,7 @@ def test_install_skill_from_clawhub_page_url(tmp_path: Path, monkeypatch) -> Non
         captured["slug"] = slug
         return {"archiveUrl": archive.resolve().as_uri()}
 
-    monkeypatch.setattr("oclaw.runtime.tools.skills.clawhub_client.get_skill_detail", _mock_get_detail)
+    monkeypatch.setattr("runtime.tools.skills.clawhub_client.get_skill_detail", _mock_get_detail)
 
     out = install_skill_from_registry_archive(
         store=store,
@@ -218,7 +218,7 @@ def test_install_local_auto_installs_python_requirements(tmp_path: Path, monkeyp
         calls.append([str(x) for x in cmd])
         return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
 
-    monkeypatch.setattr("oclaw.runtime.skill_installer.subprocess.run", _mock_run)
+    monkeypatch.setattr("runtime.skill_installer.subprocess.run", _mock_run)
     out = install_skill_from_local_dir(store=store, source_dir=src, skills_root=tmp_path / "skills")
     assert out.ok
     assert any(("pip" in " ".join(c) and "-r" in c) for c in calls)
@@ -238,7 +238,7 @@ def test_install_local_dependency_install_failure_returns_warning(tmp_path: Path
     def _mock_run(cmd, **kwargs):  # noqa: ANN001,ARG001
         return subprocess.CompletedProcess(args=cmd, returncode=1, stdout="", stderr="install failed")
 
-    monkeypatch.setattr("oclaw.runtime.skill_installer.subprocess.run", _mock_run)
+    monkeypatch.setattr("runtime.skill_installer.subprocess.run", _mock_run)
     out = install_skill_from_local_dir(store=store, source_dir=src, skills_root=tmp_path / "skills")
     assert out.ok
     assert out.detail.startswith("installed_with_dependency_warnings:")
@@ -267,7 +267,7 @@ def test_install_local_probe_missing_imports_and_install(tmp_path: Path, monkeyp
         calls.append([str(x) for x in cmd])
         return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
 
-    monkeypatch.setattr("oclaw.runtime.skill_installer.subprocess.run", _mock_run)
+    monkeypatch.setattr("runtime.skill_installer.subprocess.run", _mock_run)
     out = install_skill_from_local_dir(store=store, source_dir=src, skills_root=tmp_path / "skills")
     assert out.ok
     pip_calls = [c for c in calls if ("pip" in " ".join(c))]
@@ -292,7 +292,7 @@ def test_repair_skill_dependencies_for_installed_skill(tmp_path: Path, monkeypat
         calls.append([str(x) for x in cmd])
         return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
 
-    monkeypatch.setattr("oclaw.runtime.skill_installer.subprocess.run", _mock_run)
+    monkeypatch.setattr("runtime.skill_installer.subprocess.run", _mock_run)
     out = install_skill_from_local_dir(store=store, source_dir=src, skills_root=tmp_path / "skills")
     assert out.ok
     calls.clear()

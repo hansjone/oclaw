@@ -4,8 +4,8 @@ import re
 from pathlib import Path
 from typing import Any
 
-from oclaw.runtime.tools.base import ToolSpec
-from oclaw.runtime.tools.path_guard import resolve_workspace_path, truncate_text
+from runtime.tools.base import ToolSpec
+from runtime.tools.path_guard import resolve_workspace_path, truncate_text
 
 
 def search_files_context_tool() -> ToolSpec:

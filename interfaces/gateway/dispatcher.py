@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from oclaw.interfaces.gateway.server_methods.agent import agent_handlers
-from oclaw.interfaces.gateway.server_methods.chat import chat_handlers
-from oclaw.interfaces.gateway.server_methods.commands import commands_handlers
-from oclaw.interfaces.gateway.server_methods.connect import connect_handlers
-from oclaw.interfaces.gateway.server_methods.sessions import sessions_handlers
-from oclaw.interfaces.gateway.server_methods.skills import skills_handlers
-from oclaw.interfaces.gateway.server_methods.shared_types import GatewayRequestHandlers
+from interfaces.gateway.server_methods.agent import agent_handlers
+from interfaces.gateway.server_methods.chat import chat_handlers
+from interfaces.gateway.server_methods.commands import commands_handlers
+from interfaces.gateway.server_methods.connect import connect_handlers
+from interfaces.gateway.server_methods.sessions import sessions_handlers
+from interfaces.gateway.server_methods.skills import skills_handlers
+from interfaces.gateway.server_methods.shared_types import GatewayRequestHandlers
 
 
 def build_gateway_method_handlers() -> GatewayRequestHandlers:

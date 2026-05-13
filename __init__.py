@@ -1,5 +1,1 @@
-"""Oclaw v2 package root.
-
-All production code in this repository lives under this package root.
-"""
-
+"""Repository marker (optional). Imports use top-level ``svc``, ``runtime``, ``interfaces``."""

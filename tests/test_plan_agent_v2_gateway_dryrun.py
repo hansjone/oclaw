@@ -2,14 +2,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from oclaw.platform.persistence.sqlite_store import SqliteStore
-from oclaw.runtime.gateway import OclawGatewayResult
-from oclaw.runtime.plan_agent_v2 import (
+from svc.persistence.sqlite_store import SqliteStore
+from runtime.gateway import OclawGatewayResult
+from runtime.plan_agent_v2 import (
     build_shadow_gateway_result,
     evaluate_gateway_expert_turn_shadow,
     legacy_gateway_result_keys,
 )
-from oclaw.runtime.types import StandardMessage
+from runtime.types import StandardMessage
 
 
 def _msg(text: str) -> StandardMessage:

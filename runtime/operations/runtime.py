@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from oclaw.platform.config.paths import db_path
+from svc.config.paths import db_path
 
 
 def _runtime_file() -> Path:
@@ -76,13 +76,13 @@ def _python_bin() -> str:
 def _service_signature(name: str) -> str | None:
     n = str(name or "").strip().lower()
     if n == "gateway":
-        return "-m oclaw.runtime.operations gateway start"
+        return "-m runtime.operations gateway start"
     if n == "ui":
-        return "-m oclaw.runtime.operations ui start"
+        return "-m runtime.operations ui start"
     if n.startswith("channel:"):
         ch = n.split(":", 1)[1].strip()
         if ch:
-            return f"-m oclaw.runtime.operations channel {ch} start"
+            return f"-m runtime.operations channel {ch} start"
     return None
 
 

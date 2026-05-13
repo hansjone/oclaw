@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from oclaw.runtime.tools.base import ToolSpec
-from oclaw.runtime.tools.catalog import _apply_declared_tool_policy
+from runtime.tools.base import ToolSpec
+from runtime.tools.catalog import _apply_declared_tool_policy
 
 
 def _tool(name: str, tags: set[str]) -> ToolSpec:

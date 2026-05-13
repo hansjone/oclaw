@@ -15,7 +15,7 @@ import re
 import uuid
 from typing import Any
 
-from oclaw.platform.llm.transports.base import LLMToolCall
+from svc.llm.transports.base import LLMToolCall
 
 # Official DeepSeek-V4 DSML token uses FULLWIDTH VERTICAL LINE (U+FF5C).
 _DSML_PIPE = "\uFF5C"

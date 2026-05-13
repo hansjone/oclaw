@@ -5,12 +5,12 @@ import json
 import os
 from typing import Any
 
-from oclaw.runtime.operations.mcp_env import mcp_env_allowlist_keys
-from oclaw.runtime.skills import SkillSpec, materialize_skills_from_tool_specs
-from oclaw.runtime.tools.base import ToolSpec
-from oclaw.runtime.tools.mcp.filesystem_argv import build_mcp_process_command
-from oclaw.runtime.tools.mcp.runtime import McpProcessRuntime
-from oclaw.runtime.tools.public.bailian_webparser_tool import bailian_webparser_tool
+from runtime.operations.mcp_env import mcp_env_allowlist_keys
+from runtime.skills import SkillSpec, materialize_skills_from_tool_specs
+from runtime.tools.base import ToolSpec
+from runtime.tools.mcp.filesystem_argv import build_mcp_process_command
+from runtime.tools.mcp.runtime import McpProcessRuntime
+from runtime.tools.public.bailian_webparser_tool import bailian_webparser_tool
 
 
 @dataclass

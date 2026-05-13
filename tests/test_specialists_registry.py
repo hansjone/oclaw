@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from oclaw.runtime.agents import specialists as specialists_mod
+from runtime.agents import specialists as specialists_mod
 
 
 def test_unknown_dynamic_specialist_defaults_to_minimum_expert_permissions(monkeypatch) -> None:

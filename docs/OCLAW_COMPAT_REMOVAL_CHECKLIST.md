@@ -4,8 +4,8 @@ Use this checklist to verify readiness and post-delete safety for `oclaw/app_ser
 
 ## Import graph checks
 - [x] `rg "src\.app_server\."` has no runtime/code matches (tests excluded or updated).
-- [x] CLI/runtime startup paths import from `oclaw.interfaces.*` only.
-- [x] WebSocket entrypoint imports resolve through `oclaw.interfaces.ws.*`.
+- [x] CLI/runtime startup paths import from `interfaces.*` only.
+- [x] WebSocket entrypoint imports resolve through `interfaces.ws.*`.
 
 ## Behavior parity checks
 - [x] HTTP gateway smoke tests pass (`/health`, `/inbound`, `/gateway/method`, `/ws` handshake).

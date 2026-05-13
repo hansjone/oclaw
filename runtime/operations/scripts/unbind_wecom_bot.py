@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from oclaw.platform.config.paths import db_path
-from oclaw.platform.persistence.sqlite_store import SqliteStore
+from svc.config.paths import db_path
+from svc.persistence.sqlite_store import SqliteStore
 
 
 _CLEAR_KEYS = [
@@ -39,7 +39,7 @@ def main() -> int:
     print(f"deleted_channel_identity={ident_deleted}")
     print(f"deleted_channel_session={sess_deleted}")
     print("cleared_settings=" + ",".join(_CLEAR_KEYS))
-    print("next=python -m oclaw.runtime.operations channel wecom config set --type bot --bot-id <bot_id> --bot-secret <bot_secret>")
+    print("next=python -m runtime.operations channel wecom config set --type bot --bot-id <bot_id> --bot-secret <bot_secret>")
     return 0
 
 

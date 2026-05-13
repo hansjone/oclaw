@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from oclaw.runtime.command_parser import parse_internal_command
+from runtime.command_parser import parse_internal_command
 
 
 def test_parse_internal_command_basic() -> None:

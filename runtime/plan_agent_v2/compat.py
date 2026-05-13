@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from .adapter import PlanAgentV2Decision
-from oclaw.runtime.gateway import OclawGatewayResult
+from runtime.gateway import OclawGatewayResult
 
 
 def legacy_gateway_result_keys() -> set[str]:

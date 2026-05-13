@@ -25,7 +25,7 @@ if str(_REPO_ROOT) not in sys.path:
 # Same bootstrap as gateway: ``interfaces/http/fastapi_app.py`` calls ``load_system_env()`` so
 # ``oclaw/_local/system.env`` is merged before reading ``OPENAI_*``.
 try:
-    from oclaw.platform.config.bootstrap_env import load_system_env
+    from svc.config.bootstrap_env import load_system_env
 
     load_system_env()
 except ImportError:

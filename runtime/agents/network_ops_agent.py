@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from oclaw.runtime.chat.agent import Agent
-from oclaw.runtime.agent_context import build_role_system_context
-from oclaw.platform.persistence.sqlite_store import SqliteStore
-from oclaw.runtime.tools import default_registry
+from runtime.chat.agent import Agent
+from runtime.agent_context import build_role_system_context
+from svc.persistence.sqlite_store import SqliteStore
+from runtime.tools import default_registry
 
 # Ops 专家走与 specialists 相同的工作区框架：runtime/workspaces/ops/{SOUL,ROLE_SYSTEM}.md
 NETWORK_SYSTEM_PROMPT_ZH = build_role_system_context("ops")

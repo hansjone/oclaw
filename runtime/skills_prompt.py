@@ -4,13 +4,13 @@ import json
 import os
 from typing import Any
 
-from oclaw.runtime.skill_role_binding import (
+from runtime.skill_role_binding import (
     allowed_workspace_skill_names_for_role,
     should_apply_workspace_role_filter,
 )
-from oclaw.runtime.skills import discover_workspace_skill_manifests
-from oclaw.runtime.skills_workspace_lane import skill_dir_private_lane_segment
-from oclaw.runtime.tools.base import ToolRegistry
+from runtime.skills import discover_workspace_skill_manifests
+from runtime.skills_workspace_lane import skill_dir_private_lane_segment
+from runtime.tools.base import ToolRegistry
 
 
 def _skill_runtime_enabled(store: Any) -> bool:

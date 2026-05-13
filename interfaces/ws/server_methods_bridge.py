@@ -4,9 +4,9 @@ import asyncio
 import uuid
 from typing import Any, Callable
 
-from oclaw.platform.config.paths import db_path
-from oclaw.platform.persistence.sqlite_store import SqliteStore
-from oclaw.interfaces.gateway.context_builder import build_common_gateway_context
+from svc.config.paths import db_path
+from svc.persistence.sqlite_store import SqliteStore
+from interfaces.gateway.context_builder import build_common_gateway_context
 
 
 def build_gateway_context(

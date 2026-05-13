@@ -10,7 +10,6 @@ function Resolve-RepoRoot {
 }
 
 $repoRoot = Resolve-RepoRoot
-$repoParent = Split-Path -Parent $repoRoot
 $runDir = Join-Path $PSScriptRoot ".run"
 $null = New-Item -ItemType Directory -Force -Path $runDir -ErrorAction SilentlyContinue
 $pidFile = Join-Path $runDir "wiki_worker.pid"
@@ -30,7 +29,7 @@ function Test-IsWikiWorkerPid([int]$procId) {
   try {
     $wmi = Get-CimInstance Win32_Process -Filter "ProcessId = $procId" -ErrorAction Stop
     $cmd = [string]($wmi.CommandLine)
-    return $cmd -like "*oclaw.runtime.workers.wiki.main*"
+    return $cmd -like "*runtime.workers.wiki.main*"
   } catch {
     return $false
   }
@@ -46,14 +45,14 @@ if (Test-Path $venvPython) {
   }
   $pythonExe = "python"
 }
-$env:PYTHONPATH = $repoParent
+$env:PYTHONPATH = $repoRoot
 $env:PYTHONSAFEPATH = "1"
 $env:AIA_WORKSPACE_ROOT = $repoRoot
 $env:OPS_WORKSPACE_ROOT = $repoRoot
 $env:OCLAW_WORKSPACE = $repoRoot
 
 if (-not $Background) {
-  & $pythonExe -m oclaw.runtime.workers.wiki.main
+  & $pythonExe -m runtime.workers.wiki.main
   exit 0
 }
 
@@ -67,7 +66,7 @@ if (Test-Path $pidFile) {
   }
 }
 
-$p = Start-Process -FilePath $pythonExe -ArgumentList @("-m", "oclaw.runtime.workers.wiki.main") -WorkingDirectory $repoRoot -PassThru -WindowStyle Hidden -RedirectStandardOutput $outLog -RedirectStandardError $errLog
+$p = Start-Process -FilePath $pythonExe -ArgumentList @("-m", "runtime.workers.wiki.main") -WorkingDirectory $repoRoot -PassThru -WindowStyle Hidden -RedirectStandardOutput $outLog -RedirectStandardError $errLog
 Set-Content -Path $pidFile -Value $p.Id -Encoding ascii
 Write-Host "[ok] started wiki worker pid=$($p.Id) out=$outLog err=$errLog"
 

@@ -10,39 +10,39 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Optional
 
-from oclaw.runtime.agents.factory import build_ephemeral_executor
-from oclaw.runtime.hooks.eligibility_from_metadata import hook_eligibility_from_message_metadata
-from oclaw.runtime.hooks_runtime import (
+from runtime.agents.factory import build_ephemeral_executor
+from runtime.hooks.eligibility_from_metadata import hook_eligibility_from_message_metadata
+from runtime.hooks_runtime import (
     get_active_hooks_config,
     initialize_hooks_runtime,
     trigger_hook_event,
 )
-from oclaw.runtime.relay_pointer import summarize_relay_ttl
-from oclaw.runtime.skills import build_skill_manifest
-from oclaw.runtime.prompt_prebuild import get_manager_prompt_prebuild
-from oclaw.runtime.types import (
+from runtime.relay_pointer import summarize_relay_ttl
+from runtime.skills import build_skill_manifest
+from runtime.prompt_prebuild import get_manager_prompt_prebuild
+from runtime.types import (
     OclawSessionContext,
     StandardMessage,
     normalize_interaction_mode,
     normalize_requested_specialist,
 )
-from oclaw.platform.config.paths import PROJECT_ROOT
-from oclaw.runtime.prompt_templates import render_prompt
+from svc.config.paths import PROJECT_ROOT
+from runtime.prompt_templates import render_prompt
 
-from oclaw.runtime.command_parser import parse_internal_command
-from oclaw.runtime.core.agent_execution import AgentCoreRunInput, build_memory_context, run_agent_core
-from oclaw.runtime.router import decide_route
-from oclaw.runtime.worker import ensure_worker_started
-from oclaw.runtime.orchestration.trace import new_span_id, new_trace_id
-from oclaw.runtime.chat.tool_runtime import compact_turn_tool_messages_for_storage
-from oclaw.runtime.chat.model_path_audit import ensure_no_tool_or_embedded_image_payload
-from oclaw.runtime.session_auto_title import (
+from runtime.command_parser import parse_internal_command
+from runtime.core.agent_execution import AgentCoreRunInput, build_memory_context, run_agent_core
+from runtime.router import decide_route
+from runtime.worker import ensure_worker_started
+from runtime.orchestration.trace import new_span_id, new_trace_id
+from runtime.chat.tool_runtime import compact_turn_tool_messages_for_storage
+from runtime.chat.model_path_audit import ensure_no_tool_or_embedded_image_payload
+from runtime.session_auto_title import (
     AUTO_TITLE_SYSTEM_PROMPT_EN,
     AUTO_TITLE_SYSTEM_PROMPT_ZH,
     finalize_auto_title,
 )
-from oclaw.runtime.tools.base import ToolRegistry
-from oclaw.runtime.tools.public.local_sdk import local_adapter_startup_self_check
+from runtime.tools.base import ToolRegistry
+from runtime.tools.public.local_sdk import local_adapter_startup_self_check
 
 logger = logging.getLogger(__name__)
 
@@ -953,8 +953,8 @@ class OclawGateway:
         system_prompt_override = ""
         tools_override = None
         if interaction_mode == "expert":
-            from oclaw.runtime.plan_agent_v2.gateway_adapter import evaluate_gateway_expert_turn_shadow
-            from oclaw.runtime.plan_agent_v2.tool_specs import DEFAULT_SESSION_KEY, materialize_plan_mode_v2_tools
+            from runtime.plan_agent_v2.gateway_adapter import evaluate_gateway_expert_turn_shadow
+            from runtime.plan_agent_v2.tool_specs import DEFAULT_SESSION_KEY, materialize_plan_mode_v2_tools
 
             execution_mode = str(base_metadata.get("execution_mode") or "agent").strip().lower()
             if execution_mode not in {"agent", "plan"}:
@@ -1022,7 +1022,7 @@ class OclawGateway:
                     except Exception:
                         plan_mode = ""
                     if plan_mode == "plan":
-                        from oclaw.runtime.plan_agent_v2.tool_policy import filter_tools_for_mode
+                        from runtime.plan_agent_v2.tool_policy import filter_tools_for_mode
 
                         if isinstance(tools_override, ToolRegistry):
                             filtered = filter_tools_for_mode(registry=tools_override, mode="plan")

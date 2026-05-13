@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from oclaw.interfaces.admin.chat_api import _parse_attachments_payload
+from interfaces.admin.chat_api import _parse_attachments_payload
 
 
 def test_parse_attachments_payload_preserves_image_ref() -> None:

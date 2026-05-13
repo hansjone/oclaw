@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fastapi.testclient import TestClient
 
-from oclaw.interfaces.http.fastapi_app import create_app
+from interfaces.http.fastapi_app import create_app
 
 
 def test_inbound_route_uses_given_channel() -> None:

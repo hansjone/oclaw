@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from oclaw.runtime.agent_context import loader as loader_mod
+from runtime.agent_context import loader as loader_mod
 
 
 def _set_project_root(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

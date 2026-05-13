@@ -11,9 +11,9 @@ import threading
 
 from fastapi import WebSocket
 
-from oclaw.interfaces.gateway.dispatcher import build_gateway_method_handlers, method_names
-from oclaw.interfaces.ws.auth_and_hello import build_hello_ok_payload, resolve_ws_auth as resolve_ws_auth_payload
-from oclaw.interfaces.ws.common import (
+from interfaces.gateway.dispatcher import build_gateway_method_handlers, method_names
+from interfaces.ws.auth_and_hello import build_hello_ok_payload, resolve_ws_auth as resolve_ws_auth_payload
+from interfaces.ws.common import (
     MAX_BUFFERED_BYTES,
     MAX_PAYLOAD_BYTES,
     PREAUTH_HANDSHAKE_TIMEOUT_MS,
@@ -31,19 +31,19 @@ from oclaw.interfaces.ws.common import (
     now_ms as _now_ms,
     origin_is_allowed,
 )
-from oclaw.interfaces.ws.events import (
+from interfaces.ws.events import (
     emit_agent_event as emit_agent_event_impl,
     emit_chat_event as emit_chat_event_impl,
     send_event as send_event_impl,
     send_res as send_res_impl,
 )
-from oclaw.interfaces.ws.runtime_dispatch import dispatch_connected as dispatch_connected_impl
-from oclaw.interfaces.ws.runtime_helpers import handle_connect as handle_connect_impl, recv_frame as recv_frame_impl
-from oclaw.interfaces.ws.runtime_loop import close_ws as close_ws_impl, run_connection_loop
-from oclaw.interfaces.ws.server_methods_bridge import build_gateway_context, dispatch_via_server_methods
-from oclaw.interfaces.ws.turn_runner import run_agent_turn_via_bridge
-from oclaw.interfaces.ws.ws_schema import format_validation_errors, get_ws_schemas, validate_or_errors
-from oclaw.runtime.relay_pointer import validate_relay_share_envelope
+from interfaces.ws.runtime_dispatch import dispatch_connected as dispatch_connected_impl
+from interfaces.ws.runtime_helpers import handle_connect as handle_connect_impl, recv_frame as recv_frame_impl
+from interfaces.ws.runtime_loop import close_ws as close_ws_impl, run_connection_loop
+from interfaces.ws.server_methods_bridge import build_gateway_context, dispatch_via_server_methods
+from interfaces.ws.turn_runner import run_agent_turn_via_bridge
+from interfaces.ws.ws_schema import format_validation_errors, get_ws_schemas, validate_or_errors
+from runtime.relay_pointer import validate_relay_share_envelope
 
 _LOG = logging.getLogger(__name__)
 

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from oclaw.runtime.agents.agent_scope import resolve_default_agent_id
+from runtime.agents.agent_scope import resolve_default_agent_id
 
 from .shared_types import GatewayRequestHandlers
 from .telegram_send_normalize import normalize_transport_target_for_channel

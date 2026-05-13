@@ -8,7 +8,6 @@
 
 $ErrorActionPreference = "Stop"
 $repoRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))
-$repoParent = Split-Path -Parent $repoRoot
 $desktopDir = Join-Path $repoRoot "desktop"
 $runDir = Join-Path $PSScriptRoot ".run"
 New-Item -ItemType Directory -Force -Path $runDir | Out-Null
@@ -22,7 +21,7 @@ if (-not (Test-Path $desktopDir)) {
 }
 
 Set-Location $desktopDir
-$env:PYTHONPATH = $repoParent
+$env:PYTHONPATH = $repoRoot
 $env:PYTHONSAFEPATH = "1"
 $env:AIA_WORKSPACE_ROOT = $repoRoot
 $env:OPS_WORKSPACE_ROOT = $repoRoot

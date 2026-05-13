@@ -4,11 +4,11 @@ from pathlib import Path
 
 import pytest
 
-from oclaw.runtime.skills import workspace_skills_layout_signature
-from oclaw.runtime.system_prompt import build_oclaw_executor_system_prompt
-from oclaw.runtime.types import OclawMemoryContext
-from oclaw.platform.persistence.sqlite_store import SqliteStore
-from oclaw.runtime.tools.base import ToolRegistry, ToolSpec
+from runtime.skills import workspace_skills_layout_signature
+from runtime.system_prompt import build_oclaw_executor_system_prompt
+from runtime.types import OclawMemoryContext
+from svc.persistence.sqlite_store import SqliteStore
+from runtime.tools.base import ToolRegistry, ToolSpec
 
 
 def _spec(name: str) -> ToolSpec:
@@ -70,7 +70,7 @@ def test_build_oclaw_executor_system_prompt_with_tools_has_skills(tmp_path: Path
 
 
 def test_executor_static_prompt_cache_invalidates_on_settings_change(monkeypatch: pytest.MonkeyPatch) -> None:
-    from oclaw.runtime import system_prompt as sp
+    from runtime import system_prompt as sp
 
     class DummyStore:
         def __init__(self) -> None:
@@ -143,7 +143,7 @@ def test_workspace_skills_layout_signature_changes_on_skill_md_edit(monkeypatch:
 
 
 def test_executor_static_prompt_cache_invalidates_on_workspace_skills_layout_change(monkeypatch: pytest.MonkeyPatch) -> None:
-    from oclaw.runtime import system_prompt as sp
+    from runtime import system_prompt as sp
 
     class DummyStore:
         def get_setting(self, key: str) -> str:
@@ -204,7 +204,7 @@ def test_executor_static_prompt_cache_invalidates_on_workspace_skills_layout_cha
 
 
 def test_executor_static_prompt_cache_invalidates_on_skill_role_binding_change(monkeypatch: pytest.MonkeyPatch) -> None:
-    from oclaw.runtime import system_prompt as sp
+    from runtime import system_prompt as sp
 
     class DummyStore:
         def __init__(self) -> None:
@@ -265,7 +265,7 @@ def test_executor_static_prompt_cache_invalidates_on_skill_role_binding_change(m
 
 
 def test_executor_static_prompt_cache_invalidates_on_workspace_revision_change(monkeypatch: pytest.MonkeyPatch) -> None:
-    from oclaw.runtime import system_prompt as sp
+    from runtime import system_prompt as sp
 
     class DummyStore:
         def get_setting(self, key: str) -> str:

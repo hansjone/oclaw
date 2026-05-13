@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from oclaw.platform.persistence.sqlite_store import SqliteStore
+from svc.persistence.sqlite_store import SqliteStore
 
 
 def test_oclaw_task_status_flow(tmp_path: Path) -> None:

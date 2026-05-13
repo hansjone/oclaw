@@ -25,7 +25,7 @@ def skill_dir_private_lane_segment(skill_dir: str | Path, *, skills_home: Path |
 
     Flat ``_workspace/<skill>/`` (single segment) → ``None``.
     """
-    from oclaw.runtime.skills import default_skills_root
+    from runtime.skills import default_skills_root
 
     home = Path(skills_home).resolve() if skills_home else default_skills_root().resolve()
     ws = (home / "_workspace").resolve()
@@ -59,7 +59,7 @@ def resolve_auto_install_parent(
     - role installs: ``_workspace/<role>/`` (same level as ``public``, e.g. ``generalist``, ``ops``)
     - legacy session bucket: ``_workspace/_agent/<segment>/`` when no binding role is available
     """
-    from oclaw.runtime.skills import default_skills_root
+    from runtime.skills import default_skills_root
 
     base = Path(skills_home).resolve() if skills_home else default_skills_root().resolve()
     ws = base / "_workspace"

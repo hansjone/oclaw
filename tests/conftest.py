@@ -1,36 +1,21 @@
 from __future__ import annotations
 
-import importlib
 import sys
 from pathlib import Path
 
 
 def _normalize_sys_path_for_repo_layout() -> None:
-    """
-    Allow running pytest from the ``oclaw`` subdirectory.
+    """Put the repository root (contains ``svc/``, ``runtime/``, ``interfaces/``) first on ``sys.path``.
 
-    When cwd is ``.../chatgpt/oclaw``, Python may resolve ``import platform``
-    to ``oclaw/platform`` instead of stdlib ``platform``. We force sys.path to
-    prefer repository root (which contains the ``oclaw`` package directory).
+    First-party imports use top-level packages ``svc``, ``runtime``, and ``interfaces``; they do not
+    depend on the checkout directory being named ``oclaw``.
     """
     this_file = Path(__file__).resolve()
-    oclaw_dir = this_file.parents[1]
-    repo_root = oclaw_dir.parent
-
-    oclaw_dir_str = str(oclaw_dir)
-    repo_root_str = str(repo_root)
-
-    sys.path[:] = [p for p in sys.path if p and Path(p).resolve() != oclaw_dir]
-    if repo_root_str not in sys.path:
-        sys.path.insert(0, repo_root_str)
-
-    mod = sys.modules.get("platform")
-    if mod is not None:
-        mod_file = str(getattr(mod, "__file__", "") or "")
-        if "oclaw\\platform" in mod_file.replace("/", "\\"):
-            sys.modules.pop("platform", None)
-            importlib.import_module("platform")
+    repo_root = this_file.parents[1]
+    rr = str(repo_root.resolve())
+    sys.path[:] = [p for p in sys.path if p and Path(p).resolve() != repo_root]
+    if rr not in sys.path:
+        sys.path.insert(0, rr)
 
 
 _normalize_sys_path_for_repo_layout()
-

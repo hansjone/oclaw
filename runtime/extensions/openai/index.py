@@ -5,7 +5,7 @@ from .api import (
     build_openai_image_generation_provider,
     build_openai_provider,
 )
-from oclaw.runtime.extensions.plugin_api import PluginEntry, define_plugin_entry
+from runtime.extensions.plugin_api import PluginEntry, define_plugin_entry
 
 
 def register_openai_plugin(api) -> None:

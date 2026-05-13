@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from oclaw.platform.config.paths import PROJECT_ROOT, db_path
+from svc.config.paths import PROJECT_ROOT, db_path
 
 _DEFAULT_ALLOWLIST = (
     "BRAVE_API_KEY,GOOGLE_OAUTH_CREDENTIALS,GOOGLE_CALENDAR_MCP_TOKEN_PATH,"

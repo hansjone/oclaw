@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from oclaw.runtime.application.gateway.inbound_service import (
+from runtime.application.gateway.inbound_service import (
     _resolve_channel_dispatch,
 )
 

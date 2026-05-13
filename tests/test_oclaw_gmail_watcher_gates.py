@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from oclaw.runtime.hooks.gmail_watcher import start_gmail_watcher
+from runtime.hooks.gmail_watcher import start_gmail_watcher
 
 
 def test_start_gmail_watcher_top_level_hooks_disabled() -> None:

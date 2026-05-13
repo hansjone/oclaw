@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from oclaw.platform.config import bootstrap_env as be
+from svc.config import bootstrap_env as be
 
 
 @pytest.fixture(autouse=True)

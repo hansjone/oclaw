@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 
-from oclaw.platform.llm.transports.google_gemini_sse import GoogleGeminiChatModel
+from svc.llm.transports.google_gemini_sse import GoogleGeminiChatModel
 
 
 def test_gemini_tool_decl_uses_parameters_json_schema() -> None:

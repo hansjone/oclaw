@@ -5,9 +5,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from oclaw.runtime.application.gateway import process_inbound_payload_usecase
-from oclaw.platform.config.paths import db_path
-from oclaw.platform.persistence.sqlite_store import SqliteStore
+from runtime.application.gateway import process_inbound_payload_usecase
+from svc.config.paths import db_path
+from svc.persistence.sqlite_store import SqliteStore
 
 
 @dataclass(frozen=True)

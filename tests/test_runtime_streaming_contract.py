@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from oclaw.runtime.direct_loop import run_oclaw_direct_loop
-from oclaw.platform.persistence.sqlite_store import SqliteStore
-from oclaw.runtime.tools.base import ToolRegistry, ToolSpec
-from oclaw.platform.llm.transports.base import LLMResponse, LLMToolCall
+from runtime.direct_loop import run_oclaw_direct_loop
+from svc.persistence.sqlite_store import SqliteStore
+from runtime.tools.base import ToolRegistry, ToolSpec
+from svc.llm.transports.base import LLMResponse, LLMToolCall
 
 
 class _TwoChunkModel:

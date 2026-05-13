@@ -3,9 +3,9 @@ from unittest import mock
 
 from fastapi.testclient import TestClient
 
-from oclaw.interfaces.http.fastapi_app import create_app
-from oclaw.interfaces.ws.runtime_impl import OclawWsGatewayConnection
-from oclaw.runtime.gateway import OclawGatewayResult
+from interfaces.http.fastapi_app import create_app
+from interfaces.ws.runtime_impl import OclawWsGatewayConnection
+from runtime.gateway import OclawGatewayResult
 
 
 def _connect_params() -> dict:
@@ -30,7 +30,7 @@ class WsGatewayTests(unittest.TestCase):
             OclawWsGatewayConnection._stats.clear()
             OclawWsGatewayConnection._event_buffer_by_user.clear()
         self._auth_patcher = mock.patch(
-            "oclaw.interfaces.ws.runtime_impl.resolve_ws_auth_payload",
+            "interfaces.ws.runtime_impl.resolve_ws_auth_payload",
             return_value={"tenant_id": "t1", "user_id": "u1", "role": "operator"},
         )
         self._auth_patcher.start()
@@ -76,7 +76,7 @@ class WsGatewayTests(unittest.TestCase):
             assert res["ok"] is False
 
     def test_ws_connect_rejects_without_auth(self) -> None:
-        with mock.patch("oclaw.interfaces.ws.runtime_impl.resolve_ws_auth_payload", return_value={}):
+        with mock.patch("interfaces.ws.runtime_impl.resolve_ws_auth_payload", return_value={}):
             with self.client.websocket_connect("/ws") as ws:
                 ws.receive_json()
                 bad = _connect_params()
@@ -94,13 +94,13 @@ class WsGatewayTests(unittest.TestCase):
                 assert (res.get("error") or {}).get("code") == "UNAUTHORIZED"
 
     def test_ws_origin_blocked(self) -> None:
-        with mock.patch("oclaw.interfaces.ws.runtime_impl.origin_is_allowed", return_value=False):
+        with mock.patch("interfaces.ws.runtime_impl.origin_is_allowed", return_value=False):
             with self.assertRaises(Exception):
                 with self.client.websocket_connect("/ws", headers={"origin": "https://evil.example.com"}):
                     pass
 
     def test_ws_rate_limited(self) -> None:
-        with mock.patch("oclaw.interfaces.ws.runtime_impl.WS_RATE_LIMIT_CONN_PER_WINDOW", 1):
+        with mock.patch("interfaces.ws.runtime_impl.WS_RATE_LIMIT_CONN_PER_WINDOW", 1):
             with self.client.websocket_connect("/ws") as ws:
                 ws.receive_json()
                 ws.send_json({"type": "req", "id": "c1", "method": "connect", "params": _connect_params()})
@@ -148,7 +148,7 @@ class WsGatewayTests(unittest.TestCase):
                 interaction_mode="comprehensive",
             )
 
-        with mock.patch("oclaw.runtime.gateway.OclawGateway.handle_turn", new=_fake_handle_turn):
+        with mock.patch("runtime.gateway.OclawGateway.handle_turn", new=_fake_handle_turn):
             with self.client.websocket_connect("/ws") as ws:
                 ws.receive_json()  # connect.challenge
                 ws.send_json({"type": "req", "id": "c1", "method": "connect", "params": _connect_params()})
@@ -205,7 +205,7 @@ class WsGatewayTests(unittest.TestCase):
                 interaction_mode="comprehensive",
             )
 
-        with mock.patch("oclaw.runtime.gateway.OclawGateway.handle_turn", new=_fake_handle_turn):
+        with mock.patch("runtime.gateway.OclawGateway.handle_turn", new=_fake_handle_turn):
             with self.client.websocket_connect("/ws") as ws:
                 ws.receive_json()
                 ws.send_json({"type": "req", "id": "c1", "method": "connect", "params": _connect_params()})
@@ -242,7 +242,7 @@ class WsGatewayTests(unittest.TestCase):
                 interaction_mode="comprehensive",
             )
 
-        with mock.patch("oclaw.runtime.gateway.OclawGateway.handle_turn", new=_fake_handle_turn):
+        with mock.patch("runtime.gateway.OclawGateway.handle_turn", new=_fake_handle_turn):
             with self.client.websocket_connect("/ws") as ws:
                 ws.receive_json()
                 ws.send_json({"type": "req", "id": "c1", "method": "connect", "params": _connect_params()})
@@ -284,7 +284,7 @@ class WsGatewayTests(unittest.TestCase):
                 interaction_mode="comprehensive",
             )
 
-        with mock.patch("oclaw.runtime.gateway.OclawGateway.handle_turn", new=_fake_handle_turn):
+        with mock.patch("runtime.gateway.OclawGateway.handle_turn", new=_fake_handle_turn):
             with self.client.websocket_connect("/ws") as ws:
                 ws.receive_json()
                 ws.send_json({"type": "req", "id": "c1", "method": "connect", "params": _connect_params()})
@@ -354,7 +354,7 @@ class WsGatewayTests(unittest.TestCase):
                 interaction_mode="comprehensive",
             )
 
-        with mock.patch("oclaw.runtime.gateway.OclawGateway.handle_turn", new=_fake_handle_turn):
+        with mock.patch("runtime.gateway.OclawGateway.handle_turn", new=_fake_handle_turn):
             with self.client.websocket_connect("/ws") as ws:
                 ws.receive_json()
                 ws.send_json({"type": "req", "id": "c1", "method": "connect", "params": _connect_params()})
@@ -419,7 +419,7 @@ class WsGatewayTests(unittest.TestCase):
                 interaction_mode="comprehensive",
             )
 
-        with mock.patch("oclaw.runtime.gateway.OclawGateway.handle_turn", new=_fake_handle_turn):
+        with mock.patch("runtime.gateway.OclawGateway.handle_turn", new=_fake_handle_turn):
             with self.client.websocket_connect("/ws") as ws1:
                 ws1.receive_json()
                 ws1.send_json({"type": "req", "id": "c1", "method": "connect", "params": _connect_params()})

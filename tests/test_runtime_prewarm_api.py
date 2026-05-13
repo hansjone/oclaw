@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from oclaw.interfaces.admin import routes as routes_mod
+from interfaces.admin import routes as routes_mod
 
 
 def test_runtime_prewarm_routes_registered_and_guarded() -> None:

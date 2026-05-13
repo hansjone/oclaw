@@ -11,11 +11,11 @@ from collections import deque
 from pathlib import Path
 from typing import Any
 
-from oclaw.runtime.application.gateway import process_inbound_payload_usecase
-from oclaw.interfaces.channels.wecom.normalize import normalize_wecom_event, normalize_wecom_event_batch
-from oclaw.platform.config.paths import db_path
-from oclaw.platform.integrations.wecom_client import WeComClient
-from oclaw.platform.persistence.sqlite_store import SqliteStore
+from runtime.application.gateway import process_inbound_payload_usecase
+from interfaces.channels.wecom.normalize import normalize_wecom_event, normalize_wecom_event_batch
+from svc.config.paths import db_path
+from svc.integrations.wecom_client import WeComClient
+from svc.persistence.sqlite_store import SqliteStore
 
 
 def _safe_json(obj: Any) -> str:

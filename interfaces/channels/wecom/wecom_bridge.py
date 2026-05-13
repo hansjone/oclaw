@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from oclaw.interfaces.channels.base import ChannelAdapter, InboundMessage, OutboundMessage
+from interfaces.channels.base import ChannelAdapter, InboundMessage, OutboundMessage
 
 
 class WeComAdapter(ChannelAdapter):

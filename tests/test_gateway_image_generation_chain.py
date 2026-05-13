@@ -3,7 +3,7 @@ from __future__ import annotations
 import importlib.util
 from pathlib import Path
 
-from oclaw.interfaces.gateway.server_plugins import load_gateway_plugins
+from interfaces.gateway.server_plugins import load_gateway_plugins
 
 
 def _load_image_core_generate_image():

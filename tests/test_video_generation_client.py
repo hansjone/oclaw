@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 from unittest.mock import MagicMock, patch
 
-from oclaw.platform.llm.video_generation_client import (
+from svc.llm.video_generation_client import (
     _effective_video_model_for_request,
     _i2v_first_frame_input_style,
     dashscope_api_root_from_base_url,
@@ -57,12 +57,12 @@ def test_send_video_generation_poll_succeeds() -> None:
         clients.append(inst)
         return inst
 
-    with patch("oclaw.platform.llm.video_generation_client.httpx.Client", side_effect=_client_factory):
+    with patch("svc.llm.video_generation_client.httpx.Client", side_effect=_client_factory):
         with patch(
-            "oclaw.platform.llm.video_generation_client.post_with_retry",
+            "svc.llm.video_generation_client.post_with_retry",
             return_value=post_resp,
         ):
-            with patch("oclaw.platform.llm.video_generation_client.time.sleep"):
+            with patch("svc.llm.video_generation_client.time.sleep"):
                 r = send_video_generation_request(
                     prompt="cat",
                     model="wan2.2-t2v-plus",
@@ -135,8 +135,8 @@ def test_send_video_coerces_payload_model_when_t2v_plus_img(monkeypatch) -> None
             captured.update(p)
         return post_resp
 
-    with patch("oclaw.platform.llm.video_generation_client.httpx.Client", return_value=inst):
-        with patch("oclaw.platform.llm.video_generation_client.post_with_retry", side_effect=_capture_post):
+    with patch("svc.llm.video_generation_client.httpx.Client", return_value=inst):
+        with patch("svc.llm.video_generation_client.post_with_retry", side_effect=_capture_post):
             r = send_video_generation_request(
                 prompt="motion",
                 model="wan2.6-t2v-flash",
@@ -170,8 +170,8 @@ def test_send_video_includes_img_url_in_payload() -> None:
             captured.update(p)
         return post_resp
 
-    with patch("oclaw.platform.llm.video_generation_client.httpx.Client", return_value=inst):
-        with patch("oclaw.platform.llm.video_generation_client.post_with_retry", side_effect=_capture_post):
+    with patch("svc.llm.video_generation_client.httpx.Client", return_value=inst):
+        with patch("svc.llm.video_generation_client.post_with_retry", side_effect=_capture_post):
             r = send_video_generation_request(
                 prompt="motion",
                 model="wan2.6-i2v-flash",
@@ -210,8 +210,8 @@ def test_send_video_wan27_uses_media_first_frame(monkeypatch) -> None:
         return post_resp
 
     u = "https://help-static-aliyun-doc.aliyuncs.com/file-manage-files/zh-CN/20250925/wpimhv/rap.png"
-    with patch("oclaw.platform.llm.video_generation_client.httpx.Client", return_value=inst):
-        with patch("oclaw.platform.llm.video_generation_client.post_with_retry", side_effect=_capture_post):
+    with patch("svc.llm.video_generation_client.httpx.Client", return_value=inst):
+        with patch("svc.llm.video_generation_client.post_with_retry", side_effect=_capture_post):
             r = send_video_generation_request(
                 prompt="你好",
                 model="wan2.7-i2v",
@@ -242,9 +242,9 @@ def test_send_immediate_succeeded_on_submit() -> None:
     inst = MagicMock()
     inst.__enter__ = lambda *_x: inst
     inst.__exit__ = lambda *_x: None
-    with patch("oclaw.platform.llm.video_generation_client.httpx.Client", return_value=inst):
+    with patch("svc.llm.video_generation_client.httpx.Client", return_value=inst):
         with patch(
-            "oclaw.platform.llm.video_generation_client.post_with_retry",
+            "svc.llm.video_generation_client.post_with_retry",
             return_value=post_resp,
         ):
             r = send_video_generation_request(

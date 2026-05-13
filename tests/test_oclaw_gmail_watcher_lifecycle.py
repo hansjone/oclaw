@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from oclaw.runtime.hooks.gmail_watcher import GmailWatcherResult
-from oclaw.runtime.hooks.gmail_watcher_lifecycle import start_gmail_watcher_with_logs
+from runtime.hooks.gmail_watcher import GmailWatcherResult
+from runtime.hooks.gmail_watcher_lifecycle import start_gmail_watcher_with_logs
 
 
 @dataclass

@@ -4,8 +4,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from oclaw.runtime.orchestration.memory import maybe_write_turn_memory, semantic_retrieve
-from oclaw.platform.persistence.sqlite_store import SqliteStore
+from runtime.orchestration.memory import maybe_write_turn_memory, semantic_retrieve
+from svc.persistence.sqlite_store import SqliteStore
 
 
 class MemoryVectorTests(unittest.TestCase):

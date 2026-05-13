@@ -2,14 +2,14 @@ from __future__ import annotations
 
 import unittest
 
-from oclaw.runtime.tools.mcp.installer import (
+from runtime.tools.mcp.installer import (
     _safe_server_id,
     detect_local_dependencies,
     install_mcp_server,
     preflight_mcp_server,
     uninstall_mcp_server,
 )
-from oclaw.runtime.tools.mcp.manifest import McpServerManifest
+from runtime.tools.mcp.manifest import McpServerManifest
 
 
 class McpInstallerTests(unittest.TestCase):

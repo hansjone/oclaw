@@ -3,9 +3,9 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from oclaw.platform.persistence.sqlite_store import SqliteStore
-from oclaw.runtime.direct_loop import _build_model_context
-from oclaw.platform.llm.chat_models import RuleBasedChatModel
+from svc.persistence.sqlite_store import SqliteStore
+from runtime.direct_loop import _build_model_context
+from svc.llm.chat_models import RuleBasedChatModel
 
 
 def test_large_text_attachment_is_guarded_in_history_context(tmp_path: Path) -> None:

@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from oclaw.runtime.workspaces import experts as experts_mod
-from oclaw.runtime.agents.specialists import discover_specialist_ids
+from runtime.workspaces import experts as experts_mod
+from runtime.agents.specialists import discover_specialist_ids
 
 
 def _set_project_root(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

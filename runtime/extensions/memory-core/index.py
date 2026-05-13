@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from oclaw.runtime.extensions.plugin_api import PluginEntry, define_plugin_entry
+from runtime.extensions.plugin_api import PluginEntry, define_plugin_entry
 
 PLUGIN_ID = "memory-core"
 PLUGIN_NAME = "Memory (Core)"

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from oclaw.runtime.operations.scripts.wecom_smoke_test import main
+from runtime.operations.scripts.wecom_smoke_test import main
 
 
 if __name__ == "__main__":

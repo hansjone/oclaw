@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from oclaw.platform.persistence.sqlite_store import SqliteStore
+from svc.persistence.sqlite_store import SqliteStore
 
 
 def test_delete_session_cascades_chat_message_and_tool_log(tmp_path) -> None:  # noqa: ANN001

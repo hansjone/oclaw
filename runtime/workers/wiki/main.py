@@ -11,8 +11,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
-from oclaw.platform.config.paths import PROJECT_ROOT, db_path
-from oclaw.platform.persistence.sqlite_store import OclawTask, SqliteStore
+from svc.config.paths import PROJECT_ROOT, db_path
+from svc.persistence.sqlite_store import OclawTask, SqliteStore
 
 
 def _load_oclaw_config() -> dict[str, Any]:

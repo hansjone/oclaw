@@ -9,9 +9,9 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from oclaw.interfaces.http.fastapi_app import create_app
-from oclaw.platform.files.attachment_assets import AttachmentAssetStore
-from oclaw.platform.persistence.sqlite_store import SqliteStore
+from interfaces.http.fastapi_app import create_app
+from svc.files.attachment_assets import AttachmentAssetStore
+from svc.persistence.sqlite_store import SqliteStore
 
 
 def _pw_hash(pw: str) -> str:

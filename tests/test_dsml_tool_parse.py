@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from oclaw.runtime.dsml_tool_parse import (
+from runtime.dsml_tool_parse import (
     normalize_dsml_markup,
     strip_first_dsml_tool_calls_block,
     try_parse_deepseek_v4_dsml_tool_calls,

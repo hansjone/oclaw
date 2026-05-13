@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from oclaw.runtime.orchestration.protocol import AgentTask
+from runtime.orchestration.protocol import AgentTask
 
 _HIGH_RISK_ACTIONS = ("删除", "drop", "重启", "批量", "扫描", "写入", "变更")
 

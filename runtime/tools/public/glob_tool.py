@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from oclaw.runtime.tools.base import ToolSpec
-from oclaw.runtime.tools.path_guard import resolve_workspace_path
+from runtime.tools.base import ToolSpec
+from runtime.tools.path_guard import resolve_workspace_path
 
 
 def glob_tool() -> ToolSpec:

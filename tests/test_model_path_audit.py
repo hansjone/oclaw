@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from oclaw.runtime.chat.model_path_audit import ensure_no_tool_or_embedded_image_payload
+from runtime.chat.model_path_audit import ensure_no_tool_or_embedded_image_payload
 
 
 def test_audit_accepts_plain_system_user_messages() -> None:

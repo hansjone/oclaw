@@ -7,7 +7,7 @@ import urllib.parse
 import urllib.request
 from typing import Any
 
-from oclaw.runtime.tools.base import ToolSpec
+from runtime.tools.base import ToolSpec
 
 _WEBPARSER_SSE_URL = "https://dashscope.aliyuncs.com/api/v1/mcps/WebParser/sse"
 _UA = (

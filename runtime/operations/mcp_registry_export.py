@@ -8,9 +8,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from oclaw.platform.config.paths import PROJECT_ROOT
-from oclaw.platform.persistence.sqlite_store import SqliteStore
-from oclaw.runtime.tools.mcp.registry import McpRegistry
+from svc.config.paths import PROJECT_ROOT
+from svc.persistence.sqlite_store import SqliteStore
+from runtime.tools.mcp.registry import McpRegistry
 
 _EXPORT_FILENAME = "mcp_registry_migrated.json"
 _LOCAL_DIR = (PROJECT_ROOT / "_local").resolve()

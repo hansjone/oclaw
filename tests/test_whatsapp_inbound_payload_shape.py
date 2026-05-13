@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from fastapi.testclient import TestClient
 
-from oclaw.interfaces.http.fastapi_app import create_app
-from oclaw.interfaces.http import fastapi_app
+from interfaces.http.fastapi_app import create_app
+from interfaces.http import fastapi_app
 
 
 def test_inbound_whatsapp_accepts_basic_payload_and_returns_replies() -> None:

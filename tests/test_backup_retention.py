@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import oclaw.platform.config.paths as paths_mod
+import svc.config.paths as paths_mod
 
 
 def _mkdir(p: Path) -> None:

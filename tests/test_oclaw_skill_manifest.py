@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from oclaw.runtime.skills import build_skill_manifest, discover_workspace_skill_manifests, load_skill_manifest
-from oclaw.runtime.tools.base import ToolRegistry, ToolSpec
+from runtime.skills import build_skill_manifest, discover_workspace_skill_manifests, load_skill_manifest
+from runtime.tools.base import ToolRegistry, ToolSpec
 
 
 def test_load_skill_manifest_with_oclaw_metadata(tmp_path: Path) -> None:

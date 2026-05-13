@@ -13,12 +13,12 @@ import os
 import re
 from typing import Any
 
-from oclaw.platform.llm.chat_models import _normalize_image_b64_payload, gemini_openai_compat_client, ChatModel
-from oclaw.runtime.chat.media_redact import redact_embedded_image_blobs
-from oclaw.runtime.chat.tool_runtime import tool_llm_message_max_chars, truncate_tool_result_for_llm_messages
-from oclaw.runtime.prompt_templates import render_prompt
-from oclaw.platform.files.attachment_assets import attachment_id_to_data_url
-from oclaw.runtime.relay_pointer import parse_pointer_uri
+from svc.llm.chat_models import _normalize_image_b64_payload, gemini_openai_compat_client, ChatModel
+from runtime.chat.media_redact import redact_embedded_image_blobs
+from runtime.chat.tool_runtime import tool_llm_message_max_chars, truncate_tool_result_for_llm_messages
+from runtime.prompt_templates import render_prompt
+from svc.files.attachment_assets import attachment_id_to_data_url
+from runtime.relay_pointer import parse_pointer_uri
 
 logger = logging.getLogger(__name__)
 _THINK_BLOCK_RE = re.compile(r"<think>\s*(.*?)\s*</think>\s*", flags=re.IGNORECASE | re.DOTALL)
@@ -207,7 +207,7 @@ def build_llm_messages(
 
     When ``active_turn_uuid`` matches a tool/user row ``turn_uuid``, that turn is treated as the
     in-flight MCP turn: tool JSON is not stripped of nested image payloads here (see also
-    :func:`~oclaw.runtime.direct_loop._guard_tool_results_for_llm_context`). Omit or leave empty
+    :func:`~runtime.direct_loop._guard_tool_results_for_llm_context`). Omit or leave empty
     to apply image-blob stripping for every tool row (safe default for callers without turn context).
 
     Only the **last** user message may expand attachments into native multimodal ``input_image``

@@ -4,9 +4,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from oclaw.platform.persistence.sqlite_store import SqliteStore
-from oclaw.runtime.tools.mcp.manifest import McpServerManifest
-from oclaw.runtime.tools.mcp.registry import McpRegistry
+from svc.persistence.sqlite_store import SqliteStore
+from runtime.tools.mcp.manifest import McpServerManifest
+from runtime.tools.mcp.registry import McpRegistry
 
 
 class McpRegistryTests(unittest.TestCase):

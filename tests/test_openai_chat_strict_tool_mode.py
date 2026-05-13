@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 import unittest
 
-from oclaw.platform.llm.transports.openai_chat_completions import (
+from svc.llm.transports.openai_chat_completions import (
     _deepseek_strict_tool_mode_enabled,
     _merge_deepseek_strict_tool_mode_extra_body,
 )

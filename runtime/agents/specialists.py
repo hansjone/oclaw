@@ -4,8 +4,8 @@ from dataclasses import dataclass
 import json
 from typing import Any
 
-from oclaw.runtime.agent_context import build_role_system_context
-from oclaw.runtime.workspaces.experts import specialist_registry_snapshot
+from runtime.agent_context import build_role_system_context
+from runtime.workspaces.experts import specialist_registry_snapshot
 
 
 SpecialistId = str

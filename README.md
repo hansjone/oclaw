@@ -135,7 +135,7 @@ Chinese zero-to-running checklist: see **开箱即用（从零跑起来）** at 
 - `gateway/`: method handlers and protocol bridging
 - `application/`: use-cases and orchestration services
 - `infrastructure/`: runtime-facing integrations/adapters
-- `platform/`: shared platform capabilities (llm, persistence, config, files)
+- `svc/`: shared platform capabilities (llm, persistence, config, files)
 - `tools/`: tool registry, MCP adapters, public/system tools
 - `skills/`: installable skills and runtime manifests
 

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from oclaw.runtime.agents.agent_scope import resolve_agent_id_from_session_key, resolve_session_agent_id
+from runtime.agents.agent_scope import resolve_agent_id_from_session_key, resolve_session_agent_id
 
 from .shared_types import GatewayRequestHandlers
 from .validation import error_shape

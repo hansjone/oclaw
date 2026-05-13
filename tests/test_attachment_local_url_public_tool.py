@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from oclaw.runtime.tools.public.attachment_local_url_tool import attachment_local_url_tool
+from runtime.tools.public.attachment_local_url_tool import attachment_local_url_tool
 
 
 class _FakeMeta:
@@ -31,7 +31,7 @@ def test_attachment_local_url_rejects_invalid_id() -> None:
 
 
 def test_attachment_local_url_builds_absolute_url(monkeypatch) -> None:
-    monkeypatch.setattr("oclaw.runtime.tools.public.attachment_local_url_tool.AttachmentAssetStore", _FakeStore)
+    monkeypatch.setattr("runtime.tools.public.attachment_local_url_tool.AttachmentAssetStore", _FakeStore)
     spec = attachment_local_url_tool()
     aid = "a" * 64
     out = spec.handler({"attachment_id": aid})
@@ -44,7 +44,7 @@ def test_attachment_local_url_builds_absolute_url(monkeypatch) -> None:
 
 
 def test_attachment_local_url_verbose_includes_debug_fields(monkeypatch) -> None:
-    monkeypatch.setattr("oclaw.runtime.tools.public.attachment_local_url_tool.AttachmentAssetStore", _FakeStore)
+    monkeypatch.setattr("runtime.tools.public.attachment_local_url_tool.AttachmentAssetStore", _FakeStore)
     spec = attachment_local_url_tool()
     aid = "a" * 64
     out = spec.handler({"attachment_id": aid, "verbose": True})
@@ -55,7 +55,7 @@ def test_attachment_local_url_verbose_includes_debug_fields(monkeypatch) -> None
 
 
 def test_attachment_local_url_is_visible_in_public_registry() -> None:
-    from oclaw.runtime.tools.catalog import default_registry
+    from runtime.tools.catalog import default_registry
 
     names = [t.name for t in default_registry(expert="network_ops+memory", specialist="ops").list()]
     assert "attachment_local_url" in names

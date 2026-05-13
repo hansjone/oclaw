@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from oclaw.runtime.tools.public.web_fetch_clean_tool import web_fetch_clean_tool
+from runtime.tools.public.web_fetch_clean_tool import web_fetch_clean_tool
 
 
 class _Resp:

@@ -5,8 +5,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from oclaw.platform.persistence.sqlite_store import SqliteStore
-from oclaw.runtime.tools.mcp.adapter import materialize_mcp_tools, materialize_mcp_tools_for_specialist
+from svc.persistence.sqlite_store import SqliteStore
+from runtime.tools.mcp.adapter import materialize_mcp_tools, materialize_mcp_tools_for_specialist
 
 
 class McpAdapterTests(unittest.TestCase):
@@ -147,7 +147,7 @@ class McpAdapterTests(unittest.TestCase):
             self.assertIn("mcp__echo-b__ping", names)
 
     def test_mcp_local_env_file_path_prefers_src_local(self) -> None:
-        from oclaw.runtime.operations import mcp_env
+        from runtime.operations import mcp_env
 
         p = mcp_env.mcp_local_env_file_path()
         self.assertEqual(p.name, "mcp_local.env")
@@ -156,7 +156,7 @@ class McpAdapterTests(unittest.TestCase):
         self.assertIn("_local", parts)
 
     def test_mcp_env_allowlist_keys_default_when_unset(self) -> None:
-        from oclaw.runtime.operations import mcp_env
+        from runtime.operations import mcp_env
 
         old = os.environ.pop("OPS_MCP_ENV_ALLOWLIST", None)
         old_aia = os.environ.pop("AIA_MCP_ENV_ALLOWLIST", None)
@@ -182,7 +182,7 @@ class McpAdapterTests(unittest.TestCase):
                 os.environ["OPS_MCP_ENV_ALLOWLIST_EXTRA"] = old_ops_extra
 
     def test_mcp_env_allowlist_extra_merges_with_default(self) -> None:
-        from oclaw.runtime.operations import mcp_env
+        from runtime.operations import mcp_env
 
         old_aia = os.environ.pop("AIA_MCP_ENV_ALLOWLIST", None)
         old_extra = os.environ.pop("AIA_MCP_ENV_ALLOWLIST_EXTRA", None)
@@ -203,7 +203,7 @@ class McpAdapterTests(unittest.TestCase):
                 os.environ["OPS_MCP_ENV_ALLOWLIST_EXTRA"] = old_ops_extra
 
     def test_mcp_env_allowlist_explicit_replace_plus_extra(self) -> None:
-        from oclaw.runtime.operations import mcp_env
+        from runtime.operations import mcp_env
 
         old_aia = os.environ.pop("AIA_MCP_ENV_ALLOWLIST", None)
         old_extra = os.environ.pop("AIA_MCP_ENV_ALLOWLIST_EXTRA", None)

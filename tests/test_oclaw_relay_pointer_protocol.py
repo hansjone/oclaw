@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from oclaw.runtime.relay_pointer import build_manifest_from_attachment_refs
-from oclaw.runtime.types import RelayShareEnvelope, SharedAttachmentManifest, SharedFilePointer
+from runtime.relay_pointer import build_manifest_from_attachment_refs
+from runtime.types import RelayShareEnvelope, SharedAttachmentManifest, SharedFilePointer
 
 
 def test_shared_pointer_roundtrip_with_extra_fields() -> None:

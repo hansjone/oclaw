@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from oclaw.platform.config.paths import PROJECT_ROOT
+from svc.config.paths import PROJECT_ROOT
 
 
 def _read(path: Path) -> str:

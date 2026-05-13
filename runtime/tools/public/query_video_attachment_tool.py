@@ -8,14 +8,14 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-from oclaw.platform.files.attachment_assets import AttachmentAssetStore
-from oclaw.platform.files.text_attachment_store import (
+from svc.files.attachment_assets import AttachmentAssetStore
+from svc.files.text_attachment_store import (
     DEFAULT_TEXT_CHUNK_OVERLAP,
     DEFAULT_TEXT_CHUNK_SIZE,
     save_text_document,
 )
-from oclaw.runtime.extensions.openai.api import OPENAI_DEFAULT_AUDIO_TRANSCRIPTION_MODEL
-from oclaw.runtime.tools.base import ToolSpec
+from runtime.extensions.openai.api import OPENAI_DEFAULT_AUDIO_TRANSCRIPTION_MODEL
+from runtime.tools.base import ToolSpec
 
 
 def _ffmpeg_exists() -> bool:

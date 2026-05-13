@@ -3,7 +3,7 @@ from __future__ import annotations
 import httpx
 from openai import BadRequestError
 
-from oclaw.platform.llm.transports.openai_responses import OpenAIResponsesModel, _is_input_messages_validation_error
+from svc.llm.transports.openai_responses import OpenAIResponsesModel, _is_input_messages_validation_error
 
 
 def test_input_messages_validation_detects_body_not_str_exc() -> None:
@@ -152,7 +152,7 @@ def test_normalize_agent_messages_style_input_image() -> None:
 
 
 def test_image_legacy_compatible_mode_uses_image_url_parts() -> None:
-    from oclaw.platform.llm.image_legacy_client import _openai_compatible_vision_content
+    from svc.llm.image_legacy_client import _openai_compatible_vision_content
 
     cc = _openai_compatible_vision_content(["data:image/jpeg;base64,SGk="], "go")
     assert cc[-1]["type"] == "text"

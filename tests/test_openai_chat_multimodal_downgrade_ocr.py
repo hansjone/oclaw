@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
-from oclaw.platform.llm.transports.openai_chat_completions import (
+from svc.llm.transports.openai_chat_completions import (
     _flatten_message_content_for_text_gateway,
     _normalize_messages_for_text_only_gateway,
 )
@@ -18,7 +18,7 @@ def test_text_only_downgrade_injects_ocr_when_vision_lane_ok(monkeypatch) -> Non
         _ = (images, prompt, kwargs)
         return {"ok": True, "text": "HELLO_FROM_PIC"}
 
-    with patch("oclaw.platform.llm.image_ocr_client.send_ocr_image_messages", fake_send):
+    with patch("svc.llm.image_ocr_client.send_ocr_image_messages", fake_send):
         content = [
             {"type": "text", "text": "请看图"},
             {"type": "image_url", "image_url": {"url": "data:image/png;base64,QUJD"}},
@@ -56,7 +56,7 @@ def test_normalize_messages_uses_ocr_flatten(monkeypatch) -> None:
         _ = (images, prompt, kwargs)
         return {"ok": True, "text": "X"}
 
-    with patch("oclaw.platform.llm.image_ocr_client.send_ocr_image_messages", fake_send):
+    with patch("svc.llm.image_ocr_client.send_ocr_image_messages", fake_send):
         out = _normalize_messages_for_text_only_gateway(
             [{"role": "user", "content": [{"type": "image_url", "image_url": {"url": "https://x/y.png"}}]}]
         )

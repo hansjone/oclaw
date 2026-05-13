@@ -4,7 +4,7 @@ import datetime
 import time
 from typing import Any
 
-from oclaw.runtime.tools.base import ToolSpec
+from runtime.tools.base import ToolSpec
 
 
 def system_info_tool() -> ToolSpec:

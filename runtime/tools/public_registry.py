@@ -7,7 +7,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from oclaw.runtime.tools.base import ToolSpec
+from runtime.tools.base import ToolSpec
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +42,7 @@ def discover_public_tool_factories() -> list[ToolFactory]:
     for module_path in sorted(_PUBLIC_ROOT.glob("*.py")):
         if module_path.name == "__init__.py":
             continue
-        mod_name = f"oclaw.runtime.tools.public.{module_path.stem}"
+        mod_name = f"runtime.tools.public.{module_path.stem}"
         module = _load_module_from_path(module_path, mod_name)
         if module is None:
             continue
@@ -92,7 +92,7 @@ def preview_public_tools() -> dict[str, Any]:
     for module_path in sorted(_PUBLIC_ROOT.glob("*.py")):
         if module_path.name == "__init__.py":
             continue
-        mod_name = f"oclaw.runtime.tools.public.{module_path.stem}"
+        mod_name = f"runtime.tools.public.{module_path.stem}"
         module = None
         try:
             module = _load_module_from_path(module_path, mod_name)

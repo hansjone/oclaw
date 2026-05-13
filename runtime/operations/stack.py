@@ -13,7 +13,7 @@ def cmd_stack_up(args: argparse.Namespace) -> int:
     gateway_cmd = default_python_command(
         [
             "-m",
-            "oclaw.runtime.operations",
+            "runtime.operations",
             "gateway",
             "start",
             "--host",
@@ -27,7 +27,7 @@ def cmd_stack_up(args: argparse.Namespace) -> int:
     channel_cmd = default_python_command(
         [
             "-m",
-            "oclaw.runtime.operations",
+            "runtime.operations",
             "channel",
             args.channel,
             "start",
@@ -51,7 +51,7 @@ def cmd_stack_up(args: argparse.Namespace) -> int:
     print("ok=1")
     for name, pid in started:
         print(f"{name}_pid={pid}")
-    print("hint=use `python -m oclaw.runtime.operations stack status` to check running services")
+    print("hint=use `python -m runtime.operations stack status` to check running services")
     return 0
 
 

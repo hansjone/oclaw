@@ -5,7 +5,7 @@ from typing import Any
 
 from .adapter import PlanAgentV2Decision, evaluate_for_expert_mode
 from .switch import should_route_to_v2
-from oclaw.runtime.types import StandardMessage
+from runtime.types import StandardMessage
 
 
 @dataclass(frozen=True)

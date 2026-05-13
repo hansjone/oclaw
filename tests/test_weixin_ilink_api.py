@@ -4,8 +4,8 @@ import unittest
 
 from fastapi.testclient import TestClient
 
-from oclaw.interfaces.http.fastapi_app import create_app
-from oclaw.interfaces.http import weixin_ilink_api
+from interfaces.http.fastapi_app import create_app
+from interfaces.http import weixin_ilink_api
 
 
 class WeixinIlinkApiTests(unittest.TestCase):

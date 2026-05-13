@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import unittest
 
-from oclaw.interfaces.admin.mcp_e2e_probe import build_mcp_e2e_probe_plans, parse_mcp_bound_tool_name
-from oclaw.runtime.tools.base import ToolRegistry, ToolSpec
+from interfaces.admin.mcp_e2e_probe import build_mcp_e2e_probe_plans, parse_mcp_bound_tool_name
+from runtime.tools.base import ToolRegistry, ToolSpec
 
 
 class McpE2eProbeTests(unittest.TestCase):

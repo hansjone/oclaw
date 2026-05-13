@@ -5,7 +5,7 @@ from typing import Any
 from .manager import PlanModeManagerV2
 from .models import PLAN_MODE_PLAN
 from .trace import emit_plan_agent_v2_trace
-from oclaw.runtime.tools.base import ToolSpec
+from runtime.tools.base import ToolSpec
 
 DEFAULT_SESSION_KEY = "AIA_PLAN_AGENT_V2_DEFAULT_SESSION_ID"
 

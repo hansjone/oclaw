@@ -7,8 +7,8 @@ from typing import Any
 
 from PIL import Image
 
-from oclaw.platform.files.attachment_assets import AttachmentAssetStore
-from oclaw.runtime.tools.base import ToolSpec
+from svc.files.attachment_assets import AttachmentAssetStore
+from runtime.tools.base import ToolSpec
 
 
 def image_edit_tool() -> ToolSpec:

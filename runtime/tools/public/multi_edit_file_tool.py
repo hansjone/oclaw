@@ -3,8 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from oclaw.runtime.tools.base import ToolSpec
-from oclaw.runtime.tools.path_guard import resolve_workspace_path
+from runtime.tools.base import ToolSpec
+from runtime.tools.path_guard import resolve_workspace_path
 
 
 def multi_edit_file_tool() -> ToolSpec:

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from oclaw.platform.config.runtime_paths import oclaw_root, runtime_operations_scripts_root
+from svc.config.runtime_paths import oclaw_root, runtime_operations_scripts_root
 
 
 def verify_forwarders() -> tuple[bool, list[str]]:

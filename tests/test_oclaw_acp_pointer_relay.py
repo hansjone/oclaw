@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from oclaw.runtime.relay_pointer import build_acp_relay_result, validate_relay_share_envelope
+from runtime.relay_pointer import build_acp_relay_result, validate_relay_share_envelope
 
 
 def test_validate_relay_share_envelope_ok() -> None:

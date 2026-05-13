@@ -7,7 +7,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from oclaw.platform.persistence.sqlite_store import SqliteStore
+from svc.persistence.sqlite_store import SqliteStore
 
 
 class SecretMigrationTests(unittest.TestCase):

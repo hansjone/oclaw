@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from oclaw.interfaces.admin.chat_api import (
+from interfaces.admin.chat_api import (
     _persist_session_dialog_chat_settings,
     _persist_user_menu_chat_settings,
     _resolve_mode_settings,

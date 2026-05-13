@@ -3,7 +3,7 @@ from __future__ import annotations
 import base64
 import os
 
-from oclaw.runtime.chat.media_redact import ingest_embedded_image_blobs_as_refs, redact_embedded_image_blobs
+from runtime.chat.media_redact import ingest_embedded_image_blobs_as_refs, redact_embedded_image_blobs
 
 
 def test_redact_nested_mcp_image_block() -> None:

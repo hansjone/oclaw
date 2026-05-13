@@ -10,8 +10,8 @@ from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
-from oclaw.interfaces.http.fastapi_app import create_app
-from oclaw.platform.persistence.sqlite_store import SqliteStore
+from interfaces.http.fastapi_app import create_app
+from svc.persistence.sqlite_store import SqliteStore
 
 
 class AdminSkillsApiTests(unittest.TestCase):
@@ -311,7 +311,7 @@ class AdminSkillsApiTests(unittest.TestCase):
                 _ = (slug, version)
                 return z.resolve().as_uri(), "1.0.0"
 
-        with patch("oclaw.interfaces.admin.skills_api.get_market_adapter", return_value=_FakeAdapter()):
+        with patch("interfaces.admin.skills_api.get_market_adapter", return_value=_FakeAdapter()):
             r = self.client.post(
                 "/admin/api/skills/market/install",
                 json={"slug": "owner/demo3"},

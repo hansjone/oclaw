@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from oclaw.platform.persistence.sqlite_store import SqliteStore
-from oclaw.runtime.chat.session_context_diagnostics import compute_session_context_stats
+from svc.persistence.sqlite_store import SqliteStore
+from runtime.chat.session_context_diagnostics import compute_session_context_stats
 
 
 def test_compute_session_context_stats_detects_empty_assistant(tmp_path) -> None:  # noqa: ANN001

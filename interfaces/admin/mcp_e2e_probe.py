@@ -3,8 +3,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from oclaw.runtime.tools.base import ToolRegistry, ToolSpec
-from oclaw.runtime.tools.tool_validation import validate_tool_arguments
+from runtime.tools.base import ToolRegistry, ToolSpec
+from runtime.tools.tool_validation import validate_tool_arguments
 
 
 def parse_mcp_bound_tool_name(full_name: str) -> tuple[str, str] | None:

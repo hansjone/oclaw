@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from oclaw.platform.config.paths import PROJECT_ROOT
+from svc.config.paths import PROJECT_ROOT
 
 
 _PROMPT_CRITICAL_FILES = (
@@ -13,8 +13,8 @@ _PROMPT_CRITICAL_FILES = (
     "runtime/memory_stage.py",
     "runtime/project_context_prompt.py",
     "runtime/chat/agent_errors.py",
-    "platform/llm/image_ocr_client.py",
-    "platform/llm/image_legacy_client.py",
+    "svc/llm/image_ocr_client.py",
+    "svc/llm/image_legacy_client.py",
     "runtime/gateway.py",
 )
 
@@ -27,7 +27,7 @@ def test_prompt_critical_paths_use_prompt_templates() -> None:
             or "render_prompt_for_lang(" in text
             or "render_runtime_prompt(" in text
         ), (
-            f"{rel} must use oclaw.runtime.prompt_templates (Markdown under runtime/workspaces/_system)"
+            f"{rel} must use runtime.prompt_templates (Markdown under runtime/workspaces/_system)"
         )
 
 

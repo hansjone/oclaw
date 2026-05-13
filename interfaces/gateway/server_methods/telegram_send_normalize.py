@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from oclaw.runtime.extensions.telegram import (
+from runtime.extensions.telegram import (
     normalize_telegram_messaging_target,
     parse_telegram_reply_to_message_id,
     parse_telegram_target,

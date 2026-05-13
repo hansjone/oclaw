@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from oclaw.runtime.tools.catalog import materialize_tool_specs
+from runtime.tools.catalog import materialize_tool_specs
 
 
 def test_memory_tools_only_expose_canonical_names() -> None:

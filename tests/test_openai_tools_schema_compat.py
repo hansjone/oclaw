@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from oclaw.platform.llm.tool_schema import complete_openai_tools_wire_parameters
+from svc.llm.tool_schema import complete_openai_tools_wire_parameters
 
 
 def test_complete_tools_coerces_null_function_parameters_to_min_object_schema() -> None:

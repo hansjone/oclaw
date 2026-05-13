@@ -6,9 +6,9 @@ import secrets
 import sys
 from argparse import _SubParsersAction
 
-from oclaw.interfaces.channels.wecom.longconn_runner import run_forever as run_wecom_longconn
-from oclaw.platform.config.paths import db_path
-from oclaw.platform.persistence.sqlite_store import SqliteStore
+from interfaces.channels.wecom.longconn_runner import run_forever as run_wecom_longconn
+from svc.config.paths import db_path
+from svc.persistence.sqlite_store import SqliteStore
 
 from .base import ChannelProvider
 
@@ -101,7 +101,7 @@ class WecomProvider(ChannelProvider):
         return run_wecom_longconn()
 
     def _cmd_status(self, _args: argparse.Namespace) -> int:
-        from oclaw.runtime.operations.scripts.wecom_status import main as status_main
+        from runtime.operations.scripts.wecom_status import main as status_main
 
         return status_main()
 
@@ -150,7 +150,7 @@ class WecomProvider(ChannelProvider):
         return 0
 
     def _cmd_smoke(self, args: argparse.Namespace) -> int:
-        from oclaw.runtime.operations.scripts.wecom_smoke_test import main as smoke_main
+        from runtime.operations.scripts.wecom_smoke_test import main as smoke_main
 
         old = sys.argv
         try:
@@ -206,6 +206,6 @@ class WecomProvider(ChannelProvider):
         print("ok=1")
         print("mode=bot_api")
         print(f"bot_id={args.bot_id}")
-        print("next=python -m oclaw.runtime.operations channel wecom start")
+        print("next=python -m runtime.operations channel wecom start")
         return 0
 

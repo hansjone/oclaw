@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from oclaw.platform.config.paths import PROJECT_ROOT
-from oclaw.runtime.tools.public.memory_wiki_tools import (
+from svc.config.paths import PROJECT_ROOT
+from runtime.tools.public.memory_wiki_tools import (
     memory_wiki_apply_tool,
     memory_wiki_get_tool,
     memory_wiki_lint_tool,

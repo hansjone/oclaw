@@ -9,8 +9,8 @@ OCLAW_DIR = HOOKS_PY_DIR.parent
 if str(OCLAW_DIR) not in sys.path:
     sys.path.insert(0, str(OCLAW_DIR))
 
-from oclaw.runtime.hooks.internal_hooks import create_hook_event, trigger_hook  # noqa: E402
-from oclaw.runtime.hooks.loader import load_internal_hooks  # noqa: E402
+from runtime.hooks.internal_hooks import create_hook_event, trigger_hook  # noqa: E402
+from runtime.hooks.loader import load_internal_hooks  # noqa: E402
 
 
 def main() -> int:

@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from oclaw.runtime.tools.mcp.runtime import McpProcessRuntime
+from runtime.tools.mcp.runtime import McpProcessRuntime
 
 
 class McpRuntimeTests(unittest.TestCase):
@@ -71,7 +71,7 @@ class McpRuntimeTests(unittest.TestCase):
         finally:
             rt.stop()
 
-    @patch("oclaw.runtime.operations.mcp_env.mcp_local_env_merged", return_value={"MCP_ONLY_FROM_FILE": "fileval"})
+    @patch("runtime.operations.mcp_env.mcp_local_env_merged", return_value={"MCP_ONLY_FROM_FILE": "fileval"})
     def test_mcp_local_env_keys_passed_without_allowlist_name(self, _mock_merged: object) -> None:
         os.environ["MCP_ONLY_FROM_FILE"] = "liveval"
         try:

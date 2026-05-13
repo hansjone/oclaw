@@ -6,7 +6,7 @@ from typing import Any
 
 from starlette.websockets import WebSocketDisconnect
 
-from oclaw.interfaces.ws.common import WS_REQUIRE_AUTH
+from interfaces.ws.common import WS_REQUIRE_AUTH
 
 
 async def recv_frame(

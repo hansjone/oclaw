@@ -6,7 +6,7 @@ import pytest
 
 
 def test_netx_query_ume_ne_inventory_forwards_params(monkeypatch: pytest.MonkeyPatch) -> None:
-    import oclaw.runtime.tools.experts.network_ops.netx_tools as nt
+    import runtime.tools.experts.network_ops.netx_tools as nt
 
     calls: list[tuple[str, str, dict[str, Any] | None]] = []
 
@@ -25,7 +25,7 @@ def test_netx_query_ume_ne_inventory_forwards_params(monkeypatch: pytest.MonkeyP
 
 
 def test_netx_get_ume_ne_requires_id(monkeypatch: pytest.MonkeyPatch) -> None:
-    import oclaw.runtime.tools.experts.network_ops.netx_tools as nt
+    import runtime.tools.experts.network_ops.netx_tools as nt
 
     monkeypatch.setattr(nt, "_http_json", lambda *a, **k: {"ok": True, "data": {}})
     spec = nt.netx_get_ume_ne_tool()
@@ -35,7 +35,7 @@ def test_netx_get_ume_ne_requires_id(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_netx_get_ume_ne_quotes_path(monkeypatch: pytest.MonkeyPatch) -> None:
-    import oclaw.runtime.tools.experts.network_ops.netx_tools as nt
+    import runtime.tools.experts.network_ops.netx_tools as nt
 
     paths: list[str] = []
 

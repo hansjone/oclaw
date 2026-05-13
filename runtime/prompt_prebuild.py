@@ -4,16 +4,16 @@ import threading
 import time
 from typing import Any
 
-from oclaw.platform.config.paths import db_path
-from oclaw.platform.persistence.sqlite_store import SqliteStore
-from oclaw.runtime.agent_context import build_role_system_context
-from oclaw.runtime.agents.specialists import discover_specialist_ids
-from oclaw.runtime.direct_loop import tool_wire_freeze_status, warm_tool_wire_cache
-from oclaw.runtime.skill_role_binding import SKILL_ROLE_BINDING_KEY
-from oclaw.runtime.skills import workspace_skills_layout_signature
-from oclaw.runtime.system_prompt import get_executor_prompt_static, warm_executor_prompt_cache
-from oclaw.runtime.tools.catalog import default_registry
-from oclaw.runtime.workspaces.experts import expert_workspace_signature_token, list_experts
+from svc.config.paths import db_path
+from svc.persistence.sqlite_store import SqliteStore
+from runtime.agent_context import build_role_system_context
+from runtime.agents.specialists import discover_specialist_ids
+from runtime.direct_loop import tool_wire_freeze_status, warm_tool_wire_cache
+from runtime.skill_role_binding import SKILL_ROLE_BINDING_KEY
+from runtime.skills import workspace_skills_layout_signature
+from runtime.system_prompt import get_executor_prompt_static, warm_executor_prompt_cache
+from runtime.tools.catalog import default_registry
+from runtime.workspaces.experts import expert_workspace_signature_token, list_experts
 
 _MANAGER_PREBUILD_CACHE_LOCK = threading.Lock()
 _MANAGER_PREBUILD_CACHE: dict[tuple[Any, ...], dict[str, Any]] = {}

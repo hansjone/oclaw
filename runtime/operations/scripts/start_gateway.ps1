@@ -39,7 +39,6 @@ if (-not $repoRoot) {
     # Fallback: old relative layout assumption
     $repoRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))
 }
-$repoParent = Split-Path -Parent $repoRoot
 Set-Location $repoRoot
 
 $runDir = Join-Path $PSScriptRoot ".run"
@@ -49,7 +48,8 @@ $pidFile = Join-Path $runDir "gateway.pid"
 Write-Step "Project root: $repoRoot"
 Write-Step "Working directory: $repoRoot"
 
-$env:PYTHONPATH = $repoParent
+# Repo root must be on PYTHONPATH (top-level packages: runtime, svc, interfaces).
+$env:PYTHONPATH = $repoRoot
 $env:PYTHONSAFEPATH = "1"
 $env:AIA_WORKSPACE_ROOT = $repoRoot
 $env:OPS_WORKSPACE_ROOT = $repoRoot
@@ -95,7 +95,7 @@ if ($WithWikiWorker) {
 
 if ($Background) {
     Write-Step "Starting gateway in background"
-    $p = Start-Process -FilePath $pythonExe -ArgumentList @("-m","oclaw.runtime.operations","gateway","start","--host",$BindHost,"--port",$Port) -WorkingDirectory $repoRoot -PassThru -WindowStyle Hidden
+    $p = Start-Process -FilePath $pythonExe -ArgumentList @("-m","runtime.operations","gateway","start","--host",$BindHost,"--port",$Port) -WorkingDirectory $repoRoot -PassThru -WindowStyle Hidden
     Set-Content -Path $pidFile -Value "$($p.Id)" -Encoding ascii
     Write-Host "gateway.pid = $pidFile" -ForegroundColor DarkGray
     Write-Host "PID = $($p.Id)" -ForegroundColor Green
@@ -103,7 +103,7 @@ if ($Background) {
 }
 
 Write-Step "Starting gateway (foreground)"
-& $pythonExe -m oclaw.runtime.operations gateway start --host $BindHost --port $Port
+& $pythonExe -m runtime.operations gateway start --host $BindHost --port $Port
 
 
 

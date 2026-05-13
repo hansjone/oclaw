@@ -5,7 +5,7 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
-from oclaw.platform.llm.tool_wire_policy import (
+from svc.llm.tool_wire_policy import (
     SETTINGS_KEY_PENALTY_STATE,
     migrate_legacy_penalty_store,
     prepare_openai_tools_for_llm_api,
@@ -71,7 +71,7 @@ class ToolWirePolicyTests(unittest.TestCase):
         }
         tools = [_fn("read_file"), _fn("mcp__rank__1"), _fn("mcp__rank__2"), _fn("mcp__rank__3"), _fn("mcp__srv__x")]
         st = FakeToolStore(usage)
-        with patch("oclaw.platform.llm.tool_wire_policy._utc_now", return_value=datetime(2026, 1, 5, 12, 0, 0, tzinfo=timezone.utc)):
+        with patch("svc.llm.tool_wire_policy._utc_now", return_value=datetime(2026, 1, 5, 12, 0, 0, tzinfo=timezone.utc)):
             with patch.dict("os.environ", {"OPS_MCP_WIRE_TOP_N_FULL": "3"}, clear=False):
                 out = prepare_openai_tools_for_llm_api(
                     tools,
@@ -94,7 +94,7 @@ class ToolWirePolicyTests(unittest.TestCase):
         tools = [_fn("mcp__p__a"), _fn("mcp__p__b"), _fn("mcp__p__c"), _fn("mcp__p__d")]
         st = FakeToolStore(usage)
         fixed = datetime(2026, 1, 5, 12, 0, 0, tzinfo=timezone.utc)
-        with patch("oclaw.platform.llm.tool_wire_policy._utc_now", return_value=fixed):
+        with patch("svc.llm.tool_wire_policy._utc_now", return_value=fixed):
             with patch.dict(
                 "os.environ",
                 {
@@ -144,7 +144,7 @@ class ToolWirePolicyTests(unittest.TestCase):
             {"OPS_MCP_WIRE_STALE_HOURS": "3", "OPS_MCP_WIRE_TOP_N_FULL": "3"},
             clear=False,
         ):
-            with patch("oclaw.platform.llm.tool_wire_policy._utc_now", return_value=t0):
+            with patch("svc.llm.tool_wire_policy._utc_now", return_value=t0):
                 out1 = prepare_openai_tools_for_llm_api(
                     tools,
                     base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
@@ -157,7 +157,7 @@ class ToolWirePolicyTests(unittest.TestCase):
                 self.assertEqual(pen["mcp__st__old"]["phase"], "active")
 
                 t_late = t0 + timedelta(minutes=31)
-                with patch("oclaw.platform.llm.tool_wire_policy._utc_now", return_value=t_late):
+                with patch("svc.llm.tool_wire_policy._utc_now", return_value=t_late):
                     out2 = prepare_openai_tools_for_llm_api(
                         tools,
                         base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
@@ -186,7 +186,7 @@ class ToolWirePolicyTests(unittest.TestCase):
             {"OPS_MCP_WIRE_STALE_HOURS": "3", "OPS_MCP_WIRE_TOP_N_FULL": "3"},
             clear=False,
         ):
-            with patch("oclaw.platform.llm.tool_wire_policy._utc_now", return_value=t0):
+            with patch("svc.llm.tool_wire_policy._utc_now", return_value=t0):
                 out = prepare_openai_tools_for_llm_api(
                     tools,
                     base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",

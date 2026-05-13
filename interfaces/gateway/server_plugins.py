@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
-from oclaw.platform.config.runtime_paths import runtime_extensions_root
+from svc.config.runtime_paths import runtime_extensions_root
 from .python_extensions_loader import build_python_extensions_registry
 
 GatewayHandler = Callable[..., Any]

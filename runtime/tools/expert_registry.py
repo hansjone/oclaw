@@ -7,7 +7,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from oclaw.runtime.tools.base import ToolSpec
+from runtime.tools.base import ToolSpec
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +52,7 @@ def discover_expert_tool_factories() -> dict[str, list[ToolFactory]]:
         for module_path in sorted(expert_dir.glob("*.py")):
             if module_path.name == "__init__.py":
                 continue
-            mod_name = f"oclaw.runtime.tools.experts.{expert}.{module_path.stem}"
+            mod_name = f"runtime.tools.experts.{expert}.{module_path.stem}"
             module = _load_module_from_path(module_path, mod_name)
             if module is None:
                 continue
@@ -145,7 +145,7 @@ def preview_expert_tools(expert: str | None) -> dict[str, Any]:
         for module_path in sorted(expert_dir.glob("*.py")):
             if module_path.name == "__init__.py":
                 continue
-            mod_name = f"oclaw.runtime.tools.experts.{ex}.{module_path.stem}"
+            mod_name = f"runtime.tools.experts.{ex}.{module_path.stem}"
             module = None
             try:
                 module = _load_module_from_path(module_path, mod_name)

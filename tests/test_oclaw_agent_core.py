@@ -2,12 +2,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from oclaw.runtime.agent_core_run import AgentCoreRunInput, run_agent_core
-from oclaw.runtime.gateway import OclawGateway
-from oclaw.runtime.types import StandardMessage
-from oclaw.platform.llm.chat_models import LLMResponse, StaticTextChatModel
-from oclaw.platform.persistence.sqlite_store import SqliteStore
-from oclaw.runtime.tools.base import ToolRegistry
+from runtime.agent_core_run import AgentCoreRunInput, run_agent_core
+from runtime.gateway import OclawGateway
+from runtime.types import StandardMessage
+from svc.llm.chat_models import LLMResponse, StaticTextChatModel
+from svc.persistence.sqlite_store import SqliteStore
+from runtime.tools.base import ToolRegistry
 
 
 class _FailOnceModel:

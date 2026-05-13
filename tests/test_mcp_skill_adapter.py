@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from oclaw.runtime.tools.mcp.adapter import materialize_mcp_skills_for_specialist
+from runtime.tools.mcp.adapter import materialize_mcp_skills_for_specialist
 
 
 class _Store:

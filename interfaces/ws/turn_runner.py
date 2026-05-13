@@ -7,11 +7,11 @@ import uuid
 from datetime import datetime
 from typing import Any, Callable
 
-from oclaw.runtime.agents.factory import build_gateway_executor
-from oclaw.runtime.gateway import OclawGateway
-from oclaw.runtime.types import StandardMessage
-from oclaw.platform.config.paths import db_path
-from oclaw.platform.persistence.sqlite_store import SqliteStore
+from runtime.agents.factory import build_gateway_executor
+from runtime.gateway import OclawGateway
+from runtime.types import StandardMessage
+from svc.config.paths import db_path
+from svc.persistence.sqlite_store import SqliteStore
 
 
 def _persisted_chat_attachments_nonempty(raw: Any) -> bool:

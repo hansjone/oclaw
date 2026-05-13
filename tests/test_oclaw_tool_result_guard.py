@@ -3,9 +3,9 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from oclaw.runtime.direct_loop import _OCLAW_TOOL_RESULT_HARD_CAP_CHARS, _build_model_context
-from oclaw.platform.llm.chat_models import RuleBasedChatModel
-from oclaw.platform.persistence.sqlite_store import SqliteStore
+from runtime.direct_loop import _OCLAW_TOOL_RESULT_HARD_CAP_CHARS, _build_model_context
+from svc.llm.chat_models import RuleBasedChatModel
+from svc.persistence.sqlite_store import SqliteStore
 
 
 def test_oclaw_tool_result_context_guard_truncates_large_tool_message(tmp_path: Path) -> None:

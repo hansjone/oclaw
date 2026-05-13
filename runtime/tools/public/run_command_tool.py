@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from oclaw.runtime.tools.base import ToolSpec
-from oclaw.runtime.tools.public.local_sdk import get_local_adapter
+from runtime.tools.base import ToolSpec
+from runtime.tools.public.local_sdk import get_local_adapter
 
 
 def run_command_tool() -> ToolSpec:

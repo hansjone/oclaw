@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from oclaw.platform.config.paths import PROJECT_ROOT
-from oclaw.interfaces.http.fastapi_app import _resolve_startup_workspace_dir, _resolve_startup_workspace_dirs
+from svc.config.paths import PROJECT_ROOT
+from interfaces.http.fastapi_app import _resolve_startup_workspace_dir, _resolve_startup_workspace_dirs
 
 
 def test_resolve_startup_workspace_dir_from_agents_default() -> None:

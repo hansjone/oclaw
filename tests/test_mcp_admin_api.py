@@ -9,10 +9,10 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from oclaw.interfaces.http.fastapi_app import create_app
-from oclaw.interfaces.admin import routes as admin_routes
-from oclaw.platform.config.paths import db_path
-from oclaw.platform.persistence.sqlite_store import SqliteStore
+from interfaces.http.fastapi_app import create_app
+from interfaces.admin import routes as admin_routes
+from svc.config.paths import db_path
+from svc.persistence.sqlite_store import SqliteStore
 
 
 class McpAdminApiTests(unittest.TestCase):

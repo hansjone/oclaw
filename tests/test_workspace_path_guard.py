@@ -9,12 +9,12 @@ from unittest import mock
 
 from fastapi.testclient import TestClient
 
-from oclaw.interfaces.http.fastapi_app import create_app
-from oclaw.platform.config.paths import db_path
-from oclaw.platform.persistence.sqlite_store import SqliteStore
-from oclaw.runtime.tools.public.glob_tool import glob_tool
-from oclaw.runtime.tools.public.write_file_tool import write_file_tool
-from oclaw.runtime.tools.path_guard import (
+from interfaces.http.fastapi_app import create_app
+from svc.config.paths import db_path
+from svc.persistence.sqlite_store import SqliteStore
+from runtime.tools.public.glob_tool import glob_tool
+from runtime.tools.public.write_file_tool import write_file_tool
+from runtime.tools.path_guard import (
     access_from_env,
     build_workspace_path_access,
     clear_workspace_path_access_for_tests,

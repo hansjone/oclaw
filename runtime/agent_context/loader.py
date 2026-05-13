@@ -5,7 +5,7 @@ import threading
 from pathlib import Path
 from typing import Any
 
-from oclaw.platform.config.paths import PROJECT_ROOT
+from svc.config.paths import PROJECT_ROOT
 
 _ROLE_CONTEXT_CACHE_LOCK = threading.Lock()
 _ROLE_CONTEXT_CACHE: dict[tuple[str, tuple[Any, ...], tuple[tuple[str, str], ...]], str] = {}

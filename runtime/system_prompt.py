@@ -5,20 +5,20 @@ import threading
 from pathlib import Path
 from typing import Any
 
-from oclaw.platform.config.paths import PROJECT_ROOT
-from oclaw.runtime.memory_stage import render_memory_context_block
-from oclaw.runtime.project_context_prompt import build_project_context_block
-from oclaw.runtime.skill_role_binding import SKILL_ROLE_BINDING_KEY
-from oclaw.runtime.skills import workspace_skills_layout_signature
-from oclaw.runtime.skills_prompt import build_skills_catalog_block
-from oclaw.runtime.skills_workspace_lane import (
+from svc.config.paths import PROJECT_ROOT
+from runtime.memory_stage import render_memory_context_block
+from runtime.project_context_prompt import build_project_context_block
+from runtime.skill_role_binding import SKILL_ROLE_BINDING_KEY
+from runtime.skills import workspace_skills_layout_signature
+from runtime.skills_prompt import build_skills_catalog_block
+from runtime.skills_workspace_lane import (
     fs_safe_workspace_lane_segment,
     workspace_lane_segment,
 )
-from oclaw.runtime.types import OclawMemoryContext
-from oclaw.runtime.workspaces.experts import expert_workspace_signature_token
-from oclaw.runtime.prompt_templates import render_runtime_prompt
-from oclaw.runtime.tools.base import ToolRegistry
+from runtime.types import OclawMemoryContext
+from runtime.workspaces.experts import expert_workspace_signature_token
+from runtime.prompt_templates import render_runtime_prompt
+from runtime.tools.base import ToolRegistry
 
 _EXECUTOR_STATIC_PROMPT_CACHE_LOCK = threading.Lock()
 _EXECUTOR_STATIC_PROMPT_CACHE: dict[tuple[Any, ...], str] = {}

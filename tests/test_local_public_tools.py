@@ -3,18 +3,18 @@ from __future__ import annotations
 import tempfile
 from pathlib import Path
 
-from oclaw.runtime.tools.catalog import default_registry
-from oclaw.runtime.tools.public.local_sdk import LocalAdapter
-from oclaw.runtime.tools.public.edit_file_tool import edit_file_tool
-from oclaw.runtime.tools.public.run_command_tool import run_command_tool
-from oclaw.runtime.tools.public.read_file_tool import read_file_tool
-from oclaw.runtime.tools.public.write_file_tool import write_file_tool
-from oclaw.runtime.tools.public_registry import clear_public_tool_cache
-from oclaw.runtime.tools.public.list_directory_tool import list_directory_tool
-from oclaw.runtime.tools.public.search_files_tool import search_files_tool
-from oclaw.runtime.tools.public.get_cwd_tool import get_cwd_tool
-from oclaw.runtime.tools.public.get_env_tool import get_env_tool
-from oclaw.runtime.tools.public.set_env_tool import set_env_tool
+from runtime.tools.catalog import default_registry
+from runtime.tools.public.local_sdk import LocalAdapter
+from runtime.tools.public.edit_file_tool import edit_file_tool
+from runtime.tools.public.run_command_tool import run_command_tool
+from runtime.tools.public.read_file_tool import read_file_tool
+from runtime.tools.public.write_file_tool import write_file_tool
+from runtime.tools.public_registry import clear_public_tool_cache
+from runtime.tools.public.list_directory_tool import list_directory_tool
+from runtime.tools.public.search_files_tool import search_files_tool
+from runtime.tools.public.get_cwd_tool import get_cwd_tool
+from runtime.tools.public.get_env_tool import get_env_tool
+from runtime.tools.public.set_env_tool import set_env_tool
 
 
 def test_local_public_read_tool_visible_by_default() -> None:
@@ -74,7 +74,7 @@ def test_run_command_tool_handler(monkeypatch) -> None:
         def run_command(self, *, command: str, cwd: str | None = None, timeout: int = 300):
             return {"ok": True, "command": command, "cwd": cwd, "timeout": timeout}
 
-    monkeypatch.setattr("oclaw.runtime.tools.public.run_command_tool.get_local_adapter", lambda: _Adapter())
+    monkeypatch.setattr("runtime.tools.public.run_command_tool.get_local_adapter", lambda: _Adapter())
     spec = run_command_tool()
     out = spec.handler({"command": "echo hi", "cwd": "repo", "timeout": 9})
     assert out.get("ok") is True
@@ -105,7 +105,7 @@ def test_edit_file_tool_handler(monkeypatch) -> None:
                 "replacement": replacement,
             }
 
-    monkeypatch.setattr("oclaw.runtime.tools.public.edit_file_tool.get_local_adapter", lambda: _Adapter())
+    monkeypatch.setattr("runtime.tools.public.edit_file_tool.get_local_adapter", lambda: _Adapter())
     spec = edit_file_tool()
     out = spec.handler({"path": "a.py", "search": "foo", "replace": "bar"})
     assert out.get("ok") is True
@@ -225,10 +225,10 @@ def test_run_command_reads_db_toggle_without_ops_db_env(tmp_path: Path, monkeypa
     monkeypatch.setenv("AIA_ENABLE_RUN_COMMAND", "0")
 
     db_file = tmp_path / "ops.sqlite"
-    from oclaw.platform.persistence.sqlite_store import SqliteStore
+    from svc.persistence.sqlite_store import SqliteStore
 
     SqliteStore(str(db_file)).set_setting("AIA_ENABLE_RUN_COMMAND", "1")
-    monkeypatch.setattr("oclaw.platform.config.paths.db_path", lambda: str(db_file))
+    monkeypatch.setattr("svc.config.paths.db_path", lambda: str(db_file))
 
     out = LocalAdapter().run_command(command="echo hi", timeout=10)
     assert out.get("ok") is True, out

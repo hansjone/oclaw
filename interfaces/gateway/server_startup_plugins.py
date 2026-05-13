@@ -3,8 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Callable
 
-from oclaw.runtime.agents.agent_scope import resolve_agent_workspace_dir, resolve_default_agent_id
-from oclaw.runtime.agents.subagent_registry import init_subagent_registry
+from runtime.agents.agent_scope import resolve_agent_workspace_dir, resolve_default_agent_id
+from runtime.agents.subagent_registry import init_subagent_registry
 
 from .server_plugins import GatewayPluginLoadResult, load_gateway_plugins
 

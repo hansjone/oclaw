@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from oclaw.runtime.session_auto_title import AUTO_TITLE_CHAR_MAX, finalize_auto_title, should_reject_auto_title
+from runtime.session_auto_title import AUTO_TITLE_CHAR_MAX, finalize_auto_title, should_reject_auto_title
 
 
 def test_should_reject_long_prose() -> None:

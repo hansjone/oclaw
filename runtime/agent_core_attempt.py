@@ -4,11 +4,11 @@ import json
 from dataclasses import dataclass
 from typing import Any, Callable, Optional
 
-from oclaw.runtime.chat.turn_types import TurnRunOutcome
-from oclaw.runtime.direct_loop import run_direct_loop
-from oclaw.runtime.memory_stage import after_turn_memory
-from oclaw.runtime.types import AttemptState, OclawMemoryContext, StandardMessage
-from oclaw.runtime.orchestration.trace import new_span_id
+from runtime.chat.turn_types import TurnRunOutcome
+from runtime.direct_loop import run_direct_loop
+from runtime.memory_stage import after_turn_memory
+from runtime.types import AttemptState, OclawMemoryContext, StandardMessage
+from runtime.orchestration.trace import new_span_id
 
 def _workspace_owner_session_id_from_msg(msg: StandardMessage) -> str | None:
     md = msg.metadata if isinstance(msg.metadata, dict) else {}

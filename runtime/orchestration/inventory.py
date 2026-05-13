@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from oclaw.runtime.tools import tool_inventory
+from runtime.tools import tool_inventory
 
 
 def inventory_snapshot() -> dict[str, Any]:

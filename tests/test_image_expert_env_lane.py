@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from oclaw.platform.llm.image_legacy_client import send_legacy_image_messages
+from svc.llm.image_legacy_client import send_legacy_image_messages
 
 
 def test_legacy_fails_when_only_ocr_env_configured(monkeypatch: object) -> None:
@@ -46,7 +46,7 @@ def test_legacy_accepts_explicit_kwargs_without_expert_env(monkeypatch: object) 
 
         return R()
 
-    import oclaw.platform.llm.image_legacy_client as mod
+    import svc.llm.image_legacy_client as mod
 
     monkeypatch.setattr(mod, "post_with_retry", fake_post)
     out = send_legacy_image_messages(

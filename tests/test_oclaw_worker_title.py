@@ -3,9 +3,9 @@ from __future__ import annotations
 import hashlib
 from pathlib import Path
 
-from oclaw.platform.persistence.sqlite_store import SqliteStore
-from oclaw.runtime.types import StandardMessage
-from oclaw.runtime.worker import _maybe_generate_title_on_third_round
+from svc.persistence.sqlite_store import SqliteStore
+from runtime.types import StandardMessage
+from runtime.worker import _maybe_generate_title_on_third_round
 
 
 class _DummyResp:

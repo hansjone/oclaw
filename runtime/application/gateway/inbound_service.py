@@ -4,9 +4,9 @@ import hashlib
 import re
 from typing import Any
 
-from oclaw.interfaces.channels.base import InboundMessage, OutboundMessage
-from oclaw.interfaces.channels.wecom.wecom_bridge import WeComAdapter
-from oclaw.runtime.types import normalize_interaction_mode, normalize_requested_specialist
+from interfaces.channels.base import InboundMessage, OutboundMessage
+from interfaces.channels.wecom.wecom_bridge import WeComAdapter
+from runtime.types import normalize_interaction_mode, normalize_requested_specialist
 
 _CHANNEL_DISPATCH_INTERACTION_KEY_PREFIX = "channel.dispatch.interaction_mode."
 _CHANNEL_DISPATCH_SPECIALIST_KEY_PREFIX = "channel.dispatch.specialist."
@@ -36,7 +36,7 @@ def _resolve_channel_dispatch(store: Any, *, channel: str, account: dict[str, An
 
 
 def _build_admin_gateway_executor(store: Any, *, tenant_id: str, specialist: str, session_id: str) -> Any:
-    from oclaw.runtime.agents.factory import build_gateway_executor
+    from runtime.agents.factory import build_gateway_executor
 
     return build_gateway_executor(
         store,
@@ -71,8 +71,8 @@ def _handle_productivity_commands(*, text: str, tenant_id: str, user_id: str) ->
     if t in ("帮助", "菜单", "help", "/help"):
         return _menu_text()
 
-    from oclaw.platform.config.paths import db_path
-    from oclaw.platform.persistence.sqlite_store import SqliteStore
+    from svc.config.paths import db_path
+    from svc.persistence.sqlite_store import SqliteStore
 
     store = SqliteStore(db_path())
 
@@ -114,7 +114,7 @@ def _handle_productivity_commands(*, text: str, tenant_id: str, user_id: str) ->
         content = t[len("加知识 ") :].strip()
         if not content:
             return "知识内容不能为空。示例：加知识 办公室WiFi密码是12345678"
-        from oclaw.runtime.tools.experts.productivity.kb_tools import kb_add_tool
+        from runtime.tools.experts.productivity.kb_tools import kb_add_tool
 
         res = kb_add_tool().handler({"tenant_id": tenant_id, "user_id": user_id, "text": content})
         if not res.get("ok"):
@@ -125,7 +125,7 @@ def _handle_productivity_commands(*, text: str, tenant_id: str, user_id: str) ->
         q = t[len("查知识 ") :].strip()
         if not q:
             return "请提供关键词。示例：查知识 WiFi 密码"
-        from oclaw.runtime.tools.experts.productivity.kb_tools import kb_search_tool
+        from runtime.tools.experts.productivity.kb_tools import kb_search_tool
 
         res = kb_search_tool().handler({"tenant_id": tenant_id, "query": q, "limit": 5})
         if not res.get("ok"):
@@ -202,7 +202,7 @@ def _ensure_administrator_owner(store: Any) -> dict[str, Any] | None:
     user = store.get_user_by_username(tenant_id=tenant_id, username="administrator")
     if not user:
         try:
-            from oclaw.platform.config.passwords import load_expected_password
+            from svc.config.passwords import load_expected_password
         except Exception:
             load_expected_password = None  # type: ignore
         pwd = load_expected_password(store) if callable(load_expected_password) else None
@@ -366,7 +366,7 @@ def _collect_recent_tool_attachments(*, store: Any, session_id: str) -> list[dic
 def _maybe_add_media_path_for_wechat_reply(reply: dict[str, Any]) -> None:
     """For wechat/weixin sidecar, prefer a local file path for media send."""
     try:
-        from oclaw.platform.files.attachment_assets import AttachmentAssetStore
+        from svc.files.attachment_assets import AttachmentAssetStore
     except Exception:
         return
     if not isinstance(reply, dict):
@@ -421,7 +421,7 @@ def _maybe_expand_reply_attachments_for_channel(reply: dict[str, Any]) -> None:
     try:
         import base64
 
-        from oclaw.platform.files.attachment_assets import AttachmentAssetStore
+        from svc.files.attachment_assets import AttachmentAssetStore
     except Exception:
         return
     ast = AttachmentAssetStore()
@@ -495,7 +495,7 @@ def _should_suppress_channel_reply(*, channel: str, text: str) -> bool:
 
 
 def process_inbound_payload(payload: dict[str, Any]) -> dict[str, Any]:
-    from oclaw.runtime.operations.mcp_env import apply_gateway_mcp_env_to_os
+    from runtime.operations.mcp_env import apply_gateway_mcp_env_to_os
 
     apply_gateway_mcp_env_to_os()
     channel_name = str(payload.get("channel") or "wecom").strip().lower()
@@ -505,8 +505,8 @@ def process_inbound_payload(payload: dict[str, Any]) -> dict[str, Any]:
     else:
         adapter = None
         inbound = _parse_generic_inbound(channel_name, payload)
-    from oclaw.platform.persistence.sqlite_store import SqliteStore
-    from oclaw.platform.config.paths import db_path
+    from svc.persistence.sqlite_store import SqliteStore
+    from svc.config.paths import db_path
 
     store = SqliteStore(db_path())
     if channel_name == "wecom":
@@ -567,8 +567,8 @@ def process_inbound_payload(payload: dict[str, Any]) -> dict[str, Any]:
             if not ident:
                 reply = "账号初始化失败，请检查 administrator/tenant 配置。"
         if ident:
-            from oclaw.runtime.orchestration.policy import ActionPolicyContext, PolicyEngine
-            from oclaw.runtime.orchestration.security import has_explicit_confirmation_token
+            from runtime.orchestration.policy import ActionPolicyContext, PolicyEngine
+            from runtime.orchestration.security import has_explicit_confirmation_token
 
             tenant_id = str(ident.get("tenant_id") or "")
             user_id = str(ident.get("user_id") or "")
@@ -630,8 +630,8 @@ def process_inbound_payload(payload: dict[str, Any]) -> dict[str, Any]:
                         user_text = (inbound.text or "").strip()
                         if user_text:
                             try:
-                                from oclaw.runtime.gateway import OclawGateway
-                                from oclaw.runtime.types import StandardMessage
+                                from runtime.gateway import OclawGateway
+                                from runtime.types import StandardMessage
 
                                 interaction_mode, selected_specialist = _resolve_channel_dispatch(
                                     store, channel=inbound.channel, account=account

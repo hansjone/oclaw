@@ -19,21 +19,21 @@ _DEPREC_UPDATE = (
     "  • If you use the OpenClaw app: use `openclaw plugins update`.\n"
 )
 
-from oclaw.platform.config.runtime_paths import runtime_hooks_bundled_root
-from oclaw.runtime.hooks.config import should_include_hook
-from oclaw.runtime.hooks.frontmatter import resolve_hook_key
-from oclaw.runtime.hooks.hooks_status import build_workspace_hook_status
-from oclaw.runtime.hooks.hook_types import HookEntry
-from oclaw.runtime.hooks.merge_skill_hook_dirs import merge_skill_hook_extra_dirs_into_config
-from oclaw.runtime.hooks.user_config_hooks import (
+from svc.config.runtime_paths import runtime_hooks_bundled_root
+from runtime.hooks.config import should_include_hook
+from runtime.hooks.frontmatter import resolve_hook_key
+from runtime.hooks.hooks_status import build_workspace_hook_status
+from runtime.hooks.hook_types import HookEntry
+from runtime.hooks.merge_skill_hook_dirs import merge_skill_hook_extra_dirs_into_config
+from runtime.hooks.user_config_hooks import (
     apply_hook_entry_enabled,
     load_storage_config_document,
     resolve_hooks_config_storage_path,
     save_storage_config_document,
 )
-from oclaw.runtime.hooks.workspace import load_workspace_hook_entries
-from oclaw.runtime.hooks_runtime import resolve_runtime_config
-from oclaw.runtime.tools.path_guard import workspace_root
+from runtime.hooks.workspace import load_workspace_hook_entries
+from runtime.hooks_runtime import resolve_runtime_config
+from runtime.tools.path_guard import workspace_root
 
 
 def _resolve_cli_workspace(ns: argparse.Namespace) -> str:
@@ -196,7 +196,7 @@ def _cmd_hooks_info(args: argparse.Namespace) -> int:
         if args.json:
             print(json.dumps({"error": "not_found", "hook": name}, indent=2))
         else:
-            print(f'Hook "{name}" not found. Try: python -m oclaw.runtime.operations hooks list')
+            print(f'Hook "{name}" not found. Try: python -m runtime.operations hooks list')
         return 1
     if args.json:
         print(json.dumps(row, indent=2, default=str))
@@ -223,7 +223,7 @@ def _cmd_hooks_enable(args: argparse.Namespace) -> int:
     name = str(getattr(args, "name", "") or "").strip()
     entry = find_hook_entry_for_name(ws, name, config=None)
     if entry is None:
-        print(f'Hook "{name}" not found. Try: python -m oclaw.runtime.operations hooks list --workspace ...')
+        print(f'Hook "{name}" not found. Try: python -m runtime.operations hooks list --workspace ...')
         return 1
     if entry.hook.source == "oclaw-plugin":
         print("Plugin-managed hooks cannot be enabled via this CLI; enable or configure the plugin instead.")

@@ -7,7 +7,7 @@ from __future__ import annotations
 import base64
 import os
 from typing import Any
-from oclaw.platform.files.attachment_assets import AttachmentAssetStore
+from svc.files.attachment_assets import AttachmentAssetStore
 
 _IMAGE_CONTENT_TYPES = frozenset({"image", "input_image"})
 _BASE64_PAYLOAD_KEYS = ("data", "image_base64", "base64", "content_base64", "body_base64")

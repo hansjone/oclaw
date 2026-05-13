@@ -9,11 +9,11 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
-from oclaw.runtime.chat.agent import Agent
-from oclaw.runtime.chat.agent import GenerationInterrupted
-from oclaw.runtime.agents.network_ops_agent import NetworkOpsAgent
-from oclaw.platform.persistence.sqlite_store import SqliteStore
-from oclaw.platform.llm.image_legacy_client import (
+from runtime.chat.agent import Agent
+from runtime.chat.agent import GenerationInterrupted
+from runtime.agents.network_ops_agent import NetworkOpsAgent
+from svc.persistence.sqlite_store import SqliteStore
+from svc.llm.image_legacy_client import (
     IMAGE_SPECIALIST_DEFAULT_PROMPT_ZH,
     collect_legacy_lane_images_from_attachments,
     collect_legacy_lane_images_with_session_fallback,
@@ -21,19 +21,19 @@ from oclaw.platform.llm.image_legacy_client import (
     legacy_image_turn_bundle,
     send_legacy_image_messages,
 )
-from oclaw.platform.llm.video_generation_client import (
+from svc.llm.video_generation_client import (
     VIDEO_SPECIALIST_DEFAULT_PROMPT_ZH,
     legacy_video_assistant_body_with_placeholder,
     legacy_video_turn_bundle,
     send_video_generation_request,
 )
-from oclaw.runtime.tools import default_registry
-from oclaw.runtime.agents.specialists import expert_name_for_specialist
+from runtime.tools import default_registry
+from runtime.agents.specialists import expert_name_for_specialist
 
-from oclaw.runtime.chat.turn_types import TurnRunOutcome
-from oclaw.runtime.relay_pointer import build_manifest_from_attachment_refs
-from oclaw.runtime.types import RelayShareEnvelope
-from oclaw.runtime.orchestration.protocol import (
+from runtime.chat.turn_types import TurnRunOutcome
+from runtime.relay_pointer import build_manifest_from_attachment_refs
+from runtime.types import RelayShareEnvelope
+from runtime.orchestration.protocol import (
     AgentTask,
     PlanStep,
     SpecialistDelivery,
@@ -361,8 +361,8 @@ class SpecialistAgentRunner:
                     path_policy_tenant_id=_path_tenant,
                     path_policy_user_id=_path_user,
                 )
-                from oclaw.runtime.gateway import OclawGateway
-                from oclaw.runtime.types import StandardMessage
+                from runtime.gateway import OclawGateway
+                from runtime.types import StandardMessage
 
                 gw = OclawGateway(store=self.store)
                 msg = StandardMessage(

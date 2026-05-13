@@ -5,10 +5,10 @@ from __future__ import annotations
 import os
 from typing import Any
 
-from oclaw.runtime.agents.agent_scope import resolve_default_agent_id
-from oclaw.runtime.agents.network_ops_agent import NetworkOpsAgent
-from oclaw.runtime.agents.specialist_agent import SpecialistProfile
-from oclaw.runtime.agents.specialists import (
+from runtime.agents.agent_scope import resolve_default_agent_id
+from runtime.agents.network_ops_agent import NetworkOpsAgent
+from runtime.agents.specialist_agent import SpecialistProfile
+from runtime.agents.specialists import (
     AGENT_PROFILE_BINDINGS_KEY,
     normalize_specialist_id,
     agent_role_ids,
@@ -20,21 +20,21 @@ from oclaw.runtime.agents.specialists import (
     expert_name_for_specialist,
     parse_agent_profile_bindings,
 )
-from oclaw.runtime.chat.agent import Agent
-from oclaw.runtime.orchestration.inventory import inventory_snapshot
-from oclaw.runtime.orchestration.memory import upsert_knowledge_chunks
-from oclaw.platform.llm.chat_models import GoogleGeminiChatModel, OpenAIChatModel, RuleBasedChatModel, StaticTextChatModel
-from oclaw.platform.llm.transports.anthropic_messages import AnthropicMessagesModel
-from oclaw.platform.llm.transports.openai_responses import OpenAIResponsesModel
-from oclaw.platform.persistence.sqlite_store import (
+from runtime.chat.agent import Agent
+from runtime.orchestration.inventory import inventory_snapshot
+from runtime.orchestration.memory import upsert_knowledge_chunks
+from svc.llm.chat_models import GoogleGeminiChatModel, OpenAIChatModel, RuleBasedChatModel, StaticTextChatModel
+from svc.llm.transports.anthropic_messages import AnthropicMessagesModel
+from svc.llm.transports.openai_responses import OpenAIResponsesModel
+from svc.persistence.sqlite_store import (
     SqliteStore,
     active_llm_profile_setting_key,
     agent_profile_bindings_setting_key,
     is_administrator_model_pool,
 )
-from oclaw.runtime.prompt_templates import render_prompt
-from oclaw.runtime.tools.catalog import default_registry
-from oclaw.runtime.tools.plugin_loader import sync_plugin_metadata
+from runtime.prompt_templates import render_prompt
+from runtime.tools.catalog import default_registry
+from runtime.tools.plugin_loader import sync_plugin_metadata
 
 
 def _openai_missing_key_user_message(lang: str) -> str:

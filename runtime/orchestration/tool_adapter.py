@@ -3,7 +3,7 @@ from __future__ import annotations
 import time
 from typing import Any
 
-from oclaw.platform.persistence.sqlite_store import SqliteStore
+from svc.persistence.sqlite_store import SqliteStore
 
 
 class ToolAuditAdapter:

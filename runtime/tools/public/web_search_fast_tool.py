@@ -10,7 +10,7 @@ import urllib.request
 from html import unescape
 from typing import Any
 
-from oclaw.runtime.tools.base import ToolSpec
+from runtime.tools.base import ToolSpec
 
 _UA = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "

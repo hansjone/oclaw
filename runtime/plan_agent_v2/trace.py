@@ -19,7 +19,7 @@ def emit_plan_agent_v2_trace(
     merged.setdefault("pipeline", "plan_agent_v2")
     merged.setdefault("ts_ms", int(time.time() * 1000))
     try:
-        from oclaw.runtime.orchestration.trace import new_span_id
+        from runtime.orchestration.trace import new_span_id
 
         store.add_trace_event(
             session_id=str(session_id or ""),

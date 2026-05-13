@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from oclaw.platform.config.runtime_paths import oclaw_root
+from svc.config.runtime_paths import oclaw_root
 
 
 _PS1_FORWARDERS: dict[str, str] = {

@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Iterable
 
 from .models import PLAN_MODE_PLAN
-from oclaw.runtime.tools.base import ToolRegistry, ToolSpec
+from runtime.tools.base import ToolRegistry, ToolSpec
 
 
 _DEFAULT_PLAN_ALLOWLIST = frozenset(

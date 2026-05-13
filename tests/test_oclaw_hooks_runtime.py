@@ -3,8 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from oclaw.runtime.hooks.eligibility_from_metadata import hook_eligibility_from_message_metadata
-from oclaw.runtime.hooks_runtime import (
+from runtime.hooks.eligibility_from_metadata import hook_eligibility_from_message_metadata
+from runtime.hooks_runtime import (
     _reset_hooks_runtime_state_for_test,
     initialize_hooks_runtime,
     resolve_runtime_config,
@@ -42,8 +42,8 @@ def test_initialize_hooks_runtime_passes_remote_eligibility(monkeypatch, tmp_pat
     _reset_hooks_runtime_state_for_test()
     empty_bundled = tmp_path / "empty-bundled"
     empty_bundled.mkdir(parents=True, exist_ok=True)
-    monkeypatch.setattr("oclaw.runtime.hooks_runtime.runtime_hooks_bundled_root", lambda: str(empty_bundled))
-    monkeypatch.setattr("oclaw.runtime.hooks.merge_skill_hook_dirs.discover_workspace_skill_manifests", lambda: ())
+    monkeypatch.setattr("runtime.hooks_runtime.runtime_hooks_bundled_root", lambda: str(empty_bundled))
+    monkeypatch.setattr("runtime.hooks.merge_skill_hook_dirs.discover_workspace_skill_manifests", lambda: ())
 
     ws = tmp_path / "workspace"
     hook_dir = ws / "hooks" / "demo"
@@ -76,8 +76,8 @@ def test_initialize_hooks_runtime_loads_when_metadata_bins_present_reports_requi
     _reset_hooks_runtime_state_for_test()
     empty_bundled = tmp_path / "empty-bundled"
     empty_bundled.mkdir(parents=True, exist_ok=True)
-    monkeypatch.setattr("oclaw.runtime.hooks_runtime.runtime_hooks_bundled_root", lambda: str(empty_bundled))
-    monkeypatch.setattr("oclaw.runtime.hooks.merge_skill_hook_dirs.discover_workspace_skill_manifests", lambda: ())
+    monkeypatch.setattr("runtime.hooks_runtime.runtime_hooks_bundled_root", lambda: str(empty_bundled))
+    monkeypatch.setattr("runtime.hooks.merge_skill_hook_dirs.discover_workspace_skill_manifests", lambda: ())
 
     ws = tmp_path / "workspace"
     hook_dir = ws / "hooks" / "demo"

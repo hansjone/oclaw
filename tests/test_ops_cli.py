@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import oclaw.runtime.operations.main as ops_main
+import runtime.operations.main as ops_main
 
 
 def test_gateway_start_uses_fastapi_only(monkeypatch) -> None:
@@ -12,7 +12,7 @@ def test_gateway_start_uses_fastapi_only(monkeypatch) -> None:
         called["ok"] = True
         return 0
 
-    monkeypatch.setattr("oclaw.interfaces.http.fastapi_app.main", fake_fastapi_main)
+    monkeypatch.setattr("interfaces.http.fastapi_app.main", fake_fastapi_main)
     rc = ops_main(["gateway", "start", "--host", "127.0.0.1", "--port", "8799"])
     assert rc == 0
     assert called["ok"] is True

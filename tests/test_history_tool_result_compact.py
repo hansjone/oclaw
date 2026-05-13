@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import json
 
-from oclaw.platform.persistence.sqlite_store import SqliteStore
-from oclaw.runtime.chat.history_tool_result_compact import compact_tool_results_in_session_history
+from svc.persistence.sqlite_store import SqliteStore
+from runtime.chat.history_tool_result_compact import compact_tool_results_in_session_history
 
 
 def test_compact_tool_results_in_session_history_rewrites_large_tool_message(tmp_path) -> None:  # noqa: ANN001

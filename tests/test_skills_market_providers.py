@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from oclaw.runtime import skills_market
+from runtime import skills_market
 
 
 def test_get_market_adapter_clawhub_default() -> None:
@@ -28,7 +28,7 @@ def test_cocoloop_resolve_archive_url(monkeypatch) -> None:
             "versions": [{"version": "1.0.0", "archiveUrl": "https://dl.example/bss/skills/demo.zip"}],
         }
 
-    monkeypatch.setattr("oclaw.runtime.skills_market.cocoloop_get_skill_detail", _fake_detail)
+    monkeypatch.setattr("runtime.skills_market.cocoloop_get_skill_detail", _fake_detail)
     a = skills_market.CocoloopMarketAdapter()
     url, ver = a.resolve_archive_url(slug="demo", version=None)
     assert url.endswith("demo.zip")

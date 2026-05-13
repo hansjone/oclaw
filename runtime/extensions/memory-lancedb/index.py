@@ -3,7 +3,7 @@ from __future__ import annotations
 import html
 import re
 
-from oclaw.runtime.extensions.plugin_api import PluginEntry, define_plugin_entry
+from runtime.extensions.plugin_api import PluginEntry, define_plugin_entry
 
 PROMPT_INJECTION_PATTERNS = (
     re.compile(r"ignore (all|any|previous|above|prior) instructions", re.I),

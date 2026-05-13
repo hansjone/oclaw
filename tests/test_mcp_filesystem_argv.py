@@ -7,8 +7,8 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from oclaw.platform.persistence.sqlite_store import SqliteStore
-from oclaw.runtime.tools.mcp.filesystem_argv import augment_filesystem_mcp_argv, build_mcp_process_command
+from svc.persistence.sqlite_store import SqliteStore
+from runtime.tools.mcp.filesystem_argv import augment_filesystem_mcp_argv, build_mcp_process_command
 
 
 def _wincase_set(items: list[str]) -> set[str]:

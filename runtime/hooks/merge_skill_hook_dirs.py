@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from oclaw.runtime.skills import discover_workspace_skill_manifests
+from runtime.skills import discover_workspace_skill_manifests
 
 
 def merge_skill_hook_extra_dirs_into_config(cfg: dict[str, Any]) -> dict[str, Any]:

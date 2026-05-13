@@ -4,7 +4,7 @@ import os
 
 import pytest
 
-from oclaw.platform.integrations import cc_mini_vendor as m
+from svc.integrations import cc_mini_vendor as m
 
 
 def test_cc_mini_pythonpath_prepends_src_when_available() -> None:

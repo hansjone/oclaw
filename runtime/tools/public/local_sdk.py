@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from oclaw.runtime.tools.path_guard import resolve_workspace_path, truncate_text
+from runtime.tools.path_guard import resolve_workspace_path, truncate_text
 
 
 @dataclass(frozen=True)
@@ -80,14 +80,14 @@ class LocalAdapter:
             dbp = str(os.getenv("OPS_ASSISTANT_DB_PATH") or "").strip()
             try:
                 if not dbp:
-                    from oclaw.platform.config.paths import db_path
+                    from svc.config.paths import db_path
 
                     dbp = str(db_path() or "").strip()
             except Exception:
                 dbp = ""
             if dbp:
                 try:
-                    from oclaw.platform.persistence.sqlite_store import SqliteStore
+                    from svc.persistence.sqlite_store import SqliteStore
 
                     store = SqliteStore(dbp)
                     raw_db = str(store.get_setting("AIA_ENABLE_RUN_COMMAND") or "").strip()

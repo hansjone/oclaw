@@ -1,6 +1,6 @@
 """通识专家工具清单。"""
 
-from oclaw.runtime.tools.base import ToolSpec
+from runtime.tools.base import ToolSpec
 
 
 def system_info_tool() -> ToolSpec:

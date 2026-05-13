@@ -2,16 +2,16 @@ from __future__ import annotations
 
 from typing import Any
 
-from oclaw.runtime.tools.base import ToolSpec
+from runtime.tools.base import ToolSpec
 
 
 def index_workspace_tool() -> ToolSpec:
     def handler(args: dict[str, Any]) -> dict[str, Any]:
         max_files = int(args.get("max_files") or 120)
         try:
-            from oclaw.platform.persistence.sqlite_store import SqliteStore
-            from oclaw.platform.config.paths import db_path
-            from oclaw.runtime.tools.workspace_indexer import index_workspace
+            from svc.persistence.sqlite_store import SqliteStore
+            from svc.config.paths import db_path
+            from runtime.tools.workspace_indexer import index_workspace
 
             store = SqliteStore(db_path())
             st = index_workspace(store, max_files=max(1, min(max_files, 800)))

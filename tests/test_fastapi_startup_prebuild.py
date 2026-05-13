@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fastapi import FastAPI
 
-from oclaw.interfaces.http import fastapi_app as app_mod
+from interfaces.http import fastapi_app as app_mod
 
 
 def test_run_startup_hooks_runs_prebuild_warmup(monkeypatch) -> None:

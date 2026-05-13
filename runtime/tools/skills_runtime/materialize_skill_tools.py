@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from oclaw.runtime.skills import discover_workspace_skill_manifests
-from oclaw.runtime.tools.base import ToolSpec
+from runtime.skills import discover_workspace_skill_manifests
+from runtime.tools.base import ToolSpec
 
 
 def materialize_executable_skill_tools(*, store: Any | None = None) -> list[ToolSpec]:
@@ -27,7 +27,7 @@ def materialize_executable_skill_tools(*, store: Any | None = None) -> list[Tool
             continue
 
         def _handler(args: dict[str, Any], *, _manifest=m, _rt=rt) -> dict[str, Any]:
-            from oclaw.runtime.tools.skills_runtime.subprocess_exec import run_skill_runtime_entry
+            from runtime.tools.skills_runtime.subprocess_exec import run_skill_runtime_entry
 
             source_meta = {}
             if isinstance(getattr(_manifest, "metadata_oclaw", None), dict):

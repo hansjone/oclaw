@@ -4,7 +4,7 @@ import importlib.util
 from pathlib import Path
 from typing import Any, Callable
 
-from oclaw.platform.config.runtime_paths import runtime_extensions_root
+from svc.config.runtime_paths import runtime_extensions_root
 from .shared_types import GatewayRequestHandlers
 from .validation import error_shape
 

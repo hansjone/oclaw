@@ -13,10 +13,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from oclaw.platform.config.paths import db_path  # noqa: E402
-from oclaw.platform.persistence.sqlite_store import SqliteStore  # noqa: E402
-from oclaw.runtime.tools.mcp.installer import McpServerManifest, install_mcp_server  # noqa: E402
-from oclaw.runtime.tools.mcp.runtime import McpProcessRuntime  # noqa: E402
+from svc.config.paths import db_path  # noqa: E402
+from svc.persistence.sqlite_store import SqliteStore  # noqa: E402
+from runtime.tools.mcp.installer import McpServerManifest, install_mcp_server  # noqa: E402
+from runtime.tools.mcp.runtime import McpProcessRuntime  # noqa: E402
 
 
 def _sync_tools(store: SqliteStore, server_id: str) -> bool:

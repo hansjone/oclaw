@@ -11,9 +11,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from oclaw.platform.config.paths import db_path  # noqa: E402
-from oclaw.platform.persistence.sqlite_store import SqliteStore  # noqa: E402
-from oclaw.runtime.tools.mcp.installer import McpServerManifest, _safe_server_id, install_mcp_server  # noqa: E402
+from svc.config.paths import db_path  # noqa: E402
+from svc.persistence.sqlite_store import SqliteStore  # noqa: E402
+from runtime.tools.mcp.installer import McpServerManifest, _safe_server_id, install_mcp_server  # noqa: E402
 
 
 # (server_id_seed, npm package ref, entry_args for npx)

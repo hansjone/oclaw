@@ -9,10 +9,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from oclaw.runtime.hooks.hook_types import HookEligibilityContext
-from oclaw.runtime.hooks.merge_skill_hook_dirs import merge_skill_hook_extra_dirs_into_config
-from oclaw.platform.config.paths import PROJECT_ROOT
-from oclaw.platform.config.runtime_paths import runtime_hooks_bundled_root
+from runtime.hooks.hook_types import HookEligibilityContext
+from runtime.hooks.merge_skill_hook_dirs import merge_skill_hook_extra_dirs_into_config
+from svc.config.paths import PROJECT_ROOT
+from svc.config.runtime_paths import runtime_hooks_bundled_root
 
 
 @dataclass
@@ -42,7 +42,7 @@ class _GmailWatcherLogAdapter:
 def _maybe_start_gmail_watcher_with_logs(resolved_cfg: dict[str, Any]) -> None:
     """After hooks load: parity hook for OpenClaw gateway post-attach Gmail lifecycle."""
     try:
-        from oclaw.runtime.hooks.gmail_watcher_lifecycle import start_gmail_watcher_with_logs
+        from runtime.hooks.gmail_watcher_lifecycle import start_gmail_watcher_with_logs
 
         start_gmail_watcher_with_logs(cfg=resolved_cfg, log=_GmailWatcherLogAdapter())
     except Exception:
@@ -128,7 +128,7 @@ def initialize_hooks_runtime(
         return int(_STATE.loaded_count or 0)
     try:
         oclaw_dir = _ensure_oclaw_path()
-        from oclaw.runtime import hooks as hooks_mod  # type: ignore
+        from runtime import hooks as hooks_mod  # type: ignore
 
         bundled_dir = runtime_hooks_bundled_root()
         resolved_cfg = merge_skill_hook_extra_dirs_into_config(dict(cfg or resolve_runtime_config() or {}))

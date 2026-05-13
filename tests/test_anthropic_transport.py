@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from oclaw.platform.llm.transports.anthropic_messages import parse_anthropic_stream_events
+from svc.llm.transports.anthropic_messages import parse_anthropic_stream_events
 
 
 def test_anthropic_stream_parses_text_and_tool_use() -> None:

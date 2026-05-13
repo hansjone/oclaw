@@ -6,7 +6,7 @@ from typing import Any
 
 
 def test_wait_for_agent_job_is_non_blocking_pending(monkeypatch) -> None:
-    from oclaw.interfaces.ws import server_methods_bridge as bridge
+    from interfaces.ws import server_methods_bridge as bridge
 
     class DummyLock:
         def __enter__(self) -> None:
@@ -51,7 +51,7 @@ def test_wait_for_agent_job_is_non_blocking_pending(monkeypatch) -> None:
 
 
 def test_turn_runner_emits_delta_only(monkeypatch) -> None:
-    from oclaw.interfaces.ws import turn_runner
+    from interfaces.ws import turn_runner
 
     @dataclass
     class DummyResult:

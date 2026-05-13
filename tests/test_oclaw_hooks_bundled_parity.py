@@ -7,8 +7,8 @@ import shutil
 import pytest
 from pathlib import Path
 
-from oclaw.runtime.hooks.internal_hooks import clear_hooks, create_hook_event, trigger_hook
-from oclaw.runtime.hooks.loader import load_internal_hooks
+from runtime.hooks.internal_hooks import clear_hooks, create_hook_event, trigger_hook
+from runtime.hooks.loader import load_internal_hooks
 
 
 def _load_module(module_path: Path):
@@ -97,8 +97,8 @@ def test_bootstrap_extra_files_only_injects_allowed_basenames(tmp_path: Path) ->
 
 
 def test_workspace_hook_discovery_supports_package_manifest_hooks(tmp_path: Path) -> None:
-    from oclaw.runtime.hooks.workspace import load_hook_entries_from_dir
-    from oclaw.runtime.hooks.hook_types import ensure_entry_dict
+    from runtime.hooks.workspace import load_hook_entries_from_dir
+    from runtime.hooks.hook_types import ensure_entry_dict
 
     hooks_root = tmp_path / "hooks"
     pkg = hooks_root / "pack-a"
@@ -135,7 +135,7 @@ def test_workspace_hook_discovery_supports_package_manifest_hooks(tmp_path: Path
 
 
 def test_hook_frontmatter_metadata_normalization() -> None:
-    from oclaw.runtime.hooks.frontmatter import parse_frontmatter, resolve_oclaw_metadata
+    from runtime.hooks.frontmatter import parse_frontmatter, resolve_oclaw_metadata
 
     content = (
         "---\n"
@@ -176,8 +176,8 @@ def test_hook_frontmatter_metadata_normalization() -> None:
 
 
 def test_hook_invocation_policy_disables_loading_even_when_config_enabled(tmp_path: Path) -> None:
-    from oclaw.runtime.hooks.loader import load_internal_hooks
-    from oclaw.runtime.hooks.internal_hooks import clear_hooks, create_hook_event, trigger_hook
+    from runtime.hooks.loader import load_internal_hooks
+    from runtime.hooks.internal_hooks import clear_hooks, create_hook_event, trigger_hook
 
     hooks_root = tmp_path / "hooks"
     demo = hooks_root / "demo"
@@ -214,8 +214,8 @@ def test_hook_invocation_policy_disables_loading_even_when_config_enabled(tmp_pa
 
 
 def test_should_include_hook_respects_requires_env_and_config(monkeypatch) -> None:
-    from oclaw.runtime.hooks.config import should_include_hook
-    from oclaw.runtime.hooks.hook_types import ensure_hook_entry
+    from runtime.hooks.config import should_include_hook
+    from runtime.hooks.hook_types import ensure_hook_entry
 
     entry_raw = {
         "hook": {"name": "demo", "source": "oclaw-managed"},
@@ -236,8 +236,8 @@ def test_should_include_hook_respects_requires_env_and_config(monkeypatch) -> No
 
 
 def test_should_include_hook_respects_os_allowlist() -> None:
-    from oclaw.runtime.hooks.config import should_include_hook
-    from oclaw.runtime.hooks.hook_types import ensure_hook_entry
+    from runtime.hooks.config import should_include_hook
+    from runtime.hooks.hook_types import ensure_hook_entry
 
     entry = ensure_hook_entry({
         "hook": {"name": "demo", "source": "oclaw-managed"},
@@ -249,8 +249,8 @@ def test_should_include_hook_respects_os_allowlist() -> None:
 
 
 def test_should_include_hook_requires_bins_all_must_exist() -> None:
-    from oclaw.runtime.hooks.config import should_include_hook
-    from oclaw.runtime.hooks.hook_types import ensure_hook_entry
+    from runtime.hooks.config import should_include_hook
+    from runtime.hooks.hook_types import ensure_hook_entry
 
     entry = ensure_hook_entry({
         "hook": {"name": "demo", "source": "oclaw-managed"},
@@ -262,8 +262,8 @@ def test_should_include_hook_requires_bins_all_must_exist() -> None:
 
 
 def test_should_include_hook_requires_any_bins_at_least_one() -> None:
-    from oclaw.runtime.hooks.config import should_include_hook
-    from oclaw.runtime.hooks.hook_types import ensure_hook_entry
+    from runtime.hooks.config import should_include_hook
+    from runtime.hooks.hook_types import ensure_hook_entry
 
     entry_ok = ensure_hook_entry({
         "hook": {"name": "demo", "source": "oclaw-managed"},
@@ -281,8 +281,8 @@ def test_should_include_hook_requires_any_bins_at_least_one() -> None:
 
 
 def test_should_include_hook_requires_config_path_truthy() -> None:
-    from oclaw.runtime.hooks.config import should_include_hook
-    from oclaw.runtime.hooks.hook_types import ensure_hook_entry
+    from runtime.hooks.config import should_include_hook
+    from runtime.hooks.hook_types import ensure_hook_entry
 
     entry = ensure_hook_entry({
         "hook": {"name": "demo", "source": "oclaw-managed"},
@@ -296,7 +296,7 @@ def test_should_include_hook_requires_config_path_truthy() -> None:
 
 
 def test_parse_hook_manifest_core_roundtrip() -> None:
-    from oclaw.runtime.hooks.hook_manifest_core import parse_hook_manifest
+    from runtime.hooks.hook_manifest_core import parse_hook_manifest
 
     fm = {
         "name": "demo-hook",
@@ -327,8 +327,8 @@ def test_parse_hook_manifest_core_roundtrip() -> None:
 
 
 def test_compat_wrappers_accept_dict_entries() -> None:
-    from oclaw.runtime.hooks.config import should_include_hook_compat
-    from oclaw.runtime.hooks.policy import resolve_hook_entries_compat
+    from runtime.hooks.config import should_include_hook_compat
+    from runtime.hooks.policy import resolve_hook_entries_compat
 
     entry = {
         "hook": {"name": "demo", "description": "", "source": "oclaw-managed", "filePath": "", "baseDir": "", "handlerPath": ""},
@@ -344,7 +344,7 @@ def test_compat_wrappers_accept_dict_entries() -> None:
 
 
 def test_ensure_hook_entry_normalizes_unknown_source() -> None:
-    from oclaw.runtime.hooks.hook_types import ensure_hook_entry
+    from runtime.hooks.hook_types import ensure_hook_entry
 
     row = {"hook": {"name": "x", "source": "unknown-source"}}
     entry = ensure_hook_entry(row)
@@ -352,8 +352,8 @@ def test_ensure_hook_entry_normalizes_unknown_source() -> None:
 
 
 def test_should_include_hook_remote_eligibility_overrides_local_runtime() -> None:
-    from oclaw.runtime.hooks.config import should_include_hook
-    from oclaw.runtime.hooks.hook_types import ensure_hook_entry
+    from runtime.hooks.config import should_include_hook
+    from runtime.hooks.hook_types import ensure_hook_entry
 
     entry = ensure_hook_entry(
         {
@@ -380,7 +380,7 @@ def test_should_include_hook_remote_eligibility_overrides_local_runtime() -> Non
 
 
 def test_workspace_discovers_enabled_plugin_hook_dirs(tmp_path: Path) -> None:
-    from oclaw.runtime.hooks.workspace import load_workspace_hook_entries
+    from runtime.hooks.workspace import load_workspace_hook_entries
 
     ws = tmp_path / "ws"
     plugin_root = ws / ".openclaw" / "extensions" / "sample-bundle"
@@ -413,7 +413,7 @@ def test_workspace_discovers_enabled_plugin_hook_dirs(tmp_path: Path) -> None:
 
 
 def test_workspace_skips_disabled_plugin_hook_dirs(tmp_path: Path) -> None:
-    from oclaw.runtime.hooks.workspace import load_workspace_hook_entries
+    from runtime.hooks.workspace import load_workspace_hook_entries
 
     ws = tmp_path / "ws"
     plugin_root = ws / ".openclaw" / "extensions" / "sample-bundle"
@@ -438,13 +438,13 @@ def test_workspace_skips_disabled_plugin_hook_dirs(tmp_path: Path) -> None:
 
 
 def test_legacy_internal_hook_handler_loads_from_workspace_relative_path(tmp_path: Path) -> None:
-    from oclaw.runtime.hooks.internal_hooks import (
+    from runtime.hooks.internal_hooks import (
         clear_hooks,
         create_hook_event,
         set_hooks_enabled,
         trigger_hook,
     )
-    from oclaw.runtime.hooks.loader import load_internal_hooks
+    from runtime.hooks.loader import load_internal_hooks
 
     (tmp_path / "hooks").mkdir(parents=True, exist_ok=True)
     legacy_path = tmp_path / "legacy_handler.py"
@@ -476,7 +476,7 @@ def test_legacy_internal_hook_handler_loads_from_workspace_relative_path(tmp_pat
 
 
 def test_legacy_internal_hook_handler_rejects_path_escape(tmp_path: Path) -> None:
-    from oclaw.runtime.hooks.loader import load_internal_hooks
+    from runtime.hooks.loader import load_internal_hooks
 
     (tmp_path / "hooks").mkdir(parents=True, exist_ok=True)
     cfg = {
@@ -491,7 +491,7 @@ def test_legacy_internal_hook_handler_rejects_path_escape(tmp_path: Path) -> Non
 
 
 def test_build_workspace_hook_status_reports_summary(tmp_path: Path) -> None:
-    from oclaw.runtime.hooks.hooks_status import build_workspace_hook_status
+    from runtime.hooks.hooks_status import build_workspace_hook_status
 
     ws = tmp_path / "ws"
     ok_dir = ws / "hooks" / "ok-hook"
@@ -532,7 +532,7 @@ def test_build_workspace_hook_status_reports_summary(tmp_path: Path) -> None:
 
 
 def test_build_workspace_hook_status_includes_install_options_and_missing_bins(tmp_path: Path) -> None:
-    from oclaw.runtime.hooks.hooks_status import build_workspace_hook_status
+    from runtime.hooks.hooks_status import build_workspace_hook_status
 
     ws = tmp_path / "ws"
     hook_dir = ws / "hooks" / "installable-hook"
@@ -572,7 +572,7 @@ def test_build_workspace_hook_status_includes_install_options_and_missing_bins(t
 
 
 def test_build_workspace_hook_status_selects_best_install_suggestion(tmp_path: Path) -> None:
-    from oclaw.runtime.hooks.hooks_status import build_workspace_hook_status
+    from runtime.hooks.hooks_status import build_workspace_hook_status
 
     ws = tmp_path / "ws"
     hook_dir = ws / "hooks" / "smart-install-hook"
@@ -608,7 +608,7 @@ def test_build_workspace_hook_status_selects_best_install_suggestion(tmp_path: P
 
 
 def test_hook_dir_prefers_handler_py_over_ts_and_sh(tmp_path: Path) -> None:
-    from oclaw.runtime.hooks.workspace import load_hook_entries_from_dir
+    from runtime.hooks.workspace import load_hook_entries_from_dir
 
     h = tmp_path / "h"
     h.mkdir()
@@ -631,7 +631,7 @@ def test_hook_dir_prefers_handler_py_over_ts_and_sh(tmp_path: Path) -> None:
 
 
 def test_hook_dir_selects_ts_over_sh_when_no_py(tmp_path: Path) -> None:
-    from oclaw.runtime.hooks.workspace import load_hook_entries_from_dir
+    from runtime.hooks.workspace import load_hook_entries_from_dir
 
     h = tmp_path / "h2"
     h.mkdir()
@@ -653,7 +653,7 @@ def test_hook_dir_selects_ts_over_sh_when_no_py(tmp_path: Path) -> None:
 
 
 def test_hook_dir_prefers_mjs_over_sh_and_bash(tmp_path: Path) -> None:
-    from oclaw.runtime.hooks.workspace import load_hook_entries_from_dir
+    from runtime.hooks.workspace import load_hook_entries_from_dir
 
     h = tmp_path / "h4"
     h.mkdir()
@@ -676,7 +676,7 @@ def test_hook_dir_prefers_mjs_over_sh_and_bash(tmp_path: Path) -> None:
 
 
 def test_hook_dir_selects_sh_when_only_shell(tmp_path: Path) -> None:
-    from oclaw.runtime.hooks.workspace import load_hook_entries_from_dir
+    from runtime.hooks.workspace import load_hook_entries_from_dir
 
     h = tmp_path / "h3"
     h.mkdir()
@@ -698,8 +698,8 @@ def test_hook_dir_selects_sh_when_only_shell(tmp_path: Path) -> None:
 
 @pytest.mark.skipif(shutil.which("bash") is None, reason="bash not available")
 def test_sh_hook_merges_stdout_context(tmp_path: Path) -> None:
-    from oclaw.runtime.hooks.internal_hooks import clear_hooks, create_hook_event, trigger_hook
-    from oclaw.runtime.hooks.loader import load_internal_hooks
+    from runtime.hooks.internal_hooks import clear_hooks, create_hook_event, trigger_hook
+    from runtime.hooks.loader import load_internal_hooks
 
     hooks = tmp_path / "hooks"
     h = hooks / "sh-hook"
@@ -744,8 +744,8 @@ def test_sh_hook_merges_stdout_context(tmp_path: Path) -> None:
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_mjs_module_hook_mutates_context(tmp_path: Path) -> None:
-    from oclaw.runtime.hooks.internal_hooks import clear_hooks, create_hook_event, trigger_hook
-    from oclaw.runtime.hooks.loader import load_internal_hooks
+    from runtime.hooks.internal_hooks import clear_hooks, create_hook_event, trigger_hook
+    from runtime.hooks.loader import load_internal_hooks
 
     hooks = tmp_path / "hooks"
     h = hooks / "jmod"
@@ -783,8 +783,8 @@ def test_mjs_module_hook_mutates_context(tmp_path: Path) -> None:
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_mjs_script_mode_hook_merges_stdout(tmp_path: Path) -> None:
-    from oclaw.runtime.hooks.internal_hooks import clear_hooks, create_hook_event, trigger_hook
-    from oclaw.runtime.hooks.loader import load_internal_hooks
+    from runtime.hooks.internal_hooks import clear_hooks, create_hook_event, trigger_hook
+    from runtime.hooks.loader import load_internal_hooks
 
     hooks = tmp_path / "hooks2"
     h = hooks / "jscr"
