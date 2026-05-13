@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 
 from runtime.tools.base import ToolSpec
@@ -8,27 +7,16 @@ from runtime.tools.path_guard import resolve_workspace_path
 
 
 def write_file_tool() -> ToolSpec:
-    def _normalize_write_path(path: str) -> str:
-        raw = str(path or "").strip().strip('"').strip("'")
-        if not raw:
-            raise ValueError("path_required")
-        p = Path(raw)
-        if p.is_absolute():
-            return raw
-        rel = raw.lstrip("./\\")
-        if not rel:
-            raise ValueError("path_required")
-        return str(Path("data") / "workspace" / rel)
-
     def _handler(args: dict[str, Any]) -> dict[str, Any]:
-        path = str(args.get("path") or "").strip()
+        raw = str(args.get("path") or "").strip().strip('"').strip("'")
+        if not raw:
+            return {"ok": False, "error": "path_required"}
         content = str(args.get("content") or "")
         mode = str(args.get("mode") or "overwrite").strip().lower()
         try:
-            normalized = _normalize_write_path(path)
+            p = resolve_workspace_path(raw)
         except ValueError as exc:
             return {"ok": False, "error": str(exc)}
-        p = resolve_workspace_path(normalized)
         p.parent.mkdir(parents=True, exist_ok=True)
         if mode not in ("overwrite", "append"):
             return {"ok": False, "error": "invalid_mode", "allowed": ["overwrite", "append"]}

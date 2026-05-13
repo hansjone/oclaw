@@ -123,7 +123,7 @@ def test_local_tool_integration_roundtrip(monkeypatch) -> None:
     tmpdir = Path(tempfile.mkdtemp(prefix="local_it_"))
     monkeypatch.setenv("OPS_WORKSPACE_ROOT", str(tmpdir))
     monkeypatch.setenv("AIA_ENABLE_RUN_COMMAND", "1")
-    target_rel = "data/workspace/it_sample.txt"
+    target_rel = "it_sample.txt"
 
     out_write = write_spec.handler({"path": "it_sample.txt", "content": "line1\nline2\n", "mode": "overwrite"})
     assert out_write.get("ok") is True, out_write
