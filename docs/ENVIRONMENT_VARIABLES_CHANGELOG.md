@@ -60,6 +60,7 @@
 ## 2026-05-10 / Unreleased
 
 ### Added
+- `AIA_TOOL_FUNCTION_STRICT`：控制 OpenAI 兼容 chat completions 是否在 **`tools[].function`** 上默认加 **`strict: true`**；`0`/`false`/`no`/`off` 关闭；默认开启。影响模块：`svc/llm/transports/openai_chat_completions.py`。示例占位：`_local/system.env.example`。
 - `AIA_IMAGE_EXPERT_API_KEY`、`AIA_IMAGE_EXPERT_BASE_URL`、`AIA_IMAGE_EXPERT_MODEL`、`AIA_IMAGE_EXPERT_CHAT_ENDPOINT`：图片专家（`send_legacy_image_messages`）专线，与 **`AIA_OCR_*`** 互不继承。
 - `AIA_IMAGE_EXPERT_REQUEST_EXTRA`：图片专家顶层 JSON；旧名 **`AIA_LEGACY_IMAGE_REQUEST_EXTRA`** 仍作别名可读。
 - `DASHSCOPE_IMAGE_*`（零散变量）：由 `image_legacy_client` 映射为请求体顶层字段。

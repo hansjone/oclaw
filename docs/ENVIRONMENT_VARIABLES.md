@@ -146,6 +146,13 @@
   - 作用：可选的 host 子串黑名单，强制走 prompt-tool 模式
   - 生效：`oclaw/platform/llm/chat_models.py`
 
+- `AIA_TOOL_FUNCTION_STRICT`
+  - 默认：未设置即 **开启**（在发往 OpenAI 兼容 **`/chat/completions`** 的请求里，为每个 **`tools[].function`** 写入 **`strict: true`**）
+  - 作用：设为 `0` / `false` / `no` / `off`（大小写不敏感）时关闭，避免少数网关因未知字段校验失败返回 400
+  - 说明：与具体模型无关；若使用 DeepSeek 文档中的 **strict（Beta）工具模式**，还需 **`/beta`** base URL 与符合规范的 JSON Schema，参见 [DeepSeek Tool Calls](https://api-docs.deepseek.com/zh-cn/guides/tool_calls)
+  - 示例：`_local/system.env.example`
+  - 生效：`svc/llm/transports/openai_chat_completions.py`
+
 ## 工具执行与安全
 
 - `AIA_DISABLE_TOOL_CONFIRM`
