@@ -109,6 +109,34 @@ def _messages_contain_list_with_image(messages: list[dict[str, Any]]) -> bool:
     return False
 
 
+def _deepseek_strict_tool_mode_enabled(*, base_url: str | None, model: str | None) -> bool:
+    """DeepSeek OpenAI-compat: optional ``strict_tool_mode`` in request body (via ``extra_body``).
+
+    Upstream documents this as reducing DSML-in-text tool output in favor of native ``tool_calls``.
+    Opt out with ``AIA_DEEPSEEK_STRICT_TOOL_MODE=0`` when a proxy rejects unknown fields.
+    """
+    raw = str(os.getenv("AIA_DEEPSEEK_STRICT_TOOL_MODE") or "").strip().lower()
+    if raw in ("0", "false", "no", "off"):
+        return False
+    hay = f"{base_url or ''} {model or ''}".lower()
+    return "deepseek" in hay
+
+
+def _merge_deepseek_strict_tool_mode_extra_body(
+    kwargs: dict[str, Any],
+    *,
+    base_url: str | None,
+    model: str | None,
+    use_tools: bool,
+) -> None:
+    if not use_tools or not _deepseek_strict_tool_mode_enabled(base_url=base_url, model=model):
+        return
+    extra_body = kwargs.get("extra_body") if isinstance(kwargs.get("extra_body"), dict) else {}
+    extra_body = dict(extra_body)
+    extra_body["strict_tool_mode"] = True
+    kwargs["extra_body"] = extra_body
+
+
 def _should_proactively_downgrade_multimodal_messages(
     messages: list[dict[str, Any]],
     *,
@@ -528,6 +556,9 @@ class OpenAIChatModel(ChatModel):
                 kwargs["tools"] = plan.tools_wired
             except Exception:
                 kwargs["tools"] = complete_openai_tools_wire_parameters(tools)
+        _merge_deepseek_strict_tool_mode_extra_body(
+            kwargs, base_url=self.base_url, model=self.model, use_tools=use_tools
+        )
         try:
             return self._client.chat.completions.create(**kwargs)
         except Exception as exc:
@@ -677,7 +708,13 @@ class OpenAIChatModel(ChatModel):
         return LLMResponse(content=content, tool_calls=tool_calls, reasoning_content=reasoning_text)
 
 
-__all__ = ["OpenAIChatModel", "_likely_gemini_openai_compat_base_url", "_model_id_suggests_gemini"]
+__all__ = [
+    "OpenAIChatModel",
+    "_likely_gemini_openai_compat_base_url",
+    "_model_id_suggests_gemini",
+    "_deepseek_strict_tool_mode_enabled",
+    "_merge_deepseek_strict_tool_mode_extra_body",
+]
 
 
 def _default_max_openai_tools_json_bytes(base_url: str | None) -> int | None:
