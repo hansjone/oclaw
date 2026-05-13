@@ -1,4 +1,4 @@
-"""DeepSeek: per-function ``strict: true`` on tools (official Tool Calls / strict Beta)."""
+"""OpenAI-style tools: optional ``function.strict: true`` (default on; env to disable)."""
 
 from __future__ import annotations
 
@@ -6,56 +6,83 @@ import os
 import unittest
 
 from svc.llm.transports.openai_chat_completions import (
-    _apply_deepseek_strict_tools,
-    _deepseek_strict_tools_enabled,
+    _apply_strict_flag_to_function_tools,
+    _openai_tool_function_strict_enabled,
 )
 
 
-class DeepseekStrictToolsTests(unittest.TestCase):
-    def test_enabled_when_deepseek_in_base_url(self) -> None:
-        self.assertTrue(
-            _deepseek_strict_tools_enabled(
-                base_url="https://api.deepseek.com/v1",
-                model="deepseek-chat",
-            )
-        )
-
-    def test_disabled_when_env_off(self) -> None:
-        prev = os.environ.get("AIA_DEEPSEEK_STRICT_TOOL_MODE")
+class OpenAIToolFunctionStrictTests(unittest.TestCase):
+    def test_enabled_by_default(self) -> None:
+        prev_t = os.environ.pop("AIA_TOOL_FUNCTION_STRICT", None)
+        prev_d = os.environ.pop("AIA_DEEPSEEK_STRICT_TOOL_MODE", None)
         try:
-            os.environ["AIA_DEEPSEEK_STRICT_TOOL_MODE"] = "0"
-            self.assertFalse(
-                _deepseek_strict_tools_enabled(
-                    base_url="https://api.deepseek.com/v1",
-                    model="x",
-                )
-            )
+            self.assertTrue(_openai_tool_function_strict_enabled())
+        finally:
+            if prev_t is not None:
+                os.environ["AIA_TOOL_FUNCTION_STRICT"] = prev_t
+            if prev_d is not None:
+                os.environ["AIA_DEEPSEEK_STRICT_TOOL_MODE"] = prev_d
+
+    def test_disabled_when_tool_function_strict_off(self) -> None:
+        prev = os.environ.get("AIA_TOOL_FUNCTION_STRICT")
+        try:
+            os.environ["AIA_TOOL_FUNCTION_STRICT"] = "0"
+            self.assertFalse(_openai_tool_function_strict_enabled())
         finally:
             if prev is None:
+                os.environ.pop("AIA_TOOL_FUNCTION_STRICT", None)
+            else:
+                os.environ["AIA_TOOL_FUNCTION_STRICT"] = prev
+
+    def test_disabled_legacy_deepseek_env_when_primary_unset(self) -> None:
+        prev_t = os.environ.pop("AIA_TOOL_FUNCTION_STRICT", None)
+        prev_d = os.environ.get("AIA_DEEPSEEK_STRICT_TOOL_MODE")
+        try:
+            os.environ["AIA_DEEPSEEK_STRICT_TOOL_MODE"] = "0"
+            self.assertFalse(_openai_tool_function_strict_enabled())
+        finally:
+            if prev_t is not None:
+                os.environ["AIA_TOOL_FUNCTION_STRICT"] = prev_t
+            if prev_d is None:
                 os.environ.pop("AIA_DEEPSEEK_STRICT_TOOL_MODE", None)
             else:
-                os.environ["AIA_DEEPSEEK_STRICT_TOOL_MODE"] = prev
+                os.environ["AIA_DEEPSEEK_STRICT_TOOL_MODE"] = prev_d
+
+    def test_primary_env_overrides_legacy_off(self) -> None:
+        prev_t = os.environ.get("AIA_TOOL_FUNCTION_STRICT")
+        prev_d = os.environ.get("AIA_DEEPSEEK_STRICT_TOOL_MODE")
+        try:
+            os.environ["AIA_DEEPSEEK_STRICT_TOOL_MODE"] = "0"
+            os.environ["AIA_TOOL_FUNCTION_STRICT"] = "1"
+            self.assertTrue(_openai_tool_function_strict_enabled())
+        finally:
+            if prev_t is None:
+                os.environ.pop("AIA_TOOL_FUNCTION_STRICT", None)
+            else:
+                os.environ["AIA_TOOL_FUNCTION_STRICT"] = prev_t
+            if prev_d is None:
+                os.environ.pop("AIA_DEEPSEEK_STRICT_TOOL_MODE", None)
+            else:
+                os.environ["AIA_DEEPSEEK_STRICT_TOOL_MODE"] = prev_d
 
     def test_apply_sets_strict_on_function_tools(self) -> None:
         tools = [
             {"type": "function", "function": {"name": "get_weather", "parameters": {"type": "object", "properties": {}}}},
             {"type": "not_function", "x": 1},
         ]
-        out = _apply_deepseek_strict_tools(tools)
+        out = _apply_strict_flag_to_function_tools(tools)
         self.assertIsNotNone(out)
         assert out is not None
         self.assertTrue(out[0]["function"]["strict"])
         self.assertEqual(out[1].get("type"), "not_function")
         self.assertNotIn("strict", out[1])
-        # input not mutated
         self.assertNotIn("strict", tools[0].get("function", {}))
 
-    def test_apply_skips_non_deepseek_not_tested_here(self) -> None:
-        out = _apply_deepseek_strict_tools([])
-        self.assertEqual(out, [])
+    def test_apply_empty(self) -> None:
+        self.assertEqual(_apply_strict_flag_to_function_tools([]), [])
 
     def test_apply_handles_missing_function_dict(self) -> None:
-        out = _apply_deepseek_strict_tools([{"type": "function"}])
+        out = _apply_strict_flag_to_function_tools([{"type": "function"}])
         assert out is not None
         self.assertEqual(out[0]["function"], {"strict": True})
 

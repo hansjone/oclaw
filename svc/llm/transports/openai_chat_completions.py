@@ -109,22 +109,28 @@ def _messages_contain_list_with_image(messages: list[dict[str, Any]]) -> bool:
     return False
 
 
-def _deepseek_strict_tools_enabled(*, base_url: str | None, model: str | None) -> bool:
-    """Whether to set ``strict: true`` on each OpenAI-style ``tools[].function`` for DeepSeek.
+def _openai_tool_function_strict_enabled() -> bool:
+    """Whether to set ``strict: true`` on each ``tools[].function`` for OpenAI-style chat completions.
 
-    DeepSeek documents strict tool output in
-    https://api-docs.deepseek.com/zh-cn/guides/tool_calls :
-    each ``function`` should include ``\"strict\": true`` (Beta; also needs ``/beta`` base URL
-    and JSON Schema rules on the provider side). Opt out with ``AIA_DEEPSEEK_STRICT_TOOL_MODE=0``.
+    Default **on** for every provider/model: many gateways ignore unknown ``function`` keys; some
+    reject them—use ``AIA_TOOL_FUNCTION_STRICT=0`` to disable.
+
+    ``AIA_DEEPSEEK_STRICT_TOOL_MODE=0`` is still honored as a legacy global opt-out when
+    ``AIA_TOOL_FUNCTION_STRICT`` is unset. DeepSeek strict mode details:
+    https://api-docs.deepseek.com/zh-cn/guides/tool_calls
     """
-    raw = str(os.getenv("AIA_DEEPSEEK_STRICT_TOOL_MODE") or "").strip().lower()
-    if raw in ("0", "false", "no", "off"):
+    primary = str(os.getenv("AIA_TOOL_FUNCTION_STRICT") or "").strip().lower()
+    if primary in ("0", "false", "no", "off"):
         return False
-    hay = f"{base_url or ''} {model or ''}".lower()
-    return "deepseek" in hay
+    if primary in ("1", "true", "yes", "on"):
+        return True
+    legacy = str(os.getenv("AIA_DEEPSEEK_STRICT_TOOL_MODE") or "").strip().lower()
+    if legacy in ("0", "false", "no", "off"):
+        return False
+    return True
 
 
-def _apply_deepseek_strict_tools(tools: list[dict[str, Any]] | None) -> list[dict[str, Any]] | None:
+def _apply_strict_flag_to_function_tools(tools: list[dict[str, Any]] | None) -> list[dict[str, Any]] | None:
     """Return a shallow-copied tools list with ``function.strict: true`` on each function tool."""
     if not tools:
         return tools
@@ -567,10 +573,10 @@ class OpenAIChatModel(ChatModel):
                 kwargs["tools"] = plan.tools_wired
             except Exception:
                 kwargs["tools"] = complete_openai_tools_wire_parameters(tools)
-        if use_tools and _deepseek_strict_tools_enabled(base_url=self.base_url, model=self.model):
+        if use_tools and _openai_tool_function_strict_enabled():
             tw = kwargs.get("tools")
             if isinstance(tw, list):
-                kwargs["tools"] = _apply_deepseek_strict_tools(tw)
+                kwargs["tools"] = _apply_strict_flag_to_function_tools(tw)
         try:
             return self._client.chat.completions.create(**kwargs)
         except Exception as exc:
@@ -724,8 +730,8 @@ __all__ = [
     "OpenAIChatModel",
     "_likely_gemini_openai_compat_base_url",
     "_model_id_suggests_gemini",
-    "_deepseek_strict_tools_enabled",
-    "_apply_deepseek_strict_tools",
+    "_openai_tool_function_strict_enabled",
+    "_apply_strict_flag_to_function_tools",
 ]
 
 
