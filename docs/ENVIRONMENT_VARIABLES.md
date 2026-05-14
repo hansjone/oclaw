@@ -599,6 +599,8 @@
 
 ## 存储与迁移
 
+**完整操作指南（SQLite → PostgreSQL、脚本与排障）**：见 [ASSISTANT_PG_MIGRATION.md](./ASSISTANT_PG_MIGRATION.md)。本节保留环境变量说明与步骤摘要。
+
 - `AIA_ASSISTANT_DB_BACKEND` / `OPS_ASSISTANT_DB_BACKEND`
   - 默认：未设置（按 `sqlite` 处理）
   - 取值：`sqlite`（默认）或 `postgresql`（大小写不敏感，亦接受 `pg` / `postgres` 等别名）
@@ -620,7 +622,7 @@
   2. 配置与目标库一致的 `AIA_ASSISTANT_DB_BACKEND=postgresql` 与 `AIA_ASSISTANT_DATABASE_URL`，在**该库**上执行 **`alembic upgrade head`**（或等价执行 `svc/persistence/ddl/postgresql_bootstrap.sql`），完成建表。
   3. 若从既有 SQLite 主库割接数据：在空表上运行 `runtime/operations/scripts/migrate_assistant_sqlite_to_postgresql.py`（支持 `--load-system-env`、`--sqlite-from-db-path` 及从环境变量读取 PG URL；可先 `--dry-run`）。Linux 可用 `runtime/operations/scripts/assistant_import_sqlite_to_postgresql.sh`（仅导入）或 `cutover_sqlite_to_postgresql.sh`（备份 + dry-run + 导入）；Windows 可用 `cutover_sqlite_to_postgresql.ps1`。
   4. **再启动**网关/应用进程。不要在未迁移 schema 的空库上直接启动依赖表结构的生产服务。
-  5. 详细说明与 Alembic 在 Windows 上的注意项见仓库根 `_local/system.env.example` 第二节注释。
+  5. 详细说明见 [ASSISTANT_PG_MIGRATION.md](./ASSISTANT_PG_MIGRATION.md)；Alembic 在 Windows 上的注意项另见仓库根 `_local/system.env.example` 第二节注释。
 
 - `AIA_ASSISTANT_DB_PATH`
   - 默认：`data/ai_ops.sqlite`

@@ -25,6 +25,8 @@ This repository is fully consolidated under `oclaw/`.
 
 2. **LLM**：可在 **Admin** 后台配置 Provider / 模型与密钥；也可在 `_local/system.env` 里设置 `OPENAI_API_KEY`、`OPENAI_BASE_URL` 等兜底。完整清单见 `docs/ENVIRONMENT_VARIABLES.md`。
 
+3. **助手主库（PostgreSQL，可选）**：默认使用本地 SQLite；若要将助手持久化迁到 PostgreSQL 或从零搭 PG，步骤与脚本说明见 `docs/ASSISTANT_PG_MIGRATION.md`（环境变量仍以 `docs/ENVIRONMENT_VARIABLES.md` 为准）。
+
 ### 命令（仓库根目录执行）
 
 ```powershell
@@ -126,6 +128,7 @@ WhatsApp install/start guide: see `docs/RUNBOOK.md` → “4.2 WhatsApp（实验
 
 Minimal onboarding guide: `docs/OPEN_SOURCE_QUICKSTART.md`.
 Branding guide (external-first assets under `_local/branding`): `docs/BRANDING.md`.
+Assistant main store: SQLite by default; optional PostgreSQL setup and SQLite→PG cutover: `docs/ASSISTANT_PG_MIGRATION.md`.
 
 Chinese zero-to-running checklist: see **开箱即用（从零跑起来）** at the top of this README.
 
@@ -168,6 +171,7 @@ Chinese zero-to-running checklist: see **开箱即用（从零跑起来）** at 
   - Built-in default
 
 See `docs/ENVIRONMENT_VARIABLES.md` for full runtime variable reference.
+PostgreSQL assistant-store migration (schema, data import, cutover): `docs/ASSISTANT_PG_MIGRATION.md`.
 
 ## License and security
 
