@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from typing import Any, Iterable, Sequence
 
 import psycopg
@@ -61,8 +62,21 @@ class PgConnShim:
         self._raw.executemany(adapted, seq_of_params)
 
 
+def _pg_connect_timeout_s() -> int:
+    raw = str(os.getenv("AIA_ASSISTANT_PG_CONNECT_TIMEOUT") or "10").strip()
+    try:
+        return max(1, min(int(raw), 120))
+    except ValueError:
+        return 10
+
+
 def connect_postgres(url: str) -> psycopg.Connection:
-    return psycopg.connect(normalize_psycopg_conninfo(url), row_factory=dict_row)
+    """Open a new PostgreSQL connection (short ``connect_timeout`` to avoid hanging on bad hosts)."""
+    return psycopg.connect(
+        normalize_psycopg_conninfo(url),
+        row_factory=dict_row,
+        connect_timeout=_pg_connect_timeout_s(),
+    )
 
 
 __all__ = ["PgConnShim", "PgCursorShim", "connect_postgres", "normalize_psycopg_conninfo"]

@@ -141,7 +141,7 @@ cd D:\path\to\oclaw
 2. 设置 **`AIA_ASSISTANT_DATABASE_URL`**（与导入目标一致）。
 3. 重启 **网关**、**wiki worker**、**渠道 worker** 等所有持有 DB 连接的进程。
 
-**注意**：`get_assistant_store()` 在进程内会按 `(backend, 连接键)` 缓存；改环境后必须重启进程，否则会连旧库。
+**注意**：`get_assistant_store()` 在进程内会按 `(backend, 连接键)` 缓存；连接键对 PostgreSQL 使用 **URL 的哈希**（避免在内存键中携带明文口令）。改环境后必须重启进程，否则会连旧库。
 
 ---
 
@@ -180,7 +180,8 @@ cd D:\path\to\oclaw
 | 网关仍像连 SQLite | 环境未生效 / 未重启 | 检查进程环境、`assistant_store` 单例 |
 | `invalid_credentials` / 连接失败 | URL 或网络或权限 | 用 `psql` 或 `psycopg` 单独测连 |
 | 部分表未拷贝 | PG 无同名表 | 先 `alembic upgrade head`；查看 migrator 打印的 `skip (not in PG public schema)` |
-| Windows 上 Alembic 编码问题 | 控制台代码页 | 使用 UTF-8 终端或重定向日志到文件 |
+| 仍为 SQLite 但已填 PG URL | 后端未切到 `postgresql` | 首次解析 URL 会 `UserWarning`；确认 `AIA_ASSISTANT_DB_BACKEND` 与重启 |
+| 连接 PG 长时间无响应 | 网络/防火墙 | 可调 `AIA_ASSISTANT_PG_CONNECT_TIMEOUT`（默认 10s，见 `ENVIRONMENT_VARIABLES.md`） |
 
 ---
 
@@ -191,7 +192,7 @@ cd D:\path\to\oclaw
 | `alembic.ini` | Alembic 配置，`script_location = assistant_migrations` |
 | `assistant_migrations/` | PG schema 版本链 |
 | `svc/persistence/ddl/postgresql_bootstrap.sql` | 初始 DDL（与首版迁移同源） |
-| `svc/config/database.py` | 后端与 DSN 解析 |
+| `svc/persistence/pg_adapter.py` | psycopg 连接（含 `connect_timeout`） |
 | `svc/persistence/assistant_store.py` | `get_assistant_store()` 工厂 |
 | `runtime/operations/scripts/migrate_assistant_sqlite_to_postgresql.py` | 数据导入 |
 | `runtime/operations/scripts/cutover_sqlite_to_postgresql.ps1` / `.sh` | 备份 + 预演 + 导入 |

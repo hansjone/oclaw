@@ -636,12 +636,18 @@
   - 默认：未设置（按 `sqlite` 处理）
   - 取值：`sqlite`（默认）或 `postgresql`（大小写不敏感，亦接受 `pg` / `postgres` 等别名）
   - 作用：主 assistant 持久化后端；设为 `postgresql` 时必须配置 `AIA_ASSISTANT_DATABASE_URL`（或 `OPS_*` / `*_PG_DSN` 别名）
+  - 说明：仍为 `sqlite` 时若设置了 PostgreSQL URL 环境变量，会在首次解析 SQLAlchemy URL 时发出**一次性** `UserWarning`（提示 URL 被忽略），避免误配割接后仍连 SQLite
   - 生效：`oclaw/svc/config/database.py`, `oclaw/svc/persistence/assistant_store.py`
 
 - `AIA_ASSISTANT_DATABASE_URL` / `OPS_ASSISTANT_DATABASE_URL`（及 `AIA_ASSISTANT_PG_DSN` 等别名）
   - 默认：空
   - 作用：PostgreSQL 连接串（`postgresql://…` 或 `postgresql+psycopg://…`）
   - 生效：`oclaw/svc/config/database.py`, Alembic `assistant_migrations/env.py`
+
+- `AIA_ASSISTANT_PG_CONNECT_TIMEOUT`
+  - 默认：`10`（秒）
+  - 作用：原始 `psycopg` 连接（`SqliteStore._connect` 每条业务连接）的 `connect_timeout` 上限，避免错误主机/防火墙时长时间挂死；范围钳制为 `1..120`
+  - 生效：`oclaw/svc/persistence/pg_adapter.py`
 
 - `AIA_TEST_PG_URL`
   - 默认：空

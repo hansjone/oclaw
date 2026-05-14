@@ -325,7 +325,16 @@ class SqliteStore:
             self.db_path = str(db_path)
             self._postgres_url = ""
             self._use_pg = False
-        self._init_db()
+        try:
+            self._init_db()
+        except Exception as exc:
+            if self._use_pg:
+                raise RuntimeError(
+                    "Assistant PostgreSQL initialization failed (connection, permissions, or missing tables). "
+                    "Apply schema with `alembic upgrade head` (or `svc/persistence/ddl/postgresql_bootstrap.sql`), "
+                    "verify AIA_ASSISTANT_DATABASE_URL, and inspect the chained exception."
+                ) from exc
+            raise
 
     @contextmanager
     def _connect(self) -> Iterator[Any]:

@@ -77,6 +77,29 @@ def test_get_assistant_store_postgresql_smoke(monkeypatch: pytest.MonkeyPatch) -
     assert msgs[0].content == "pg-smoke-body"
 
 
+def test_postgresql_singleton_key_formula_excludes_password(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Regression: cache key must not embed DSN credentials (logs, crash dumps)."""
+    import hashlib
+
+    monkeypatch.setenv("AIA_ASSISTANT_DB_BACKEND", "postgresql")
+    monkeypatch.setenv("AIA_ASSISTANT_DATABASE_URL", "postgresql://u:top_secret@127.0.0.1:5432/db")
+    url = db_cfg.assistant_sqlalchemy_url()
+    key = f"postgresql::{hashlib.sha256(url.encode()).hexdigest()}"
+    assert "top_secret" not in key
+    assert key.startswith("postgresql::")
+
+
+def test_warn_when_postgres_url_set_but_sqlite_backend(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    db_cfg.reset_assistant_db_config_warnings_for_tests()
+    monkeypatch.delenv("AIA_ASSISTANT_DB_BACKEND", raising=False)
+    monkeypatch.setenv("OPS_WORKSPACE_ROOT", str(tmp_path))
+    monkeypatch.setenv("AIA_ASSISTANT_DB_PATH", str(tmp_path / "w.sqlite"))
+    monkeypatch.setenv("AIA_ASSISTANT_DATABASE_URL", "postgresql://u:p@127.0.0.1:5432/x")
+    with pytest.warns(UserWarning, match="ignored"):
+        db_cfg.assistant_sqlalchemy_url()
+    db_cfg.reset_assistant_db_config_warnings_for_tests()
+
+
 def test_assistant_db_backend_invalid(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("AIA_ASSISTANT_DB_BACKEND", "mysql")
     with pytest.raises(ValueError, match="Invalid assistant DB backend"):
