@@ -68,6 +68,16 @@ def test_require_ident_rejects_injection(mig) -> None:
         mig._require_ident("app_user;drop")
 
 
+def test_sqlite_pg_nonempty_import_conflict_msg(mig) -> None:
+    assert mig._sqlite_pg_nonempty_import_conflict_msg("t", 0, 3) is None
+    assert mig._sqlite_pg_nonempty_import_conflict_msg("t", 2, 0) is None
+    assert mig._sqlite_pg_nonempty_import_conflict_msg("t", 0, 0) is None
+    m = mig._sqlite_pg_nonempty_import_conflict_msg("llm_profile", 1, 2)
+    assert m is not None
+    assert "llm_profile" in m
+    assert "1" in m and "2" in m
+
+
 def test_pg_url_from_environ_order(monkeypatch: pytest.MonkeyPatch, mig) -> None:
     for k in (
         "AIA_ASSISTANT_DATABASE_URL",

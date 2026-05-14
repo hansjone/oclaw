@@ -6,8 +6,10 @@
 Tables are copied in **foreign-key safe order** (from SQLite ``PRAGMA foreign_key_list``), and only
 **columns present in both** SQLite and PostgreSQL are inserted.
 
-By default the script aborts if any target table in ``public`` already has rows (empty PG only).
-Use ``--allow-non-empty`` to skip that check (you are responsible for avoiding duplicates / FK errors).
+By default the script aborts if **both** sides would supply rows for the same table: SQLite has at
+least one row **and** PostgreSQL already has rows (typical after a gateway run seeded ``llm_profile``
+etc.). Empty SQLite tables may coexist with PostgreSQL seed rows. Use ``--allow-non-empty`` to skip
+that check (duplicates / primary-key violations are your risk).
 
 **PostgreSQL URL** is taken from ``--pg-url`` if set; otherwise from the first non-empty environment
 variable among ``AIA_ASSISTANT_DATABASE_URL``, ``OPS_ASSISTANT_DATABASE_URL``, ``AIA_ASSISTANT_PG_DSN``,
@@ -172,19 +174,34 @@ def _common_columns(sl: sqlite3.Connection, pg: psycopg.Connection, table: str) 
     return [c for c in sc if c in pc and _IDENT.fullmatch(c)]
 
 
-def _assert_pg_tables_empty(pg: psycopg.Connection, tables: Iterable[str]) -> None:
-    with pg.cursor() as cur:
-        for t in sorted(set(tables)):
-            _require_ident(t)
-            cur.execute(f'SELECT COUNT(*) AS n FROM "{t}"')
-            row = cur.fetchone()
-            n = int(_pg_row_first_value(row))
-            if n:
-                raise SystemExit(
-                    f"Refusing to import: PostgreSQL table {t!r} already has {n} row(s). "
-                    "Use an empty schema after alembic upgrade, or pass --allow-non-empty if you "
-                    "really intend to append (duplicates / FK failures are your risk)."
-                )
+def _sqlite_pg_nonempty_import_conflict_msg(table: str, sqlite_n: int, pg_n: int) -> str | None:
+    """Return an error message if we cannot safely INSERT SQLite rows into PG for this table."""
+    if sqlite_n <= 0 or pg_n <= 0:
+        return None
+    return (
+        f"Refusing to import: table {table!r} has {sqlite_n} row(s) in SQLite but PostgreSQL "
+        f"already has {pg_n} row(s). That usually means data or seeds already exist in PG "
+        "(for example the gateway was started once). Use a fresh schema after `alembic upgrade head`, "
+        "truncate this table on PostgreSQL, or pass --allow-non-empty knowing duplicates may cause "
+        "primary-key violations."
+    )
+
+
+def _assert_pg_tables_compatible_for_copy(
+    sl: sqlite3.Connection,
+    pg: psycopg.Connection,
+    tables: Iterable[str],
+) -> None:
+    """Abort when SQLite would copy rows into a PG table that is not empty."""
+    for t in sorted(set(tables)):
+        _require_ident(t)
+        sqlite_n = int(sl.execute(f"SELECT COUNT(*) FROM {_require_ident(t)}").fetchone()[0])
+        with pg.cursor() as cur:
+            cur.execute(f'SELECT COUNT(*) AS n FROM "{_require_ident(t)}"')
+            pg_n = int(_pg_row_first_value(cur.fetchone()))
+        msg = _sqlite_pg_nonempty_import_conflict_msg(t, sqlite_n, pg_n)
+        if msg:
+            raise SystemExit(msg)
 
 
 def _sqlite_row_counts(sl: sqlite3.Connection, tables: Iterable[str]) -> dict[str, int]:
@@ -320,7 +337,7 @@ def main() -> None:
     ap.add_argument(
         "--allow-non-empty",
         action="store_true",
-        help="Do not abort when target PG tables already contain rows",
+        help="Skip the SQLite+PG nonempty conflict check (risk of duplicate keys / bad counts)",
     )
     ap.add_argument(
         "--batch",
@@ -366,7 +383,7 @@ def main() -> None:
 
         order = _migration_order(sl, common)
         if not args.dry_run and not args.allow_non_empty:
-            _assert_pg_tables_empty(pg, common)
+            _assert_pg_tables_compatible_for_copy(sl, pg, common)
 
         src_counts = _sqlite_row_counts(sl, order)
         total = 0
