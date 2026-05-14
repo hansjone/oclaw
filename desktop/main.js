@@ -23,8 +23,16 @@ const APP_ICON_PATH = (() => {
   }
   return candidates[candidates.length - 1];
 })();
+const REPO_ROOT_FOR_LOGS = path.resolve(__dirname, "..");
+function resolveFileLogRoot() {
+  const fromEnv = String(
+    process.env.OCLAW_DESKTOP_LOG_ROOT || process.env.AIA_RUNTIME_LOG_DIR || ""
+  ).trim();
+  if (fromEnv) return path.resolve(fromEnv);
+  return path.join(REPO_ROOT_FOR_LOGS, "data", "logs");
+}
 const DATA_ROOT = path.join(app.getPath("userData"), "runtime-data");
-const LOG_ROOT = path.join(app.getPath("userData"), "logs");
+const LOG_ROOT = resolveFileLogRoot();
 const BACKEND_LOG_FILE = path.join(LOG_ROOT, "backend.log");
 const STARTUP_TIMEOUT_MS = 30000;
 const POLL_INTERVAL_MS = 600;

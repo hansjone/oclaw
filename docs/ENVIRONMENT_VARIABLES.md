@@ -519,9 +519,40 @@
   - 生效：`oclaw/interfaces/http/fastapi_app.py`
 
 - `AIA_RUNTIME_LOG_DIR`
-  - 默认：空（使用内部默认目录）
-  - 作用：运行日志目录
-  - 生效：`oclaw/runtime/operations/runtime.py`
+  - 默认：空（使用 `<assistant DB 文件父目录>/logs`，常见为 `data/logs/`）
+  - 作用：运行日志根目录（网关、渠道、wiki worker、微信/WhatsApp sidecar 重定向、Desktop 文件日志、Hook `hooks/` 等）
+  - 说明：布局与排障见 [`LOGGING.md`](./LOGGING.md)
+  - 生效：`oclaw/svc/config/log_paths.py`, `oclaw/runtime/operations/runtime.py`, `oclaw/svc/observability/logging_setup.py`, `oclaw/interfaces/http/fastapi_app.py`, `oclaw/desktop/main.js`, `oclaw/runtime/operations/scripts/lib/ResolveRuntimeLogDir.ps1` 及依赖该库的启动脚本
+
+- `OCLAW_DESKTOP_LOG_ROOT`
+  - 默认：空（Desktop 使用 `AIA_RUNTIME_LOG_DIR`；再空则 `<仓库根>/data/logs/`，见 `desktop/main.js`）
+  - 作用：Electron 内嵌网关等写入 `desktop.log` / `backend.log` 等的目录；`start_desktop.ps1` 会设为与 `AIA_RUNTIME_LOG_DIR` 相同
+  - 生效：`oclaw/desktop/main.js`, `oclaw/runtime/operations/scripts/start_desktop.ps1`
+
+- `OCLAW_LOG_LEVEL` / `AIA_LOG_LEVEL`
+  - 默认：`INFO`
+  - 作用：写入 `app/oclaw.log`（及 uvicorn 相关 logger）的级别；取值 `DEBUG` / `INFO` / `WARNING` / `ERROR` / `CRITICAL`（`WARN`→`WARNING`，`FATAL`→`CRITICAL`）
+  - 生效：`oclaw/svc/observability/logging_setup.py`
+
+- `OCLAW_LOG_MAX_BYTES`
+  - 默认：`20971520`（20 MiB）
+  - 作用：单一日志文件达到该大小后轮转
+  - 生效：`oclaw/svc/observability/logging_setup.py`
+
+- `OCLAW_LOG_BACKUP_COUNT`
+  - 默认：`5`
+  - 作用：轮转文件保留数量（含当前文件在内的上限由 handler 实现决定）
+  - 生效：`oclaw/svc/observability/logging_setup.py`
+
+- `AIA_LOG_TO_FILE`
+  - 默认：未设置（启用文件日志；pytest 进程内仍会因 `PYTEST_CURRENT_TEST` 跳过写文件）
+  - 作用：设为 `0` / `false` / `no` / `off` 时不配置轮转文件 handler（便于前台调试或特殊环境）
+  - 生效：`oclaw/svc/observability/logging_setup.py`, `oclaw/interfaces/http/fastapi_app.py`（网关不传 `log_config`）
+
+- `OCLAW_HOOK_LOG_USE_STATE_DIR`
+  - 默认：未设置（`command-logger` / `boot-md` 写入运行日志根下的 `hooks/`，与 `data/logs` 同树）
+  - 作用：设为 `1` / `true` / `yes` / `on` 时，改回旧布局：写入 `OCLAW_STATE_DIR`（或 `~/.oclaw`）下的 `logs/`
+  - 生效：`oclaw/runtime/hooks/bundled/command-logger/handler.py`, `oclaw/runtime/hooks/bundled/boot-md/handler.py`, `oclaw/svc/config/log_paths.py`
 
 - `AIA_SSE_QUEUE_MAXSIZE`
   - 默认：`2000`

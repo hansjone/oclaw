@@ -12,8 +12,6 @@ $desktopDir = Join-Path $repoRoot "desktop"
 $runDir = Join-Path $PSScriptRoot ".run"
 New-Item -ItemType Directory -Force -Path $runDir | Out-Null
 $pidFile = Join-Path $runDir "desktop.pid"
-$outLog = Join-Path $runDir "desktop.out.log"
-$errLog = Join-Path $runDir "desktop.err.log"
 
 if (-not (Test-Path $desktopDir)) {
     Write-Host "[ERROR] desktop directory not found: $desktopDir" -ForegroundColor Red
@@ -26,6 +24,12 @@ $env:PYTHONSAFEPATH = "1"
 $env:AIA_WORKSPACE_ROOT = $repoRoot
 $env:OPS_WORKSPACE_ROOT = $repoRoot
 $env:OCLAW_WORKSPACE = $repoRoot
+
+. (Join-Path $PSScriptRoot "lib\ResolveRuntimeLogDir.ps1")
+$runtimeLogDir = Get-OclawRuntimeLogDir -RepoRoot $repoRoot
+$env:AIA_RUNTIME_LOG_DIR = $runtimeLogDir
+$env:OCLAW_DESKTOP_LOG_ROOT = $runtimeLogDir
+New-Item -ItemType Directory -Force -Path $runtimeLogDir | Out-Null
 
 # Do not inherit attach-mode env from a parent shell when launching standalone desktop.
 Remove-Item Env:OCLAW_DESKTOP_EMBED_BACKEND -ErrorAction SilentlyContinue
@@ -73,7 +77,7 @@ if ($Background) {
     }
     Set-Content -Path $pidFile -Value "$($p.Id)" -Encoding ascii
     Write-Host "desktop.pid = $pidFile" -ForegroundColor DarkGray
-    Write-Host "Embedded backend/chat logs (Electron): see %APPDATA%\oclaw\logs\desktop.log / backend.log" -ForegroundColor DarkGray
+    Write-Host "Desktop / embedded gateway file logs: $runtimeLogDir\desktop.log , backend.log , channel-wecom.log" -ForegroundColor DarkGray
     Write-Host "PID = $($p.Id)" -ForegroundColor Green
     Write-Host "==> Desktop launched in background (this script exits now)." -ForegroundColor Cyan
     exit 0

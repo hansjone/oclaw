@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from svc.config.log_paths import oclaw_log_root
 from svc.config.paths import db_path
 
 
@@ -17,10 +18,7 @@ def _runtime_file() -> Path:
 
 
 def _runtime_log_dir() -> Path:
-    p = str(os.getenv("AIA_RUNTIME_LOG_DIR") or "").strip()
-    if p:
-        return Path(p).expanduser().resolve()
-    return Path(db_path()).resolve().parent / "logs"
+    return oclaw_log_root()
 
 
 def assistant_runtime_log_dir() -> Path:
@@ -29,7 +27,7 @@ def assistant_runtime_log_dir() -> Path:
     Same rule as ``AIA_RUNTIME_LOG_DIR`` or ``<parent of sqlite db_path>)/logs``.
     Use this from shell scripts so paths match Python ``stack up`` / ``start_service``.
     """
-    return _runtime_log_dir()
+    return oclaw_log_root()
 
 
 def _read_state() -> dict[str, Any]:

@@ -14,10 +14,13 @@ function Resolve-RepoRoot {
 $oclawRoot = Resolve-RepoRoot
 $sidecarRoot = Join-Path $oclawRoot "data\\channel_sidecar\\$ChannelId"
 $stateDir = Join-Path $sidecarRoot "state"
-$logDir = Join-Path $sidecarRoot "logs"
 $pidFile = Join-Path $sidecarRoot "pid.txt"
 $bridgeSrc = Join-Path $oclawRoot "runtime\\operations\\weixin_bridge"
 $pluginRoot = Join-Path $env:USERPROFILE ".openclaw\\extensions\\openclaw-weixin"
+
+$env:PYTHONPATH = $oclawRoot
+. (Join-Path $PSScriptRoot "lib\ResolveRuntimeLogDir.ps1")
+$runtimeLogDir = Get-OclawRuntimeLogDir -RepoRoot $oclawRoot
 
 function Get-SidecarProcesses {
   $escapedSidecarRoot = $sidecarRoot.Replace("\", "\\")
@@ -74,8 +77,8 @@ function Ensure-OfficialPluginRuntimeDeps {
 if (-not (Test-Path $sidecarRoot)) {
   New-Item -ItemType Directory -Force -Path $sidecarRoot | Out-Null
 }
-New-Item -ItemType Directory -Force -Path $logDir | Out-Null
 New-Item -ItemType Directory -Force -Path $stateDir | Out-Null
+New-Item -ItemType Directory -Force -Path $runtimeLogDir | Out-Null
 
 $cleaned = Stop-SidecarProcesses
 Remove-Item -Force $pidFile -ErrorAction SilentlyContinue
@@ -89,8 +92,8 @@ if (Test-Path $bridgeSrc) {
   }
 }
 
-$logPath = Join-Path $logDir "weixin_sidecar.log"
-$errPath = Join-Path $logDir "weixin_sidecar.err.log"
+$logPath = Join-Path $runtimeLogDir "weixin_sidecar.log"
+$errPath = Join-Path $runtimeLogDir "weixin_sidecar.err.log"
 if (Test-Path (Join-Path $sidecarRoot "official_runner.ts")) {
   Ensure-OfficialPluginRuntimeDeps
   $cmd = "cmd.exe"

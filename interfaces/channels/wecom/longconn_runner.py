@@ -650,6 +650,11 @@ def _run_ws_forever(*, sender: WeComClient, deliver_outbound: bool, use_response
 
 
 def run_forever() -> int:
+    from svc.config.bootstrap_env import load_system_env
+    from svc.observability.logging_setup import configure_oclaw_logging
+
+    load_system_env()
+    configure_oclaw_logging(service_name="wecom-longconn", include_uvicorn_formatters=False)
     store = get_assistant_store()
     sender = WeComClient(store)
     lock = _SingleInstanceLock(Path(db_path()).resolve().parent / "locks" / "wecom_longconn.lock")

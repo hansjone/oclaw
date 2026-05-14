@@ -27,9 +27,12 @@ The app will:
 2. Start backend using `python -m runtime.operations gateway start --host 127.0.0.1 --port <port>`.
 3. Open `http://127.0.0.1:<port>/chat` in the desktop window.
 
-Logs are written under:
+Logs (embedded backend, desktop shell, optional WeCom channel child) are written under the **runtime log root** (same as `AIA_RUNTIME_LOG_DIR` / `data/logs/` — see repo root [`docs/LOGGING.md`](../docs/LOGGING.md)). When launched via `runtime/operations/scripts/start_desktop.ps1`, `OCLAW_DESKTOP_LOG_ROOT` is set for you.
 
-- `%APPDATA%/oclaw/logs/backend.log` (Windows)
+Typical files:
+
+- `desktop.log`
+- `backend.log`
 
 ## Environment knobs
 

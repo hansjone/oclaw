@@ -77,14 +77,8 @@ if (-not $SkipInstall) {
     Write-Step "Skip dependency install"
 }
 
-# Same directory as runtime.operations.runtime.start_service (db_path parent / logs, or AIA_RUNTIME_LOG_DIR).
-$logDir = $null
-try {
-    $logDir = (& $pythonExe -c "from runtime.operations.runtime import assistant_runtime_log_dir; print(str(assistant_runtime_log_dir()))" 2>$null | Select-Object -Last 1).Trim()
-} catch { }
-if (-not $logDir) {
-    $logDir = Join-Path $repoRoot "data\logs"
-}
+. (Join-Path $PSScriptRoot "lib\ResolveRuntimeLogDir.ps1")
+$logDir = Get-OclawRuntimeLogDir -RepoRoot $repoRoot
 Write-Step "Runtime log dir: $logDir"
 Write-Host "  (stack up / start_service: gateway.err.log + gateway.out.log here)" -ForegroundColor DarkGray
 Write-Host "  (this script foreground: gateway.foreground.log when log mirror on)" -ForegroundColor DarkGray

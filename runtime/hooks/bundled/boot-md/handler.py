@@ -5,6 +5,8 @@ import os
 from pathlib import Path
 from typing import Any, Iterable
 
+from svc.config.log_paths import oclaw_hooks_log_dir
+
 
 def _resolve_state_dir() -> Path:
     override = os.environ.get("OCLAW_STATE_DIR") or os.environ.get("OCLAW_HOME")
@@ -49,9 +51,7 @@ def handle(event: Any) -> None:
     if getattr(event, "type", None) != "gateway" or getattr(event, "action", None) != "startup":
         return
 
-    state = _resolve_state_dir()
-    log_dir = state / "logs"
-    log_dir.mkdir(parents=True, exist_ok=True)
+    log_dir = oclaw_hooks_log_dir(state_dir_if_legacy=_resolve_state_dir())
     out_log = log_dir / "boot-md.log"
 
     now = getattr(event, "timestamp", None)

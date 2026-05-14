@@ -27,6 +27,8 @@ This repository is fully consolidated under `oclaw/`.
 
 3. **助手主库（PostgreSQL，可选）**：默认使用本地 SQLite；若要将助手持久化迁到 PostgreSQL 或从零搭 PG，步骤与脚本说明见 `docs/ASSISTANT_PG_MIGRATION.md`（环境变量仍以 `docs/ENVIRONMENT_VARIABLES.md` 为准）。
 
+4. **日志**：运行与轮转日志目录、排障时查看哪些文件，见 `docs/LOGGING.md`。
+
 ### 命令（仓库根目录执行）
 
 ```powershell
@@ -129,6 +131,7 @@ WhatsApp install/start guide: see `docs/RUNBOOK.md` → “4.2 WhatsApp（实验
 Minimal onboarding guide: `docs/OPEN_SOURCE_QUICKSTART.md`.
 Branding guide (external-first assets under `_local/branding`): `docs/BRANDING.md`.
 Assistant main store: SQLite by default; optional PostgreSQL setup and SQLite→PG cutover: `docs/ASSISTANT_PG_MIGRATION.md`.
+Runtime logging layout and troubleshooting: `docs/LOGGING.md`.
 
 Chinese zero-to-running checklist: see **开箱即用（从零跑起来）** at the top of this README.
 
@@ -172,6 +175,7 @@ Chinese zero-to-running checklist: see **开箱即用（从零跑起来）** at 
 
 See `docs/ENVIRONMENT_VARIABLES.md` for full runtime variable reference.
 PostgreSQL assistant-store migration (schema, data import, cutover): `docs/ASSISTANT_PG_MIGRATION.md`.
+Logging directories and rotating files: `docs/LOGGING.md`.
 
 ## License and security
 

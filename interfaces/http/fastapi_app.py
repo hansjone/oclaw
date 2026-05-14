@@ -300,6 +300,13 @@ def create_app() -> FastAPI:
 
 def main() -> int:
     load_system_env()
+    from svc.observability.logging_setup import (
+        build_uvicorn_logging_dict_config,
+        configure_oclaw_logging,
+        skip_file_logging,
+    )
+
+    configure_oclaw_logging(service_name="gateway", include_uvicorn_formatters=True)
     host = (os.getenv("AIA_ASSISTANT_GATEWAY_HOST") or "0.0.0.0").strip()
     port = int(os.getenv("AIA_ASSISTANT_GATEWAY_PORT") or "8787")
     try:
@@ -313,14 +320,17 @@ def main() -> int:
     except Exception:
         ws_max_size = int(MAX_PAYLOAD_BYTES)
     ws_max_size = max(1024, min(int(ws_max_size), 200_000_000))
-    uvicorn.run(
-        "interfaces.http.fastapi_app:create_app",
-        host=host,
-        port=port,
-        reload=False,
-        factory=True,
-        ws_max_size=ws_max_size,
-    )
+    run_kw: dict[str, Any] = {
+        "app": "interfaces.http.fastapi_app:create_app",
+        "host": host,
+        "port": port,
+        "reload": False,
+        "factory": True,
+        "ws_max_size": ws_max_size,
+    }
+    if not skip_file_logging():
+        run_kw["log_config"] = build_uvicorn_logging_dict_config()
+    uvicorn.run(**run_kw)
     return 0
 
 

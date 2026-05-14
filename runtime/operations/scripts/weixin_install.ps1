@@ -25,7 +25,6 @@ function Sync-WeixinBridgeRunners {
 }
 
 New-Item -ItemType Directory -Force -Path $sidecarRoot | Out-Null
-New-Item -ItemType Directory -Force -Path (Join-Path $sidecarRoot "logs") | Out-Null
 New-Item -ItemType Directory -Force -Path $stateDir | Out-Null
 
 function Ensure-OfficialPluginRuntimeDeps {

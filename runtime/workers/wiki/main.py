@@ -337,4 +337,9 @@ def run_worker() -> int:
 
 
 if __name__ == "__main__":
+    from svc.config.bootstrap_env import load_system_env
+    from svc.observability.logging_setup import configure_oclaw_logging
+
+    load_system_env()
+    configure_oclaw_logging(service_name="wiki-worker", include_uvicorn_formatters=False)
     raise SystemExit(run_worker())

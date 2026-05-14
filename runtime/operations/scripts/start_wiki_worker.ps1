@@ -13,8 +13,6 @@ $repoRoot = Resolve-RepoRoot
 $runDir = Join-Path $PSScriptRoot ".run"
 $null = New-Item -ItemType Directory -Force -Path $runDir -ErrorAction SilentlyContinue
 $pidFile = Join-Path $runDir "wiki_worker.pid"
-$outLog = Join-Path $runDir "wiki_worker.out.log"
-$errLog = Join-Path $runDir "wiki_worker.err.log"
 
 function Test-AlivePid([int]$procId) {
   try {
@@ -50,6 +48,12 @@ $env:PYTHONSAFEPATH = "1"
 $env:AIA_WORKSPACE_ROOT = $repoRoot
 $env:OPS_WORKSPACE_ROOT = $repoRoot
 $env:OCLAW_WORKSPACE = $repoRoot
+
+. (Join-Path $PSScriptRoot "lib\ResolveRuntimeLogDir.ps1")
+$logDir = Get-OclawRuntimeLogDir -RepoRoot $repoRoot
+$null = New-Item -ItemType Directory -Force -Path $logDir -ErrorAction SilentlyContinue
+$outLog = Join-Path $logDir "wiki_worker.out.log"
+$errLog = Join-Path $logDir "wiki_worker.err.log"
 
 if (-not $Background) {
   & $pythonExe -m runtime.workers.wiki.main

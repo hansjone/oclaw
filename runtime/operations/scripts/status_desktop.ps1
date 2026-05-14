@@ -6,10 +6,16 @@ function Warn([string]$msg) {
     Write-Host "[WARN] $msg" -ForegroundColor Yellow
 }
 
+$repoRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))
+$env:PYTHONPATH = $repoRoot
+. (Join-Path $PSScriptRoot "lib\ResolveRuntimeLogDir.ps1")
+$logDir = Get-OclawRuntimeLogDir -RepoRoot $repoRoot
+
 $runDir = Join-Path $PSScriptRoot ".run"
 $pidFile = Join-Path $runDir "desktop.pid"
-$outLog = Join-Path $runDir "desktop.out.log"
-$errLog = Join-Path $runDir "desktop.err.log"
+$desktopLog = Join-Path $logDir "desktop.log"
+$backendLog = Join-Path $logDir "backend.log"
+$channelWecomLog = Join-Path $logDir "channel-wecom.log"
 
 if (-not (Test-Path $pidFile)) {
     Warn "desktop.pid not found: $pidFile"
@@ -29,8 +35,9 @@ try {
     Write-Host "desktop_running=1" -ForegroundColor Green
     Write-Host "pid=$procId"
     Write-Host "name=$($p.ProcessName)"
-    if (Test-Path $outLog) { Write-Host "out_log=$outLog" }
-    if (Test-Path $errLog) { Write-Host "err_log=$errLog" }
+    if (Test-Path $desktopLog) { Write-Host "desktop_log=$desktopLog" }
+    if (Test-Path $backendLog) { Write-Host "backend_log=$backendLog" }
+    if (Test-Path $channelWecomLog) { Write-Host "channel_wecom_log=$channelWecomLog" }
     exit 0
 } catch {
     Warn "desktop process not found: PID=$procId"

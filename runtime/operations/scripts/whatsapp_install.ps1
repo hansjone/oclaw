@@ -17,7 +17,6 @@ function Resolve-RepoRoot {
 $oclawRoot = Resolve-RepoRoot
 $sidecarRoot = Join-Path $oclawRoot "data\\channel_sidecar\\$ChannelId"
 $stateDir = Join-Path $sidecarRoot "state"
-$logDir = Join-Path $sidecarRoot "logs"
 $bridgeSrc = Join-Path $oclawRoot "runtime\\operations\\whatsapp_bridge"
 
 # Pin known-good versions to avoid breakage from upstream latest releases.
@@ -29,7 +28,6 @@ $typescriptVersion = "5.8.2"
 
 New-Item -ItemType Directory -Force -Path $sidecarRoot | Out-Null
 New-Item -ItemType Directory -Force -Path $stateDir | Out-Null
-New-Item -ItemType Directory -Force -Path $logDir | Out-Null
 
 Push-Location $sidecarRoot
 try {

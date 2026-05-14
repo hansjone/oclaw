@@ -14,15 +14,18 @@ function Resolve-RepoRoot {
 $oclawRoot = Resolve-RepoRoot
 $sidecarRoot = Join-Path $oclawRoot "data\\channel_sidecar\\$ChannelId"
 $stateDir = Join-Path $sidecarRoot "state"
-$logDir = Join-Path $sidecarRoot "logs"
 $sidecarPidFile = Join-Path $sidecarRoot "pid.txt"
+
+$env:PYTHONPATH = $oclawRoot
+. (Join-Path $PSScriptRoot "lib\ResolveRuntimeLogDir.ps1")
+$runtimeLogDir = Get-OclawRuntimeLogDir -RepoRoot $oclawRoot
 
 New-Item -ItemType Directory -Force -Path $sidecarRoot | Out-Null
 New-Item -ItemType Directory -Force -Path $stateDir | Out-Null
-New-Item -ItemType Directory -Force -Path $logDir | Out-Null
+New-Item -ItemType Directory -Force -Path $runtimeLogDir | Out-Null
 
-$logPath = Join-Path $logDir "whatsapp_sidecar.log"
-$errPath = Join-Path $logDir "whatsapp_sidecar.err.log"
+$logPath = Join-Path $runtimeLogDir "whatsapp_sidecar.log"
+$errPath = Join-Path $runtimeLogDir "whatsapp_sidecar.err.log"
 $systemNodeDir = "C:\\Program Files\\nodejs"
 if (Test-Path (Join-Path $systemNodeDir "node.exe")) {
   $env:PATH = "$systemNodeDir;$env:PATH"
