@@ -10,8 +10,7 @@ def test_run_startup_hooks_runs_prebuild_warmup(monkeypatch) -> None:
         def revoke_all_auth_sessions(self) -> int:
             return 0
 
-    monkeypatch.setattr(app_mod, "SqliteStore", lambda _p: DummyStore())
-    monkeypatch.setattr(app_mod, "db_path", lambda: "dummy.sqlite")
+    monkeypatch.setattr(app_mod, "get_assistant_store", lambda: DummyStore())
     monkeypatch.setattr(app_mod, "prepare_gateway_plugin_bootstrap", lambda **kwargs: {"ok": True})
     monkeypatch.setattr(app_mod, "resolve_runtime_config", lambda: {})
     monkeypatch.setattr(app_mod, "skill_runtime_diagnostics", lambda: {"skills_root": "/tmp", "skills_total": 0})

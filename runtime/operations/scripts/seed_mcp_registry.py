@@ -17,6 +17,7 @@ sys.path.insert(0, str(ROOT))
 
 from svc.config.paths import PROJECT_ROOT, db_path  # noqa: E402
 from svc.persistence.sqlite_store import SqliteStore  # noqa: E402
+from svc.persistence.assistant_store import get_assistant_store
 from runtime.tools.mcp.installer import McpServerManifest, _safe_server_id, install_mcp_server  # noqa: E402
 
 
@@ -38,7 +39,7 @@ def main(argv: list[str]) -> int:
         print("no servers[] in seed file", file=sys.stderr)
         return 2
 
-    store = SqliteStore(db_path())
+    store = get_assistant_store()
     ok_n = 0
     for payload in items:
         if not isinstance(payload, dict):

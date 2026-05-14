@@ -18,9 +18,24 @@ class ChatSessionFullSmokeTests(unittest.TestCase):
     def setUp(self) -> None:
         self._tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
         self.db = Path(self._tmp.name) / "ops.sqlite"
+        # 本机若已 export PG 助手库，get_assistant_store 会连 PG，与本测试临时 SQLite 种子不一致 → login 失败。
+        for k in (
+            "AIA_ASSISTANT_DB_BACKEND",
+            "OPS_ASSISTANT_DB_BACKEND",
+            "AIA_ASSISTANT_DATABASE_URL",
+            "OPS_ASSISTANT_DATABASE_URL",
+            "AIA_ASSISTANT_PG_DSN",
+            "OPS_ASSISTANT_PG_DSN",
+        ):
+            os.environ.pop(k, None)
         os.environ["OPS_ASSISTANT_DB_PATH"] = str(self.db)
         os.environ["OPS_ASSISTANT_PASSWORD"] = "test-admin-pass"
         os.environ["OPS_ASSISTANT_MODE"] = "rule"
+        from svc.persistence.assistant_store import reset_assistant_store_singleton
+        from svc.persistence.db.engine import clear_assistant_engine_cache
+
+        clear_assistant_engine_cache()
+        reset_assistant_store_singleton()
         store = SqliteStore(str(self.db))
         t = store.create_tenant("Team")
         self.tenant_id = str(t["id"])

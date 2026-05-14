@@ -4,6 +4,7 @@ from typing import Any
 
 from svc.config.paths import db_path
 from svc.persistence.sqlite_store import SqliteStore
+from svc.persistence.assistant_store import get_assistant_store
 from runtime.tools.base import ToolSpec
 
 
@@ -22,7 +23,7 @@ def todo_create_tool() -> ToolSpec:
             title = _require(str(args.get("title") or ""), "title")
             due_at = str(args.get("due_at") or "").strip() or None
             assignee_user_id = str(args.get("assignee_user_id") or "").strip() or None
-            store = SqliteStore(db_path())
+            store = get_assistant_store()
             row = store.todo_create(
                 tenant_id=tenant_id,
                 owner_user_id=owner_user_id,
@@ -61,7 +62,7 @@ def todo_list_tool() -> ToolSpec:
             assignee_user_id = str(args.get("assignee_user_id") or "").strip() or None
             status = str(args.get("status") or "open").strip() or None
             limit = int(args.get("limit") or 50)
-            store = SqliteStore(db_path())
+            store = get_assistant_store()
             rows = store.todo_list(
                 tenant_id=tenant_id,
                 assignee_user_id=assignee_user_id,
@@ -96,7 +97,7 @@ def todo_done_tool() -> ToolSpec:
         try:
             tenant_id = _require(str(args.get("tenant_id") or ""), "tenant_id")
             todo_id = _require(str(args.get("todo_id") or ""), "todo_id")
-            store = SqliteStore(db_path())
+            store = get_assistant_store()
             ok = store.todo_set_status(tenant_id=tenant_id, todo_id=todo_id, status="done")
             return {"ok": bool(ok), "todo_id": todo_id}
         except Exception as e:
@@ -122,7 +123,7 @@ def todo_assign_tool() -> ToolSpec:
             tenant_id = _require(str(args.get("tenant_id") or ""), "tenant_id")
             todo_id = _require(str(args.get("todo_id") or ""), "todo_id")
             assignee_user_id = _require(str(args.get("assignee_user_id") or ""), "assignee_user_id")
-            store = SqliteStore(db_path())
+            store = get_assistant_store()
             ok = store.todo_assign(tenant_id=tenant_id, todo_id=todo_id, assignee_user_id=assignee_user_id)
             return {"ok": bool(ok), "todo_id": todo_id, "assignee_user_id": assignee_user_id}
         except Exception as e:

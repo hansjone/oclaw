@@ -13,6 +13,7 @@ from interfaces.http.fastapi_app import create_app
 from interfaces.admin import routes as admin_routes
 from svc.config.paths import db_path
 from svc.persistence.sqlite_store import SqliteStore
+from svc.persistence.assistant_store import get_assistant_store
 
 
 class McpAdminApiTests(unittest.TestCase):
@@ -106,7 +107,7 @@ class McpAdminApiTests(unittest.TestCase):
         self.assertEqual(toggle.status_code, 200)
         self.assertTrue(toggle.json().get("ok"))
 
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         store.add_mcp_installation_log(
             server_id="demo-mcp",
             status="error",
@@ -121,7 +122,7 @@ class McpAdminApiTests(unittest.TestCase):
 
     def test_healthcheck_and_tools_sync(self) -> None:
         script = self._write_mcp_server()
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         store.upsert_mcp_server(
             server_id="dummy",
             source_type="github",
@@ -141,7 +142,7 @@ class McpAdminApiTests(unittest.TestCase):
         self.assertTrue(any(str(t.get("tool_name") or "") == "ping" for t in tools))
 
     def test_healthcheck_and_tools_sync_bailian_webparser_compat(self) -> None:
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         store.upsert_mcp_server(
             server_id="webparser-compat",
             source_type="npm",
@@ -169,7 +170,7 @@ class McpAdminApiTests(unittest.TestCase):
 
     def test_reinstall_from_saved_manifest(self) -> None:
         script = self._write_mcp_server()
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         store.upsert_mcp_server(
             server_id="dummy-reinstall",
             source_type="npm",
@@ -190,7 +191,7 @@ class McpAdminApiTests(unittest.TestCase):
 
     def test_update_from_saved_manifest_single_and_batch(self) -> None:
         script = self._write_mcp_server()
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         store.upsert_mcp_server(
             server_id="dummy-update",
             source_type="npm",
@@ -222,7 +223,7 @@ class McpAdminApiTests(unittest.TestCase):
 
     def test_check_all_enabled_servers(self) -> None:
         script = self._write_mcp_server()
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         store.upsert_mcp_server(
             server_id="dummy-check-all",
             source_type="github",
@@ -247,7 +248,7 @@ class McpAdminApiTests(unittest.TestCase):
 
     def test_repair_weak_skips_healthy_and_fixes_empty_tools(self) -> None:
         script = self._write_mcp_server()
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         store.upsert_mcp_server(
             server_id="dummy-repair-weak",
             source_type="github",
@@ -286,7 +287,7 @@ class McpAdminApiTests(unittest.TestCase):
 
     def test_repair_weak_include_disabled_server(self) -> None:
         script = self._write_mcp_server()
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         store.upsert_mcp_server(
             server_id="dummy-repair-disabled",
             source_type="github",
@@ -318,7 +319,7 @@ class McpAdminApiTests(unittest.TestCase):
         self.assertTrue(bool((row or {}).get("ok")), row)
 
     def test_check_updates_reports_update_candidates(self) -> None:
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         store.upsert_mcp_server(
             server_id="update-s1",
             source_type="npm",
@@ -372,7 +373,7 @@ class McpAdminApiTests(unittest.TestCase):
         self.assertEqual(data.get("allowed_specialists"), ["generalist", "ops"])
 
     def test_mcp_binding_config_filters_invalid_servers(self) -> None:
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         store.upsert_mcp_server(
             server_id="bind-s1",
             source_type="github",
@@ -397,7 +398,7 @@ class McpAdminApiTests(unittest.TestCase):
         self.assertEqual(mapping.get("ops"), [])
 
     def test_mcp_usage_and_delete(self) -> None:
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         store.upsert_mcp_server(
             server_id="usage-s1",
             source_type="github",
@@ -431,7 +432,7 @@ class McpAdminApiTests(unittest.TestCase):
         self.assertEqual(left, [])
 
     def test_mcp_uninstall_remove_record(self) -> None:
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         store.upsert_mcp_server(
             server_id="uninstall-s1",
             source_type="github",

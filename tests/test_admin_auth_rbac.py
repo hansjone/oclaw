@@ -8,8 +8,9 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from interfaces.http.fastapi_app import create_app
-from svc.config.paths import db_path
+from svc.persistence.db.engine import clear_assistant_engine_cache
 from svc.persistence.sqlite_store import SqliteStore
+from svc.persistence.assistant_store import get_assistant_store
 
 
 class AdminAuthRBACTests(unittest.TestCase):
@@ -36,6 +37,7 @@ class AdminAuthRBACTests(unittest.TestCase):
         self.client = TestClient(app)
 
     def tearDown(self) -> None:
+        clear_assistant_engine_cache()
         self._tmp.cleanup()
 
     def _login(self, username: str = "administrator", password: str = "test-admin-pass") -> str:
@@ -65,7 +67,7 @@ class AdminAuthRBACTests(unittest.TestCase):
 
     def test_cross_tenant_forbidden(self) -> None:
         token = self._login()
-        other = SqliteStore(db_path()).create_tenant("Other")
+        other = get_assistant_store().create_tenant("Other")
         r = self.client.get(
             f"/admin/api/users?tenant_id={other['id']}",
             headers={"authorization": f"Bearer {token}"},
@@ -74,7 +76,7 @@ class AdminAuthRBACTests(unittest.TestCase):
         self.assertIn(r.status_code, (200, 403))
 
     def test_chat_login_allows_non_administrator_with_password(self) -> None:
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         store.create_user_account(
             tenant_id=self.tenant_id,
             username="alice",
@@ -98,7 +100,7 @@ class AdminAuthRBACTests(unittest.TestCase):
         self.assertEqual(str((data.get("session") or {}).get("username") or ""), "alice")
 
     def test_chat_login_username_case_insensitive(self) -> None:
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         store.create_user_account(
             tenant_id=self.tenant_id,
             username="carol",
@@ -122,7 +124,7 @@ class AdminAuthRBACTests(unittest.TestCase):
         self.assertEqual(str((data.get("session") or {}).get("username") or ""), "carol")
 
     def test_console_login_allows_member_username_with_admin_read(self) -> None:
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         store.create_user_account(
             tenant_id=self.tenant_id,
             username="bob",

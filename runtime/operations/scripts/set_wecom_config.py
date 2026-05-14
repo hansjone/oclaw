@@ -4,6 +4,7 @@ import sys
 
 from svc.config.paths import db_path
 from svc.persistence.sqlite_store import SqliteStore
+from svc.persistence.assistant_store import get_assistant_store
 
 
 def main() -> int:
@@ -13,7 +14,7 @@ def main() -> int:
         print("  python -m scripts.set_wecom_config <bot_id> <bot_secret>")
         return 2
 
-    store = SqliteStore(db_path())
+    store = get_assistant_store()
     if len(args) < 2:
         print("error=missing_required_args")
         return 2

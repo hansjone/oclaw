@@ -7,6 +7,7 @@ from typing import Any
 from interfaces.channels.base import InboundMessage, OutboundMessage
 from interfaces.channels.wecom.wecom_bridge import WeComAdapter
 from runtime.types import normalize_interaction_mode, normalize_requested_specialist
+from svc.persistence.assistant_store import get_assistant_store
 
 _CHANNEL_DISPATCH_INTERACTION_KEY_PREFIX = "channel.dispatch.interaction_mode."
 _CHANNEL_DISPATCH_SPECIALIST_KEY_PREFIX = "channel.dispatch.specialist."
@@ -74,7 +75,7 @@ def _handle_productivity_commands(*, text: str, tenant_id: str, user_id: str) ->
     from svc.config.paths import db_path
     from svc.persistence.sqlite_store import SqliteStore
 
-    store = SqliteStore(db_path())
+    store = get_assistant_store()
 
     if t.startswith("记待办 "):
         title = t[len("记待办 ") :].strip()
@@ -508,7 +509,7 @@ def process_inbound_payload(payload: dict[str, Any]) -> dict[str, Any]:
     from svc.persistence.sqlite_store import SqliteStore
     from svc.config.paths import db_path
 
-    store = SqliteStore(db_path())
+    store = get_assistant_store()
     if channel_name == "wecom":
         account_id = _resolve_wecom_account_id(inbound, payload) or str(store.get_setting("wecom_bot_id") or "").strip()
     else:

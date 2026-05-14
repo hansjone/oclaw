@@ -5,6 +5,7 @@ from typing import Any
 
 from svc.config.paths import db_path
 from svc.persistence.sqlite_store import SqliteStore
+from svc.persistence.assistant_store import get_assistant_store
 from runtime.skill_installer import install_skill_from_registry_archive
 from runtime.skills import default_skills_root
 from runtime.skills_market import get_market_adapter, normalize_skill_market_provider_setting
@@ -12,7 +13,7 @@ from runtime.tools.base import ToolSpec
 
 
 def _store() -> SqliteStore:
-    return SqliteStore(db_path())
+    return get_assistant_store()
 
 
 def _agent_workspace_skills_root() -> Path:

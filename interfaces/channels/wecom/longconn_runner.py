@@ -16,6 +16,7 @@ from interfaces.channels.wecom.normalize import normalize_wecom_event, normalize
 from svc.config.paths import db_path
 from svc.integrations.wecom_client import WeComClient
 from svc.persistence.sqlite_store import SqliteStore
+from svc.persistence.assistant_store import get_assistant_store
 
 
 def _safe_json(obj: Any) -> str:
@@ -649,7 +650,7 @@ def _run_ws_forever(*, sender: WeComClient, deliver_outbound: bool, use_response
 
 
 def run_forever() -> int:
-    store = SqliteStore(db_path())
+    store = get_assistant_store()
     sender = WeComClient(store)
     lock = _SingleInstanceLock(Path(db_path()).resolve().parent / "locks" / "wecom_longconn.lock")
     lock.acquire()

@@ -4,6 +4,7 @@ import sys
 
 from svc.config.paths import db_path
 from svc.persistence.sqlite_store import SqliteStore
+from svc.persistence.assistant_store import get_assistant_store
 
 
 _CLEAR_KEYS = [
@@ -29,7 +30,7 @@ def main() -> int:
         print("error=missing_required_args")
         return 2
 
-    store = SqliteStore(db_path())
+    store = get_assistant_store()
     store.set_setting("wecom_mode", "bot_api")
     store.set_setting("wecom_bot_id", bot_id)
     store.set_secret("wecom_bot_secret", bot_secret)

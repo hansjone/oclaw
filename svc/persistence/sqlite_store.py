@@ -2,16 +2,24 @@ from __future__ import annotations
 
 import base64
 import json
+import logging
 import os
 import re
 import sqlite3
 import sys
 import hashlib
 import uuid
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Optional
+
+from sqlalchemy.exc import IntegrityError
+
+from svc.persistence.pg_adapter import PgConnShim, connect_postgres
+from svc.persistence.pg_compat import scrub_nul_bytes_from_jsonable, scrub_nul_bytes_from_text
 
 if sys.platform == "win32":
     import ctypes
@@ -20,6 +28,14 @@ if sys.platform == "win32":
 
 def utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+_LOG = logging.getLogger(__name__)
+
+
+def _chat_message_persist_log_enabled() -> bool:
+    v = str(os.getenv("AIA_LOG_CHAT_MESSAGE_PERSIST") or "").strip().lower()
+    return v in ("1", "true", "yes", "on")
 
 
 # 内置模型配置（不可删除；rule 不在设置界面展示）
@@ -59,7 +75,7 @@ def _tool_row_assistant_message_id(tool_calls_text: str | None) -> int | None:
     return None
 
 
-def _trim_messages_start_index(rows: list[sqlite3.Row], keep_last: int) -> int | None:
+def _trim_messages_start_index(rows: list[Any], keep_last: int) -> int | None:
     """计算应保留的起始索引，避免 tool 消息与对应 assistant 消息断链。"""
     n = len(rows)
     if n <= keep_last:
@@ -298,24 +314,169 @@ class SqliteStore:
                     slim[k] = obj.get(k)
         slim["preview"] = blob[: min(cap, 4000)]
         return slim
-    def __init__(self, db_path: str | Path):
-        self.db_path = str(db_path)
+    def __init__(self, db_path: str | Path | None = None, *, postgres_url: str | None = None) -> None:
+        if postgres_url:
+            self._postgres_url = str(postgres_url).strip()
+            self._use_pg = True
+            self.db_path = self._postgres_url
+        else:
+            if db_path is None:
+                raise TypeError("SqliteStore requires db_path unless postgres_url= is set")
+            self.db_path = str(db_path)
+            self._postgres_url = ""
+            self._use_pg = False
         self._init_db()
 
-    def _connect(self) -> sqlite3.Connection:
-        # timeout：数据库被锁时的等待秒数（适配 Streamlit 多会话并发）。
+    @contextmanager
+    def _connect(self) -> Iterator[Any]:
+        if self._use_pg:
+            raw = connect_postgres(self._postgres_url)
+            shim = PgConnShim(raw)
+            try:
+                yield shim
+                raw.commit()
+            except BaseException:
+                raw.rollback()
+                raise
+            finally:
+                raw.close()
+            return
         conn = sqlite3.connect(self.db_path, timeout=30.0)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA foreign_keys = ON;")
-        # WAL：读不会阻塞写，提升并发访问体验（约 10 用户规模）。
         conn.execute("PRAGMA journal_mode = WAL;")
-        # 在 WAL 下，NORMAL 在安全性与写入吞吐之间更平衡（checkpoint 时 fsync）。
         conn.execute("PRAGMA synchronous = NORMAL;")
-        # SQLITE_BUSY 的重试毫秒数（在连接超时之外额外生效）。
         conn.execute("PRAGMA busy_timeout = 30000;")
-        return conn
+        try:
+            with conn:
+                yield conn
+        finally:
+            conn.close()
+
+    def _shared_sa_engine(self):
+        """SQLAlchemy engine for the same database as :meth:`_connect` (per SQLite file or PostgreSQL URL)."""
+        from svc.persistence.db.engine import engine_for_sqlite_file, get_assistant_engine
+
+        if self._use_pg:
+            return get_assistant_engine()
+        return engine_for_sqlite_file(str(self.db_path))
+
+    def _app_settings_repo(self):
+        """Lazily construct SA repository for ``app_setting`` (same DB URL as raw :meth:`_connect`)."""
+        from svc.persistence.sa_repos.app_settings import AppSettingsSaRepository
+
+        r = self.__dict__.get("_app_settings_sa")
+        if r is None:
+            r = AppSettingsSaRepository(self._shared_sa_engine())
+            self.__dict__["_app_settings_sa"] = r
+        return r
+
+    def _auth_sessions_repo(self):
+        """Lazily construct SA repository for ``auth_session`` (same DB URL as raw :meth:`_connect`)."""
+        from svc.persistence.sa_repos.auth_sessions import AuthSessionsSaRepository
+
+        r = self.__dict__.get("_auth_sessions_sa")
+        if r is None:
+            r = AuthSessionsSaRepository(self._shared_sa_engine())
+            self.__dict__["_auth_sessions_sa"] = r
+        return r
+
+    def _chat_sessions_repo(self):
+        """Lazily construct SA repository for ``chat_session`` / ``ui_session_owner`` list paths."""
+        from svc.persistence.sa_repos.chat_sessions import ChatSessionsSaRepository
+
+        r = self.__dict__.get("_chat_sessions_sa")
+        if r is None:
+            r = ChatSessionsSaRepository(self._shared_sa_engine())
+            self.__dict__["_chat_sessions_sa"] = r
+        return r
+
+    def _ui_session_owner_repo(self):
+        from svc.persistence.sa_repos.ui_session_owner import UiSessionOwnerSaRepository
+
+        r = self.__dict__.get("_ui_session_owner_sa")
+        if r is None:
+            r = UiSessionOwnerSaRepository(self._shared_sa_engine())
+            self.__dict__["_ui_session_owner_sa"] = r
+        return r
+
+    def _tenant_repo(self):
+        from svc.persistence.sa_repos.tenant_bind_code import TenantSaRepository
+
+        r = self.__dict__.get("_tenant_sa")
+        if r is None:
+            r = TenantSaRepository(self._shared_sa_engine())
+            self.__dict__["_tenant_sa"] = r
+        return r
+
+    def _bind_code_repo(self):
+        from svc.persistence.sa_repos.tenant_bind_code import BindCodeSaRepository
+
+        r = self.__dict__.get("_bind_code_sa")
+        if r is None:
+            r = BindCodeSaRepository(self._shared_sa_engine())
+            self.__dict__["_bind_code_sa"] = r
+        return r
+
+    def _app_users_repo(self):
+        from svc.persistence.sa_repos.app_users import AppUsersSaRepository
+
+        r = self.__dict__.get("_app_users_sa")
+        if r is None:
+            r = AppUsersSaRepository(self._shared_sa_engine())
+            self.__dict__["_app_users_sa"] = r
+        return r
+
+    def _chat_messages_repo(self):
+        """Lazily construct SA repository for ``chat_message`` hot paths."""
+        from svc.persistence.sa_repos.chat_messages import ChatMessagesSaRepository
+
+        r = self.__dict__.get("_chat_messages_sa")
+        if r is None:
+            r = ChatMessagesSaRepository(self._shared_sa_engine())
+            self.__dict__["_chat_messages_sa"] = r
+        return r
+
+    def _admin_user_stats_repo(self):
+        from svc.persistence.sa_repos.admin_user_stats import AdminUserStatsSaRepository
+
+        r = self.__dict__.get("_admin_user_stats_sa")
+        if r is None:
+            r = AdminUserStatsSaRepository(self._shared_sa_engine())
+            self.__dict__["_admin_user_stats_sa"] = r
+        return r
+
+    def _session_tool_health_repo(self):
+        from svc.persistence.sa_repos.session_tool_health import SessionToolHealthSaRepository
+
+        r = self.__dict__.get("_session_tool_health_sa")
+        if r is None:
+            r = SessionToolHealthSaRepository(self._shared_sa_engine())
+            self.__dict__["_session_tool_health_sa"] = r
+        return r
+
+    def _tool_log_queries_repo(self):
+        from svc.persistence.sa_repos.tool_log_queries import ToolLogQueriesSaRepository
+
+        r = self.__dict__.get("_tool_log_queries_sa")
+        if r is None:
+            r = ToolLogQueriesSaRepository(self._shared_sa_engine())
+            self.__dict__["_tool_log_queries_sa"] = r
+        return r
+
+    def _trace_events_repo(self):
+        from svc.persistence.sa_repos.trace_events import TraceEventsSaRepository
+
+        r = self.__dict__.get("_trace_events_sa")
+        if r is None:
+            r = TraceEventsSaRepository(self._shared_sa_engine())
+            self.__dict__["_trace_events_sa"] = r
+        return r
 
     def _init_db(self) -> None:
+        if self._use_pg:
+            self._init_db_postgresql()
+            return
         Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
         with self._connect() as conn:
             conn.execute(
@@ -1001,10 +1162,39 @@ class SqliteStore:
             # 会留下指向已不存在会话的行。每次初始化库时做一次幂等清理。
             self._prune_rows_for_missing_chat_session(conn)
 
-    def _prune_rows_for_missing_chat_session(self, conn: sqlite3.Connection) -> None:
+        self._prune_orphan_chat_message_and_tool_log_outside_db_transaction()
+
+    def _init_db_postgresql(self) -> None:
+        """PostgreSQL: tables from Alembic migration; run seeds and housekeeping."""
+        with self._connect() as conn:
+            self._seed_builtin_llm_profiles(conn)
+            self._seed_default_permissions(conn)
+            conn.execute(
+                """
+                UPDATE llm_profile SET model = ?, updated_at = ?
+                WHERE id = ? AND (model IS NULL OR model = 'llama3.2')
+                """,
+                (_BUILTIN_OLLAMA_MODEL_SEED, utc_now_iso(), LLM_BUILTIN_OLLAMA_PROFILE_ID),
+            )
+            self._prune_rows_for_missing_chat_session(conn)
+
+        # PostgreSQL: ``chat_message`` / ``tool_log`` reference ``chat_session`` with FK.
+        # Do **not** run :meth:`_prune_orphan_chat_message_and_tool_log_outside_db_transaction` on
+        # every process start: the legacy ``NOT IN (SELECT id FROM chat_session)`` housekeeping
+        # can race concurrent inserts or interact badly with NULL / visibility, making admin chat
+        # ``loadMessages`` return empty right after a turn (bubbles flash then vanish).
+
+    def _prune_orphan_chat_message_and_tool_log_outside_db_transaction(self) -> None:
+        """Remove orphan ``chat_message`` / ``tool_log`` rows (must not run inside raw ``_connect`` on SQLite).
+
+        SQLAlchemy uses its own pooled connection; running these deletes while a raw sqlite3 write
+        transaction is open would deadlock with ``database is locked``.
+        """
+        self._chat_messages_repo().delete_messages_where_session_missing()
+        self._tool_log_queries_repo().delete_tool_logs_where_session_missing()
+
+    def _prune_rows_for_missing_chat_session(self, conn: Any) -> None:
         sid_alive = "(SELECT id FROM chat_session)"
-        conn.execute(f"DELETE FROM chat_message WHERE session_id NOT IN {sid_alive}")
-        conn.execute(f"DELETE FROM tool_log WHERE session_id NOT IN {sid_alive}")
         conn.execute(
             "DELETE FROM oclaw_attempt WHERE run_id NOT IN (SELECT run_id FROM oclaw_run) "
             f"OR run_id IN (SELECT run_id FROM oclaw_run WHERE session_id NOT IN {sid_alive})"
@@ -1013,7 +1203,7 @@ class SqliteStore:
         conn.execute(f"DELETE FROM oclaw_task WHERE session_id NOT IN {sid_alive}")
         conn.execute(f"DELETE FROM attachment_acl WHERE session_id NOT IN {sid_alive}")
 
-    def _seed_builtin_llm_profiles(self, conn: sqlite3.Connection) -> None:
+    def _seed_builtin_llm_profiles(self, conn: Any) -> None:
         ts = utc_now_iso()
         conn.execute(
             """
@@ -1030,7 +1220,7 @@ class SqliteStore:
             ),
         )
 
-    def _seed_default_permissions(self, conn: sqlite3.Connection) -> None:
+    def _seed_default_permissions(self, conn: Any) -> None:
         ts = utc_now_iso()
         defaults = {
             "owner": {
@@ -1086,62 +1276,55 @@ class SqliteStore:
     def create_session(self, title: str) -> ChatSession:
         session_id = uuid.uuid4().hex
         created_at = utc_now_iso()
-        with self._connect() as conn:
-            conn.execute(
-                "INSERT INTO chat_session (id, title, created_at, last_message_at) VALUES (?, ?, ?, NULL)",
-                (session_id, title, created_at),
-            )
+        self._chat_sessions_repo().insert_chat_session(
+            session_id=session_id, title=title, created_at=created_at
+        )
         return ChatSession(id=session_id, title=title, created_at=created_at, last_message_at=None)
 
     def create_session_for_user(self, *, title: str, tenant_id: str, user_id: str) -> ChatSession:
         s = self.create_session(title)
-        with self._connect() as conn:
-            conn.execute(
-                """
-                INSERT OR REPLACE INTO ui_session_owner(session_id, tenant_id, user_id, created_at)
-                VALUES (?, ?, ?, ?)
-                """,
-                (str(s.id), str(tenant_id), str(user_id), utc_now_iso()),
+        try:
+            self._ui_session_owner_repo().upsert_replace(
+                session_id=str(s.id),
+                tenant_id=str(tenant_id),
+                user_id=str(user_id),
+                created_at=utc_now_iso(),
             )
+        except IntegrityError:
+            # ``chat_session`` is already committed; without ``ui_session_owner`` the session is invisible
+            # to ``list_sessions_for_user`` / ``get_session_for_user`` (INNER JOIN). PostgreSQL enforces
+            # FK from ``ui_session_owner`` to ``tenant`` / ``app_user``; a failed owner row leaves a
+            # "ghost" session that looks like PG-specific data loss vs SQLite (weaker FK history).
+            try:
+                self.delete_session(str(s.id))
+            except Exception:
+                pass
+            raise
         return s
 
     def ensure_ui_session_owner(self, *, session_id: str, tenant_id: str, user_id: str) -> None:
-        with self._connect() as conn:
-            conn.execute(
-                """
-                INSERT OR IGNORE INTO ui_session_owner(session_id, tenant_id, user_id, created_at)
-                VALUES (?, ?, ?, ?)
-                """,
-                (str(session_id), str(tenant_id), str(user_id), utc_now_iso()),
-            )
+        self._ui_session_owner_repo().insert_ignore(
+            session_id=str(session_id),
+            tenant_id=str(tenant_id),
+            user_id=str(user_id),
+            created_at=utc_now_iso(),
+        )
 
     def get_session(self, session_id: str) -> Optional[ChatSession]:
-        with self._connect() as conn:
-            row = conn.execute(
-                "SELECT id, title, created_at, last_message_at FROM chat_session WHERE id = ?",
-                (session_id,),
-            ).fetchone()
-        if not row:
-            return None
-        return ChatSession(
-            id=row["id"],
-            title=row["title"],
-            created_at=row["created_at"],
-            last_message_at=row["last_message_at"],
-        )
+        return self._chat_sessions_repo().fetch_chat_session_by_id(session_id=session_id)
 
     def get_ui_session_owner(self, *, session_id: str) -> dict[str, Any] | None:
         sid = str(session_id or "").strip()
         if not sid:
             return None
-        with self._connect() as conn:
-            row = conn.execute(
-                "SELECT tenant_id, user_id, created_at FROM ui_session_owner WHERE session_id = ? LIMIT 1",
-                (sid,),
-            ).fetchone()
+        row = self._ui_session_owner_repo().fetch_by_session_id(session_id=sid)
         if not row:
             return None
-        return {"tenant_id": str(row["tenant_id"] or ""), "user_id": str(row["user_id"] or ""), "created_at": str(row["created_at"] or "")}
+        return {
+            "tenant_id": str(row["tenant_id"] or ""),
+            "user_id": str(row["user_id"] or ""),
+            "created_at": str(row["created_at"] or ""),
+        }
 
     def backfill_orphan_chat_sessions_for_user(self, *, tenant_id: str, user_id: str) -> int:
         """将**当前库中所有**尚无 ``ui_session_owner`` 的 ``chat_session`` 归属到指定用户。
@@ -1150,62 +1333,21 @@ class SqliteStore:
         已从 HTTP 列表接口移除自动调用；仅保留供单租户数据修复时在 Python 控制台等场景**显式**调用。
         """
         ts = utc_now_iso()
-        with self._connect() as conn:
-            cur = conn.execute(
-                """
-                INSERT OR IGNORE INTO ui_session_owner(session_id, tenant_id, user_id, created_at)
-                SELECT s.id, ?, ?, COALESCE(s.created_at, ?)
-                FROM chat_session s
-                WHERE NOT EXISTS (SELECT 1 FROM ui_session_owner o WHERE o.session_id = s.id)
-                """,
-                (str(tenant_id), str(user_id), ts),
-            )
-            return int(cur.rowcount or 0)
+        return self._ui_session_owner_repo().backfill_orphan_sessions_for_user(
+            tenant_id=str(tenant_id), user_id=str(user_id), default_created_at=ts
+        )
 
     def get_session_for_user(self, *, session_id: str, tenant_id: str, user_id: str) -> Optional[ChatSession]:
-        sid = str(session_id or "").strip()
-        if not sid:
-            return None
-        with self._connect() as conn:
-            owner = conn.execute(
-                """
-                SELECT 1
-                FROM ui_session_owner
-                WHERE session_id = ? AND tenant_id = ? AND user_id = ?
-                LIMIT 1
-                """,
-                (sid, str(tenant_id), str(user_id)),
-            ).fetchone()
-        if not owner:
-            return None
-        return self.get_session(sid)
+        return self._chat_sessions_repo().fetch_chat_session_for_user(
+            session_id=session_id, tenant_id=tenant_id, user_id=user_id
+        )
 
     def list_sessions(
         self,
         limit: int | None = None,
         offset: int = 0,
     ) -> list[ChatSession]:
-        lim_sql = ""
-        params: list[Any] = []
-        if limit is not None:
-            lim_sql = "LIMIT ? OFFSET ?"
-            params.extend([int(limit), int(offset)])
-        sql = f"""
-            SELECT id, title, created_at, last_message_at FROM chat_session
-            ORDER BY COALESCE(last_message_at, created_at) DESC, created_at DESC
-            {lim_sql}
-        """
-        with self._connect() as conn:
-            rows = conn.execute(sql, params).fetchall()
-        return [
-            ChatSession(
-                id=r["id"],
-                title=r["title"],
-                created_at=r["created_at"],
-                last_message_at=r["last_message_at"],
-            )
-            for r in rows
-        ]
+        return self._chat_sessions_repo().list_chat_sessions_global(limit=limit, offset=int(offset))
 
     def list_sessions_for_user(
         self,
@@ -1215,68 +1357,22 @@ class SqliteStore:
         limit: int | None = None,
         offset: int = 0,
     ) -> list[ChatSession]:
-        lim_sql = ""
-        params: list[Any] = [str(tenant_id), str(user_id)]
-        if limit is not None:
-            lim_sql = "LIMIT ? OFFSET ?"
-            params.extend([int(limit), int(offset)])
-        sql = f"""
-            SELECT s.id, s.title, s.created_at, s.last_message_at
-            FROM chat_session s
-            JOIN ui_session_owner o ON o.session_id = s.id
-            WHERE o.tenant_id = ? AND o.user_id = ?
-            ORDER BY COALESCE(s.last_message_at, s.created_at) DESC, s.created_at DESC
-            {lim_sql}
-        """
-        with self._connect() as conn:
-            rows = conn.execute(sql, params).fetchall()
-        return [
-            ChatSession(
-                id=r["id"],
-                title=r["title"],
-                created_at=r["created_at"],
-                last_message_at=r["last_message_at"],
-            )
-            for r in rows
-        ]
-
-    def count_sessions(self) -> int:
-        sql = "SELECT COUNT(*) AS c FROM chat_session"
-        with self._connect() as conn:
-            row = conn.execute(sql).fetchone()
-        return int(row["c"]) if row else 0
-
-    def get_sessions_list_meta(self) -> SessionsListMeta:
-        with self._connect() as conn:
-            row = conn.execute(
-                """
-                SELECT
-                    COUNT(*) AS c,
-                    MAX(COALESCE(last_message_at, created_at)) AS latest_activity_at
-                FROM chat_session
-                """
-            ).fetchone()
-        return SessionsListMeta(
-            session_count=int(row["c"] or 0) if row else 0,
-            latest_activity_at=str(row["latest_activity_at"]) if row and row["latest_activity_at"] is not None else None,
+        return self._chat_sessions_repo().list_chat_sessions_for_user(
+            tenant_id=tenant_id,
+            user_id=user_id,
+            limit=limit,
+            offset=int(offset),
         )
 
+    def count_sessions(self) -> int:
+        return self._chat_sessions_repo().count_chat_sessions_global()
+
+    def get_sessions_list_meta(self) -> SessionsListMeta:
+        return self._chat_sessions_repo().sessions_list_meta_global()
+
     def get_sessions_list_meta_for_user(self, *, tenant_id: str, user_id: str) -> SessionsListMeta:
-        with self._connect() as conn:
-            row = conn.execute(
-                """
-                SELECT
-                    COUNT(*) AS c,
-                    MAX(COALESCE(s.last_message_at, s.created_at)) AS latest_activity_at
-                FROM chat_session s
-                JOIN ui_session_owner o ON o.session_id = s.id
-                WHERE o.tenant_id = ? AND o.user_id = ?
-                """,
-                (str(tenant_id), str(user_id)),
-            ).fetchone()
-        return SessionsListMeta(
-            session_count=int(row["c"] or 0) if row else 0,
-            latest_activity_at=str(row["latest_activity_at"]) if row and row["latest_activity_at"] is not None else None,
+        return self._chat_sessions_repo().sessions_list_meta_for_user(
+            tenant_id=tenant_id, user_id=user_id
         )
 
     def list_sessions_for_tenant(
@@ -1287,70 +1383,17 @@ class SqliteStore:
         offset: int = 0,
     ) -> list[ChatSession]:
         """All chat sessions that belong to ``tenant_id`` via ``ui_session_owner`` (any user)."""
-        lim_sql = ""
-        params: list[Any] = [str(tenant_id)]
-        if limit is not None:
-            lim_sql = "LIMIT ? OFFSET ?"
-            params.extend([int(limit), int(offset)])
-        sql = f"""
-            SELECT DISTINCT s.id, s.title, s.created_at, s.last_message_at
-            FROM chat_session s
-            INNER JOIN ui_session_owner o ON o.session_id = s.id AND o.tenant_id = ?
-            ORDER BY COALESCE(s.last_message_at, s.created_at) DESC, s.created_at DESC
-            {lim_sql}
-        """
-        with self._connect() as conn:
-            rows = conn.execute(sql, params).fetchall()
-        return [
-            ChatSession(
-                id=r["id"],
-                title=r["title"],
-                created_at=r["created_at"],
-                last_message_at=r["last_message_at"],
-            )
-            for r in rows
-        ]
+        return self._chat_sessions_repo().list_chat_sessions_for_tenant(
+            tenant_id=tenant_id, limit=limit, offset=int(offset)
+        )
 
     def get_sessions_list_meta_for_tenant(self, *, tenant_id: str) -> SessionsListMeta:
-        with self._connect() as conn:
-            row = conn.execute(
-                """
-                SELECT
-                    COUNT(DISTINCT s.id) AS c,
-                    MAX(COALESCE(s.last_message_at, s.created_at)) AS latest_activity_at
-                FROM chat_session s
-                INNER JOIN ui_session_owner o ON o.session_id = s.id AND o.tenant_id = ?
-                """,
-                (str(tenant_id),),
-            ).fetchone()
-        return SessionsListMeta(
-            session_count=int(row["c"] or 0) if row else 0,
-            latest_activity_at=str(row["latest_activity_at"]) if row and row["latest_activity_at"] is not None else None,
-        )
+        return self._chat_sessions_repo().sessions_list_meta_for_tenant(tenant_id=tenant_id)
 
     def get_session_in_tenant(self, *, session_id: str, tenant_id: str) -> Optional[ChatSession]:
         """Session exists and is linked to this tenant (``administrator`` global browse)."""
-        sid = str(session_id or "").strip()
-        if not sid:
-            return None
-        with self._connect() as conn:
-            row = conn.execute(
-                """
-                SELECT s.id, s.title, s.created_at, s.last_message_at
-                FROM chat_session s
-                INNER JOIN ui_session_owner o ON o.session_id = s.id AND o.tenant_id = ?
-                WHERE s.id = ?
-                LIMIT 1
-                """,
-                (str(tenant_id), sid),
-            ).fetchone()
-        if not row:
-            return None
-        return ChatSession(
-            id=row["id"],
-            title=row["title"],
-            created_at=row["created_at"],
-            last_message_at=row["last_message_at"],
+        return self._chat_sessions_repo().fetch_chat_session_in_tenant(
+            session_id=session_id, tenant_id=tenant_id
         )
 
     @staticmethod
@@ -1646,71 +1689,25 @@ class SqliteStore:
         lim = max(1, min(int(limit), 500))
         off = max(0, int(offset))
 
-        cond = ["o.tenant_id = ?"]
-        params: list[Any] = [tid]
-        if uid:
-            cond.append("o.user_id = ?")
-            params.append(uid)
-        if q_text:
-            like = f"%{q_text}%"
-            cond.append(
-                "(LOWER(COALESCE(u.username,'')) LIKE ? OR LOWER(COALESCE(u.display_name,'')) LIKE ? "
-                "OR LOWER(COALESCE(s.title,'')) LIKE ?)"
-            )
-            params.extend([like, like, like])
-        if active_only:
-            cond.append("COALESCE(s.last_message_at, s.created_at) >= ?")
-            params.append(cutoff)
-        where_sql = " AND ".join(cond)
-
-        with self._connect() as conn:
-            total_row = conn.execute(
-                f"""
-                SELECT COUNT(*) AS c
-                FROM chat_session s
-                INNER JOIN ui_session_owner o ON o.session_id = s.id
-                LEFT JOIN app_user u ON u.tenant_id = o.tenant_id AND u.id = o.user_id
-                WHERE {where_sql}
-                """,
-                params,
-            ).fetchone()
-            rows = conn.execute(
-                f"""
-                SELECT
-                    s.id AS session_id,
-                    s.title AS title,
-                    s.created_at AS created_at,
-                    s.last_message_at AS last_message_at,
-                    o.user_id AS user_id,
-                    COALESCE(u.username, '') AS username,
-                    COALESCE(u.display_name, '') AS display_name,
-                    (SELECT COUNT(*) FROM chat_message m WHERE m.session_id = s.id) AS message_count
-                FROM chat_session s
-                INNER JOIN ui_session_owner o ON o.session_id = s.id
-                LEFT JOIN app_user u ON u.tenant_id = o.tenant_id AND u.id = o.user_id
-                WHERE {where_sql}
-                ORDER BY COALESCE(s.last_message_at, s.created_at) DESC, s.created_at DESC
-                LIMIT ? OFFSET ?
-                """,
-                [*params, lim, off],
-            ).fetchall()
+        total, rows = self._chat_sessions_repo().list_admin_sessions(
+            tenant_id=tid,
+            user_id=uid or None,
+            search_lower=q_text or None,
+            active_only=active_only,
+            active_cutoff_iso=cutoff,
+            limit=lim,
+            offset=off,
+        )
         out: list[dict[str, Any]] = []
         for r in rows:
             last_at = str(r["last_message_at"] or r["created_at"] or "")
             out.append(
                 {
-                    "session_id": str(r["session_id"] or ""),
-                    "title": str(r["title"] or ""),
-                    "created_at": str(r["created_at"] or ""),
-                    "last_message_at": str(r["last_message_at"] or ""),
-                    "user_id": str(r["user_id"] or ""),
-                    "username": str(r["username"] or ""),
-                    "display_name": str(r["display_name"] or ""),
-                    "message_count": int(r["message_count"] or 0),
+                    **r,
                     "is_active_30m": bool(last_at and last_at >= cutoff),
                 }
             )
-        return int((total_row["c"] if total_row else 0) or 0), out
+        return total, out
 
     def list_admin_user_stats(
         self,
@@ -1735,55 +1732,18 @@ class SqliteStore:
         lim = max(1, min(int(limit), 500))
         off = max(0, int(offset))
 
-        cond = ["tenant_id = ?"]
-        params: list[Any] = [tid]
-        if q_text:
-            like = f"%{q_text}%"
-            cond.append("(LOWER(COALESCE(username,'')) LIKE ? OR LOWER(COALESCE(display_name,'')) LIKE ?)")
-            params.extend([like, like])
-        where_sql = " AND ".join(cond)
-        with self._connect() as conn:
-            total_row = conn.execute(
-                f"SELECT COUNT(*) AS c FROM app_user WHERE {where_sql}",
-                params,
-            ).fetchone()
-            rows = conn.execute(
-                f"""
-                SELECT
-                    id AS user_id,
-                    username,
-                    COALESCE(display_name, '') AS display_name,
-                    role,
-                    is_active
-                FROM app_user
-                WHERE {where_sql}
-                ORDER BY username ASC
-                LIMIT ? OFFSET ?
-                """,
-                [*params, lim, off],
-            ).fetchall()
-            total_active_sessions = conn.execute(
-                """
-                SELECT COUNT(DISTINCT s.id) AS c
-                FROM chat_session s
-                INNER JOIN ui_session_owner o ON o.session_id = s.id
-                WHERE o.tenant_id = ? AND COALESCE(s.last_message_at, s.created_at) >= ?
-                """,
-                (tid, cutoff),
-            ).fetchone()
-            total_active_logins = conn.execute(
-                """
-                SELECT COUNT(*) AS c
-                FROM auth_session
-                WHERE tenant_id = ?
-                  AND revoked_at IS NULL
-                  AND expires_at > ?
-                  AND last_seen_at >= ?
-                """,
-                (tid, cutoff, cutoff),
-            ).fetchone()
+        pack = self._admin_user_stats_repo().fetch(
+            tenant_id=tid,
+            search_lower=q_text or None,
+            cutoff_iso=cutoff,
+            limit=lim,
+            offset=off,
+        )
+        total_row_c = int(pack["total_users"] or 0)
+        rows = pack["user_rows"]
+        total_active_sessions = pack["total_active_sessions_30m"]
+        total_active_logins = pack["total_active_logins_30m"]
 
-        user_ids = [str(r["user_id"] or "") for r in rows if str(r["user_id"] or "").strip()]
         token_by_user: dict[str, int] = {}
         sessions_count_by_user: dict[str, int] = {}
         active_sessions_by_user: dict[str, int] = {}
@@ -1791,80 +1751,30 @@ class SqliteStore:
         active_logins_by_user: dict[str, int] = {}
         last_seen_at_by_user: dict[str, str] = {}
 
-        if user_ids:
-            ph = ",".join("?" for _ in user_ids)
-            with self._connect() as conn:
-                token_rows = conn.execute(
-                    f"""
-                    SELECT o.user_id AS user_id, e.payload AS payload
-                    FROM trace_event e
-                    INNER JOIN ui_session_owner o ON o.session_id = e.session_id
-                    WHERE o.tenant_id = ? AND o.user_id IN ({ph})
-                    """,
-                    [tid, *user_ids],
-                ).fetchall()
-                for tr in token_rows:
-                    uid = str(tr["user_id"] or "")
-                    if not uid:
-                        continue
-                    try:
-                        payload = json.loads(tr["payload"] or "{}")
-                    except Exception:
-                        payload = {}
-                    p = int(payload.get("prompt_tokens_est") or 0)
-                    r2 = int(payload.get("response_tokens_est") or 0)
-                    token_by_user[uid] = int(token_by_user.get(uid, 0)) + max(0, p) + max(0, r2)
+        for tr in pack["trace_rows"]:
+            uid = str(tr.get("user_id") or "")
+            if not uid:
+                continue
+            try:
+                payload = json.loads(tr.get("payload") or "{}")
+            except Exception:
+                payload = {}
+            p = int(payload.get("prompt_tokens_est") or 0)
+            r2 = int(payload.get("response_tokens_est") or 0)
+            token_by_user[uid] = int(token_by_user.get(uid, 0)) + max(0, p) + max(0, r2)
 
-                s_rows = conn.execute(
-                    f"""
-                    SELECT user_id, COUNT(*) AS c
-                    FROM ui_session_owner
-                    WHERE tenant_id = ? AND user_id IN ({ph})
-                    GROUP BY user_id
-                    """,
-                    [tid, *user_ids],
-                ).fetchall()
-                for sr in s_rows:
-                    sessions_count_by_user[str(sr["user_id"] or "")] = int(sr["c"] or 0)
+        for sr in pack["sessions_count_rows"]:
+            sessions_count_by_user[str(sr.get("user_id") or "")] = int(sr.get("c") or 0)
 
-                sess_rows = conn.execute(
-                    f"""
-                    SELECT
-                        o.user_id AS user_id,
-                        COUNT(DISTINCT CASE WHEN COALESCE(s.last_message_at, s.created_at) >= ? THEN s.id END) AS active_30m,
-                        MAX(COALESCE(s.last_message_at, s.created_at)) AS last_message_at
-                    FROM chat_session s
-                    INNER JOIN ui_session_owner o ON o.session_id = s.id
-                    WHERE o.tenant_id = ? AND o.user_id IN ({ph})
-                    GROUP BY o.user_id
-                    """,
-                    [cutoff, tid, *user_ids],
-                ).fetchall()
-                for rr in sess_rows:
-                    uid = str(rr["user_id"] or "")
-                    active_sessions_by_user[uid] = int(rr["active_30m"] or 0)
-                    last_message_at_by_user[uid] = str(rr["last_message_at"] or "")
+        for rr in pack["active_sess_rows"]:
+            uid = str(rr.get("user_id") or "")
+            active_sessions_by_user[uid] = int(rr.get("active_30m") or 0)
+            last_message_at_by_user[uid] = str(rr.get("last_message_at") or "")
 
-                login_rows = conn.execute(
-                    f"""
-                    SELECT
-                        user_id AS user_id,
-                        COUNT(*) AS c,
-                        MAX(last_seen_at) AS last_seen_at
-                    FROM auth_session
-                    WHERE tenant_id = ?
-                      AND user_id IN ({ph})
-                      AND revoked_at IS NULL
-                      AND expires_at > ?
-                      AND last_seen_at >= ?
-                    GROUP BY user_id
-                    """,
-                    [tid, *user_ids, cutoff, cutoff],
-                ).fetchall()
-                for lr in login_rows:
-                    uid = str(lr["user_id"] or "")
-                    active_logins_by_user[uid] = int(lr["c"] or 0)
-                    last_seen_at_by_user[uid] = str(lr["last_seen_at"] or "")
+        for lr in pack["login_rows"]:
+            uid = str(lr.get("user_id") or "")
+            active_logins_by_user[uid] = int(lr.get("c") or 0)
+            last_seen_at_by_user[uid] = str(lr.get("last_seen_at") or "")
 
         users: list[dict[str, Any]] = []
         for r in rows:
@@ -1887,73 +1797,30 @@ class SqliteStore:
 
         totals = {
             "total_tokens_est": int(sum(int(x.get("total_tokens_est") or 0) for x in users)),
-            "active_sessions_30m": int((total_active_sessions["c"] if total_active_sessions else 0) or 0),
-            "active_logins_30m": int((total_active_logins["c"] if total_active_logins else 0) or 0),
-            "users_count": int((total_row["c"] if total_row else 0) or 0),
+            "active_sessions_30m": int(total_active_sessions or 0),
+            "active_logins_30m": int(total_active_logins or 0),
+            "users_count": int(total_row_c or 0),
         }
-        return int((total_row["c"] if total_row else 0) or 0), users, totals
+        return int(total_row_c or 0), users, totals
 
     def delete_session_in_tenant(self, *, session_id: str, tenant_id: str) -> bool:
         """Delete session if it belongs to tenant (used by administrator account)."""
-        sid = str(session_id or "").strip()
-        if not sid:
-            return False
-        with self._connect() as conn:
-            owner = conn.execute(
-                """
-                SELECT 1 FROM ui_session_owner
-                WHERE session_id = ? AND tenant_id = ?
-                LIMIT 1
-                """,
-                (sid, str(tenant_id)),
-            ).fetchone()
-            if not owner:
-                return False
-            conn.execute("DELETE FROM chat_session WHERE id = ?", (sid,))
-        return True
+        return self._chat_sessions_repo().try_delete_chat_session_for_tenant(
+            session_id=session_id, tenant_id=tenant_id
+        )
 
     def delete_session(self, session_id: str) -> None:
-        with self._connect() as conn:
-            conn.execute("DELETE FROM chat_session WHERE id = ?", (session_id,))
+        self._chat_sessions_repo().delete_chat_session_by_id(session_id=session_id)
 
     def delete_session_for_user(self, *, session_id: str, tenant_id: str, user_id: str) -> bool:
-        with self._connect() as conn:
-            owner = conn.execute(
-                """
-                SELECT 1
-                FROM ui_session_owner
-                WHERE session_id = ? AND tenant_id = ? AND user_id = ?
-                LIMIT 1
-                """,
-                (str(session_id), str(tenant_id), str(user_id)),
-            ).fetchone()
-            if not owner:
-                return False
-            conn.execute("DELETE FROM chat_session WHERE id = ?", (str(session_id),))
-        return True
+        return self._chat_sessions_repo().try_delete_chat_session_for_user(
+            session_id=session_id, tenant_id=tenant_id, user_id=user_id
+        )
 
     def delete_message(self, *, session_id: str, message_id: int) -> bool:
-        sid = str(session_id or "").strip()
-        mid = int(message_id or 0)
-        if not sid or mid <= 0:
-            return False
-        with self._connect() as conn:
-            cur = conn.execute(
-                "DELETE FROM chat_message WHERE session_id = ? AND id = ?",
-                (sid, mid),
-            )
-            if int(cur.rowcount or 0) <= 0:
-                return False
-            last_row = conn.execute(
-                "SELECT MAX(timestamp) AS ts FROM chat_message WHERE session_id = ?",
-                (sid,),
-            ).fetchone()
-            last_ts = str((last_row["ts"] if last_row else "") or "").strip() or None
-            conn.execute(
-                "UPDATE chat_session SET last_message_at = ? WHERE id = ?",
-                (last_ts, sid),
-            )
-        return True
+        return self._chat_messages_repo().delete_message_and_refresh_session(
+            session_id=session_id, message_id=message_id
+        )
 
     def add_message(
         self,
@@ -1973,42 +1840,57 @@ class SqliteStore:
             if isinstance(tool_calls, str):
                 tool_calls_text = tool_calls
             else:
-                tool_calls_text = json.dumps(tool_calls, ensure_ascii=False)
+                tool_calls_text = json.dumps(
+                    scrub_nul_bytes_from_jsonable(tool_calls), ensure_ascii=False
+                )
         attachments_text = None
         if attachments is not None:
-            attachments_text = json.dumps(attachments, ensure_ascii=False)
+            attachments_text = json.dumps(
+                scrub_nul_bytes_from_jsonable(attachments), ensure_ascii=False
+            )
         event_payload_text = None
         if event_payload is not None:
             if isinstance(event_payload, str):
                 event_payload_text = event_payload
             else:
-                event_payload_text = json.dumps(event_payload, ensure_ascii=False, default=str)
+                event_payload_text = json.dumps(
+                    scrub_nul_bytes_from_jsonable(event_payload), ensure_ascii=False, default=str
+                )
         turn_uuid_text = str(turn_uuid or "").strip() or None
         event_type_text = str(event_type or "").strip() or None
-        with self._connect() as conn:
-            cur = conn.execute(
-                """
-                INSERT INTO chat_message (
-                    session_id, role, content, tool_calls, attachments, turn_uuid, event_type, event_payload, timestamp
-                )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    session_id,
-                    role,
-                    content,
-                    tool_calls_text,
-                    attachments_text,
-                    turn_uuid_text,
-                    event_type_text,
-                    event_payload_text,
-                    ts,
-                ),
-            )
-            msg_id = int(cur.lastrowid)
-            conn.execute(
-                "UPDATE chat_session SET last_message_at = ? WHERE id = ?",
-                (ts, session_id),
+        # PostgreSQL TEXT rejects NUL; SQLite accepts it — strip before SA insert.
+        content_clean = str(scrub_nul_bytes_from_text(str(content)) or "")
+        tool_calls_text = scrub_nul_bytes_from_text(tool_calls_text)
+        attachments_text = scrub_nul_bytes_from_text(attachments_text)
+        event_payload_text = scrub_nul_bytes_from_text(event_payload_text)
+        turn_uuid_text = scrub_nul_bytes_from_text(turn_uuid_text)
+        event_type_text = scrub_nul_bytes_from_text(event_type_text)
+        if turn_uuid_text is not None and not str(turn_uuid_text).strip():
+            turn_uuid_text = None
+        if event_type_text is not None and not str(event_type_text).strip():
+            event_type_text = None
+        msg_id = self._chat_messages_repo().insert_message_and_touch_session(
+            session_id=str(session_id if session_id is not None else ""),
+            role=str(role),
+            content=content_clean,
+            tool_calls=tool_calls_text,
+            attachments=attachments_text,
+            turn_uuid=turn_uuid_text,
+            event_type=event_type_text,
+            event_payload=event_payload_text,
+            timestamp=str(ts),
+        )
+        if _chat_message_persist_log_enabled():
+            _LOG.warning(
+                "chat_message_persisted backend=%s session_id=%s message_id=%s role=%s event_type=%s "
+                "content_len=%d has_tool_calls=%s",
+                "postgresql" if self._use_pg else "sqlite",
+                str(session_id or "").strip(),
+                int(msg_id),
+                str(role),
+                str(event_type_text or ""),
+                len(str(content_clean or "")),
+                bool(tool_calls_text),
             )
         try:
             self.sync_attachment_acl_from_chat_message_attachments(
@@ -2023,7 +1905,7 @@ class SqliteStore:
             id=msg_id,
             session_id=session_id,
             role=role,
-            content=content,
+            content=content_clean,
             tool_calls=tool_calls_text,
             attachments=attachments_text,
             turn_uuid=turn_uuid_text,
@@ -2051,17 +1933,17 @@ class SqliteStore:
             if isinstance(event_payload, str):
                 event_payload_text = event_payload
             else:
-                event_payload_text = json.dumps(event_payload, ensure_ascii=False, default=str)
-        with self._connect() as conn:
-            cur = conn.execute(
-                """
-                UPDATE chat_message
-                SET content = ?, event_payload = COALESCE(?, event_payload)
-                WHERE session_id = ? AND id = ?
-                """,
-                (str(content or ""), event_payload_text, sid, mid),
-            )
-            return int(cur.rowcount or 0) > 0
+                event_payload_text = json.dumps(
+                    scrub_nul_bytes_from_jsonable(event_payload), ensure_ascii=False, default=str
+                )
+        event_payload_text = scrub_nul_bytes_from_text(event_payload_text)
+        content_u = str(scrub_nul_bytes_from_text(str(content or "")) or "")
+        return self._chat_messages_repo().update_message_content(
+            session_id=sid,
+            message_id=mid,
+            content=content_u,
+            event_payload_text=event_payload_text,
+        )
 
     def get_messages(self, session_id: str, limit: int = 200) -> list[ChatMessage]:
         """返回最近 ``limit`` 条消息，顺序为时间正序（窗口内最早的一条在前）。"""
@@ -2071,65 +1953,7 @@ class SqliteStore:
         if not sid:
             return []
         lim = max(1, min(int(limit), 2000))
-        with self._connect() as conn:
-            rows = list(
-                conn.execute(
-                    """
-                    SELECT id, session_id, role, content, tool_calls, attachments, turn_uuid, event_type, event_payload, timestamp
-                    FROM chat_message
-                    WHERE session_id = ? AND id IN (
-                        SELECT id FROM chat_message WHERE session_id = ? ORDER BY id DESC LIMIT ?
-                    )
-                    ORDER BY id ASC
-                    """,
-                    (sid, sid, lim),
-                ).fetchall()
-            )
-            # Preserve tool->assistant pairing at the boundary: if the first kept row is a tool message,
-            # fetch and prepend the referenced assistant message (emitted tool_calls) when it's outside the window.
-            # This prevents OpenAI-compatible gateways from rejecting unpaired tool results.
-            prepended: set[int] = set()
-            while rows:
-                first = rows[0]
-                if str(first["role"] or "") != "tool":
-                    break
-                aid = _tool_row_assistant_message_id(first["tool_calls"])
-                if aid is None:
-                    break
-                first_id = int(first["id"])
-                if aid >= first_id:
-                    break
-                if any(int(r["id"]) == int(aid) for r in rows):
-                    break
-                if int(aid) in prepended:
-                    break
-                arow = conn.execute(
-                    """
-                    SELECT id, session_id, role, content, tool_calls, attachments, turn_uuid, event_type, event_payload, timestamp
-                    FROM chat_message
-                    WHERE session_id = ? AND id = ?
-                    """,
-                    (sid, int(aid)),
-                ).fetchone()
-                if not arow:
-                    break
-                prepended.add(int(aid))
-                rows.insert(0, arow)
-        return [
-            ChatMessage(
-                id=int(r["id"]),
-                session_id=r["session_id"],
-                role=r["role"],
-                content=r["content"],
-                tool_calls=r["tool_calls"],
-                attachments=r["attachments"],
-                turn_uuid=r["turn_uuid"],
-                event_type=r["event_type"],
-                event_payload=r["event_payload"],
-                timestamp=r["timestamp"],
-            )
-            for r in rows
-        ]
+        return self._chat_messages_repo().get_messages_recent_asc(session_id=sid, limit=lim)
 
     def get_messages_after_id(self, *, session_id: str, after_id: int, limit: int = 200) -> list[ChatMessage]:
         """Return messages with id > after_id in ASC order (bounded by limit)."""
@@ -2138,32 +1962,9 @@ class SqliteStore:
             return []
         aid = int(after_id or 0)
         lim = max(1, min(int(limit), 2000))
-        with self._connect() as conn:
-            rows = conn.execute(
-                """
-                SELECT id, session_id, role, content, tool_calls, attachments, turn_uuid, event_type, event_payload, timestamp
-                FROM chat_message
-                WHERE session_id = ? AND id > ?
-                ORDER BY id ASC
-                LIMIT ?
-                """,
-                (sid, aid, lim),
-            ).fetchall()
-        return [
-            ChatMessage(
-                id=int(r["id"]),
-                session_id=r["session_id"],
-                role=r["role"],
-                content=r["content"],
-                tool_calls=r["tool_calls"],
-                attachments=r["attachments"],
-                turn_uuid=r["turn_uuid"],
-                event_type=r["event_type"],
-                event_payload=r["event_payload"],
-                timestamp=r["timestamp"],
-            )
-            for r in rows
-        ]
+        return self._chat_messages_repo().get_messages_after_id(
+            session_id=sid, after_id=aid, limit=lim
+        )
 
     def add_tool_log(
         self,
@@ -2184,35 +1985,20 @@ class SqliteStore:
             cap = max(20_000, min(int(raw_cap), 2_000_000))
         args_capped = self._cap_json_for_log(args, max_chars=cap, keep_keys=())
         result_capped = self._cap_json_for_log(result, max_chars=cap, keep_keys=("ok", "error_code", "error"))
-        with self._connect() as conn:
-            conn.execute(
-                """
-                INSERT INTO tool_log (session_id, tool_name, specialist, args, result, timestamp, duration_ms)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    session_id,
-                    tool_name,
-                    str(specialist or ""),
-                    json.dumps(args_capped, ensure_ascii=False, default=str),
-                    json.dumps(result_capped, ensure_ascii=False, default=str),
-                    ts,
-                    duration_ms,
-                ),
-            )
+        self._tool_log_queries_repo().insert_tool_log(
+            session_id=str(session_id),
+            tool_name=str(tool_name),
+            specialist=str(specialist or ""),
+            args=json.dumps(args_capped, ensure_ascii=False, default=str),
+            result=json.dumps(result_capped, ensure_ascii=False, default=str),
+            timestamp=str(ts),
+            duration_ms=duration_ms,
+        )
 
     def get_tool_logs(self, session_id: str, limit: int = 200) -> list[dict[str, Any]]:
-        with self._connect() as conn:
-            rows = conn.execute(
-                """
-                SELECT tool_name, specialist, args, result, timestamp, duration_ms
-                FROM tool_log
-                WHERE session_id = ?
-                ORDER BY id ASC
-                LIMIT ?
-                """,
-                (session_id, limit),
-            ).fetchall()
+        rows = self._tool_log_queries_repo().list_tool_logs_asc(
+            session_id=str(session_id), limit=max(1, int(limit))
+        )
         out: list[dict[str, Any]] = []
         for r in rows:
             out.append(
@@ -2228,51 +2014,11 @@ class SqliteStore:
         return out
 
     def list_session_tool_health(self, *, session_id: str | None = None, limit: int = 80) -> list[dict[str, Any]]:
-        params: list[Any] = []
-        where = ""
-        sid = str(session_id or "").strip()
-        if sid:
-            where = "WHERE s.id = ?"
-            params.append(sid)
-        params.append(max(1, int(limit)))
-        with self._connect() as conn:
-            rows = conn.execute(
-                f"""
-                SELECT
-                    s.id AS session_id,
-                    s.title AS title,
-                    s.last_message_at AS last_message_at,
-                    COALESCE(msg.user_count, 0) AS user_count,
-                    COALESCE(msg.assistant_count, 0) AS assistant_count,
-                    COALESCE(tl.tool_count, 0) AS tool_count,
-                    COALESCE(tl.mcp_tool_count, 0) AS mcp_tool_count,
-                    COALESCE(tl.last_tool_at, '') AS last_tool_at
-                FROM chat_session s
-                LEFT JOIN (
-                    SELECT
-                        session_id,
-                        SUM(CASE WHEN role = 'user' THEN 1 ELSE 0 END) AS user_count,
-                        SUM(CASE WHEN role = 'assistant' THEN 1 ELSE 0 END) AS assistant_count
-                    FROM chat_message
-                    GROUP BY session_id
-                ) msg ON msg.session_id = s.id
-                LEFT JOIN (
-                    SELECT
-                        session_id,
-                        COUNT(1) AS tool_count,
-                        SUM(CASE WHEN tool_name LIKE 'mcp__%' THEN 1 ELSE 0 END) AS mcp_tool_count,
-                        MAX(timestamp) AS last_tool_at
-                    FROM tool_log
-                    GROUP BY session_id
-                ) tl ON tl.session_id = s.id
-                {where}
-                ORDER BY COALESCE(s.last_message_at, s.created_at) DESC
-                LIMIT ?
-                """,
-                tuple(params),
-            ).fetchall()
+        lim = max(1, int(limit))
+        sid = str(session_id or "").strip() or None
+        raw = self._session_tool_health_repo().list_session_tool_health(session_id=sid, limit=lim)
         out: list[dict[str, Any]] = []
-        for r in rows:
+        for r in raw:
             tool_count = int(r["tool_count"] or 0)
             assistant_count = int(r["assistant_count"] or 0)
             unhealthy = assistant_count > 0 and tool_count == 0
@@ -2296,26 +2042,12 @@ class SqliteStore:
         dst = str(to_session_id or "").strip()
         if not src or not dst or src == dst:
             return 0
-        with self._connect() as conn:
-            cur = conn.execute(
-                "UPDATE tool_log SET session_id = ? WHERE session_id = ?",
-                (dst, src),
-            )
-        return int(cur.rowcount or 0)
+        return self._tool_log_queries_repo().move_tool_logs_between_sessions(
+            from_session_id=src, to_session_id=dst
+        )
 
     def list_mcp_tool_usage_summary(self, *, limit: int = 200) -> list[dict[str, Any]]:
-        with self._connect() as conn:
-            rows = conn.execute(
-                """
-                SELECT tool_name, specialist, COUNT(1) AS n, MAX(timestamp) AS last_ts
-                FROM tool_log
-                WHERE tool_name LIKE 'mcp__%'
-                GROUP BY tool_name, specialist
-                ORDER BY n DESC, last_ts DESC
-                LIMIT ?
-                """,
-                (max(1, int(limit)),),
-            ).fetchall()
+        rows = self._tool_log_queries_repo().list_mcp_tool_usage_summary(limit=max(1, int(limit)))
         out: list[dict[str, Any]] = []
         for r in rows:
             tool_name = str(r["tool_name"] or "")
@@ -2336,15 +2068,7 @@ class SqliteStore:
 
     def list_mcp_tool_aggregate_usage(self) -> dict[str, dict[str, Any]]:
         """Cross-session counts and last call time per MCP tool name (``mcp__*``)."""
-        with self._connect() as conn:
-            rows = conn.execute(
-                """
-                SELECT tool_name, COUNT(1) AS n, MAX(timestamp) AS last_ts
-                FROM tool_log
-                WHERE tool_name LIKE 'mcp__%'
-                GROUP BY tool_name
-                """
-            ).fetchall()
+        rows = self._tool_log_queries_repo().list_mcp_tool_aggregate_usage()
         out: dict[str, dict[str, Any]] = {}
         for r in rows:
             tn = str(r["tool_name"] or "")
@@ -2354,24 +2078,9 @@ class SqliteStore:
         return out
 
     def list_mcp_tool_call_logs(self, *, server_id: str | None = None, limit: int = 200) -> list[dict[str, Any]]:
-        where = "WHERE tool_name LIKE 'mcp__%'"
-        params: list[Any] = []
-        sid = str(server_id or "").strip()
-        if sid:
-            where += " AND tool_name LIKE ?"
-            params.append(f"mcp__{sid}__%")
-        params.append(max(1, int(limit)))
-        with self._connect() as conn:
-            rows = conn.execute(
-                f"""
-                SELECT session_id, tool_name, specialist, args, result, timestamp, duration_ms
-                FROM tool_log
-                {where}
-                ORDER BY id DESC
-                LIMIT ?
-                """,
-                tuple(params),
-            ).fetchall()
+        rows = self._tool_log_queries_repo().list_mcp_tool_call_logs(
+            server_id=server_id, limit=max(1, int(limit))
+        )
         out: list[dict[str, Any]] = []
         for r in rows:
             try:
@@ -2418,42 +2127,13 @@ class SqliteStore:
         }
 
     def count_messages(self, session_id: str) -> int:
-        with self._connect() as conn:
-            row = conn.execute(
-                "SELECT COUNT(*) AS c FROM chat_message WHERE session_id = ?",
-                (session_id,),
-            ).fetchone()
-        return int(row["c"]) if row else 0
+        return self._chat_messages_repo().count_messages(session_id=session_id)
 
     def get_session_messages_meta(self, session_id: str) -> SessionMessagesMeta:
-        with self._connect() as conn:
-            row = conn.execute(
-                """
-                SELECT
-                    COUNT(*) AS c,
-                    MAX(id) AS last_id,
-                    MAX(timestamp) AS last_ts
-                FROM chat_message
-                WHERE session_id = ?
-                """,
-                (session_id,),
-            ).fetchone()
-        return SessionMessagesMeta(
-            session_id=session_id,
-            message_count=int(row["c"] or 0) if row else 0,
-            last_message_id=int(row["last_id"]) if row and row["last_id"] is not None else None,
-            last_message_at=str(row["last_ts"]) if row and row["last_ts"] is not None else None,
-        )
+        return self._chat_messages_repo().session_messages_meta(session_id=session_id)
 
     def get_last_message_id(self, session_id: str) -> int | None:
-        with self._connect() as conn:
-            row = conn.execute(
-                "SELECT MAX(id) AS m FROM chat_message WHERE session_id = ?",
-                (session_id,),
-            ).fetchone()
-        if not row or row["m"] is None:
-            return None
-        return int(row["m"])
+        return self._chat_messages_repo().last_message_id(session_id=session_id)
 
     def ensure_default_session(self) -> ChatSession:
         sessions = self.list_sessions(limit=1, offset=0)
@@ -2464,157 +2144,60 @@ class SqliteStore:
         return self.create_session(title)
 
     def rename_session(self, session_id: str, title: str) -> None:
-        with self._connect() as conn:
-            conn.execute(
-                "UPDATE chat_session SET title = ? WHERE id = ?",
-                (title, session_id),
-            )
+        self._chat_sessions_repo().rename_chat_session(session_id=session_id, title=title)
 
     def trim_messages(self, session_id: str, keep_last: int) -> None:
         if keep_last <= 0:
             self.delete_session(session_id)
             return
-        with self._connect() as conn:
-            rows = list(
-                conn.execute(
-                    """
-                    SELECT id, role, tool_calls FROM chat_message
-                    WHERE session_id = ? ORDER BY id ASC
-                    """,
-                    (session_id,),
-                )
-            )
-        start = _trim_messages_start_index(rows, keep_last)
-        if start is None:
-            return
-        min_keep_id = int(rows[start]["id"])
-        with self._connect() as conn:
-            conn.execute(
-                "DELETE FROM chat_message WHERE session_id = ? AND id < ?",
-                (session_id, min_keep_id),
-            )
+        self._chat_messages_repo().trim_messages_keep_last(session_id=session_id, keep_last=keep_last)
 
     def fork_session(self, source_session_id: str, up_to_message_id: int, title: str) -> ChatSession:
         """将 `id <= up_to_message_id` 的消息复制到新会话，并重映射 tool 的 assistant_message_id。"""
-        with self._connect() as conn:
-            chk = conn.execute(
-                "SELECT 1 FROM chat_message WHERE session_id = ? AND id = ? LIMIT 1",
-                (source_session_id, up_to_message_id),
-            ).fetchone()
-            if not chk:
-                raise ValueError("message not in session")
-            rows = list(
-                conn.execute(
-                    """
-                    SELECT id, role, content, tool_calls, attachments, turn_uuid, event_type, event_payload, timestamp
-                    FROM chat_message
-                    WHERE session_id = ? AND id <= ?
-                    ORDER BY id ASC
-                    """,
-                    (source_session_id, up_to_message_id),
-                )
-            )
+        self._chat_messages_repo().fork_assert_anchor(
+            source_session_id=source_session_id,
+            up_to_message_id=up_to_message_id,
+        )
         new_sess = self.create_session(title)
-        id_map: dict[int, int] = {}
-        with self._connect() as conn:
-            for r in rows:
-                old_id = int(r["id"])
-                role = str(r["role"])
-                tool_calls_text = r["tool_calls"]
-                if role == "tool" and tool_calls_text:
-                    try:
-                        meta = json.loads(tool_calls_text)
-                        if isinstance(meta, dict):
-                            aid = meta.get("assistant_message_id")
-                            if aid is not None:
-                                new_aid = id_map.get(int(aid))
-                                if new_aid is not None:
-                                    meta = {**meta, "assistant_message_id": new_aid}
-                                    tool_calls_text = json.dumps(meta, ensure_ascii=False)
-                    except (json.JSONDecodeError, TypeError, ValueError):
-                        pass
-                cur = conn.execute(
-                    """
-                    INSERT INTO chat_message (
-                        session_id, role, content, tool_calls, attachments, turn_uuid, event_type, event_payload, timestamp
-                    )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    (
-                        new_sess.id,
-                        role,
-                        r["content"],
-                        tool_calls_text,
-                        r["attachments"],
-                        r["turn_uuid"],
-                        r["event_type"],
-                        r["event_payload"],
-                        r["timestamp"],
-                    ),
-                )
-                id_map[old_id] = int(cur.lastrowid)
-            last_ts = rows[-1]["timestamp"] if rows else utc_now_iso()
-            conn.execute(
-                "UPDATE chat_session SET last_message_at = ? WHERE id = ?",
-                (last_ts, new_sess.id),
-            )
+        self._chat_messages_repo().fork_copy_messages_to_session(
+            source_session_id=source_session_id,
+            up_to_message_id=up_to_message_id,
+            new_session_id=new_sess.id,
+        )
         return self.get_session(new_sess.id) or new_sess
 
     def set_setting(self, key: str, value: str) -> None:
         ts = utc_now_iso()
-        with self._connect() as conn:
-            conn.execute(
-                """
-                INSERT INTO app_setting (key, value, is_secret, updated_at)
-                VALUES (?, ?, 0, ?)
-                ON CONFLICT(key) DO UPDATE SET value = excluded.value, is_secret = 0, updated_at = excluded.updated_at
-                """,
-                (key, value, ts),
-            )
+        self._app_settings_repo().upsert_plain(key=key, value=value, updated_at=ts)
 
     def get_setting(self, key: str) -> Optional[str]:
-        with self._connect() as conn:
-            row = conn.execute(
-                "SELECT value, is_secret FROM app_setting WHERE key = ?",
-                (key,),
-            ).fetchone()
-        if not row:
+        row = self._app_settings_repo().fetch_row(key=key)
+        if row is None:
             return None
-        if int(row["is_secret"]) != 0:
+        val, is_secret = row
+        if is_secret != 0:
             return None
-        return str(row["value"])
+        return str(val)
 
     def set_secret(self, key: str, plain_text: str) -> None:
         ts = utc_now_iso()
         enc = _encode_secret(plain_text)
-        with self._connect() as conn:
-            conn.execute(
-                """
-                INSERT INTO app_setting (key, value, is_secret, updated_at)
-                VALUES (?, ?, 1, ?)
-                ON CONFLICT(key) DO UPDATE SET value = excluded.value, is_secret = 1, updated_at = excluded.updated_at
-                """,
-                (key, enc, ts),
-            )
+        self._app_settings_repo().upsert_secret(key=key, encoded_value=enc, updated_at=ts)
 
     def get_secret(self, key: str) -> Optional[str]:
-        with self._connect() as conn:
-            row = conn.execute(
-                "SELECT value, is_secret FROM app_setting WHERE key = ?",
-                (key,),
-            ).fetchone()
-        if not row:
+        row = self._app_settings_repo().fetch_row(key=key)
+        if row is None:
             return None
-        if int(row["is_secret"]) != 1:
+        val, is_secret = row
+        if is_secret != 1:
             return None
         try:
-            return _decode_secret(str(row["value"]))
+            return _decode_secret(str(val))
         except Exception:
             return None
 
     def delete_setting(self, key: str) -> None:
-        with self._connect() as conn:
-            conn.execute("DELETE FROM app_setting WHERE key = ?", (key,))
+        self._app_settings_repo().delete_key(key=key)
 
     def migrate_secrets_to_fernet(self) -> dict[str, int]:
         """Migrate legacy b64 secrets to a stronger scheme for both app settings and llm profiles.
@@ -2627,28 +2210,15 @@ class SqliteStore:
         if sys.platform != "win32" and _fernet() is None:
             raise _CryptoError("fernet is not available; set AIA_ASSISTANT_MASTER_KEY and install cryptography")
 
-        migrated_app_settings = 0
-        migrated_llm_profiles = 0
         ts = utc_now_iso()
+        migrated_app_settings = self._app_settings_repo().migrate_b64_secrets(
+            ts=ts,
+            decode_secret=_decode_secret,
+            encode_secret=_encode_secret,
+            predicate_new_encoding=lambda enc: enc.startswith("fernet:") or enc.startswith("dpapi:"),
+        )
+        migrated_llm_profiles = 0
         with self._connect() as conn:
-            rows = conn.execute(
-                "SELECT key, value FROM app_setting WHERE is_secret = 1 AND value LIKE 'b64:%'"
-            ).fetchall()
-            for r in rows:
-                k = str(r["key"] or "")
-                v = str(r["value"] or "")
-                try:
-                    plain = _decode_secret(v)
-                except Exception:
-                    continue
-                enc = _encode_secret(plain)
-                if enc != v and (enc.startswith("fernet:") or enc.startswith("dpapi:")):
-                    conn.execute(
-                        "UPDATE app_setting SET value = ?, updated_at = ? WHERE key = ? AND is_secret = 1",
-                        (enc, ts, k),
-                    )
-                    migrated_app_settings += 1
-
             profs = conn.execute(
                 "SELECT id, api_key FROM llm_profile WHERE api_key IS NOT NULL AND api_key LIKE 'b64:%'"
             ).fetchall()
@@ -2676,15 +2246,13 @@ class SqliteStore:
 
     def legacy_secret_stats(self) -> dict[str, Any]:
         """Return counts of legacy b64 secrets for UI warning."""
+        legacy_b64_app = self._app_settings_repo().count_legacy_b64_secrets()
         with self._connect() as conn:
-            row1 = conn.execute(
-                "SELECT COUNT(1) AS n FROM app_setting WHERE is_secret = 1 AND value LIKE 'b64:%'"
-            ).fetchone()
             row2 = conn.execute(
                 "SELECT COUNT(1) AS n FROM llm_profile WHERE api_key IS NOT NULL AND api_key LIKE 'b64:%'"
             ).fetchone()
         return {
-            "legacy_b64_app_settings": int((row1["n"] if row1 else 0) or 0),
+            "legacy_b64_app_settings": int(legacy_b64_app),
             "legacy_b64_llm_profiles": int((row2["n"] if row2 else 0) or 0),
         }
 
@@ -4106,27 +3674,19 @@ class SqliteStore:
         payload: dict[str, Any],
     ) -> None:
         ts = utc_now_iso()
-        with self._connect() as conn:
-            conn.execute(
-                """
-                INSERT INTO trace_event
-                    (session_id, trace_id, span_id, parent_span_id, event_type, payload, timestamp)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    str(session_id),
-                    str(trace_id),
-                    str(span_id),
-                    str(parent_span_id) if parent_span_id else None,
-                    str(event_type),
-                    json.dumps(payload or {}, ensure_ascii=False, default=str),
-                    ts,
-                ),
-            )
+        self._trace_events_repo().insert_one(
+            session_id=str(session_id),
+            trace_id=str(trace_id),
+            span_id=str(span_id),
+            parent_span_id=str(parent_span_id) if parent_span_id else None,
+            event_type=str(event_type),
+            payload=json.dumps(payload or {}, ensure_ascii=False, default=str),
+            timestamp=ts,
+        )
 
     def add_trace_events_batch(self, events: list[dict[str, Any]]) -> None:
-        rows: list[tuple[str, str, str, str | None, str, str, str]] = []
         ts = utc_now_iso()
+        batch: list[dict[str, Any]] = []
         for e in events or []:
             try:
                 session_id = str(e.get("session_id") or "").strip()
@@ -4137,43 +3697,25 @@ class SqliteStore:
                 parent_span_id = str(e.get("parent_span_id") or "").strip() or None
                 event_type = str(e.get("event_type") or "").strip()
                 payload = e.get("payload") if isinstance(e.get("payload"), dict) else {}
-                rows.append(
-                    (
-                        session_id,
-                        trace_id,
-                        span_id,
-                        parent_span_id,
-                        event_type,
-                        json.dumps(payload or {}, ensure_ascii=False, default=str),
-                        ts,
-                    )
+                batch.append(
+                    {
+                        "session_id": session_id,
+                        "trace_id": trace_id,
+                        "span_id": span_id,
+                        "parent_span_id": parent_span_id,
+                        "event_type": event_type,
+                        "payload": json.dumps(payload or {}, ensure_ascii=False, default=str),
+                        "timestamp": ts,
+                    }
                 )
             except Exception:
                 continue
-        if not rows:
-            return
-        with self._connect() as conn:
-            conn.executemany(
-                """
-                INSERT INTO trace_event
-                    (session_id, trace_id, span_id, parent_span_id, event_type, payload, timestamp)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-                """,
-                rows,
-            )
+        self._trace_events_repo().insert_many(batch)
 
     def list_trace_events(self, *, session_id: str, limit: int = 300) -> list[dict[str, Any]]:
-        with self._connect() as conn:
-            rows = conn.execute(
-                """
-                SELECT trace_id, span_id, parent_span_id, event_type, payload, timestamp
-                FROM trace_event
-                WHERE session_id = ?
-                ORDER BY id DESC
-                LIMIT ?
-                """,
-                (str(session_id), max(1, int(limit))),
-            ).fetchall()
+        rows = self._trace_events_repo().list_trace_events_desc(
+            session_id=str(session_id), limit=max(1, int(limit))
+        )
         out: list[dict[str, Any]] = []
         for r in rows:
             try:
@@ -4195,21 +3737,9 @@ class SqliteStore:
     def list_trace_events_for_trace(
         self, *, session_id: str, trace_id: str, limit: int = 500
     ) -> list[dict[str, Any]]:
-        sid = str(session_id or "").strip()
-        tid = str(trace_id or "").strip()
-        if not sid or not tid:
-            return []
-        with self._connect() as conn:
-            rows = conn.execute(
-                """
-                SELECT trace_id, span_id, parent_span_id, event_type, payload, timestamp
-                FROM trace_event
-                WHERE session_id = ? AND trace_id = ?
-                ORDER BY id ASC
-                LIMIT ?
-                """,
-                (sid, tid, max(1, int(limit))),
-            ).fetchall()
+        rows = self._trace_events_repo().list_trace_events_for_trace_asc(
+            session_id=session_id, trace_id=trace_id, limit=max(1, int(limit))
+        )
         out: list[dict[str, Any]] = []
         for r in rows:
             try:
@@ -4234,16 +3764,9 @@ class SqliteStore:
         tid = str(trace_id or "").strip()
         if not sid or not tid:
             return None, None
-        with self._connect() as conn:
-            rows = conn.execute(
-                """
-                SELECT event_type, timestamp
-                FROM trace_event
-                WHERE session_id = ? AND trace_id = ?
-                ORDER BY id ASC
-                """,
-                (sid, tid),
-            ).fetchall()
+        rows = self._trace_events_repo().list_event_type_timestamp_for_trace(
+            session_id=sid, trace_id=tid
+        )
         if not rows:
             return None, None
         start = None
@@ -4271,34 +3794,9 @@ class SqliteStore:
         if not start or not end:
             return []
         lim = max(1, min(int(limit), 2000))
-        with self._connect() as conn:
-            rows = conn.execute(
-                """
-                SELECT id, session_id, role, content, tool_calls, attachments, turn_uuid, event_type, event_payload, timestamp
-                FROM chat_message
-                WHERE session_id = ? AND timestamp >= ? AND timestamp <= ?
-                ORDER BY id ASC
-                LIMIT ?
-                """,
-                (sid, start, end, lim),
-            ).fetchall()
-        out: list[dict[str, Any]] = []
-        for r in rows:
-            out.append(
-                {
-                    "id": int(r["id"] or 0),
-                    "session_id": str(r["session_id"] or ""),
-                    "role": str(r["role"] or ""),
-                    "content": str(r["content"] or ""),
-                    "tool_calls": r["tool_calls"],
-                    "attachments": r["attachments"],
-                    "turn_uuid": str(r["turn_uuid"] or ""),
-                    "event_type": str(r["event_type"] or ""),
-                    "event_payload": r["event_payload"],
-                    "timestamp": str(r["timestamp"] or ""),
-                }
-            )
-        return out
+        return self._chat_messages_repo().list_messages_in_time_window(
+            session_id=sid, start_ts=start, end_ts=end, limit=lim
+        )
 
     # ----------------------------
     # Tenant / User / Bind Codes
@@ -4306,46 +3804,39 @@ class SqliteStore:
     def create_tenant(self, name: str) -> dict[str, Any]:
         tid = str(uuid.uuid4())
         ts = utc_now_iso()
-        with self._connect() as conn:
-            conn.execute(
-                "INSERT INTO tenant (id, name, created_at) VALUES (?, ?, ?)",
-                (tid, str(name or "").strip() or "Team", ts),
-            )
+        nm = str(name or "").strip() or "Team"
+        self._tenant_repo().insert_tenant(tenant_id=tid, name=nm, created_at=ts)
         return {"id": tid, "name": name, "created_at": ts}
 
     def delete_tenant(self, *, tenant_id: str) -> int:
         tid = str(tenant_id or "").strip()
         if not tid:
             return 0
-        with self._connect() as conn:
-            cur = conn.execute("DELETE FROM tenant WHERE id = ?", (tid,))
-        return int(cur.rowcount or 0)
+        return self._tenant_repo().delete_tenant(tenant_id=tid)
 
     def list_tenants(self, *, limit: int = 200) -> list[dict[str, Any]]:
-        with self._connect() as conn:
-            rows = conn.execute(
-                "SELECT id, name, created_at FROM tenant ORDER BY created_at DESC LIMIT ?",
-                (max(1, int(limit)),),
-            ).fetchall()
-        return [{"id": r["id"], "name": r["name"], "created_at": r["created_at"]} for r in rows]
+        return self._tenant_repo().list_tenants(limit=max(1, int(limit)))
 
     def create_user(self, *, tenant_id: str, display_name: str, role: str) -> dict[str, Any]:
         uid = str(uuid.uuid4())
         ts = utc_now_iso()
         username = (str(display_name or "").strip() or "user").lower().replace(" ", "_")
-        with self._connect() as conn:
-            # avoid conflicts within tenant.
-            row = conn.execute(
-                "SELECT COUNT(*) AS c FROM app_user WHERE tenant_id = ? AND username = ?",
-                (str(tenant_id), username),
-            ).fetchone()
-            suffix = int(row["c"] or 0) if row else 0
-            if suffix > 0:
-                username = f"{username}_{suffix+1}"
-            conn.execute(
-                "INSERT INTO app_user (id, tenant_id, username, display_name, role, password_hash, is_active, created_at) VALUES (?, ?, ?, ?, ?, '', 1, ?)",
-                (uid, str(tenant_id), username, str(display_name or "").strip() or "User", str(role or "member"), ts),
-            )
+        repo = self._app_users_repo()
+        suffix = repo.count_by_tenant_username(tenant_id=str(tenant_id), username=username)
+        if suffix > 0:
+            username = f"{username}_{suffix+1}"
+        disp = str(display_name or "").strip() or "User"
+        repo.insert_user(
+            user_id=uid,
+            tenant_id=str(tenant_id),
+            username=username,
+            display_name=disp,
+            role=str(role or "member"),
+            password_hash="",
+            is_active=1,
+            created_at=ts,
+            avatar_attachment_id=None,
+        )
         return {
             "id": uid,
             "tenant_id": tenant_id,
@@ -4365,174 +3856,26 @@ class SqliteStore:
         q: str | None = None,
         include_inactive: bool = True,
     ) -> list[dict[str, Any]]:
-        where = ["tenant_id = ?"]
-        params: list[Any] = [str(tenant_id)]
-        token = str(q or "").strip()
-        if token:
-            where.append("(LOWER(display_name) LIKE ? OR LOWER(COALESCE(username,'')) LIKE ? OR id LIKE ?)")
-            key = f"%{token.lower()}%"
-            params.extend([key, key, f"%{token[:32]}%"])
-        if not include_inactive:
-            where.append("COALESCE(is_active, 1) = 1")
-        wsql = " AND ".join(where)
-        with self._connect() as conn:
-            rows = conn.execute(
-                """
-                SELECT
-                  id,
-                  tenant_id,
-                  username,
-                  display_name,
-                  role,
-                  COALESCE(is_active,1) AS is_active,
-                  created_at,
-                  (CASE WHEN TRIM(COALESCE(password_hash,'')) != '' THEN 1 ELSE 0 END) AS has_password,
-                  (
-                    EXISTS (
-                      SELECT 1 FROM channel_identity_v2 ci
-                      WHERE ci.tenant_id = app_user.tenant_id AND ci.user_id = app_user.id AND ci.channel = 'wecom'
-                    )
-                    OR EXISTS (
-                      SELECT 1 FROM channel_identity ci
-                      WHERE ci.tenant_id = app_user.tenant_id AND ci.user_id = app_user.id AND ci.channel = 'wecom'
-                    )
-                  ) AS wecom_linked,
-                  (
-                    EXISTS (
-                      SELECT 1 FROM channel_identity_v2 ci
-                      WHERE ci.tenant_id = app_user.tenant_id AND ci.user_id = app_user.id
-                    )
-                    OR EXISTS (
-                      SELECT 1 FROM channel_identity ci
-                      WHERE ci.tenant_id = app_user.tenant_id AND ci.user_id = app_user.id
-                    )
-                  ) AS channel_linked,
-                  (
-                    SELECT GROUP_CONCAT(z.eid, ', ')
-                    FROM (
-                      SELECT DISTINCT TRIM(ci.external_user_id) AS eid
-                      FROM channel_identity ci
-                      WHERE ci.tenant_id = app_user.tenant_id
-                        AND ci.user_id = app_user.id
-                        AND ci.channel = 'wecom'
-                        AND TRIM(COALESCE(ci.external_user_id, '')) != ''
-                      UNION
-                      SELECT DISTINCT TRIM(ci.external_user_id) AS eid
-                      FROM channel_identity_v2 ci
-                      WHERE ci.tenant_id = app_user.tenant_id
-                        AND ci.user_id = app_user.id
-                        AND ci.channel = 'wecom'
-                        AND TRIM(COALESCE(ci.external_user_id, '')) != ''
-                    ) AS z
-                  ) AS wecom_external_user_ids
-                FROM app_user
-                WHERE """
-                + wsql
-                + """
-                ORDER BY created_at DESC
-                LIMIT ?
-                OFFSET ?
-                """,
-                (*params, max(1, int(limit)), max(0, int(offset))),
-            ).fetchall()
-        out: list[dict[str, Any]] = []
-        for r in rows:
-            has_pw = bool(int(r["has_password"] or 0))
-            uname = str(r["username"] or "")
-            can_chat = bool(has_pw)
-            out.append(
-                {
-                    "id": r["id"],
-                    "tenant_id": r["tenant_id"],
-                    "username": r["username"],
-                    "display_name": r["display_name"],
-                    "role": r["role"],
-                    "is_active": bool(int(r["is_active"] or 0)),
-                    "created_at": r["created_at"],
-                    "has_password": has_pw,
-                    "wecom_linked": bool(int(r["wecom_linked"] or 0)),
-                    "channel_linked": bool(int(r["channel_linked"] or 0)),
-                    "can_chat_login": can_chat,
-                    "wecom_external_user_ids": str(r["wecom_external_user_ids"] or "").strip(),
-                }
-            )
-        return out
+        return self._app_users_repo().list_users_for_tenant(
+            tenant_id=str(tenant_id),
+            limit=limit,
+            offset=offset,
+            q=q,
+            include_inactive=include_inactive,
+        )
 
     def get_user_by_username(self, *, tenant_id: str, username: str) -> dict[str, Any] | None:
-        with self._connect() as conn:
-            r = conn.execute(
-                """
-                SELECT id, tenant_id, username, display_name, role, COALESCE(is_active,1) AS is_active, created_at, COALESCE(password_hash,'') AS password_hash, COALESCE(avatar_attachment_id,'') AS avatar_attachment_id
-                FROM app_user
-                WHERE tenant_id = ? AND username = ?
-                LIMIT 1
-                """,
-                (str(tenant_id), str(username)),
-            ).fetchone()
-        if not r:
-            return None
-        return {
-            "id": r["id"],
-            "tenant_id": r["tenant_id"],
-            "username": r["username"],
-            "display_name": r["display_name"],
-            "role": r["role"],
-            "is_active": bool(int(r["is_active"] or 0)),
-            "created_at": r["created_at"],
-            "password_hash": r["password_hash"],
-            "avatar_attachment_id": str(r["avatar_attachment_id"] or "").strip() or None,
-        }
+        return self._app_users_repo().fetch_by_tenant_and_username(
+            tenant_id=str(tenant_id), username=str(username)
+        )
 
     def get_user_by_username_global(self, *, username: str) -> dict[str, Any] | None:
-        with self._connect() as conn:
-            r = conn.execute(
-                """
-                SELECT id, tenant_id, username, display_name, role, COALESCE(is_active,1) AS is_active, created_at, COALESCE(password_hash,'') AS password_hash, COALESCE(avatar_attachment_id,'') AS avatar_attachment_id
-                FROM app_user
-                WHERE username = ?
-                ORDER BY created_at ASC
-                LIMIT 1
-                """,
-                (str(username),),
-            ).fetchone()
-        if not r:
-            return None
-        return {
-            "id": r["id"],
-            "tenant_id": r["tenant_id"],
-            "username": r["username"],
-            "display_name": r["display_name"],
-            "role": r["role"],
-            "is_active": bool(int(r["is_active"] or 0)),
-            "created_at": r["created_at"],
-            "password_hash": r["password_hash"],
-            "avatar_attachment_id": str(r["avatar_attachment_id"] or "").strip() or None,
-        }
+        return self._app_users_repo().fetch_first_by_username_global(username=str(username))
 
     def get_user_by_id(self, *, tenant_id: str, user_id: str) -> dict[str, Any] | None:
-        with self._connect() as conn:
-            r = conn.execute(
-                """
-                SELECT id, tenant_id, username, display_name, role, COALESCE(is_active,1) AS is_active, created_at, COALESCE(password_hash,'') AS password_hash, COALESCE(avatar_attachment_id,'') AS avatar_attachment_id
-                FROM app_user
-                WHERE tenant_id = ? AND id = ?
-                LIMIT 1
-                """,
-                (str(tenant_id), str(user_id)),
-            ).fetchone()
-        if not r:
-            return None
-        return {
-            "id": r["id"],
-            "tenant_id": r["tenant_id"],
-            "username": r["username"],
-            "display_name": r["display_name"],
-            "role": r["role"],
-            "is_active": bool(int(r["is_active"] or 0)),
-            "created_at": r["created_at"],
-            "password_hash": r["password_hash"],
-            "avatar_attachment_id": str(r["avatar_attachment_id"] or "").strip() or None,
-        }
+        return self._app_users_repo().fetch_by_tenant_and_id(
+            tenant_id=str(tenant_id), user_id=str(user_id)
+        )
 
     def create_user_account(
         self,
@@ -4546,23 +3889,17 @@ class SqliteStore:
     ) -> dict[str, Any]:
         uid = str(uuid.uuid4())
         ts = utc_now_iso()
-        with self._connect() as conn:
-            conn.execute(
-                """
-                INSERT INTO app_user (id, tenant_id, username, display_name, role, password_hash, is_active, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    uid,
-                    str(tenant_id),
-                    str(username).strip(),
-                    str(display_name).strip() or str(username).strip(),
-                    str(role or "member"),
-                    str(password_hash or ""),
-                    1 if is_active else 0,
-                    ts,
-                ),
-            )
+        self._app_users_repo().insert_user(
+            user_id=uid,
+            tenant_id=str(tenant_id),
+            username=str(username).strip(),
+            display_name=str(display_name).strip() or str(username).strip(),
+            role=str(role or "member"),
+            password_hash=str(password_hash or ""),
+            is_active=1 if is_active else 0,
+            created_at=ts,
+            avatar_attachment_id=None,
+        )
         return self.get_user_by_id(tenant_id=tenant_id, user_id=uid) or {}
 
     def update_user_account(
@@ -4576,37 +3913,18 @@ class SqliteStore:
         password_hash: str | None = None,
         avatar_attachment_id: str | None = None,
     ) -> bool:
-        sets: list[str] = []
-        params: list[Any] = []
-        if display_name is not None:
-            sets.append("display_name = ?")
-            params.append(str(display_name).strip() or "User")
-        if role is not None:
-            sets.append("role = ?")
-            params.append(str(role).strip() or "member")
-        if is_active is not None:
-            sets.append("is_active = ?")
-            params.append(1 if is_active else 0)
-        if password_hash is not None:
-            sets.append("password_hash = ?")
-            params.append(str(password_hash))
-        if avatar_attachment_id is not None:
-            sets.append("avatar_attachment_id = ?")
-            aid = str(avatar_attachment_id).strip()
-            params.append(aid if aid else None)
-        if not sets:
-            return False
-        with self._connect() as conn:
-            cur = conn.execute(
-                f"UPDATE app_user SET {', '.join(sets)} WHERE tenant_id = ? AND id = ?",
-                (*params, str(tenant_id), str(user_id)),
-            )
-        return bool(cur.rowcount and cur.rowcount > 0)
+        return self._app_users_repo().update_user_account(
+            tenant_id=str(tenant_id),
+            user_id=str(user_id),
+            display_name=display_name,
+            role=role,
+            is_active=is_active,
+            password_hash=password_hash,
+            avatar_attachment_id=avatar_attachment_id,
+        )
 
     def delete_user_account(self, *, tenant_id: str, user_id: str) -> int:
-        with self._connect() as conn:
-            cur = conn.execute("DELETE FROM app_user WHERE tenant_id = ? AND id = ?", (str(tenant_id), str(user_id)))
-        return int(cur.rowcount or 0)
+        return self._app_users_repo().delete_user_account(tenant_id=str(tenant_id), user_id=str(user_id))
 
     def upsert_user_permission(self, *, tenant_id: str, user_id: str, permission: str) -> None:
         ts = utc_now_iso()
@@ -4744,72 +4062,30 @@ class SqliteStore:
         expires_at: str,
     ) -> None:
         ts = utc_now_iso()
-        with self._connect() as conn:
-            conn.execute(
-                """
-                INSERT INTO auth_session (session_token_hash, tenant_id, user_id, role, created_at, expires_at, last_seen_at, revoked_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, NULL)
-                """,
-                (str(session_token_hash), str(tenant_id), str(user_id), str(role), ts, str(expires_at), ts),
-            )
+        self._auth_sessions_repo().insert_session(
+            session_token_hash=str(session_token_hash),
+            tenant_id=str(tenant_id),
+            user_id=str(user_id),
+            role=str(role),
+            created_at=ts,
+            expires_at=str(expires_at),
+            last_seen_at=ts,
+        )
 
     def revoke_auth_session(self, *, session_token_hash: str) -> int:
         ts = utc_now_iso()
-        with self._connect() as conn:
-            cur = conn.execute(
-                """
-                UPDATE auth_session
-                SET revoked_at = ?
-                WHERE session_token_hash = ? AND revoked_at IS NULL
-                """,
-                (ts, str(session_token_hash)),
-            )
-        return int(cur.rowcount or 0)
+        return self._auth_sessions_repo().revoke_one(session_token_hash=str(session_token_hash), revoked_at=ts)
 
     def revoke_all_auth_sessions(self) -> int:
         ts = utc_now_iso()
-        with self._connect() as conn:
-            cur = conn.execute(
-                """
-                UPDATE auth_session
-                SET revoked_at = ?
-                WHERE revoked_at IS NULL
-                """,
-                (ts,),
-            )
-        return int(cur.rowcount or 0)
+        return self._auth_sessions_repo().revoke_all_active(revoked_at=ts)
 
     def get_auth_session(self, *, session_token_hash: str) -> dict[str, Any] | None:
-        with self._connect() as conn:
-            r = conn.execute(
-                """
-                SELECT session_token_hash, tenant_id, user_id, role, created_at, expires_at, last_seen_at, revoked_at
-                FROM auth_session
-                WHERE session_token_hash = ?
-                LIMIT 1
-                """,
-                (str(session_token_hash),),
-            ).fetchone()
-        if not r:
-            return None
-        return {
-            "session_token_hash": r["session_token_hash"],
-            "tenant_id": r["tenant_id"],
-            "user_id": r["user_id"],
-            "role": r["role"],
-            "created_at": r["created_at"],
-            "expires_at": r["expires_at"],
-            "last_seen_at": r["last_seen_at"],
-            "revoked_at": r["revoked_at"],
-        }
+        return self._auth_sessions_repo().fetch_by_hash(session_token_hash=str(session_token_hash))
 
     def touch_auth_session(self, *, session_token_hash: str) -> None:
         ts = utc_now_iso()
-        with self._connect() as conn:
-            conn.execute(
-                "UPDATE auth_session SET last_seen_at = ? WHERE session_token_hash = ?",
-                (ts, str(session_token_hash)),
-            )
+        self._auth_sessions_repo().touch(session_token_hash=str(session_token_hash), last_seen_at=ts)
 
     def add_admin_audit_log(
         self,
@@ -5161,14 +4437,9 @@ class SqliteStore:
 
     def create_bind_code(self, *, tenant_id: str, role: str, code: str) -> dict[str, Any]:
         ts = utc_now_iso()
-        with self._connect() as conn:
-            conn.execute(
-                """
-                INSERT INTO bind_code (code, tenant_id, role, created_at, used_at, used_by_external_user_id)
-                VALUES (?, ?, ?, ?, NULL, NULL)
-                """,
-                (str(code), str(tenant_id), str(role), ts),
-            )
+        self._bind_code_repo().insert_bind_code(
+            code=str(code), tenant_id=str(tenant_id), role=str(role), created_at=ts
+        )
         return {"code": code, "tenant_id": tenant_id, "role": role, "created_at": ts}
 
     def consume_bind_code(
@@ -5178,61 +4449,27 @@ class SqliteStore:
         code = str(code or "").strip()
         if not code:
             return None
-        with self._connect() as conn:
-            row = conn.execute(
-                """
-                SELECT code, tenant_id, role, used_at
-                FROM bind_code
-                WHERE code = ?
-                """,
-                (code,),
-            ).fetchone()
-            if not row or row["used_at"]:
-                return None
-            tenant_id = str(row["tenant_id"])
-            role = str(row["role"] or "member")
-            user = self.create_user(tenant_id=tenant_id, display_name=display_name or "User", role=role)
-            self.upsert_channel_identity(
-                tenant_id=tenant_id,
-                channel=channel,
-                external_user_id=external_user_id,
-                user_id=str(user["id"]),
-            )
-            ts = utc_now_iso()
-            conn.execute(
-                """
-                UPDATE bind_code
-                SET used_at = ?, used_by_external_user_id = ?
-                WHERE code = ?
-                """,
-                (ts, str(external_user_id), code),
-            )
+        row = self._bind_code_repo().fetch_by_code(code=code)
+        if not row or row.get("used_at"):
+            return None
+        tenant_id = str(row["tenant_id"])
+        role = str(row["role"] or "member")
+        user = self.create_user(tenant_id=tenant_id, display_name=display_name or "User", role=role)
+        self.upsert_channel_identity(
+            tenant_id=tenant_id,
+            channel=channel,
+            external_user_id=external_user_id,
+            user_id=str(user["id"]),
+        )
+        ts = utc_now_iso()
+        self._bind_code_repo().mark_used(
+            code=code, used_at=ts, used_by_external_user_id=str(external_user_id)
+        )
         return {"tenant_id": tenant_id, "user_id": user["id"], "role": role}
 
     def list_bind_codes(self, *, tenant_id: str | None = None, limit: int = 200) -> list[dict[str, Any]]:
         lim = max(1, int(limit))
-        with self._connect() as conn:
-            if tenant_id:
-                rows = conn.execute(
-                    """
-                    SELECT code, tenant_id, role, created_at, used_at, used_by_external_user_id
-                    FROM bind_code
-                    WHERE tenant_id = ?
-                    ORDER BY created_at DESC
-                    LIMIT ?
-                    """,
-                    (str(tenant_id), lim),
-                ).fetchall()
-            else:
-                rows = conn.execute(
-                    """
-                    SELECT code, tenant_id, role, created_at, used_at, used_by_external_user_id
-                    FROM bind_code
-                    ORDER BY created_at DESC
-                    LIMIT ?
-                    """,
-                    (lim,),
-                ).fetchall()
+        rows = self._bind_code_repo().list_bind_codes(tenant_id=tenant_id, limit=lim)
         return [
             {
                 "code": r["code"],
@@ -5414,22 +4651,7 @@ class SqliteStore:
         return str(sess.id)
 
     def backfill_ui_session_owner_from_channel_v2(self) -> int:
-        with self._connect() as conn:
-            cur = conn.execute(
-                """
-                INSERT OR IGNORE INTO ui_session_owner(session_id, tenant_id, user_id, created_at)
-                SELECT DISTINCT cs.session_id, cs.tenant_id, ci.user_id, ?
-                FROM channel_session_v2 cs
-                JOIN channel_identity_v2 ci
-                  ON ci.tenant_id = cs.tenant_id
-                 AND ci.channel = cs.channel
-                 AND ci.account_id = cs.account_id
-                 AND ci.external_user_id = cs.external_user_id
-                WHERE cs.session_id IS NOT NULL AND cs.session_id != ''
-                """,
-                (utc_now_iso(),),
-            )
-            return int(cur.rowcount or 0)
+        return self._ui_session_owner_repo().backfill_from_channel_v2(created_at=utc_now_iso())
 
     # ----------------------------
     # Oclaw tasks
@@ -5682,6 +4904,26 @@ class SqliteStore:
     ) -> int:
         ts = utc_now_iso()
         with self._connect() as conn:
+            if self._use_pg:
+                cur = conn.execute(
+                    """
+                    INSERT INTO oclaw_attempt(run_id, tenant_id, session_id, attempt_no, status, reason, payload, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    RETURNING id
+                    """,
+                    (
+                        str(run_id),
+                        str(tenant_id),
+                        str(session_id),
+                        int(attempt_no),
+                        str(status),
+                        str(reason or ""),
+                        json.dumps(payload or {}, ensure_ascii=False),
+                        ts,
+                    ),
+                )
+                row = cur.fetchone()
+                return int(row["id"]) if row else 0
             cur = conn.execute(
                 """
                 INSERT INTO oclaw_attempt(run_id, tenant_id, session_id, attempt_no, status, reason, payload, created_at)

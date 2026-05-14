@@ -8,6 +8,7 @@ from typing import Any
 
 from runtime.agents.factory import build_gateway_executor
 from svc.persistence.sqlite_store import SqliteStore
+from svc.persistence.assistant_store import get_assistant_store
 from runtime.orchestration.evaluation import eval_summary
 from svc.config.paths import db_path
 from runtime.gateway import OclawGateway
@@ -71,7 +72,7 @@ def run_eval(
     Dataset format: JSONL, each line:
       {"id": "...", "input": "...", "assert_contains": ["..."], "assert_not_contains": ["..."]}
     """
-    store = SqliteStore(db_path())
+    store = get_assistant_store()
     agent = build_gateway_executor(store)
     session = store.create_session("offline-eval")
     gw = OclawGateway(store=store)

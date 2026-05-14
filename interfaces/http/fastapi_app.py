@@ -32,7 +32,7 @@ from runtime.hooks_runtime import (
 from runtime.skills import skill_runtime_diagnostics
 from runtime.prompt_prebuild import run_runtime_prewarm
 from svc.config.paths import PROJECT_ROOT, db_path
-from svc.persistence.sqlite_store import SqliteStore
+from svc.persistence.assistant_store import get_assistant_store
 from interfaces.http.weixin_ilink_api import router as weixin_ilink_router
 from runtime.workspaces.experts import warm_expert_workspace_cache
 
@@ -162,7 +162,7 @@ def _run_startup_hooks(app: FastAPI) -> None:
 
     # Force re-login after every gateway restart.
     try:
-        revoked = SqliteStore(db_path()).revoke_all_auth_sessions()
+        revoked = get_assistant_store().revoke_all_auth_sessions()
         if revoked > 0:
             _log_info(f"[auth] revoked sessions on startup: {revoked}")
     except Exception as exc:

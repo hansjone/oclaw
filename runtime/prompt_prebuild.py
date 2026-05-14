@@ -4,8 +4,7 @@ import threading
 import time
 from typing import Any
 
-from svc.config.paths import db_path
-from svc.persistence.sqlite_store import SqliteStore
+from svc.persistence.assistant_store import get_assistant_store
 from runtime.agent_context import build_role_system_context
 from runtime.agents.specialists import discover_specialist_ids
 from runtime.direct_loop import tool_wire_freeze_status, warm_tool_wire_cache
@@ -179,7 +178,7 @@ def run_runtime_prewarm(
             "error": "",
         }
     t0 = time.perf_counter()
-    own_store = store if store is not None else SqliteStore(db_path())
+    own_store = store if store is not None else get_assistant_store()
     try:
         registry = default_registry(store=own_store)
         prompt_stats = warm_startup_prompt_prebuild(
@@ -243,7 +242,7 @@ def runtime_prewarm_prompts_snapshot(
     base_url: str = "",
     memory_enabled: bool = True,
 ) -> dict[str, Any]:
-    own_store = store if store is not None else SqliteStore(db_path())
+    own_store = store if store is not None else get_assistant_store()
     registry = default_registry(store=own_store)
     target = str(role or "").strip().lower()
     allowed_roles = ["manager", *list(discover_specialist_ids())]

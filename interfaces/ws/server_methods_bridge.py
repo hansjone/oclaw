@@ -6,6 +6,7 @@ from typing import Any, Callable
 
 from svc.config.paths import db_path
 from svc.persistence.sqlite_store import SqliteStore
+from svc.persistence.assistant_store import get_assistant_store
 from interfaces.gateway.context_builder import build_common_gateway_context
 
 
@@ -22,7 +23,7 @@ def build_gateway_context(
     validate_relay_share_envelope: Callable[[dict[str, Any]], tuple[bool, str, dict[str, Any]]],
     now_ms: Callable[[], int],
 ) -> dict[str, Any]:
-    store = SqliteStore(db_path())
+    store = get_assistant_store()
 
     def _abort_chat_run(run_id: str) -> bool:
         rid = str(run_id or "").strip()

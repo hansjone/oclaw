@@ -16,6 +16,7 @@ sys.path.insert(0, str(ROOT))
 
 from svc.config.paths import db_path  # noqa: E402
 from svc.persistence.sqlite_store import SqliteStore  # noqa: E402
+from svc.persistence.assistant_store import get_assistant_store
 from runtime.tools.mcp.installer import McpServerManifest, install_mcp_server  # noqa: E402
 from runtime.tools.mcp.runtime import McpProcessRuntime  # noqa: E402
 
@@ -85,7 +86,7 @@ def _append_generalist_binding(store: SqliteStore, server_id: str) -> None:
 
 
 def main() -> None:
-    store = SqliteStore(db_path())
+    store = get_assistant_store()
     manifest = McpServerManifest(
         server_id="mcp-context7",
         source_type="npm",

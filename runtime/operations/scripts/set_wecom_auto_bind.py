@@ -4,6 +4,7 @@ import sys
 
 from svc.config.paths import db_path
 from svc.persistence.sqlite_store import SqliteStore
+from svc.persistence.assistant_store import get_assistant_store
 
 
 def _to_bool(v: str) -> str:
@@ -20,7 +21,7 @@ def main() -> int:
         return 2
 
     cmd = args[0].lower()
-    store = SqliteStore(db_path())
+    store = get_assistant_store()
 
     if cmd == "show":
         enabled = str(store.get_setting("wecom_auto_bind_enabled") or "1").strip()

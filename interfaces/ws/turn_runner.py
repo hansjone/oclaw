@@ -2,16 +2,21 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import threading
 import uuid
 from datetime import datetime
 from typing import Any, Callable
 
 from runtime.agents.factory import build_gateway_executor
+from runtime.chat.persist_terminal_fallback import persist_assistant_text_if_turn_missing
 from runtime.gateway import OclawGateway
 from runtime.types import StandardMessage
 from svc.config.paths import db_path
 from svc.persistence.sqlite_store import SqliteStore
+from svc.persistence.assistant_store import get_assistant_store
+
+_LOG = logging.getLogger(__name__)
 
 
 def _persisted_chat_attachments_nonempty(raw: Any) -> bool:
@@ -34,6 +39,41 @@ def _persisted_chat_attachments_nonempty(raw: Any) -> bool:
     except Exception:
         return bool(s)
     return False
+
+
+def _assistant_row_meaningful_for_terminal_snapshot(m: Any) -> bool:
+    """Whether an assistant row should participate in WS ``final`` snapshot selection.
+
+    Rows with ``content`` empty but ``tool_calls`` + ``event_payload.reasoning_content`` (common right
+    before tool execution finishes) were previously skipped, so the bridge picked an older assistant
+    row or only token fallback — matching \"reasoning then nothing\" when the post-tool reply never
+    landed in DB in time.
+    """
+    if str(getattr(m, "role", "") or "").lower() != "assistant":
+        return False
+    if str(getattr(m, "content", "") or "").strip():
+        return True
+    if _persisted_chat_attachments_nonempty(getattr(m, "attachments", None)):
+        return True
+    tc = getattr(m, "tool_calls", None)
+    if tc is not None:
+        s = str(tc).strip()
+        if not s or s.lower() == "null":
+            pass
+        else:
+            try:
+                parsed = json.loads(s) if isinstance(tc, str) else tc
+            except Exception:
+                return True
+            if isinstance(parsed, list) and len(parsed) > 0:
+                return True
+            if isinstance(parsed, dict) and parsed:
+                return True
+    ep = getattr(m, "event_payload", None)
+    if ep is None:
+        return False
+    es = str(ep).strip()
+    return bool(es) and es.lower() != "null"
 
 
 async def run_agent_turn_via_bridge(
@@ -118,7 +158,7 @@ async def run_agent_turn_via_bridge(
     plan_agent_version = str(p.get("plan_agent_version") or "v1").strip().lower() or "v1"
     if plan_agent_version not in {"v1", "v2"}:
         plan_agent_version = "v1"
-    store = SqliteStore(db_path())
+    store = get_assistant_store()
     gw = OclawGateway(store=store)
 
     ctx = conn.auth_ctx or {}
@@ -341,11 +381,15 @@ async def run_agent_turn_via_bridge(
                 session_id=str(session_id),
                 role="assistant",
                 content=str(user_facing_error),
-                turn_uuid=str(run_id_holder.get("run_id") or "") or None,
+                turn_uuid=None,
                 event_type="assistant_text",
             )
         except Exception:
-            pass
+            _LOG.exception(
+                "turn_runner_failed_reply_persist_failed session_id=%s run_id=%s",
+                str(session_id),
+                str(run_id_holder.get("run_id") or ""),
+            )
         if send_response:
             await conn.send_res(
                 req_id,
@@ -531,8 +575,10 @@ async def run_agent_turn_via_bridge(
     if not final_text:
         with buf_lock:
             final_text = "".join(token_chunks)
+    stream_snapshot = str(final_text or "").strip()
+    turn_for_persist = str(getattr(result, "turn_uuid", "") or "").strip()
     final_msg: dict[str, Any] = {"role": "assistant", "content": final_text, "timestamp": now_ms()}
-    if run_status == "failed" and not str(final_text or "").strip():
+    if run_status == "failed" and not stream_snapshot:
         err_code = run_last_error_code or "unknown_error"
         stop_reason = run_stop_reason or "failed"
         detail_line = f"\n详细原因：{run_error_detail}" if run_error_detail else ""
@@ -549,11 +595,15 @@ async def run_agent_turn_via_bridge(
                 session_id=str(session_id),
                 role="assistant",
                 content=str(final_text),
-                turn_uuid=str(rid or "") or None,
+                turn_uuid=turn_for_persist or None,
                 event_type="assistant_text",
             )
         except Exception:
-            pass
+            _LOG.exception(
+                "turn_runner_failed_final_reply_persist_failed session_id=%s run_id=%s",
+                str(session_id),
+                str(rid or ""),
+            )
     elif run_status != "failed":
         try:
             def _event_payload_as_dict(raw: Any) -> dict[str, Any]:
@@ -571,11 +621,12 @@ async def run_agent_turn_via_bridge(
             for m in reversed(list(persisted or [])):
                 if str(getattr(m, "role", "") or "").lower() != "assistant":
                     continue
+                if not _assistant_row_meaningful_for_terminal_snapshot(m):
+                    continue
                 content = str(getattr(m, "content", "") or "")
                 atraw = getattr(m, "attachments", None)
-                if not content.strip() and not _persisted_chat_attachments_nonempty(atraw):
-                    continue
-                final_text = content
+                # Keep streamed / gateway reply_text when newest DB row is tool-only (empty body).
+                final_text = str(content or "").strip() or str(final_text or "").strip()
                 et = str(getattr(m, "event_type", "") or "").strip()
                 ep = getattr(m, "event_payload", None)
                 final_msg = {
@@ -614,6 +665,14 @@ async def run_agent_turn_via_bridge(
                 break
         except Exception:
             pass
+
+    persist_assistant_text_if_turn_missing(
+        store=store,
+        session_id=str(session_id),
+        turn_uuid=turn_for_persist,
+        final_text=stream_snapshot,
+        log_prefix="turn_runner_ws_text_fallback_persisted",
+    )
 
     await conn.emit_chat_event(run_id=rid, state="final", reply=str(final_text or ""), message=final_msg, session_key=str(session_id))
     try:

@@ -7,10 +7,11 @@ import uuid
 from svc.config.paths import db_path
 from svc.integrations.wecom_client import WeComClient
 from svc.persistence.sqlite_store import SqliteStore
+from svc.persistence.assistant_store import get_assistant_store
 
 
 def main() -> int:
-    store = SqliteStore(db_path())
+    store = get_assistant_store()
     client = WeComClient(store)
     try:
         bot_id, _bot_secret = client.get_bot_credentials()

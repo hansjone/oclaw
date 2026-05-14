@@ -6,6 +6,7 @@ from typing import Any
 from svc.config.paths import db_path
 from svc.embeddings.embedding_client import build_default_embedding_client
 from svc.persistence.sqlite_store import SqliteStore
+from svc.persistence.assistant_store import get_assistant_store
 from runtime.tools.base import ToolSpec
 
 
@@ -27,7 +28,7 @@ def kb_add_tool() -> ToolSpec:
             if title:
                 source = f"{source}:{title[:48]}"
             cid = _chunk_id(source, text)
-            store = SqliteStore(db_path())
+            store = get_assistant_store()
             store.upsert_knowledge_chunk(
                 chunk_id=cid,
                 source=source,
@@ -63,7 +64,7 @@ def kb_search_tool() -> ToolSpec:
             limit = int(args.get("limit") or 3)
             if not tenant_id or not query:
                 return {"ok": False, "error": "tenant_id and query are required"}
-            store = SqliteStore(db_path())
+            store = get_assistant_store()
             from runtime.orchestration.memory import retrieve_context
 
             rows = retrieve_context(store, query, limit=max(1, min(limit, 6)))

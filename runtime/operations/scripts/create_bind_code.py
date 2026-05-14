@@ -5,10 +5,11 @@ import sys
 
 from svc.config.paths import db_path
 from svc.persistence.sqlite_store import SqliteStore
+from svc.persistence.assistant_store import get_assistant_store
 
 
 def main() -> int:
-    store = SqliteStore(db_path())
+    store = get_assistant_store()
     tenants = store.list_tenants(limit=1)
     if tenants:
         tenant_id = tenants[0]["id"]

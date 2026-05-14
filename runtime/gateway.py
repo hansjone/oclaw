@@ -90,6 +90,8 @@ class OclawGatewayResult:
     relay_ttl_turn_count: int = 0
     relay_ttl_session_count: int = 0
     relay_ttl_keep_count: int = 0
+    # agent-core 本轮 ``chat_message.turn_uuid``；供 WS 收尾与落库兜底对齐
+    turn_uuid: str = ""
 
 
 @dataclass(frozen=True)
@@ -889,15 +891,16 @@ class OclawGateway:
                     )
                     self.store.add_message(
                         session_id=msg.session_id,
-                        tenant_id=msg.tenant_id,
-                        user_id=msg.user_id,
                         role="assistant",
                         content=assignment_text,
                         tool_calls=None,
                         event_type="reasoning",
                     )
                 except Exception:
-                    pass
+                    logger.exception(
+                        "comprehensive_mode_assignment_message_persist_failed session_id=%s",
+                        str(getattr(msg, "session_id", "") or ""),
+                    )
             # Build specialist/dynamic executor and dispatch only manager instruction to it.
             specialist_input_msg = StandardMessage(
                 session_id=msg.session_id,
@@ -1005,6 +1008,7 @@ class OclawGateway:
                         relay_ttl_turn_count=int(ttl_stats.get("turn") or 0),
                         relay_ttl_session_count=int(ttl_stats.get("session") or 0),
                         relay_ttl_keep_count=int(ttl_stats.get("keep") or 0),
+                        turn_uuid="",
                     )
                 if action == "run_agent":
                     system_prompt_override = str(shadow.decision.system_prompt_override or "")
@@ -1146,7 +1150,9 @@ class OclawGateway:
                 relay_ttl_turn_count=int(ttl_stats.get("turn") or 0),
                 relay_ttl_session_count=int(ttl_stats.get("session") or 0),
                 relay_ttl_keep_count=int(ttl_stats.get("keep") or 0),
+                turn_uuid="",
             )
+        executed_turn_uuid = ""
         try:
             model = getattr(selected_executor, "model", None)
             tools = tools_override if tools_override is not None else getattr(selected_executor, "tools", None)
@@ -1196,7 +1202,10 @@ class OclawGateway:
                     max_tool_workers=_get_int_setting("AIA_TURN_MAX_TOOL_WORKERS", 8, 1, 32),
                     max_attempts=_get_int_setting("AIA_OCLAW_MAX_ATTEMPTS", 2, 1, 5),
                     memory_context=memory_context,
-                    on_token=(None if interaction_mode == "comprehensive" else on_token),
+                    # Always stream specialist tokens (incl. reasoning deltas) to WS clients.
+                    # Comprehensive used to pass None here to hide raw specialist output before manager polish;
+                    # that made admin webchat look like the stream died mid-"推理" until final/manager only.
+                    on_token=on_token,
                     on_progress=on_progress,
                     on_tool_ui=on_tool_ui,
                     should_stop=should_stop,
@@ -1214,7 +1223,7 @@ class OclawGateway:
                     specialist=manager_specialist,
                     specialist_reply=specialist_reply,
                     memory_enabled=memory_enabled,
-                    on_token=on_token,
+                    on_token=None,
                 )
                 if self._looks_like_manager_instruction(reply, manager_instruction_text):
                     if not self._looks_like_manager_instruction(specialist_reply, manager_instruction_text):
@@ -1270,6 +1279,7 @@ class OclawGateway:
             relay_ttl_turn_count=int(ttl_stats.get("turn") or 0),
             relay_ttl_session_count=int(ttl_stats.get("session") or 0),
             relay_ttl_keep_count=int(ttl_stats.get("keep") or 0),
+            turn_uuid=str(executed_turn_uuid or ""),
         )
 
 

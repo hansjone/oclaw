@@ -34,6 +34,7 @@ from runtime.orchestration.vector_store import read_vector_memory_runtime
 from svc.config.paths import PROJECT_ROOT, db_path
 from svc.config.passwords import load_expected_password
 from svc.persistence.sqlite_store import SqliteStore
+from svc.persistence.assistant_store import get_assistant_store
 from runtime.agents.specialists import discover_specialist_ids, parse_agent_profile_bindings
 from runtime.tools.mcp.installer import (
     _safe_server_id,
@@ -442,7 +443,7 @@ def build_admin_router() -> APIRouter:
     def api_internal_tools_reload(
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = _resolve_auth(store, authorization)
         _require_permission(ctx, "admin:tenant:write")
 
@@ -467,7 +468,7 @@ def build_admin_router() -> APIRouter:
     def api_tools_exposure_trace_setting_get(
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = _resolve_auth(store, authorization)
         _require_permission(ctx, "admin:tenant:write")
         raw = str(store.get_setting("AIA_TRACE_TOOL_EXPOSURE_PLAN") or "").strip().lower()
@@ -479,7 +480,7 @@ def build_admin_router() -> APIRouter:
         payload: dict[str, Any] | None = Body(default=None),
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = _resolve_auth(store, authorization)
         _require_permission(ctx, "admin:tenant:write")
         payload = payload or {}
@@ -501,7 +502,7 @@ def build_admin_router() -> APIRouter:
         role: str | None = Query(default=None),
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = _resolve_auth(store, authorization)
         _require_permission(ctx, "admin:tenant:write")
         from runtime.tools.exposure_plan import build_internal_tool_specs
@@ -539,7 +540,7 @@ def build_admin_router() -> APIRouter:
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
         """One-shot diagnostic summary for role-based tool exposure."""
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = _resolve_auth(store, authorization)
         _require_permission(ctx, "admin:tenant:write")
 
@@ -604,7 +605,7 @@ def build_admin_router() -> APIRouter:
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
         """Preview the final tools injected to LLM for a role (internal + MCP + wire policy)."""
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = _resolve_auth(store, authorization)
         _require_permission(ctx, "admin:tenant:write")
         from runtime.tools.exposure_plan import build_llm_tools_plan
@@ -726,7 +727,7 @@ def build_admin_router() -> APIRouter:
 
     @router.get("/admin/api/channels")
     def api_channels(authorization: str | None = Header(default=None)) -> dict[str, Any]:
-        ctx = _resolve_auth(SqliteStore(db_path()), authorization)
+        ctx = _resolve_auth(get_assistant_store(), authorization)
         _require_permission(ctx, "admin:read")
         reg = build_channel_registry()
         items = [{"name": k, "type": reg[k].__class__.__name__} for k in sorted(reg.keys())]
@@ -734,7 +735,7 @@ def build_admin_router() -> APIRouter:
 
     @router.get("/admin/api/stack/status")
     def api_stack_status(authorization: str | None = Header(default=None)) -> dict[str, Any]:
-        ctx = _resolve_auth(SqliteStore(db_path()), authorization)
+        ctx = _resolve_auth(get_assistant_store(), authorization)
         _require_permission(ctx, "admin:read")
         items = []
         for s in status_services():
@@ -786,7 +787,7 @@ def build_admin_router() -> APIRouter:
 
     @router.post("/admin/api/stack/up")
     def api_stack_up(channel: str = "wecom", authorization: str | None = Header(default=None)) -> dict[str, Any]:
-        ctx = _resolve_auth(SqliteStore(db_path()), authorization)
+        ctx = _resolve_auth(get_assistant_store(), authorization)
         _require_permission(ctx, "admin:runtime:write")
         # Use same defaults as CLI; this starts detached processes and writes runtime state.
         import argparse
@@ -807,7 +808,7 @@ def build_admin_router() -> APIRouter:
 
     @router.post("/admin/api/stack/down")
     def api_stack_down(authorization: str | None = Header(default=None)) -> dict[str, Any]:
-        ctx = _resolve_auth(SqliteStore(db_path()), authorization)
+        ctx = _resolve_auth(get_assistant_store(), authorization)
         _require_permission(ctx, "admin:runtime:write")
         import argparse
 
@@ -884,14 +885,14 @@ def build_admin_router() -> APIRouter:
 
     @router.get("/admin/api/runtime/anomalies")
     def api_runtime_anomalies(authorization: str | None = Header(default=None)) -> dict[str, Any]:
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = _resolve_auth(store, authorization)
         _require_permission(ctx, "admin:read")
         return _collect_runtime_anomalies(store)
 
     @router.post("/admin/api/runtime/cleanup")
     def api_runtime_cleanup(authorization: str | None = Header(default=None)) -> dict[str, Any]:
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = _resolve_auth(store, authorization)
         _require_permission(ctx, "admin:runtime:write")
         killed: list[dict[str, Any]] = []
@@ -928,7 +929,7 @@ def build_admin_router() -> APIRouter:
 
     @router.get("/admin/api/runtime/prewarm/status")
     def api_runtime_prewarm_status(authorization: str | None = Header(default=None)) -> dict[str, Any]:
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = _resolve_auth(store, authorization)
         _require_permission(ctx, "admin:read")
         return runtime_prewarm_status(store=store)
@@ -938,7 +939,7 @@ def build_admin_router() -> APIRouter:
         payload: dict[str, Any] | None = Body(default=None),
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = _resolve_auth(store, authorization)
         _require_permission(ctx, "admin:runtime:write")
         body = payload or {}
@@ -950,7 +951,7 @@ def build_admin_router() -> APIRouter:
 
         def _run() -> None:
             try:
-                _ = run_runtime_prewarm(reason=reason, store=SqliteStore(db_path()))
+                _ = run_runtime_prewarm(reason=reason, store=get_assistant_store())
             except Exception:
                 pass
 
@@ -963,14 +964,14 @@ def build_admin_router() -> APIRouter:
         role: str | None = Query(default=None),
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = _resolve_auth(store, authorization)
         _require_permission(ctx, "admin:read")
         return runtime_prewarm_prompts_snapshot(store=store, role=str(role or "").strip().lower() or None)
 
     @router.get("/admin/api/runtime/scan-artifacts")
     def api_runtime_scan_artifacts(authorization: str | None = Header(default=None)) -> dict[str, Any]:
-        ctx = _resolve_auth(SqliteStore(db_path()), authorization)
+        ctx = _resolve_auth(get_assistant_store(), authorization)
         _require_permission(ctx, "admin:read")
         root = (PROJECT_ROOT / "runtime" / "data" / "scan").resolve()
         allowed_prefixes = ("history_entries_", "state_scan_")
@@ -995,7 +996,7 @@ def build_admin_router() -> APIRouter:
 
     @router.post("/admin/api/runtime/scan-artifacts/cleanup")
     def api_runtime_scan_artifacts_cleanup(authorization: str | None = Header(default=None)) -> dict[str, Any]:
-        ctx = _resolve_auth(SqliteStore(db_path()), authorization)
+        ctx = _resolve_auth(get_assistant_store(), authorization)
         _require_permission(ctx, "admin:runtime:write")
         root = (PROJECT_ROOT / "runtime" / "data" / "scan").resolve()
         allowed_prefixes = ("history_entries_", "state_scan_")
@@ -1017,7 +1018,7 @@ def build_admin_router() -> APIRouter:
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
         body = payload or {}
-        ctx = _resolve_auth(SqliteStore(db_path()), authorization)
+        ctx = _resolve_auth(get_assistant_store(), authorization)
         _require_permission(ctx, "admin:runtime:write")
         root = (PROJECT_ROOT / "runtime" / "data" / "scan").resolve()
         try:
@@ -1068,7 +1069,7 @@ def build_admin_router() -> APIRouter:
         scope: str | None = Query(default=None),
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = _resolve_auth(store, authorization)
         _require_permission(ctx, "admin:tenant:read")
         rows = store.list_tenants(limit=500)
@@ -1083,7 +1084,7 @@ def build_admin_router() -> APIRouter:
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
         payload = payload or {}
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = _resolve_auth(store, authorization)
         _require_permission(ctx, "admin:tenant:write")
         name = str(payload.get("name") or "").strip() or "Team"
@@ -1096,7 +1097,7 @@ def build_admin_router() -> APIRouter:
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
         payload = payload or {}
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = _resolve_auth(store, authorization)
         _require_permission(ctx, "admin:tenant:write")
         tenant_id = str(payload.get("tenant_id") or "").strip()
@@ -1128,7 +1129,7 @@ def build_admin_router() -> APIRouter:
         user_id: str | None = Query(default=None),
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = _resolve_auth(store, authorization)
         _require_permission(ctx, "admin:user:read")
         _require_tenant_scope(ctx, tenant_id)
@@ -1152,7 +1153,7 @@ def build_admin_router() -> APIRouter:
         include_inactive: int = Query(default=1),
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = _resolve_auth(store, authorization)
         _require_permission(ctx, "admin:user:read")
         _require_tenant_scope(ctx, tenant_id)
@@ -1172,7 +1173,7 @@ def build_admin_router() -> APIRouter:
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
         payload = payload or {}
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = _resolve_auth(store, authorization)
         _require_permission(ctx, "admin:user:write")
         tenant_id = str(payload.get("tenant_id") or "").strip()
@@ -1234,7 +1235,7 @@ def build_admin_router() -> APIRouter:
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
         payload = payload or {}
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = _resolve_auth(store, authorization)
         _require_permission(ctx, "admin:user:write")
         tenant_id = str(payload.get("tenant_id") or "").strip()
@@ -1269,7 +1270,7 @@ def build_admin_router() -> APIRouter:
         limit: int = Query(default=1000),
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = _resolve_auth(store, authorization)
         _require_permission(ctx, "admin:user:read")
         _require_tenant_scope(ctx, tenant_id)
@@ -1288,7 +1289,7 @@ def build_admin_router() -> APIRouter:
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
         payload = payload or {}
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = _resolve_auth(store, authorization)
         _require_permission(ctx, "admin:user:write")
         tenant_id = str(payload.get("tenant_id") or "").strip() or str(ctx.get("tenant_id") or "").strip()
@@ -1327,7 +1328,7 @@ def build_admin_router() -> APIRouter:
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
         payload = payload or {}
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = _resolve_auth(store, authorization)
         _require_permission(ctx, "admin:user:write")
         tenant_id = str(payload.get("tenant_id") or "").strip()
@@ -1366,7 +1367,7 @@ def build_admin_router() -> APIRouter:
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
         payload = payload or {}
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = _resolve_auth(store, authorization)
         _require_permission(ctx, "admin:user:delete")
         tenant_id = str(payload.get("tenant_id") or "").strip()
@@ -1435,7 +1436,7 @@ def build_admin_router() -> APIRouter:
         user_id: str = Query(default=""),
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = _resolve_auth(store, authorization)
         rmode = _workspace_path_policy_read_mode(ctx)
         if rmode is None:
@@ -1468,7 +1469,7 @@ def build_admin_router() -> APIRouter:
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
         payload = payload or {}
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = _resolve_auth(store, authorization)
         wmode = _workspace_path_policy_write_mode(ctx)
         if wmode is None:
@@ -1518,7 +1519,7 @@ def build_admin_router() -> APIRouter:
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
         payload = payload or {}
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = _resolve_auth(store, authorization)
         _require_permission(ctx, "admin:user:delete")
         tenant_id = str(payload.get("tenant_id") or "").strip()
@@ -1557,7 +1558,7 @@ def build_admin_router() -> APIRouter:
 
     @router.get("/admin/api/bind-codes")
     def api_bind_codes(tenant_id: str, authorization: str | None = Header(default=None)) -> dict[str, Any]:
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = _resolve_auth(store, authorization)
         _require_permission(ctx, "admin:user:read")
         _require_tenant_scope(ctx, tenant_id)
@@ -1570,7 +1571,7 @@ def build_admin_router() -> APIRouter:
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
         payload = payload or {}
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = _resolve_auth(store, authorization)
         _require_permission(ctx, "admin:user:write")
         tenant_id = str(payload.get("tenant_id") or "").strip()
@@ -1588,7 +1589,7 @@ def build_admin_router() -> APIRouter:
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
         payload = payload or {}
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = _resolve_auth(store, authorization)
         _require_permission(ctx, "admin:user:write")
         tenant_id = str(payload.get("tenant_id") or "").strip()
@@ -1608,7 +1609,7 @@ def build_admin_router() -> APIRouter:
 
     @router.get("/admin/api/wecom/config")
     def api_wecom_config(authorization: str | None = Header(default=None)) -> dict[str, Any]:
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = _resolve_auth(store, authorization)
         _require_permission(ctx, "admin:read")
         return {
@@ -1625,7 +1626,7 @@ def build_admin_router() -> APIRouter:
 
     @router.get("/admin/api/wecom/health")
     def api_wecom_health(authorization: str | None = Header(default=None)) -> dict[str, Any]:
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = _resolve_auth(store, authorization)
         _require_permission(ctx, "admin:read")
         svc = next((s for s in status_services() if str(s.name) == "channel:wecom"), None)
@@ -1672,7 +1673,7 @@ def build_admin_router() -> APIRouter:
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
         payload = payload or {}
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = _resolve_auth(store, authorization)
         _require_permission(ctx, "admin:tenant:write")
         store.set_setting("wecom_mode", "bot_api")
@@ -1695,7 +1696,7 @@ def build_admin_router() -> APIRouter:
 
     @router.post("/admin/api/wecom/unbind")
     def api_wecom_unbind(authorization: str | None = Header(default=None)) -> dict[str, Any]:
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = _resolve_auth(store, authorization)
         _require_permission(ctx, "admin:tenant:write")
         with store._connect() as conn:
@@ -1722,7 +1723,7 @@ def build_admin_router() -> APIRouter:
         session_id: str | None = Query(default=None),
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = _resolve_auth(store, authorization)
         _require_permission(ctx, "admin:read")
         rows = store.list_agent_audit_logs(limit=200, session_id=session_id)
@@ -1734,7 +1735,7 @@ def build_admin_router() -> APIRouter:
         limit: int = Query(default=80),
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = _resolve_auth(store, authorization)
         _require_permission(ctx, "admin:read")
         rows = store.list_session_tool_health(session_id=session_id, limit=limit)
@@ -1746,7 +1747,7 @@ def build_admin_router() -> APIRouter:
         session_id: str | None = Query(default=None),
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = _resolve_auth(store, authorization)
         _require_permission(ctx, "admin:read")
         if not session_id:
@@ -1763,7 +1764,7 @@ def build_admin_router() -> APIRouter:
         limit: int = Query(default=80),
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = _resolve_auth(store, authorization)
         _require_permission(ctx, "admin:read")
         tenant_id = str(ctx.get("tenant_id") or "")
@@ -1794,7 +1795,7 @@ def build_admin_router() -> APIRouter:
         include_attempts: int = Query(default=1),
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = _resolve_auth(store, authorization)
         _require_permission(ctx, "admin:read")
         tenant_id = str(ctx.get("tenant_id") or "")
@@ -1840,7 +1841,7 @@ def build_admin_router() -> APIRouter:
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
         """Return a best-effort replay bundle for a single turn (trace_id)."""
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = _resolve_auth(store, authorization)
         _require_permission(ctx, "admin:read")
         sid = str(session_id or "").strip()
@@ -1940,7 +1941,7 @@ def build_admin_router() -> APIRouter:
 
     @router.get("/admin/api/plugins")
     def api_plugins(authorization: str | None = Header(default=None)) -> dict[str, Any]:
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = _resolve_auth(store, authorization)
         _require_permission(ctx, "admin:user:write")
         rows = store.list_tool_plugins()
@@ -1948,7 +1949,7 @@ def build_admin_router() -> APIRouter:
 
     @router.get("/admin/api/tool-policy")
     def api_tool_policy(authorization: str | None = Header(default=None)) -> dict[str, Any]:
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = _resolve_auth(store, authorization)
         _require_permission(ctx, "admin:tenant:write")
         # Oclaw takeover: legacy tool-policy switches are disconnected (kept in DB for later).
@@ -2047,7 +2048,7 @@ def build_admin_router() -> APIRouter:
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
         payload = payload or {}
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = _resolve_auth(store, authorization)
         _require_permission(ctx, "admin:tenant:write")
         # Oclaw takeover: legacy tool-policy switches are disconnected (kept in DB for later).
@@ -2240,7 +2241,7 @@ def build_admin_router() -> APIRouter:
 
     @router.get("/admin/api/mcp/servers")
     def api_mcp_servers(authorization: str | None = Header(default=None)) -> dict[str, Any]:
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = _resolve_auth(store, authorization)
         _require_permission(ctx, "admin:tenant:write")
         rows = McpRegistry(store).list_servers(enabled_only=False)
@@ -2253,7 +2254,7 @@ def build_admin_router() -> APIRouter:
 
     @router.get("/admin/api/mcp/export")
     def api_mcp_export(authorization: str | None = Header(default=None)) -> dict[str, Any]:
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = _resolve_auth(store, authorization)
         _require_permission(ctx, "admin:tenant:write")
         return {
@@ -2267,7 +2268,7 @@ def build_admin_router() -> APIRouter:
         limit: int = Query(default=20),
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = _resolve_auth(store, authorization)
         _require_permission(ctx, "admin:tenant:write")
         return {"ok": True, "items": store.list_mcp_install_failure_summary(limit=limit)}
@@ -2278,7 +2279,7 @@ def build_admin_router() -> APIRouter:
         limit: int = Query(default=200),
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = _resolve_auth(store, authorization)
         _require_permission(ctx, "admin:tenant:write")
         return {
@@ -2292,7 +2293,7 @@ def build_admin_router() -> APIRouter:
         role: str | None = Query(default=None),
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = _resolve_auth(store, authorization)
         _require_permission(ctx, "admin:tenant:write")
         from svc.llm.tool_wire_policy import build_tool_wire_snapshot
@@ -2307,7 +2308,7 @@ def build_admin_router() -> APIRouter:
         from svc.llm.tool_wire_policy import SETTINGS_KEY_ADMIN_CONFIG, load_merged_admin_config
 
         payload = payload or {}
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = _resolve_auth(store, authorization)
         _require_permission(ctx, "admin:tenant:write")
         raw = store.get_setting(SETTINGS_KEY_ADMIN_CONFIG)
@@ -2359,7 +2360,7 @@ def build_admin_router() -> APIRouter:
         from svc.llm.tool_wire_policy import SETTINGS_KEY_ROLE_MODE_BY_ROLE
 
         payload = payload or {}
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = _resolve_auth(store, authorization)
         _require_permission(ctx, "admin:tenant:write")
         role = str(payload.get("role") or "").strip().lower()
@@ -2398,7 +2399,7 @@ def build_admin_router() -> APIRouter:
     ) -> dict[str, Any]:
         from svc.llm.tool_wire_policy import SETTINGS_KEY_PENALTY_STATE, SETTINGS_KEY_PENALTY_STATE_BY_ROLE
 
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = _resolve_auth(store, authorization)
         _require_permission(ctx, "admin:tenant:write")
         r = str(role or "").strip().lower()
@@ -2440,7 +2441,7 @@ def build_admin_router() -> APIRouter:
         )
 
         payload = payload or {}
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = _resolve_auth(store, authorization)
         _require_permission(ctx, "admin:tenant:write")
         role = str(payload.get("role") or "").strip().lower()
@@ -2511,7 +2512,7 @@ def build_admin_router() -> APIRouter:
         )
 
         payload = payload or {}
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = _resolve_auth(store, authorization)
         _require_permission(ctx, "admin:tenant:write")
         try:
@@ -2570,7 +2571,7 @@ def build_admin_router() -> APIRouter:
         per_source_limit: int = Query(default=6),
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = _resolve_auth(store, authorization)
         _require_permission(ctx, "admin:tenant:write")
         query = str(q or "").strip()
@@ -2585,7 +2586,7 @@ def build_admin_router() -> APIRouter:
         refresh: int = Query(default=0),
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = _resolve_auth(store, authorization)
         _require_permission(ctx, "admin:tenant:write")
         items = trending_mcp_market(force_refresh=bool(int(refresh or 0)), per_source_limit=per_source_limit)
@@ -2593,14 +2594,14 @@ def build_admin_router() -> APIRouter:
 
     @router.get("/admin/api/mcp/dependencies")
     def api_mcp_dependencies(authorization: str | None = Header(default=None)) -> dict[str, Any]:
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = _resolve_auth(store, authorization)
         _require_permission(ctx, "admin:tenant:write")
         return {"ok": True, "items": detect_local_dependencies()}
 
     @router.get("/admin/api/mcp/binding")
     def api_mcp_binding(authorization: str | None = Header(default=None)) -> dict[str, Any]:
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = _resolve_auth(store, authorization)
         _require_permission(ctx, "admin:tenant:write")
         available = _ordered_mcp_roles()
@@ -2627,7 +2628,7 @@ def build_admin_router() -> APIRouter:
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
         payload = payload or {}
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = _resolve_auth(store, authorization)
         _require_permission(ctx, "admin:tenant:write")
         available = _ordered_mcp_roles()
@@ -2661,7 +2662,7 @@ def build_admin_router() -> APIRouter:
 
     @router.get("/admin/api/mcp/specialists")
     def api_mcp_specialists(authorization: str | None = Header(default=None)) -> dict[str, Any]:
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = _resolve_auth(store, authorization)
         _require_permission(ctx, "admin:tenant:write")
         available = _ordered_mcp_roles()
@@ -2679,7 +2680,7 @@ def build_admin_router() -> APIRouter:
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
         payload = payload or {}
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = _resolve_auth(store, authorization)
         _require_permission(ctx, "admin:tenant:write")
         available = _ordered_mcp_roles()
@@ -2705,7 +2706,7 @@ def build_admin_router() -> APIRouter:
 
     @router.get("/admin/api/experts")
     def api_experts_list(authorization: str | None = Header(default=None)) -> dict[str, Any]:
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = _resolve_auth(store, authorization)
         _require_permission(ctx, "admin:tenant:write")
         items = [_serialize_expert_row(x) for x in list_experts()]
@@ -2717,7 +2718,7 @@ def build_admin_router() -> APIRouter:
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
         payload = payload or {}
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = _resolve_auth(store, authorization)
         _require_permission(ctx, "admin:tenant:write")
         expert_id = normalize_expert_id(payload.get("id"))
@@ -2755,7 +2756,7 @@ def build_admin_router() -> APIRouter:
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
         payload = payload or {}
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = _resolve_auth(store, authorization)
         _require_permission(ctx, "admin:tenant:write")
         files_raw = payload.get("files") if isinstance(payload.get("files"), dict) else {}
@@ -2788,7 +2789,7 @@ def build_admin_router() -> APIRouter:
 
     @router.delete("/admin/api/experts/{expert_id}")
     def api_experts_delete(expert_id: str, authorization: str | None = Header(default=None)) -> dict[str, Any]:
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = _resolve_auth(store, authorization)
         _require_permission(ctx, "admin:tenant:write")
         eid = normalize_expert_id(expert_id)
@@ -2814,7 +2815,7 @@ def build_admin_router() -> APIRouter:
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
         payload = payload or {}
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = _resolve_auth(store, authorization)
         _require_permission(ctx, "admin:tenant:write")
         source_type = str(payload.get("source_type") or "").strip().lower()
@@ -2882,7 +2883,7 @@ def build_admin_router() -> APIRouter:
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
         payload = payload or {}
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = _resolve_auth(store, authorization)
         _require_permission(ctx, "admin:tenant:write")
         server_id = str(payload.get("server_id") or "").strip()
@@ -2952,7 +2953,7 @@ def build_admin_router() -> APIRouter:
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
         payload = payload or {}
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = _resolve_auth(store, authorization)
         _require_permission(ctx, "admin:tenant:write")
         server_id = str(payload.get("server_id") or "").strip()
@@ -3073,7 +3074,7 @@ def build_admin_router() -> APIRouter:
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
         payload = payload or {}
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = _resolve_auth(store, authorization)
         _require_permission(ctx, "admin:tenant:write")
         server_id = str(payload.get("server_id") or "").strip()
@@ -3133,7 +3134,7 @@ def build_admin_router() -> APIRouter:
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
         payload = payload or {}
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = _resolve_auth(store, authorization)
         _require_permission(ctx, "admin:tenant:write")
         server_id = str(payload.get("server_id") or "").strip()
@@ -3163,7 +3164,7 @@ def build_admin_router() -> APIRouter:
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
         payload = payload or {}
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = _resolve_auth(store, authorization)
         _require_permission(ctx, "admin:tenant:write")
         source_type = str(payload.get("source_type") or "").strip().lower()
@@ -3192,7 +3193,7 @@ def build_admin_router() -> APIRouter:
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
         payload = payload or {}
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = _resolve_auth(store, authorization)
         _require_permission(ctx, "admin:tenant:write")
         server_id = str(payload.get("server_id") or "").strip()
@@ -3217,7 +3218,7 @@ def build_admin_router() -> APIRouter:
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
         payload = payload or {}
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = _resolve_auth(store, authorization)
         _require_permission(ctx, "admin:tenant:write")
         apply_gateway_mcp_env_to_os()
@@ -3268,7 +3269,7 @@ def build_admin_router() -> APIRouter:
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
         payload = payload or {}
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = _resolve_auth(store, authorization)
         _require_permission(ctx, "admin:tenant:write")
         apply_gateway_mcp_env_to_os()
@@ -3327,7 +3328,7 @@ def build_admin_router() -> APIRouter:
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
         payload = payload or {}
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = _resolve_auth(store, authorization)
         _require_permission(ctx, "admin:tenant:write")
         apply_gateway_mcp_env_to_os()
@@ -3347,7 +3348,7 @@ def build_admin_router() -> APIRouter:
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
         payload = payload or {}
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = _resolve_auth(store, authorization)
         _require_permission(ctx, "admin:tenant:write")
         enabled_only = bool(payload.get("enabled_only", True))
@@ -3372,7 +3373,7 @@ def build_admin_router() -> APIRouter:
         run the same health + tools/list + replace flow as ``check-all`` (only those servers).
         """
         payload = payload or {}
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = _resolve_auth(store, authorization)
         _require_permission(ctx, "admin:tenant:write")
         apply_gateway_mcp_env_to_os()
@@ -3426,7 +3427,7 @@ def build_admin_router() -> APIRouter:
     def api_mcp_e2e_check(
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = _resolve_auth(store, authorization)
         _require_permission(ctx, "admin:tenant:write")
         apply_gateway_mcp_env_to_os()
@@ -3520,7 +3521,7 @@ def build_admin_router() -> APIRouter:
         limit: int = Query(default=100),
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = _resolve_auth(store, authorization)
         _require_permission(ctx, "admin:read")
         if tenant_id:
@@ -3535,7 +3536,7 @@ def build_admin_router() -> APIRouter:
         limit: int = Query(default=300),
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = _resolve_auth(store, authorization)
         _require_permission(ctx, "admin:read")
         if tenant_id:
@@ -3567,7 +3568,7 @@ def build_admin_router() -> APIRouter:
         offset: int = Query(default=0),
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = _resolve_auth(store, authorization)
         _require_permission(ctx, "admin:read")
         if tenant_id:
@@ -3582,7 +3583,7 @@ def build_admin_router() -> APIRouter:
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
         payload = payload or {}
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = _resolve_auth(store, authorization)
         _require_permission(ctx, "admin:memory:write")
         memory_id = str(payload.get("memory_id") or "").strip()
@@ -3597,7 +3598,7 @@ def build_admin_router() -> APIRouter:
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
         payload = payload or {}
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = _resolve_auth(store, authorization)
         _require_permission(ctx, "admin:memory:write")
         tenant_id = str(payload.get("tenant_id") or "").strip() or None
@@ -3635,7 +3636,7 @@ def build_admin_router() -> APIRouter:
 
     @router.get("/admin/api/memory/config")
     def api_memory_config(authorization: str | None = Header(default=None)) -> dict[str, Any]:
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = _resolve_auth(store, authorization)
         _require_permission(ctx, "admin:read")
         runtime = read_vector_memory_runtime(store)
@@ -3666,7 +3667,7 @@ def build_admin_router() -> APIRouter:
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
         payload = payload or {}
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = _resolve_auth(store, authorization)
         _require_permission(ctx, "admin:memory:write")
         store.set_setting("MEMORY_VECTOR_ENABLED", "1" if str(payload.get("enabled") or "").lower() in ("1", "true", "yes", "on") else "0")
@@ -3704,7 +3705,7 @@ def build_admin_router() -> APIRouter:
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
         payload = payload or {}
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = _resolve_auth(store, authorization)
         _require_permission(ctx, "admin:memory:write")
         try:
@@ -3717,7 +3718,7 @@ def build_admin_router() -> APIRouter:
     @router.post("/admin/api/secrets/migrate")
     def api_secrets_migrate(authorization: str | None = Header(default=None)) -> dict[str, Any]:
         """Migrate legacy b64 secrets to fernet (requires AIA_ASSISTANT_MASTER_KEY)."""
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = _resolve_auth(store, authorization)
         _require_permission(ctx, "admin:tenant:write")
         try:
@@ -3738,7 +3739,7 @@ def build_admin_router() -> APIRouter:
     @router.get("/admin/api/secrets/status")
     def api_secrets_status(authorization: str | None = Header(default=None)) -> dict[str, Any]:
         """Expose legacy secret stats for admin UI warnings."""
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = _resolve_auth(store, authorization)
         _require_permission(ctx, "admin:read")
         stats = store.legacy_secret_stats()
@@ -3749,14 +3750,14 @@ def build_admin_router() -> APIRouter:
 
     @router.post("/admin/api/auth/bootstrap")
     def api_auth_bootstrap() -> dict[str, Any]:
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         _ensure_admin_bootstrap(store)
         return {"ok": True}
 
     @router.post("/admin/api/auth/login")
     def api_auth_login(payload: dict[str, Any] | None = Body(default=None)) -> dict[str, Any]:
         payload = payload or {}
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         _ensure_admin_bootstrap(store)
         tenant_id = str(payload.get("tenant_id") or "").strip()
         if not tenant_id:
@@ -3820,13 +3821,13 @@ def build_admin_router() -> APIRouter:
 
     @router.get("/admin/api/auth/me")
     def api_auth_me(authorization: str | None = Header(default=None)) -> dict[str, Any]:
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = _resolve_auth(store, authorization)
         return {"ok": True, "session": ctx}
 
     @router.post("/admin/api/auth/logout")
     def api_auth_logout(authorization: str | None = Header(default=None)) -> dict[str, Any]:
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         token = _extract_bearer(authorization)
         if token:
             store.revoke_auth_session(session_token_hash=_sha256_hex(token))
@@ -3838,7 +3839,7 @@ def build_admin_router() -> APIRouter:
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
         payload = payload or {}
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = _resolve_ops_ai_auth(store, authorization)
         _require_permission(ctx, "admin:read")
 
@@ -4045,7 +4046,7 @@ def build_admin_router() -> APIRouter:
         offset: int = Query(default=0),
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = _resolve_ops_ai_auth(store, authorization)
         _require_permission(ctx, "admin:read")
         lim = max(1, min(int(limit), 200))
@@ -4068,7 +4069,7 @@ def build_admin_router() -> APIRouter:
 
     @router.get("/admin/api/ops-ai/health")
     def api_ops_ai_health(authorization: str | None = Header(default=None)) -> dict[str, Any]:
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = _resolve_ops_ai_auth(store, authorization)
         _require_permission(ctx, "admin:read")
         return {"ok": True, "service": "oclaw", "component": "ops-ai", "status": "ok", "caller": str(ctx.get("username") or "")}
@@ -4082,7 +4083,7 @@ def build_admin_router() -> APIRouter:
         status: str | None = Query(default=None),
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = _resolve_auth(store, authorization)
         _require_permission(ctx, "admin:user:write")
         a = str(action or "").strip()

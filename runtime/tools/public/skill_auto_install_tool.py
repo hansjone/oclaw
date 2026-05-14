@@ -5,6 +5,7 @@ from typing import Any
 
 from svc.config.paths import db_path
 from svc.persistence.sqlite_store import SqliteStore
+from svc.persistence.assistant_store import get_assistant_store
 from runtime.chat.tool_invocation_context import (
     current_tool_lane_sessions,
     current_tool_workspace_lane_role,
@@ -16,7 +17,7 @@ from runtime.tools.base import ToolSpec
 
 
 def _store() -> SqliteStore:
-    return SqliteStore(db_path())
+    return get_assistant_store()
 
 
 def _coerce_public_flag(raw: Any) -> bool:

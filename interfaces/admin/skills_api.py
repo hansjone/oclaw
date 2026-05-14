@@ -36,6 +36,7 @@ from runtime.skills_market import get_market_adapter, normalize_skill_market_pro
 from runtime.tools.skills_runtime.subprocess_exec import run_skill_runtime_entry
 from svc.config.paths import db_path
 from svc.persistence.sqlite_store import SqliteStore
+from svc.persistence.assistant_store import get_assistant_store
 
 _SKILL_MARKET_PROVIDER_KEY = "AIA_SKILL_MARKET_PROVIDER"
 
@@ -85,7 +86,7 @@ def include_skill_routes(
 
     @sk.get("")
     def api_skills_list(authorization: str | None = Header(default=None)) -> dict[str, Any]:
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = resolve_auth(store, authorization)
         _require_admin(ctx)
         items = list_skills_with_status(store=store)
@@ -93,7 +94,7 @@ def include_skill_routes(
 
     @sk.get("/mode")
     def api_skills_mode_get(authorization: str | None = Header(default=None)) -> dict[str, Any]:
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = resolve_auth(store, authorization)
         _require_admin(ctx)
         raw_prompt = str(store.get_setting("AIA_SKILLS_PROMPT_IN_SYSTEM") or "").strip().lower()
@@ -114,7 +115,7 @@ def include_skill_routes(
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
         payload = payload or {}
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = resolve_auth(store, authorization)
         _require_admin(ctx)
         if "prompt_in_system" in payload:
@@ -153,7 +154,7 @@ def include_skill_routes(
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
         payload = payload or {}
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = resolve_auth(store, authorization)
         _require_admin(ctx)
         source_dir = str(payload.get("source_dir") or "").strip()
@@ -187,7 +188,7 @@ def include_skill_routes(
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
         payload = payload or {}
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = resolve_auth(store, authorization)
         _require_admin(ctx)
         archive_url = str(payload.get("archive_url") or "").strip()
@@ -221,7 +222,7 @@ def include_skill_routes(
         limit: int | None = None,
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = resolve_auth(store, authorization)
         _require_admin(ctx)
         query = str(q or "").strip()
@@ -236,7 +237,7 @@ def include_skill_routes(
         slug: str | None = None,
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = resolve_auth(store, authorization)
         _require_admin(ctx)
         s = str(slug or "").strip()
@@ -252,7 +253,7 @@ def include_skill_routes(
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
         payload = payload or {}
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = resolve_auth(store, authorization)
         _require_admin(ctx)
         s = str(payload.get("slug") or "").strip()
@@ -309,7 +310,7 @@ def include_skill_routes(
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
         payload = payload or {}
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = resolve_auth(store, authorization)
         _require_admin(ctx)
         name = str(payload.get("name") or "").strip()
@@ -346,7 +347,7 @@ def include_skill_routes(
 
     @sk.get("/binding")
     def api_skills_binding_get(authorization: str | None = Header(default=None)) -> dict[str, Any]:
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = resolve_auth(store, authorization)
         _require_tenant_write(ctx)
         roles, mapping, _valid = _normalized_skill_binding(store)
@@ -368,7 +369,7 @@ def include_skill_routes(
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
         payload = payload or {}
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = resolve_auth(store, authorization)
         _require_tenant_write(ctx)
         if "enabled" in payload:
@@ -403,7 +404,7 @@ def include_skill_routes(
 
     @sk.get("/effective")
     def api_skills_effective(authorization: str | None = Header(default=None)) -> dict[str, Any]:
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = resolve_auth(store, authorization)
         _require_admin(ctx)
         roles, mapping, _valid = _normalized_skill_binding(store)
@@ -494,7 +495,7 @@ def include_skill_routes(
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
         payload = payload or {}
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = resolve_auth(store, authorization)
         _require_admin(ctx)
         name = str(payload.get("name") or "").strip()
@@ -538,7 +539,7 @@ def include_skill_routes(
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
         payload = payload or {}
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = resolve_auth(store, authorization)
         _require_admin(ctx)
         name = str(payload.get("name") or "").strip()
@@ -554,7 +555,7 @@ def include_skill_routes(
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
         payload = payload or {}
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = resolve_auth(store, authorization)
         _require_admin(ctx)
         name = str(payload.get("name") or "").strip()
@@ -570,7 +571,7 @@ def include_skill_routes(
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
         payload = payload or {}
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = resolve_auth(store, authorization)
         _require_admin(ctx)
         name = str(payload.get("name") or "").strip()
@@ -604,7 +605,7 @@ def include_skill_routes(
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
         payload = payload or {}
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = resolve_auth(store, authorization)
         _require_admin(ctx)
         auto_name = str(payload.get("name") or "")
@@ -642,7 +643,7 @@ def include_skill_routes(
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
         payload = payload or {}
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = resolve_auth(store, authorization)
         _require_admin(ctx)
         source = str(payload.get("source") or "").strip().lower()
@@ -706,7 +707,7 @@ def include_skill_routes(
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
         payload = payload or {}
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = resolve_auth(store, authorization)
         _require_admin(ctx)
         name = str(payload.get("name") or "").strip()
@@ -736,7 +737,7 @@ def include_skill_routes(
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
         _payload = payload or {}
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = resolve_auth(store, authorization)
         _require_admin(ctx)
         items = list_skills_with_status(store=store)
@@ -798,7 +799,7 @@ def include_skill_routes(
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
         payload = payload or {}
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = resolve_auth(store, authorization)
         _require_admin(ctx)
         name = str(payload.get("name") or "").strip()
@@ -850,7 +851,7 @@ def include_skill_routes(
         include_execution: bool = False,
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = resolve_auth(store, authorization)
         _require_admin(ctx)
         manifests = discover_workspace_skill_manifests()

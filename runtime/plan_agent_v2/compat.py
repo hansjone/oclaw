@@ -38,6 +38,7 @@ def build_shadow_gateway_result(
         "relay_ttl_turn_count": 0,
         "relay_ttl_session_count": 0,
         "relay_ttl_keep_count": 0,
+        "turn_uuid": "",
     }
 
 

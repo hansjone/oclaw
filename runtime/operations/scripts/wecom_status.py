@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from svc.config.paths import db_path
 from svc.integrations.wecom_client import WeComClient
 from svc.persistence.sqlite_store import SqliteStore
+from svc.persistence.assistant_store import get_assistant_store
 
 
 def _fmt_ts(ts: str) -> str:
@@ -17,7 +18,7 @@ def _fmt_ts(ts: str) -> str:
 
 
 def main() -> int:
-    store = SqliteStore(db_path())
+    store = get_assistant_store()
     client = WeComClient(store)
     print("ok=1")
     print(f"mode={client.mode()}")

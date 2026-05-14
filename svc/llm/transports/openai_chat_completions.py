@@ -5,11 +5,18 @@ import logging
 import os
 import re
 import uuid
-from typing import Any, Optional
 from collections.abc import Callable
+from typing import Any, Optional
 
 from svc.llm.tool_schema import complete_openai_tools_wire_parameters
-from svc.llm.transports.base import ChatModel, LLMResponse, LLMToolCall, normalize_image_b64_payload, coerce_thought_signature_for_storage
+from svc.llm.transports.base import (
+    ChatModel,
+    LLMResponse,
+    LLMToolCall,
+    coerce_thought_signature_for_storage,
+    normalize_image_b64_payload,
+)
+from svc.persistence.assistant_store import get_assistant_store
 
 logger = logging.getLogger(__name__)
 
@@ -551,12 +558,10 @@ class OpenAIChatModel(ChatModel):
             kwargs["extra_body"] = extra_body
         if use_tools:
             try:
-                from svc.config.paths import db_path
-                from svc.persistence.sqlite_store import SqliteStore
                 from runtime.tools.exposure_plan import build_llm_tools_plan
 
                 plan = build_llm_tools_plan(
-                    store=SqliteStore(db_path()),
+                    store=get_assistant_store(),
                     role="",
                     base_url=self.base_url,
                     max_json_bytes=_default_max_openai_tools_json_bytes(self.base_url),

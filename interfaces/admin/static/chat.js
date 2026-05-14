@@ -688,6 +688,28 @@ function _buildRenderRows(msgs) {
   return rows;
 }
 
+/** True when persisted history does not show a completed assistant reply for the latest turn (e.g. ends with user only). */
+function _needsWsTextFallbackFromRenderRows(renderRows) {
+  const rows = Array.isArray(renderRows) ? renderRows : [];
+  if (!rows.length) return true;
+  const last = rows[rows.length - 1];
+  const lr = String((last && last.role) || "").toLowerCase();
+  if (lr === "user") return true;
+  if (lr !== "assistant") return true;
+  const items = last && Array.isArray(last._items) ? last._items : [];
+  for (const it of items) {
+    const k = String((it && it.kind) || "").toLowerCase();
+    if (k === "assistant_text" && String((it && it.text) || "").trim()) return false;
+    if (k === "reasoning" && String((it && it.text) || "").trim()) return false;
+    if (k === "tool_result") {
+      if (String((it && it.text) || "").trim()) return false;
+      if (Array.isArray(it.attachments) && it.attachments.length) return false;
+    }
+  }
+  if (String((last && last.content) || "").trim()) return false;
+  return true;
+}
+
 function t(key, vars) {
   let s = (I18N[currentLang] && I18N[currentLang][key]) || (I18N.en && I18N.en[key]) || key;
   if (vars && typeof s === "string") {
@@ -3739,25 +3761,35 @@ async function renderChatUi() {
     },
   };
 
-  const loadMessagesForActive = async () => {
+  const loadMessagesForActive = async (opts = {}) => {
     loadMessagesForActive._rid = (loadMessagesForActive._rid || 0) + 1;
     const rid = loadMessagesForActive._rid;
     shouldFollowMessages = true;
     if (!activeId) {
+      loadMessagesForActive._needsWsTextFallback = true;
       messagesEl.innerHTML = "";
       statusBar.textContent = sessions.length ? "" : t("chat.noSessions");
       if (!sessions.length) messagesEl.appendChild(el("div", { class: "muted", text: t("chat.empty") }));
-      return;
+      return 0;
     }
     statusBar.textContent = t("chat.loading");
+    loadMessagesForActive._needsWsTextFallback = true;
     try {
       const resp = await apiGet(
         `/admin/api/chat/sessions/${encodeURIComponent(activeId)}/messages?limit=${CHAT_MESSAGES_FETCH_LIMIT}`,
       );
-      if (rid !== loadMessagesForActive._rid) return;
+      if (rid !== loadMessagesForActive._rid) return 0;
       const msgs = Array.isArray(resp.messages) ? resp.messages : [];
       const renderRows = _buildRenderRows(msgs);
+      loadMessagesForActive._needsWsTextFallback = _needsWsTextFallbackFromRenderRows(renderRows);
       const total = intOr(resp.message_count, msgs.length);
+      // End-of-turn hydrate: if the server returns nothing renderable yet (PG commit lag, transient API
+      // glitch) but the caller still has a live stream worth keeping, do not wipe messagesEl — that
+      // caused "stream flashes then entire dialog is empty" when reasoning/tool-output mode reloads.
+      if (!renderRows.length && opts.keepDomIfNoHistoryRows) {
+        statusBar.textContent = "";
+        return 0;
+      }
       messagesEl.innerHTML = "";
       if (total > msgs.length) {
         messagesEl.appendChild(
@@ -3776,10 +3808,13 @@ async function renderChatUi() {
       }
       statusBar.textContent = "";
       scrollMessagesToBottom(true);
+      return renderRows.length;
     } catch (e) {
       // Keep existing message list on reload failure (e.g. toggle reload races),
       // so users don't perceive "messages disappeared".
+      loadMessagesForActive._needsWsTextFallback = true;
       statusBar.textContent = `${t("chat.error")}: ${String(e)}`;
+      return -1;
     }
   };
 
@@ -4847,25 +4882,39 @@ ${autoLimit ? `<div style="margin-top:8px;"><span class="muted">auto-added claus
                 renderStreamComposite();
                 _markStreamTerminal("end", t("chat.status.end"));
                 ok = true;
-              } else if (adminChatShowToolOutput) {
-                // WS final message may only contain the last assistant_text snapshot and
-                // omit persisted reasoning rows. Hydrate from history to avoid
-                // end-of-turn "reasoning disappears until refresh".
-                try {
-                  if (streamRow && streamRow.parentNode) streamRow.remove();
-                } catch (_) {}
-                await loadMessagesForActive();
+              } else if (adminChatShowToolOutput || sawStreamToolRefAttachments) {
+                // Hydrate from history for reasoning / tool panels / ref attachments. If the DB has not
+                // yet persisted the assistant reply (or only has the user row), n>0 used to skip
+                // appendFinalAssistant and removed the stream bubble — leaving an empty pane like the
+                // user screenshot. Use _needsWsTextFallback when WS still holds usable text.
+                const hadStream =
+                  hasRealStreamText ||
+                  (Array.isArray(chatStreamSegments) && chatStreamSegments.length > 0) ||
+                  !!String(chatStream || "").trim();
+                const fbLine = chatStream || extractWsAssistantText(payload.message || {});
+                const fbTrim = String(fbLine || "").trim();
+                const fbOk = !!fbTrim && !_isSilentReplyStream(fbTrim);
+                const n = await loadMessagesForActive({ keepDomIfNoHistoryRows: hadStream });
+                const needWsFallback =
+                  hadStream && fbOk && (n < 0 || !!loadMessagesForActive._needsWsTextFallback);
+                if (n >= 0) {
+                  try {
+                    if (streamRow && streamRow.parentNode) streamRow.remove();
+                  } catch (_) {}
+                }
+                if (needWsFallback) {
+                  if (n < 0) {
+                    try {
+                      if (streamRow && streamRow.parentNode) streamRow.remove();
+                    } catch (_) {}
+                  }
+                  ok = await appendFinalAssistant(payload.message, fbLine);
+                } else if (n > 0) {
+                  ok = true;
+                } else {
+                  ok = n === 0;
+                }
                 scrollMessagesToBottom(true);
-                ok = true;
-              } else if (sawStreamToolRefAttachments) {
-                // Streaming UI cannot render image_ref/relay_pointer; recover from persisted history so images appear
-                // without requiring a manual refresh.
-                try {
-                  if (streamRow && streamRow.parentNode) streamRow.remove();
-                } catch (_) {}
-                await loadMessagesForActive();
-                scrollMessagesToBottom(true);
-                ok = true;
               } else {
                 ok = await appendFinalAssistant(payload.message, chatStream || extractWsAssistantText(payload.message || {}));
               }

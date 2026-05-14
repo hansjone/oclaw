@@ -13,6 +13,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from svc.llm.tool_schema import MIN_OPENAI_FUNCTION_PARAMETERS, complete_openai_tools_wire_parameters
+from svc.persistence.assistant_store import get_assistant_store
 
 logger = logging.getLogger(__name__)
 
@@ -429,7 +430,7 @@ def prepare_openai_tools_for_llm_api(
             from svc.config.paths import db_path
             from svc.persistence.sqlite_store import SqliteStore
 
-            store = SqliteStore(db_path())
+            store = get_assistant_store()
         # Role-scoped policies if configured; otherwise fall back to global.
         policies = load_tool_policies_dict_for_role(store, role=str(role or "").strip().lower() or None)
         admin = load_merged_admin_config(store)

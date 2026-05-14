@@ -7,6 +7,8 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from svc.persistence.assistant_store import get_assistant_store
+
 
 HOOK_KEY = "session-memory"
 
@@ -125,7 +127,7 @@ def handle(event: Any) -> None:
         from svc.config.paths import db_path  # type: ignore
         from svc.persistence.sqlite_store import SqliteStore  # type: ignore
 
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         msgs = store.get_messages(session_id=session_id, limit=max_msgs_n)
     except Exception:
         msgs = []

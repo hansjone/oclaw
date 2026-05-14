@@ -23,6 +23,15 @@ def _runtime_log_dir() -> Path:
     return Path(db_path()).resolve().parent / "logs"
 
 
+def assistant_runtime_log_dir() -> Path:
+    """Directory for gateway/channel logs written by :func:`start_service`.
+
+    Same rule as ``AIA_RUNTIME_LOG_DIR`` or ``<parent of sqlite db_path>)/logs``.
+    Use this from shell scripts so paths match Python ``stack up`` / ``start_service``.
+    """
+    return _runtime_log_dir()
+
+
 def _read_state() -> dict[str, Any]:
     p = _runtime_file()
     if not p.exists():

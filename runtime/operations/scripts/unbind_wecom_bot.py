@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from svc.config.paths import db_path
 from svc.persistence.sqlite_store import SqliteStore
+from svc.persistence.assistant_store import get_assistant_store
 
 
 _CLEAR_KEYS = [
@@ -24,7 +25,7 @@ _CLEAR_KEYS = [
 
 
 def main() -> int:
-    store = SqliteStore(db_path())
+    store = get_assistant_store()
     with store._connect() as conn:  # internal cleanup script; safe to use store connection helper
         cur_ident = conn.execute("DELETE FROM channel_identity WHERE channel = ?", ("wecom",))
         ident_deleted = int(cur_ident.rowcount or 0)

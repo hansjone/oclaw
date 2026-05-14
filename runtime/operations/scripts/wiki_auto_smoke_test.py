@@ -13,6 +13,7 @@ if str(_REPO_ROOT) not in sys.path:
 
 from svc.config.paths import PROJECT_ROOT, db_path
 from svc.persistence.sqlite_store import SqliteStore
+from svc.persistence.assistant_store import get_assistant_store
 
 
 def _load_cfg() -> dict:
@@ -44,7 +45,7 @@ def main() -> int:
 
     cfg = _load_cfg()
     wiki_root = _wiki_root_from_cfg(cfg)
-    store = SqliteStore(db_path())
+    store = get_assistant_store()
 
     suffix = uuid.uuid4().hex[:8]
     payload = {

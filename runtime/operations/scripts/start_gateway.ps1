@@ -3,7 +3,9 @@
     [int]$Port = 8787,
     [switch]$SkipInstall = $false,
     [switch]$Background = $false,
-    [bool]$WithWikiWorker = $true
+    [bool]$WithWikiWorker = $true,
+    # Foreground: mirror merged stdout/stderr to gateway.foreground.log (same dir as start_service logs).
+    [switch]$NoLogMirror = $false
 )
 
 $ErrorActionPreference = "Stop"
@@ -75,6 +77,18 @@ if (-not $SkipInstall) {
     Write-Step "Skip dependency install"
 }
 
+# Same directory as runtime.operations.runtime.start_service (db_path parent / logs, or AIA_RUNTIME_LOG_DIR).
+$logDir = $null
+try {
+    $logDir = (& $pythonExe -c "from runtime.operations.runtime import assistant_runtime_log_dir; print(str(assistant_runtime_log_dir()))" 2>$null | Select-Object -Last 1).Trim()
+} catch { }
+if (-not $logDir) {
+    $logDir = Join-Path $repoRoot "data\logs"
+}
+Write-Step "Runtime log dir: $logDir"
+Write-Host "  (stack up / start_service: gateway.err.log + gateway.out.log here)" -ForegroundColor DarkGray
+Write-Host "  (this script foreground: gateway.foreground.log when log mirror on)" -ForegroundColor DarkGray
+
 Write-Host ""
 Write-Step "Gateway URL"
 Write-Host "Admin: http://$BindHost`:$Port/admin"
@@ -95,7 +109,15 @@ if ($WithWikiWorker) {
 
 if ($Background) {
     Write-Step "Starting gateway in background"
-    $p = Start-Process -FilePath $pythonExe -ArgumentList @("-m","runtime.operations","gateway","start","--host",$BindHost,"--port",$Port) -WorkingDirectory $repoRoot -PassThru -WindowStyle Hidden
+    New-Item -ItemType Directory -Force -Path $logDir | Out-Null
+    $errLog = Join-Path $logDir "gateway.err.log"
+    $outLog = Join-Path $logDir "gateway.out.log"
+    Write-Host "stderr -> $errLog" -ForegroundColor DarkGray
+    Write-Host "stdout -> $outLog" -ForegroundColor DarkGray
+    $p = Start-Process -FilePath $pythonExe `
+        -ArgumentList @("-m","runtime.operations","gateway","start","--host",$BindHost,"--port",$Port) `
+        -WorkingDirectory $repoRoot -PassThru -WindowStyle Hidden `
+        -RedirectStandardError $errLog -RedirectStandardOutput $outLog
     Set-Content -Path $pidFile -Value "$($p.Id)" -Encoding ascii
     Write-Host "gateway.pid = $pidFile" -ForegroundColor DarkGray
     Write-Host "PID = $($p.Id)" -ForegroundColor Green
@@ -103,7 +125,21 @@ if ($Background) {
 }
 
 Write-Step "Starting gateway (foreground)"
-& $pythonExe -m runtime.operations gateway start --host $BindHost --port $Port
+New-Item -ItemType Directory -Force -Path $logDir | Out-Null
+# Uvicorn writes INFO to stderr. PowerShell 7 wraps native stderr as ErrorRecord
+# (red "NativeCommandError") even when non-terminating. Run under cmd.exe with
+# ``2>&1`` so PS only sees a single stdout stream of plain text.
+if ($BindHost -match '[&|`~]' -or $Port -lt 1 -or $Port -gt 65535) {
+    Fail "Invalid -BindHost or -Port for gateway launcher."
+}
+$cmdLine = "cd /d `"$repoRoot`" && `"$pythonExe`" -m runtime.operations gateway start --host $BindHost --port $Port 2>&1"
+if (-not $NoLogMirror) {
+    $fgLog = Join-Path $logDir "gateway.foreground.log"
+    Write-Host "Mirroring console to: $fgLog (pass -NoLogMirror to disable)" -ForegroundColor DarkGray
+    cmd.exe /d /s /c $cmdLine | Tee-Object -FilePath $fgLog -Append
+} else {
+    cmd.exe /d /s /c $cmdLine
+}
 
 
 

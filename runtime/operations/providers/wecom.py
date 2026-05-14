@@ -9,6 +9,7 @@ from argparse import _SubParsersAction
 from interfaces.channels.wecom.longconn_runner import run_forever as run_wecom_longconn
 from svc.config.paths import db_path
 from svc.persistence.sqlite_store import SqliteStore
+from svc.persistence.assistant_store import get_assistant_store
 
 from .base import ChannelProvider
 
@@ -32,7 +33,7 @@ _CLEAR_KEYS = [
 
 
 def _store() -> SqliteStore:
-    return SqliteStore(db_path())
+    return get_assistant_store()
 
 
 class WecomProvider(ChannelProvider):

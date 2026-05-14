@@ -2,15 +2,14 @@ from __future__ import annotations
 
 from typing import Any
 
-from svc.config.paths import db_path
-from svc.persistence.sqlite_store import SqliteStore
+from svc.persistence.assistant_store import get_assistant_store
 
 from .context_builder import build_common_gateway_context
 from .dispatcher import build_gateway_method_handlers
 
 
 def _build_http_context() -> dict[str, Any]:
-    store = SqliteStore(db_path())
+    store = get_assistant_store()
     context = build_common_gateway_context(store=store)
     context["session_event_subscribers"] = set()
     context["session_message_subscribers"] = {}

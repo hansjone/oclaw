@@ -31,10 +31,12 @@ from svc.files.file_attachments import (
 from interfaces.ws.common import normalize_ws_attachments
 from svc.files.session_export import export_session_json, export_session_markdown
 from svc.persistence.sqlite_store import SqliteStore
+from svc.persistence.assistant_store import get_assistant_store
 from runtime.gateway import OclawGateway
 from runtime.plan_agent_v2.switch import v2_feature_enabled
 from runtime.types import StandardMessage, normalize_interaction_mode, normalize_requested_specialist
 from runtime.chat.history_tool_result_compact import compact_tool_results_in_session_history
+from runtime.chat.persist_terminal_fallback import persist_assistant_text_if_turn_missing
 
 
 def _oclaw_config_path() -> Path:
@@ -233,6 +235,23 @@ def _extract_manager_instruction_text(reasoning_content: str) -> str | None:
     return instr or None
 
 
+def _instruction_from_dispatch_assignment_block(text: str) -> str | None:
+    """Extract manager instruction only from **comprehensive dispatch** reasoning blocks.
+
+    Without this guard, any assistant ``reasoning_content`` that contains ``instruction:\\n`` followed
+    by the user's literal question (common in thinking traces) would register as a duplicate
+    ``instruction_text`` and :func:`_filter_internal_instruction_user_messages` would drop the real
+    ``user_text`` row — after a failed assistant persist the API could return **zero** messages on refresh.
+    """
+    if not text or "instruction:\n" not in text:
+        return None
+    s = str(text)
+    tl = s.lower()
+    if "任务分配" not in s and "task assignment" not in tl:
+        return None
+    return _extract_manager_instruction_text(s)
+
+
 def _filter_internal_instruction_user_messages(msgs: list[Any]) -> list[Any]:
     """Hide legacy polluted user rows that equal manager dispatch instruction text."""
     instruction_texts: set[str] = set()
@@ -249,7 +268,7 @@ def _filter_internal_instruction_user_messages(msgs: list[Any]) -> list[Any]:
         if rc:
             candidates.append(rc)
         for text in candidates:
-            instr = _extract_manager_instruction_text(text)
+            instr = _instruction_from_dispatch_assignment_block(text)
             if instr:
                 instruction_texts.add(instr)
     if not instruction_texts:
@@ -360,6 +379,32 @@ def _resolve_chat_session(store: SqliteStore, ctx: dict[str, Any], session_id: s
     if _is_administrator_chat_viewer(ctx):
         return store.get_session_in_tenant(session_id=str(session_id or "").strip(), tenant_id=tenant_id)
     return store.get_session_for_user(session_id=session_id, tenant_id=tenant_id, user_id=user_id)
+
+
+def _resolve_chat_session_allow_claim_orphan(
+    store: SqliteStore, ctx: dict[str, Any], session_id: str
+):
+    """Like :func:`_resolve_chat_session`, but if ``chat_session`` exists with **no** ``ui_session_owner`` row
+    (common after SQLite→PG imports that only copied ``chat_session`` / ``chat_message``), attach the current
+    user once so ``get_session_for_user`` JOIN succeeds. Does **not** override an existing owner (wrong user).
+    """
+    resolve = _resolve_chat_session
+    sess = resolve(store, ctx, session_id)
+    if sess is not None:
+        return sess
+    if _is_administrator_chat_viewer(ctx):
+        return None
+    sid = str(session_id or "").strip()
+    tenant_id = str(ctx.get("tenant_id") or "").strip()
+    user_id = str(ctx.get("user_id") or "").strip()
+    if not sid or not tenant_id or not user_id:
+        return None
+    if store.get_session(sid) is None:
+        return None
+    if store.get_ui_session_owner(session_id=sid) is not None:
+        return None
+    store.ensure_ui_session_owner(session_id=sid, tenant_id=tenant_id, user_id=user_id)
+    return resolve(store, ctx, session_id)
 
 
 def _effective_user_text(*, text: str, attachments: list[dict[str, Any]] | None, store: SqliteStore) -> str:
@@ -825,7 +870,7 @@ def include_chat_routes(router: APIRouter, *, resolve_auth: Callable[[SqliteStor
         offset: int = Query(default=0, ge=0),
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = resolve_auth(store, authorization)
         tenant_id = str(ctx.get("tenant_id") or "")
         user_id = str(ctx.get("user_id") or "")
@@ -855,7 +900,7 @@ def include_chat_routes(router: APIRouter, *, resolve_auth: Callable[[SqliteStor
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
         payload = payload or {}
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = resolve_auth(store, authorization)
         tenant_id = str(ctx.get("tenant_id") or "")
         user_id = str(ctx.get("user_id") or "")
@@ -881,18 +926,18 @@ def include_chat_routes(router: APIRouter, *, resolve_auth: Callable[[SqliteStor
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
         payload = payload or {}
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = resolve_auth(store, authorization)
         tenant_id = str(ctx.get("tenant_id") or "")
         user_id = str(ctx.get("user_id") or "")
-        sess = _resolve_chat_session(store, ctx, session_id)
+        sess = _resolve_chat_session_allow_claim_orphan(store, ctx, session_id)
         if not sess:
             raise HTTPException(status_code=404, detail="session_not_found")
         title = str(payload.get("title") or "").strip()[:_SESSION_TITLE_MAX_LEN] or (
             "新会话" if _api_lang(store) == "zh" else "New Chat"
         )
         store.rename_session(session_id, title)
-        s = _resolve_chat_session(store, ctx, session_id)
+        s = _resolve_chat_session_allow_claim_orphan(store, ctx, session_id)
         return {
             "ok": True,
             "session": {
@@ -908,11 +953,11 @@ def include_chat_routes(router: APIRouter, *, resolve_auth: Callable[[SqliteStor
         session_id: str,
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = resolve_auth(store, authorization)
         tenant_id = str(ctx.get("tenant_id") or "")
         user_id = str(ctx.get("user_id") or "")
-        sess = _resolve_chat_session(store, ctx, session_id)
+        sess = _resolve_chat_session_allow_claim_orphan(store, ctx, session_id)
         if not sess:
             raise HTTPException(status_code=404, detail="session_not_found")
         if _is_administrator_chat_viewer(ctx):
@@ -941,11 +986,11 @@ def include_chat_routes(router: APIRouter, *, resolve_auth: Callable[[SqliteStor
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
         payload = payload or {}
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = resolve_auth(store, authorization)
         tenant_id = str(ctx.get("tenant_id") or "")
         user_id = str(ctx.get("user_id") or "")
-        sess = _resolve_chat_session(store, ctx, session_id)
+        sess = _resolve_chat_session_allow_claim_orphan(store, ctx, session_id)
         if not sess:
             raise HTTPException(status_code=404, detail="session_not_found")
         last_id = store.get_last_message_id(session_id)
@@ -976,11 +1021,11 @@ def include_chat_routes(router: APIRouter, *, resolve_auth: Callable[[SqliteStor
         format: str = Query(default="md", description="md or json"),
         authorization: str | None = Header(default=None),
     ) -> Response:
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = resolve_auth(store, authorization)
         tenant_id = str(ctx.get("tenant_id") or "")
         user_id = str(ctx.get("user_id") or "")
-        sess = _resolve_chat_session(store, ctx, session_id)
+        sess = _resolve_chat_session_allow_claim_orphan(store, ctx, session_id)
         if not sess:
             raise HTTPException(status_code=404, detail="session_not_found")
         fmt = (format or "md").strip().lower()
@@ -1006,11 +1051,11 @@ def include_chat_routes(router: APIRouter, *, resolve_auth: Callable[[SqliteStor
         limit: int = Query(default=_CHAT_MSG_LIMIT, ge=1, le=20000),
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = resolve_auth(store, authorization)
         tenant_id = str(ctx.get("tenant_id") or "")
         user_id = str(ctx.get("user_id") or "")
-        sess = _resolve_chat_session(store, ctx, session_id)
+        sess = _resolve_chat_session_allow_claim_orphan(store, ctx, session_id)
         if not sess:
             raise HTTPException(status_code=404, detail="session_not_found")
         meta = store.get_session_messages_meta(session_id)
@@ -1034,9 +1079,9 @@ def include_chat_routes(router: APIRouter, *, resolve_auth: Callable[[SqliteStor
         performance remains stable. It only touches `role=tool` chat_message rows.
         """
         payload = payload or {}
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = resolve_auth(store, authorization)
-        sess = _resolve_chat_session(store, ctx, session_id)
+        sess = _resolve_chat_session_allow_claim_orphan(store, ctx, session_id)
         if not sess:
             raise HTTPException(status_code=404, detail="session_not_found")
         limit_messages = int(payload.get("limit_messages") or 5000)
@@ -1072,9 +1117,9 @@ def include_chat_routes(router: APIRouter, *, resolve_auth: Callable[[SqliteStor
         message_id: int,
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = resolve_auth(store, authorization)
-        sess = _resolve_chat_session(store, ctx, session_id)
+        sess = _resolve_chat_session_allow_claim_orphan(store, ctx, session_id)
         if not sess:
             raise HTTPException(status_code=404, detail="session_not_found")
         ok = store.delete_message(session_id=str(session_id), message_id=int(message_id))
@@ -1089,12 +1134,12 @@ def include_chat_routes(router: APIRouter, *, resolve_auth: Callable[[SqliteStor
         limit: int = Query(default=20, ge=1, le=200),
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = resolve_auth(store, authorization)
         _require_administrator_chat_viewer(ctx)
         tenant_id = str(ctx.get("tenant_id") or "")
         user_id = str(ctx.get("user_id") or "")
-        sess = _resolve_chat_session(store, ctx, session_id)
+        sess = _resolve_chat_session_allow_claim_orphan(store, ctx, session_id)
         if not sess:
             raise HTTPException(status_code=404, detail="session_not_found")
         after_iso = str(after or "").strip()
@@ -1138,12 +1183,12 @@ def include_chat_routes(router: APIRouter, *, resolve_auth: Callable[[SqliteStor
         max_chars: int = Query(default=80_000, ge=1_000, le=200_000),
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = resolve_auth(store, authorization)
         _require_administrator_chat_viewer(ctx)
         tenant_id = str(ctx.get("tenant_id") or "")
         _ = str(ctx.get("user_id") or "")
-        sess = _resolve_chat_session(store, ctx, session_id)
+        sess = _resolve_chat_session_allow_claim_orphan(store, ctx, session_id)
         if not sess:
             raise HTTPException(status_code=404, detail="session_not_found")
         wiki_root = _wiki_root_from_config()
@@ -1177,11 +1222,11 @@ def include_chat_routes(router: APIRouter, *, resolve_auth: Callable[[SqliteStor
         session_id: str,
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = resolve_auth(store, authorization)
         tenant_id = str(ctx.get("tenant_id") or "")
         user_id = str(ctx.get("user_id") or "")
-        sess = _resolve_chat_session(store, ctx, session_id)
+        sess = _resolve_chat_session_allow_claim_orphan(store, ctx, session_id)
         if not sess:
             raise HTTPException(status_code=404, detail="session_not_found")
         s_mm, s_em = _resolve_session_dialog_chat_settings(
@@ -1212,11 +1257,11 @@ def include_chat_routes(router: APIRouter, *, resolve_auth: Callable[[SqliteStor
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
         payload = payload or {}
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = resolve_auth(store, authorization)
         tenant_id = str(ctx.get("tenant_id") or "")
         user_id = str(ctx.get("user_id") or "")
-        sess = _resolve_chat_session(store, ctx, session_id)
+        sess = _resolve_chat_session_allow_claim_orphan(store, ctx, session_id)
         if not sess:
             raise HTTPException(status_code=404, detail="session_not_found")
         memory_mode = _normalize_memory_mode(payload)
@@ -1254,7 +1299,7 @@ def include_chat_routes(router: APIRouter, *, resolve_auth: Callable[[SqliteStor
     def api_chat_user_mode_get(
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = resolve_auth(store, authorization)
         tenant_id = str(ctx.get("tenant_id") or "")
         user_id = str(ctx.get("user_id") or "")
@@ -1274,7 +1319,7 @@ def include_chat_routes(router: APIRouter, *, resolve_auth: Callable[[SqliteStor
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
         payload = payload or {}
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = resolve_auth(store, authorization)
         tenant_id = str(ctx.get("tenant_id") or "")
         user_id = str(ctx.get("user_id") or "")
@@ -1311,7 +1356,7 @@ def include_chat_routes(router: APIRouter, *, resolve_auth: Callable[[SqliteStor
         offset: int = Query(default=0, ge=0),
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = resolve_auth(store, authorization)
         _require_administrator_chat_viewer(ctx)
         tenant_id = str(ctx.get("tenant_id") or "")
@@ -1333,7 +1378,7 @@ def include_chat_routes(router: APIRouter, *, resolve_auth: Callable[[SqliteStor
         offset: int = Query(default=0, ge=0),
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = resolve_auth(store, authorization)
         _require_administrator_chat_viewer(ctx)
         tenant_id = str(ctx.get("tenant_id") or "")
@@ -1353,7 +1398,7 @@ def include_chat_routes(router: APIRouter, *, resolve_auth: Callable[[SqliteStor
         limit: int = Query(default=200, ge=20, le=1000),
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = resolve_auth(store, authorization)
         lang = _api_lang(store)
         labels = _dispatch_reason_labels_with_overrides(store)
@@ -1392,7 +1437,7 @@ def include_chat_routes(router: APIRouter, *, resolve_auth: Callable[[SqliteStor
     def api_chat_get_ui_lang(
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         _ = resolve_auth(store, authorization)
         return {"ok": True, "lang": _api_lang(store)}
 
@@ -1402,7 +1447,7 @@ def include_chat_routes(router: APIRouter, *, resolve_auth: Callable[[SqliteStor
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
         payload = payload or {}
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         _ = resolve_auth(store, authorization)
         lang = str(payload.get("lang") or "").strip().lower()
         if lang not in ("zh", "en"):
@@ -1414,7 +1459,7 @@ def include_chat_routes(router: APIRouter, *, resolve_auth: Callable[[SqliteStor
     def api_chat_get_dispatch_reason_labels(
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = resolve_auth(store, authorization)
         _require_administrator_chat_viewer(ctx)
         raw = str(store.get_setting(_DISPATCH_REASON_LABELS_SETTING_KEY) or "").strip()
@@ -1439,7 +1484,7 @@ def include_chat_routes(router: APIRouter, *, resolve_auth: Callable[[SqliteStor
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
         body = payload or {}
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = resolve_auth(store, authorization)
         _require_administrator_chat_viewer(ctx)
         overrides = body.get("overrides")
@@ -1465,7 +1510,7 @@ def include_chat_routes(router: APIRouter, *, resolve_auth: Callable[[SqliteStor
     def api_chat_get_specialist_flags(
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = resolve_auth(store, authorization)
         _require_administrator_chat_viewer(ctx)
         flags = _specialist_flags_with_overrides(store)
@@ -1483,7 +1528,7 @@ def include_chat_routes(router: APIRouter, *, resolve_auth: Callable[[SqliteStor
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
         body = payload or {}
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = resolve_auth(store, authorization)
         _require_administrator_chat_viewer(ctx)
         raw_flags = body.get("flags")
@@ -1507,7 +1552,7 @@ def include_chat_routes(router: APIRouter, *, resolve_auth: Callable[[SqliteStor
         channel: str,
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = resolve_auth(store, authorization)
         _require_administrator_chat_viewer(ctx)
         ch = _normalize_channel_dispatch_channel(channel)
@@ -1533,7 +1578,7 @@ def include_chat_routes(router: APIRouter, *, resolve_auth: Callable[[SqliteStor
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
         body = payload or {}
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = resolve_auth(store, authorization)
         _require_administrator_chat_viewer(ctx)
         ch = _normalize_channel_dispatch_channel(channel)
@@ -1553,7 +1598,7 @@ def include_chat_routes(router: APIRouter, *, resolve_auth: Callable[[SqliteStor
     def api_chat_get_attachment_limits(
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = resolve_auth(store, authorization)
         _require_administrator_chat_viewer(ctx)
         limits = _tabular_limits_from_oclaw_config()
@@ -1565,7 +1610,7 @@ def include_chat_routes(router: APIRouter, *, resolve_auth: Callable[[SqliteStor
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
         body = payload or {}
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = resolve_auth(store, authorization)
         _require_administrator_chat_viewer(ctx)
         raw = body.get("limits")
@@ -1639,7 +1684,7 @@ def include_chat_routes(router: APIRouter, *, resolve_auth: Callable[[SqliteStor
     def api_chat_profile_get(
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = resolve_auth(store, authorization)
         tenant_id = str(ctx.get("tenant_id") or "").strip()
         user_id = str(ctx.get("user_id") or "").strip()
@@ -1671,7 +1716,7 @@ def include_chat_routes(router: APIRouter, *, resolve_auth: Callable[[SqliteStor
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
         payload = payload or {}
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = resolve_auth(store, authorization)
         tenant_id = str(ctx.get("tenant_id") or "").strip()
         user_id = str(ctx.get("user_id") or "").strip()
@@ -1702,7 +1747,7 @@ def include_chat_routes(router: APIRouter, *, resolve_auth: Callable[[SqliteStor
         authorization: str | None = Header(default=None),
         file: UploadFile = File(...),
     ) -> dict[str, Any]:
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = resolve_auth(store, authorization)
         tenant_id = str(ctx.get("tenant_id") or "").strip()
         user_id = str(ctx.get("user_id") or "").strip()
@@ -1735,7 +1780,7 @@ def include_chat_routes(router: APIRouter, *, resolve_auth: Callable[[SqliteStor
     def api_chat_profile_avatar_delete(
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = resolve_auth(store, authorization)
         tenant_id = str(ctx.get("tenant_id") or "").strip()
         user_id = str(ctx.get("user_id") or "").strip()
@@ -1749,9 +1794,9 @@ def include_chat_routes(router: APIRouter, *, resolve_auth: Callable[[SqliteStor
         session_id: str,
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = resolve_auth(store, authorization)
-        sess = _resolve_chat_session(store, ctx, session_id)
+        sess = _resolve_chat_session_allow_claim_orphan(store, ctx, session_id)
         if not sess:
             raise HTTPException(status_code=404, detail="session_not_found")
         sid = str(session_id)
@@ -1766,7 +1811,7 @@ def include_chat_routes(router: APIRouter, *, resolve_auth: Callable[[SqliteStor
         attachment_id: str,
         authorization: str | None = Header(default=None),
     ) -> Response:
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = resolve_auth(store, authorization)
         tenant_id = str(ctx.get("tenant_id") or "").strip()
         user_id = str(ctx.get("user_id") or "").strip()
@@ -1828,7 +1873,7 @@ def include_chat_routes(router: APIRouter, *, resolve_auth: Callable[[SqliteStor
         limit_messages: int = Query(default=50_000, ge=1, le=500_000),
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = resolve_auth(store, authorization)
         _require_administrator_chat_viewer(ctx)
         tenant_id = str(ctx.get("tenant_id") or "").strip()
@@ -1854,12 +1899,12 @@ def include_chat_routes(router: APIRouter, *, resolve_auth: Callable[[SqliteStor
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
         payload = payload or {}
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = resolve_auth(store, authorization)
         tenant_id = str(ctx.get("tenant_id") or "")
         user_id = str(ctx.get("user_id") or "")
         role = str(ctx.get("role") or "member")
-        sess = _resolve_chat_session(store, ctx, session_id)
+        sess = _resolve_chat_session_allow_claim_orphan(store, ctx, session_id)
         if not sess:
             raise HTTPException(status_code=404, detail="session_not_found")
         text_raw = str(payload.get("text") or "").strip()
@@ -1971,6 +2016,13 @@ def include_chat_routes(router: APIRouter, *, resolve_auth: Callable[[SqliteStor
                 specialist_executor_factory=specialist_factory,
             )
             reply = gw_result.reply_text
+            persist_assistant_text_if_turn_missing(
+                store=store,
+                session_id=str(session_id),
+                turn_uuid=str(getattr(gw_result, "turn_uuid", "") or ""),
+                final_text=str(reply or ""),
+                log_prefix="admin_chat_http_text_fallback_persisted",
+            )
         except GenerationInterrupted:
             msg = "已中断回答。" if lang == "zh" else "Response stopped."
             store.add_message(session_id=session_id, role="assistant", content=msg)
@@ -1992,12 +2044,12 @@ def include_chat_routes(router: APIRouter, *, resolve_auth: Callable[[SqliteStor
     ) -> StreamingResponse:
         """Server-Sent Events: token deltas + progress + tool_ui, then done (assistant persisted by run_turn)."""
         payload = payload or {}
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = resolve_auth(store, authorization)
         tenant_id = str(ctx.get("tenant_id") or "")
         user_id = str(ctx.get("user_id") or "")
         role = str(ctx.get("role") or "member")
-        sess = _resolve_chat_session(store, ctx, session_id)
+        sess = _resolve_chat_session_allow_claim_orphan(store, ctx, session_id)
         if not sess:
             raise HTTPException(status_code=404, detail="session_not_found")
         text_raw = str(payload.get("text") or "").strip()

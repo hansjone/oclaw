@@ -6,6 +6,7 @@ from typing import Any
 
 from svc.config.paths import db_path
 from svc.persistence.sqlite_store import SqliteStore
+from svc.persistence.assistant_store import get_assistant_store
 
 
 def build_hello_ok_payload(
@@ -50,7 +51,7 @@ def resolve_ws_auth(connect_params: dict[str, Any] | None) -> dict[str, Any]:
         token = device_token or bootstrap_token
     if not token:
         return {}
-    store = SqliteStore(db_path())
+    store = get_assistant_store()
     token_hash = hashlib.sha256(token.encode("utf-8", errors="ignore")).hexdigest()
     session = store.get_auth_session(session_token_hash=token_hash)
     if not session or session.get("revoked_at"):

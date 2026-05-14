@@ -224,7 +224,7 @@ def run_attempt(*, store: Any, data: AttemptRunnerInput) -> AttemptRunnerOutput:
                 final_text="",
                 tool_traces=tuple(),
                 handoff_note=f"{err_code}:{reason}",
-                turn_uuid="",
+                turn_uuid=str(data.turn_uuid or "").strip(),
             ),
         )
 

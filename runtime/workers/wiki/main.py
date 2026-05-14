@@ -13,6 +13,7 @@ from typing import Any
 
 from svc.config.paths import PROJECT_ROOT, db_path
 from svc.persistence.sqlite_store import OclawTask, SqliteStore
+from svc.persistence.assistant_store import get_assistant_store
 
 
 def _load_oclaw_config() -> dict[str, Any]:
@@ -312,7 +313,7 @@ def _process_task(*, task: OclawTask, handlers: dict[str, Any], plugin_cfg: dict
 def run_worker() -> int:
     interval_s = max(2, min(int(os.getenv("AIA_WIKI_WORKER_POLL_SECONDS", "4")), 60))
     worker_id = str(os.getenv("AIA_WIKI_WORKER_ID") or "wiki-worker-main").strip() or "wiki-worker-main"
-    store = SqliteStore(db_path())
+    store = get_assistant_store()
     while True:
         cfg = _load_oclaw_config()
         plugin_cfg = _wiki_plugin_config(cfg)

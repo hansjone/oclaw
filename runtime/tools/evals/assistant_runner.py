@@ -8,6 +8,7 @@ from typing import Any
 from runtime.application.gateway import process_inbound_payload_usecase
 from svc.config.paths import db_path
 from svc.persistence.sqlite_store import SqliteStore
+from svc.persistence.assistant_store import get_assistant_store
 
 
 @dataclass(frozen=True)
@@ -59,7 +60,7 @@ def _extract_reply_text(resp: dict[str, Any]) -> str:
 
 
 def run_gateway_eval(dataset_path: str) -> dict[str, Any]:
-    store = SqliteStore(db_path())
+    store = get_assistant_store()
     # Seed a tenant + bind code for tests
     tenants = store.list_tenants(limit=1)
     if tenants:

@@ -13,6 +13,7 @@ sys.path.insert(0, str(ROOT))
 
 from svc.config.paths import db_path  # noqa: E402
 from svc.persistence.sqlite_store import SqliteStore  # noqa: E402
+from svc.persistence.assistant_store import get_assistant_store
 from runtime.tools.mcp.installer import McpServerManifest, _safe_server_id, install_mcp_server  # noqa: E402
 
 
@@ -24,7 +25,7 @@ BATCH: list[tuple[str, str, list[str]]] = [
 
 
 def main() -> None:
-    store = SqliteStore(db_path())
+    store = get_assistant_store()
     for seed, source_ref, entry_args in BATCH:
         server_id = _safe_server_id(seed)
         manifest = McpServerManifest(

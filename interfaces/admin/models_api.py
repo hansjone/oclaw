@@ -21,6 +21,7 @@ from runtime.agents.specialists import (
 )
 from svc.config.paths import db_path
 from runtime.orchestration.evaluation import eval_summary
+from svc.persistence.assistant_store import get_assistant_store
 from svc.persistence.sqlite_store import (
     LLM_BUILTIN_OLLAMA_PROFILE_ID,
     SqliteStore,
@@ -169,7 +170,7 @@ def include_model_mgmt_routes(
     def api_models_state(
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = resolve_auth(store, authorization)
         _require_permission(ctx, "admin:read")
         uid = str(ctx.get("user_id") or "").strip()
@@ -224,7 +225,7 @@ def include_model_mgmt_routes(
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
         payload = payload or {}
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = resolve_auth(store, authorization)
         # 与能进入控制台一致：切换「当前选用」不写密钥，仅需读权限即可。
         _require_permission(ctx, "admin:read")
@@ -242,7 +243,7 @@ def include_model_mgmt_routes(
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
         payload = payload or {}
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = resolve_auth(store, authorization)
         _require_models_mutate(ctx)
         profiles = store.list_llm_profiles(visible_only=True, **_models_list_kwargs(ctx))
@@ -268,7 +269,7 @@ def include_model_mgmt_routes(
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
         payload = payload or {}
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = resolve_auth(store, authorization)
         _require_models_mutate(ctx)
         profiles = store.list_llm_profiles(visible_only=True, **_models_list_kwargs(ctx))
@@ -285,7 +286,7 @@ def include_model_mgmt_routes(
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
         payload = payload or {}
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = resolve_auth(store, authorization)
         _require_models_mutate(ctx)
         profiles = store.list_llm_profiles(visible_only=True, **_models_list_kwargs(ctx))
@@ -311,7 +312,7 @@ def include_model_mgmt_routes(
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
         payload = payload or {}
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = resolve_auth(store, authorization)
         _require_permission(ctx, "admin:tenant:write")
         visible = _truthy(payload.get("chat_model_selector_visible"), default=True)
@@ -324,7 +325,7 @@ def include_model_mgmt_routes(
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
         payload = payload or {}
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = resolve_auth(store, authorization)
         _require_models_mutate(ctx)
         name = str(payload.get("name") or "").strip() or "新配置"
@@ -354,7 +355,7 @@ def include_model_mgmt_routes(
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
         payload = payload or {}
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = resolve_auth(store, authorization)
         _require_models_mutate(ctx)
         pid = str(profile_id or "").strip()
@@ -401,7 +402,7 @@ def include_model_mgmt_routes(
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
         payload = payload or {}
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = resolve_auth(store, authorization)
         _require_models_mutate(ctx)
         pid = str(profile_id or "").strip()
@@ -428,7 +429,7 @@ def include_model_mgmt_routes(
         profile_id: str,
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = resolve_auth(store, authorization)
         _require_models_mutate(ctx)
         pid = str(profile_id or "").strip()
@@ -446,7 +447,7 @@ def include_model_mgmt_routes(
     def api_models_members(
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = resolve_auth(store, authorization)
         _require_grant_manager(ctx)
         tid = str(ctx.get("tenant_id") or "").strip()
@@ -481,7 +482,7 @@ def include_model_mgmt_routes(
         profile_id: str = Query(...),
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = resolve_auth(store, authorization)
         _require_grant_manager(ctx)
         tid = str(ctx.get("tenant_id") or "").strip()
@@ -497,7 +498,7 @@ def include_model_mgmt_routes(
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
         payload = payload or {}
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = resolve_auth(store, authorization)
         _require_grant_manager(ctx)
         tid = str(ctx.get("tenant_id") or "").strip()
@@ -524,7 +525,7 @@ def include_model_mgmt_routes(
         profile_id: str = Query(...),
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = resolve_auth(store, authorization)
         _require_grant_manager(ctx)
         tid = str(ctx.get("tenant_id") or "").strip()
@@ -539,7 +540,7 @@ def include_model_mgmt_routes(
         profile_id: str = Query(..., description="llm_profile id"),
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = resolve_auth(store, authorization)
         _require_grant_manager(ctx)
         tid = str(ctx.get("tenant_id") or "").strip()
@@ -555,7 +556,7 @@ def include_model_mgmt_routes(
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
         payload = payload or {}
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = resolve_auth(store, authorization)
         _require_grant_manager(ctx)
         tid = str(ctx.get("tenant_id") or "").strip()
@@ -589,7 +590,7 @@ def include_model_mgmt_routes(
         user_id: str = Query(...),
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = resolve_auth(store, authorization)
         _require_grant_manager(ctx)
         tid = str(ctx.get("tenant_id") or "").strip()
@@ -606,7 +607,7 @@ def include_model_mgmt_routes(
         limit_logs: int = Query(default=100, ge=1, le=500),
         limit_summary: int = Query(default=500, ge=1, le=5000),
     ) -> dict[str, Any]:
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = resolve_auth(store, authorization)
         _require_permission(ctx, "admin:read")
         summary = eval_summary(store, limit=limit_summary)
@@ -630,7 +631,7 @@ def include_model_mgmt_routes(
         format: str = Query(default="csv", description="csv or json"),
         limit: int = Query(default=100_000, ge=1, le=200_000),
     ) -> Response:
-        store = SqliteStore(db_path())
+        store = get_assistant_store()
         ctx = resolve_auth(store, authorization)
         _require_permission(ctx, "admin:read")
         fmt = str(format or "csv").strip().lower()
