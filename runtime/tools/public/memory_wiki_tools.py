@@ -99,10 +99,27 @@ def _search_tool(public_name: str, desc: str) -> ToolSpec:
         parameters={
             "type": "object",
             "properties": {
-                "query": {"type": "string"},
-                "limit": {"type": "integer"},
+                "query": {"type": "string", "description": "Search query string."},
+                "limit": {"type": "integer", "description": "Max hits per page (server caps to wiki max)."},
+                "offset": {"type": "integer", "description": "Hit offset for pagination (0-based)."},
+                "context_lines": {
+                    "type": "integer",
+                    "description": "Lines of context around each match (server caps at 5).",
+                },
                 "is_regex": {"type": "boolean"},
                 "case_sensitive": {"type": "boolean"},
+                "path_prefix": {
+                    "type": "string",
+                    "description": "Only search under this relative path prefix (e.g. users/).",
+                },
+                "expand_query": {
+                    "type": "boolean",
+                    "description": "If true, try synonym-expanded variants (ignored when is_regex is true).",
+                },
+                "max_rounds": {
+                    "type": "integer",
+                    "description": "Max expansion rounds when expand_query is true (1–5).",
+                },
             },
             "required": ["query"],
             "additionalProperties": False,

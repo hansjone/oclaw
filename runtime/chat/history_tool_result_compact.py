@@ -25,6 +25,13 @@ class HistoryCompactionResult:
     detail: str = ""
 
 
+def _chat_message_id_content(row: Any) -> tuple[int, str]:
+    """Normalize SQLite Row/tuple vs PostgreSQL dict_row for ``select id, content``."""
+    if isinstance(row, dict):
+        return int(row["id"]), str(row.get("content") or "")
+    return int(row[0]), str(row[1] or "")  # type: ignore[index]
+
+
 def _json_dumps_safe(obj: Any) -> str:
     try:
         return json.dumps(obj, ensure_ascii=False, default=str)
@@ -150,7 +157,8 @@ def compact_tool_results_in_session_history(
             (sid, max(1, min(int(limit_messages or 5000), 200_000))),
         )
         rows = cur.fetchall() or []
-        for mid, raw in rows:
+        for row in rows:
+            mid, raw = _chat_message_id_content(row)
             scanned += 1
             txt = str(raw or "")
             max_seen = max(max_seen, len(txt))

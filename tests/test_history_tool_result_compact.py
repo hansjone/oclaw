@@ -3,7 +3,18 @@ from __future__ import annotations
 import json
 
 from svc.persistence.sqlite_store import SqliteStore
-from runtime.chat.history_tool_result_compact import compact_tool_results_in_session_history
+from runtime.chat.history_tool_result_compact import (
+    _chat_message_id_content,
+    compact_tool_results_in_session_history,
+)
+
+
+def test_chat_message_id_content_dict_row() -> None:
+    assert _chat_message_id_content({"id": 42, "content": "hello"}) == (42, "hello")
+
+
+def test_chat_message_id_content_tuple_like() -> None:
+    assert _chat_message_id_content((9, "z")) == (9, "z")
 
 
 def test_compact_tool_results_in_session_history_rewrites_large_tool_message(tmp_path) -> None:  # noqa: ANN001

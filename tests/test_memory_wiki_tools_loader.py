@@ -12,6 +12,22 @@ from runtime.tools.public.memory_wiki_tools import (
 )
 
 
+def test_memory_wiki_search_tool_schema_exposes_wiki_search_args() -> None:
+    props = memory_wiki_search_tool().parameters.get("properties") or {}
+    for key in (
+        "query",
+        "limit",
+        "offset",
+        "context_lines",
+        "is_regex",
+        "case_sensitive",
+        "path_prefix",
+        "expand_query",
+        "max_rounds",
+    ):
+        assert key in props, f"missing schema property: {key}"
+
+
 def test_memory_wiki_tools_handlers_load_without_dataclass_module_error() -> None:
     status = memory_wiki_status_tool().handler({})
     assert isinstance(status, dict)
