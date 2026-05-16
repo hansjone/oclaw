@@ -70,3 +70,6 @@ oclaw/desktop/assets/oclaw.ico
 vendor/
 vendor/oclaw-main.zip
 vendor/oclaw/
+
+# 仅本机使用的私有 skill（勿提交）
+skills/_workspace/generalist/knowledge-base-manager/
