@@ -77,6 +77,7 @@ const I18N = {
     "theme.catppuccin": "Catppuccin Mocha",
     "theme.light": "浅色",
     "lang.switch": "English",
+    "chat.langSwitchedWhileStreaming": "语言已切换。当前会话仍在输出，刷新页面可更新全部界面文案。",
     "chat.imageViewerClose": "关闭",
     "chat.imageViewerHint": "点击查看大图，空白处或 Esc 关闭",
     "chat.imageViewerDownload": "下载图片",
@@ -256,6 +257,7 @@ const I18N = {
     "theme.catppuccin": "Catppuccin Mocha",
     "theme.light": "Light",
     "lang.switch": "中文",
+    "chat.langSwitchedWhileStreaming": "Language updated. Session is still streaming; refresh the page to reload all labels.",
     "chat.imageViewerClose": "Close",
     "chat.imageViewerHint": "Click image to enlarge; click outside or Esc to close",
     "chat.imageViewerDownload": "Download image",
@@ -873,8 +875,8 @@ async function openDispatchLabelsEditor(statusEl) {
     ? JSON.stringify(cfg.overrides, null, 2)
     : "";
   const backdrop = el("div", {
-    style:
-      "position:fixed;inset:0;background:rgba(0,0,0,0.35);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px;",
+    class: "chat-confirm-backdrop",
+    style: "z-index:9999;",
   });
   const card = el("div", {
     class: "card",
@@ -1178,6 +1180,57 @@ function closeChatImageLightbox() {
   }
   document.querySelector(".chat-img-lightbox")?.remove();
   document.body.style.overflow = _chatLightboxPrevOverflow || "";
+}
+
+function dismissChatMenus() {
+  document.querySelectorAll(".chat-sess-menu-pop, .chat-menu-scrim").forEach((n) => {
+    try {
+      n.remove();
+    } catch (_) {}
+  });
+}
+
+function isChatStreaming() {
+  return !!document.querySelector(".chat-composer-shell--busy");
+}
+
+/** Remove full-screen layers on ``document.body`` that survive ``#app`` remounts (boot/lang/popstate). */
+function clearChatPageBlockers() {
+  closeChatImageLightbox();
+  dismissChatMenus();
+  document.body.style.overflow = "";
+  document.querySelectorAll(".chat-confirm-backdrop").forEach((n) => {
+    try {
+      n.remove();
+    } catch (_) {}
+  });
+}
+
+function attachChatMenuDismiss(menu) {
+  const scrim = el("div", {
+    class: "chat-menu-scrim",
+    style: "position:fixed;inset:0;z-index:250;background:transparent;",
+  });
+  const closeAll = () => {
+    dismissChatMenus();
+    document.removeEventListener("click", onDocClick, true);
+    document.removeEventListener("keydown", onKey, true);
+  };
+  const onDocClick = (e) => {
+    if (menu.contains(e.target)) return;
+    closeAll();
+  };
+  const onKey = (e) => {
+    if (e.key === "Escape") closeAll();
+  };
+  scrim.addEventListener("click", closeAll);
+  document.body.appendChild(scrim);
+  document.body.appendChild(menu);
+  setTimeout(() => {
+    document.addEventListener("click", onDocClick, true);
+    document.addEventListener("keydown", onKey, true);
+  }, 0);
+  return closeAll;
 }
 
 function openChatImageLightbox(src, alt) {
@@ -2504,6 +2557,7 @@ async function appendMessageRow(messagesEl, m, options = {}) {
 }
 
 function mount(node) {
+  clearChatPageBlockers();
   const c = document.getElementById("app");
   c.innerHTML = "";
   c.appendChild(node);
@@ -2566,7 +2620,7 @@ function syncAuthUserLabel() {
     title: t("chat.sessionMenu"),
     onclick: (ev) => {
       ev.stopPropagation();
-      document.querySelectorAll(".chat-sess-menu-pop").forEach((n) => n.remove());
+      clearChatPageBlockers();
       const items = [
         el("button", {
           type: "button",
@@ -2695,10 +2749,12 @@ function syncAuthUserLabel() {
           text: t("auth.logout"),
         }),
       );
-      const menu = el("div", { class: "chat-sess-menu-pop", style: "position:fixed;min-width:220px;" }, items);
+      const menu = el("div", {
+        class: "chat-sess-menu-pop",
+        style: "position:fixed;min-width:220px;z-index:300;",
+      }, items);
       const rect = moreBtn.getBoundingClientRect();
-      menu.style.position = "fixed";
-      document.body.appendChild(menu);
+      attachChatMenuDismiss(menu);
       const mrect = menu.getBoundingClientRect();
       const pad = 8;
       let left = rect.left;
@@ -2710,13 +2766,6 @@ function syncAuthUserLabel() {
       top = Math.max(pad, Math.min(top, window.innerHeight - pad - mrect.height));
       menu.style.left = `${left}px`;
       menu.style.top = `${top}px`;
-      const close = (e) => {
-        if (!menu.contains(e.target)) {
-          menu.remove();
-          document.removeEventListener("click", close);
-        }
-      };
-      setTimeout(() => document.addEventListener("click", close), 0);
     },
   });
   const row = el("div", { class: "chat-user-row" }, [nameBtn, moreBtn]);
@@ -3684,12 +3733,12 @@ async function renderChatUi() {
         title: t("chat.sessionMenu"),
         onclick: (ev) => {
           ev.stopPropagation();
-          document.querySelectorAll(".chat-sess-menu-pop").forEach((n) => n.remove());
+          clearChatPageBlockers();
           const menu = openSessionMenu(sid, title);
-          const rect = more.getBoundingClientRect();
           menu.style.position = "fixed";
-          document.body.appendChild(menu);
-          // Clamp into viewport; flip above if near bottom.
+          menu.style.zIndex = "300";
+          const rect = more.getBoundingClientRect();
+          attachChatMenuDismiss(menu);
           const mrect = menu.getBoundingClientRect();
           const pad = 8;
           let left = rect.left;
@@ -3701,13 +3750,6 @@ async function renderChatUi() {
           top = Math.max(pad, Math.min(top, window.innerHeight - pad - mrect.height));
           menu.style.left = `${left}px`;
           menu.style.top = `${top}px`;
-          const close = (e) => {
-            if (!menu.contains(e.target)) {
-              menu.remove();
-              document.removeEventListener("click", close);
-            }
-          };
-          setTimeout(() => document.addEventListener("click", close), 0);
         },
       });
       row.appendChild(btn);
@@ -5374,6 +5416,7 @@ async function syncLangFromServer() {
 }
 
 async function boot() {
+  clearChatPageBlockers();
   applyI18nStatic();
   if (forceReloginRequested()) {
     clearAuthAndReloginFlagFromUrl();
@@ -5385,10 +5428,6 @@ async function boot() {
   }
   const tok = String(localStorage.getItem(AUTH_TOKEN_KEY) || "").trim();
   if (!authSession || !tok) {
-    // Ensure stale overlays from previous chat UI never block login inputs.
-    closeChatImageLightbox();
-    document.querySelectorAll(".chat-sess-menu-pop").forEach((n) => n.remove());
-    document.body.style.overflow = "";
     localStorage.removeItem(AUTH_TOKEN_KEY);
     localStorage.removeItem(AUTH_SESSION_KEY);
     authSession = null;
@@ -5446,7 +5485,14 @@ document.body.addEventListener("click", async (e) => {
       try {
         await apiPost("/admin/api/chat/settings/ui-lang", { lang: currentLang });
       } catch (_) {}
-      await boot();
+      clearChatPageBlockers();
+      if (isChatStreaming()) {
+        applyI18nStatic();
+        syncAuthUserLabel();
+        showToast(t("chat.langSwitchedWhileStreaming"), { kind: "info", ttlMs: 6500 });
+      } else {
+        await boot();
+      }
       return;
     }
   }
@@ -5455,6 +5501,14 @@ document.body.addEventListener("click", async (e) => {
 
 window.addEventListener("popstate", () => {
   if (authSession) boot().catch(() => {});
+});
+
+document.addEventListener("keydown", (ev) => {
+  if (ev.key !== "Escape" || ev.defaultPrevented) return;
+  if (!document.querySelector(".chat-confirm-backdrop, .chat-sess-menu-pop, .chat-img-lightbox, .chat-menu-scrim")) {
+    return;
+  }
+  clearChatPageBlockers();
 });
 
 boot().catch((err) => {

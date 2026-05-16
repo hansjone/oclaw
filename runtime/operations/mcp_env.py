@@ -85,11 +85,24 @@ def _mcp_local_env_paths_in_load_order() -> list[Path]:
     ]
 
 
+def _apply_trilium_env_aliases(vals: dict[str, str]) -> None:
+    """Map legacy TRILIUM_URL / TRILIUM_TOKEN to names expected by triliumnext-mcp."""
+    if not str(vals.get("TRILIUM_API_URL") or "").strip():
+        legacy = str(vals.get("TRILIUM_URL") or "").strip()
+        if legacy:
+            vals["TRILIUM_API_URL"] = legacy
+    if not str(vals.get("TRILIUM_API_TOKEN") or "").strip():
+        legacy = str(vals.get("TRILIUM_TOKEN") or "").strip()
+        if legacy:
+            vals["TRILIUM_API_TOKEN"] = legacy
+
+
 def mcp_local_env_merged() -> dict[str, str]:
     out: dict[str, str] = {}
     for p in _mcp_local_env_paths_in_load_order():
         if p.is_file():
             out.update(_parse_env_file(p))
+    _apply_trilium_env_aliases(out)
     return out
 
 
@@ -102,7 +115,8 @@ def gateway_mcp_env_extras() -> dict[str, str]:
     has_aia = str(os.getenv("AIA_MCP_ENV_ALLOWLIST") or "").strip()
     if not has_aia:
         extra["AIA_MCP_ENV_ALLOWLIST"] = _DEFAULT_ALLOWLIST
-    file_vals = mcp_local_env_merged()
+    file_vals = dict(mcp_local_env_merged())
+    _apply_trilium_env_aliases(file_vals)
     for k, v in file_vals.items():
         if not v.strip():
             continue

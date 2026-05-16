@@ -155,6 +155,14 @@ class McpAdapterTests(unittest.TestCase):
         self.assertIn("oclaw", parts)
         self.assertIn("_local", parts)
 
+    def test_trilium_env_aliases_from_legacy_names(self) -> None:
+        from runtime.operations.mcp_env import _apply_trilium_env_aliases
+
+        vals = {"TRILIUM_URL": "http://127.0.0.1:37840/etapi", "TRILIUM_TOKEN": "secret"}
+        _apply_trilium_env_aliases(vals)
+        self.assertEqual(vals["TRILIUM_API_URL"], "http://127.0.0.1:37840/etapi")
+        self.assertEqual(vals["TRILIUM_API_TOKEN"], "secret")
+
     def test_mcp_env_allowlist_keys_default_when_unset(self) -> None:
         from runtime.operations import mcp_env
 
