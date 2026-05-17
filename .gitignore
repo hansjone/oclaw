@@ -46,6 +46,9 @@ runtime/operations/scripts/.run/
 desktop/node_modules/
 desktop/dist/
 desktop/runtime-data/
+# Cursor MCP（含 Trilium token，复制 mcp.json.example 后本地填写）
+.cursor/mcp.json
+
 # _local/ 下其余文件均忽略（密钥、mcp_local.env 等）
 platform/data/*.sqlite
 platform/data/*.sqlite-journal
@@ -73,3 +76,8 @@ vendor/oclaw/
 
 # 仅本机使用的私有 skill（勿提交）
 skills/_workspace/generalist/knowledge-base-manager/
+
+# 本机 Trilium 文档导入（依赖个人 TRILIUM_API_*，勿提交；入口在仓库根 scripts/）
+scripts/import_oclaw_netx_docs_to_trilium.py
+scripts/import_oclaw_netx_docs_to_trilium.ps1
+scripts/import_oclaw_netx_docs_to_trilium.sh
