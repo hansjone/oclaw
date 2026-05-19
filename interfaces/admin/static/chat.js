@@ -4134,6 +4134,7 @@ async function renderChatUi() {
           memory_mode: String(memoryMode || "default"),
           execution_mode: String(executionMode || "agent"),
           plan_agent_version: outboundPlanAgentVersion(),
+          lang: currentLang === "en" ? "en" : "zh",
         },
       };
       this.ws.send(JSON.stringify(req));

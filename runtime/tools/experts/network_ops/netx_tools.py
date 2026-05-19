@@ -690,6 +690,7 @@ def netx_query_ume_alarms_raw_tool() -> ToolSpec:
             "alarm_perceived_severity",
             "alarm_event_type",
             "alarm_last_seen_at",
+            "ne_host_name",
             "ne_user_label",
             "ne_ne_name",
             "ne_ip_address",
@@ -697,7 +698,6 @@ def netx_query_ume_alarms_raw_tool() -> ToolSpec:
         ],
         "evidence": [
             "alarm_alarm_key",
-            "alarm_ne_id",
             "alarm_object_name",
             "alarm_event_type",
             "alarm_native_probable_cause",
@@ -705,6 +705,7 @@ def netx_query_ume_alarms_raw_tool() -> ToolSpec:
             "alarm_is_cleared",
             "alarm_time_created",
             "alarm_last_seen_at",
+            "ne_host_name",
             "ne_user_label",
             "ne_ne_name",
             "ne_ip_address",
@@ -905,7 +906,7 @@ def netx_aggregate_ume_alarms_raw_tool() -> ToolSpec:
                 "group_by": {
                     "type": "string",
                     "enum": _UME_RAW_GROUP_FIELDS,
-                    "description": "主分组字段（建议常用 alarm_perceived_severity / ne_user_label / ne_ne_name）",
+                    "description": "主分组字段（网元维度优先 ne_host_name；勿用 alarm_ne_id/ne_ne_id 作对外展示）",
                 },
                 "group_by2": {"type": "string", "enum": _UME_RAW_GROUP_FIELDS, "description": "可选第二分组字段"},
                 "severity": {"type": "string"},

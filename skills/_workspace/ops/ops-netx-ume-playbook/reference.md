@@ -23,18 +23,20 @@
   - `alarm_alarm_key`
   - `alarm_perceived_severity`
   - `alarm_last_seen_at`
+  - `ne_host_name`（网元名称，对外展示首选）
   - `ne_user_label`
   - `ne_ip_address`
+- **禁止**在用户可见输出中只列 `alarm_ne_id`；需要网元身份时必须带 `ne_host_name` 或先联查网元表。
 
 ## 3) 动态聚合（非 SQL）
 
 - 工具：`netx_aggregate_ume_alarms_raw`
 - 常用分组：
   - `group_by=alarm_perceived_severity`
-  - `group_by=ne_user_label`
+  - `group_by=ne_host_name`（网元名称；勿用 `alarm_ne_id` / `ne_ne_id` 作对外维度）
   - `group_by=alarm_event_type`
   - `group_by=ne_connection_status`
-  - `group_by=alarm_perceived_severity, group_by2=ne_user_label`
+  - `group_by=alarm_perceived_severity, group_by2=ne_host_name`
 - 建议：
   - 推荐 `limit=200`
 
@@ -62,11 +64,11 @@
 - 示例（全量聚合，谨慎使用）：
 ```sql
 select
-  coalesce(ne.user_label, ne.ne_name, a.ne_id) as ne_display,
+  coalesce(nullif(trim(ne.host_name), ''), ne.user_label, ne.ne_name, '(host_name missing)') as ne_name,
   count(*) as alarm_count
 from ume_alarms_current a
 left join ume_inventory_ne ne on ne.ne_id = a.ne_id
-group by coalesce(ne.user_label, ne.ne_name, a.ne_id)
+group by coalesce(nullif(trim(ne.host_name), ''), ne.user_label, ne.ne_name, '(host_name missing)')
 order by alarm_count desc
 ```
 
@@ -74,12 +76,12 @@ order by alarm_count desc
   - `statement_timeout_ms=8000`
 ```sql
 select
-  coalesce(ne.user_label, ne.ne_name, a.ne_id) as ne_display,
+  coalesce(nullif(trim(ne.host_name), ''), ne.user_label, ne.ne_name, '(host_name missing)') as ne_name,
   count(*) as alarm_count
 from ume_alarms_current a
 left join ume_inventory_ne ne on ne.ne_id = a.ne_id
 where a.last_seen_at >= now() - interval '30 minutes'
-group by coalesce(ne.user_label, ne.ne_name, a.ne_id)
+group by coalesce(nullif(trim(ne.host_name), ''), ne.user_label, ne.ne_name, '(host_name missing)')
 order by alarm_count desc
 ```
 
@@ -87,12 +89,12 @@ order by alarm_count desc
   - `statement_timeout_ms=8000`
 ```sql
 select
-  coalesce(ne.user_label, ne.ne_name, a.ne_id) as ne_display,
+  coalesce(nullif(trim(ne.host_name), ''), ne.user_label, ne.ne_name, '(host_name missing)') as ne_name,
   count(*) as alarm_count
 from ume_alarms_current a
 left join ume_inventory_ne ne on ne.ne_id = a.ne_id
 where a.last_seen_at >= now() - interval '30 minutes'
   and lower(coalesce(a.perceived_severity, '')) in ('critical','major')
-group by coalesce(ne.user_label, ne.ne_name, a.ne_id)
+group by coalesce(nullif(trim(ne.host_name), ''), ne.user_label, ne.ne_name, '(host_name missing)')
 order by alarm_count desc
 ```

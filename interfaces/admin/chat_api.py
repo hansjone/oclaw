@@ -148,8 +148,9 @@ def _safe_rel_avatar_name(name: str) -> str:
 
 
 def _api_lang(store: SqliteStore) -> str:
-    v = str(store.get_setting("ui_lang") or "zh").strip().lower()
-    return v if v in ("zh", "en") else "zh"
+    from runtime.lang import resolve_runtime_lang
+
+    return resolve_runtime_lang(store=store)
 
 
 def _init_gateway_executor(

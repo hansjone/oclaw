@@ -11,6 +11,7 @@ from typing import Any, Callable
 from runtime.agents.factory import build_gateway_executor
 from runtime.chat.persist_terminal_fallback import persist_assistant_text_if_turn_missing
 from runtime.gateway import OclawGateway
+from runtime.lang import resolve_runtime_lang
 from runtime.types import StandardMessage
 from svc.config.paths import db_path
 from svc.persistence.sqlite_store import SqliteStore
@@ -164,7 +165,7 @@ async def run_agent_turn_via_bridge(
     ctx = conn.auth_ctx or {}
     tenant_id = str(ctx.get("tenant_id") or "")
     user_id = str(ctx.get("user_id") or "")
-    lang = "zh"
+    lang = resolve_runtime_lang(store=store, hint=str(p.get("lang") or ""))
 
     manager_agent = build_gateway_executor(
         store,

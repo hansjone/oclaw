@@ -75,6 +75,7 @@ def build_gateway_context(
             "acp_parent_run_id": str(p.get("acp_parent_run_id") or ""),
             "acp_child_run_id": str(p.get("acp_child_run_id") or ""),
             "runId": rid,
+            "lang": str(p.get("lang") or "").strip().lower() or None,
         }
         async def _delayed() -> None:
             await asyncio.sleep(0.05)
@@ -113,6 +114,7 @@ def build_gateway_context(
             "acp_parent_run_id": str(p.get("acp_parent_run_id") or ""),
             "acp_child_run_id": str(p.get("acp_child_run_id") or ""),
             "runId": run_id,
+            "lang": str(p.get("lang") or "").strip().lower() or None,
         }
         with abort_lock:
             active_run_session[str(run_id)] = str(session_id)
