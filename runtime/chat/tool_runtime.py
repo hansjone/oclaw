@@ -524,7 +524,18 @@ class ToolExecutor:
                     session_id=ctx.session_id,
                     workspace_lane_role=ctx.workspace_lane_role,
                 ):
-                    return tool.handler(tc.arguments)
+                    netx_lang_token = None
+                    if str(tc.name or "").startswith("netx_"):
+                        from runtime.tools.experts.network_ops.netx_tools import NETX_TOOL_LANG
+
+                        netx_lang_token = NETX_TOOL_LANG.set(str(ctx.lang or "zh"))
+                    try:
+                        return tool.handler(tc.arguments)
+                    finally:
+                        if netx_lang_token is not None:
+                            from runtime.tools.experts.network_ops.netx_tools import NETX_TOOL_LANG
+
+                            NETX_TOOL_LANG.reset(netx_lang_token)
 
             if isinstance(timeout_s, (int, float)) and float(timeout_s) > 0:
                 ex = ThreadPoolExecutor(max_workers=1)

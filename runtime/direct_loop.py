@@ -643,6 +643,14 @@ def _build_model_context(
                 final_system = f"{final_system}\n\n{ext.strip()}".strip()
     except Exception:
         pass
+    try:
+        from runtime.english_output_guard import english_output_guard_for_lang
+
+        guard = english_output_guard_for_lang(lang or "zh")
+        if guard:
+            final_system = f"{final_system}\n\n{guard}".strip()
+    except Exception:
+        pass
     trunc_raw = str(store.get_setting("AIA_TOOL_CONTEXT_TRUNCATE_ENABLED") or "").strip().lower()
     tool_context_truncate_enabled = trunc_raw not in ("0", "false", "no", "off")
     llm_messages = build_llm_messages(
