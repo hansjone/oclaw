@@ -23,7 +23,8 @@
   - `alarm_alarm_key`
   - `alarm_perceived_severity`
   - `alarm_last_seen_at`
-  - `ne_host_name`（网元名称，对外展示首选）
+  - `alarm_host_name`（告警表已冗余的网元主机名，**对外展示主键，放首列**）
+  - `ne_host_name`（与上同义，优先 `alarm_host_name`）
   - `ne_user_label`
   - `ne_ip_address`
 - **禁止**在用户可见输出中只列 `alarm_ne_id`；需要网元身份时必须带 `ne_host_name` 或先联查网元表。
@@ -33,7 +34,7 @@
 - 工具：`netx_aggregate_ume_alarms_raw`
 - 常用分组：
   - `group_by=alarm_perceived_severity`
-  - `group_by=ne_host_name`（网元名称；勿用 `alarm_ne_id` / `ne_ne_id` 作对外维度）
+  - `group_by=alarm_host_name` 或 `group_by=ne_host_name`（网元主键；勿用 `alarm_ne_id` / `ne_ne_id`）
   - `group_by=alarm_event_type`
   - `group_by=ne_connection_status`
   - `group_by=alarm_perceived_severity, group_by2=ne_host_name`

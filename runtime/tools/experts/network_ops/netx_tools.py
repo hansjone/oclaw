@@ -29,6 +29,7 @@ _PROTOCOL_KEY_ZH_TO_EN: dict[str, str] = {
 
 _UME_RAW_GROUP_FIELDS = [
     "alarm_alarm_key",
+    "alarm_host_name",
     "alarm_ne_id",
     "alarm_object_name",
     "alarm_event_type",
@@ -592,7 +593,8 @@ def netx_query_ume_alarms_tool() -> ToolSpec:
     return ToolSpec(
         name="netx_query_ume_alarms",
         description=(
-            "读取 netx UME 当前告警明细（实时表）；支持 severity/ne_id/keyword(含 ne_name 映射) 与分页。"
+            "读取 netx UME 当前告警明细（实时表）；每条含 host_name（网元主展示键，同步时已写入告警表）。"
+            "支持 severity/ne_id/keyword 与分页。"
             "当需要字段级控制或复杂分析时，优先 netx_list_ume_alarm_fields + netx_query_ume_alarms_raw/netx_sql_query_ume。"
         ),
         parameters={
@@ -725,6 +727,7 @@ def netx_query_ume_alarms_raw_tool() -> ToolSpec:
     presets: dict[str, list[str]] = {
         "brief": [
             "alarm_alarm_key",
+            "alarm_host_name",
             "alarm_perceived_severity",
             "alarm_event_type",
             "alarm_last_seen_at",
@@ -736,6 +739,7 @@ def netx_query_ume_alarms_raw_tool() -> ToolSpec:
         ],
         "evidence": [
             "alarm_alarm_key",
+            "alarm_host_name",
             "alarm_object_name",
             "alarm_event_type",
             "alarm_native_probable_cause",
@@ -944,7 +948,7 @@ def netx_aggregate_ume_alarms_raw_tool() -> ToolSpec:
                 "group_by": {
                     "type": "string",
                     "enum": _UME_RAW_GROUP_FIELDS,
-                    "description": "主分组字段（网元维度优先 ne_host_name；勿用 alarm_ne_id/ne_ne_id 作对外展示）",
+                    "description": "主分组字段（网元主键优先 alarm_host_name 或 ne_host_name；勿用 alarm_ne_id/ne_ne_id）",
                 },
                 "group_by2": {"type": "string", "enum": _UME_RAW_GROUP_FIELDS, "description": "可选第二分组字段"},
                 "severity": {"type": "string"},
