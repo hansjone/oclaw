@@ -147,10 +147,10 @@ def _safe_rel_avatar_name(name: str) -> str:
     return raw or "avatar.png"
 
 
-def _api_lang(store: SqliteStore) -> str:
+def _api_lang(store: SqliteStore, *, user_text: str | None = None) -> str:
     from runtime.lang import resolve_runtime_lang
 
-    return resolve_runtime_lang(store=store)
+    return resolve_runtime_lang(store=store, user_text=user_text)
 
 
 def _init_gateway_executor(
@@ -1971,7 +1971,7 @@ def include_chat_routes(router: APIRouter, *, resolve_auth: Callable[[SqliteStor
                         attachment_id=aid,
                         source="user_upload",
                     )
-        lang = _api_lang(store)
+        lang = _api_lang(store, user_text=text)
         apply_gateway_mcp_env_to_os()
         manager_agent = _init_gateway_executor(
             store,
@@ -2114,7 +2114,7 @@ def include_chat_routes(router: APIRouter, *, resolve_auth: Callable[[SqliteStor
                         attachment_id=aid,
                         source="user_upload",
                     )
-        lang = _api_lang(store)
+        lang = _api_lang(store, user_text=text)
         apply_gateway_mcp_env_to_os()
         manager_agent = _init_gateway_executor(
             store,

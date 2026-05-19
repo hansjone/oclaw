@@ -188,9 +188,15 @@ def _worker_loop(*, store: Any, worker_id: str, poll_interval_s: float) -> None:
             pass
 
         try:
-            lang = str(payload.get("lang") or "zh")
             session_id = str(payload.get("session_id") or task.session_id or "")
             user_text = str(payload.get("text") or "")
+            from runtime.lang import resolve_runtime_lang
+
+            lang = resolve_runtime_lang(
+                store=store,
+                hint=str(payload.get("lang") or ""),
+                user_text=user_text,
+            )
             attachments = payload.get("attachments") or []
             metadata = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
             relay_share_envelope = payload.get("relay_share_envelope") if isinstance(payload.get("relay_share_envelope"), dict) else {}

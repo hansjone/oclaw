@@ -165,7 +165,11 @@ async def run_agent_turn_via_bridge(
     ctx = conn.auth_ctx or {}
     tenant_id = str(ctx.get("tenant_id") or "")
     user_id = str(ctx.get("user_id") or "")
-    lang = resolve_runtime_lang(store=store, hint=str(p.get("lang") or ""))
+    lang = resolve_runtime_lang(
+        store=store,
+        hint=str(p.get("lang") or ""),
+        user_text=msg_text,
+    )
 
     manager_agent = build_gateway_executor(
         store,

@@ -80,8 +80,7 @@ def default_tool_tags_for_specialist(specialist_id: SpecialistId) -> frozenset[s
 
 def default_system_prefix_for_specialist(specialist_id: SpecialistId, lang: str = "zh") -> str:
     sid = normalize_specialist_id(specialist_id)
-    _ = (lang or "zh").strip().lower()
-    return build_role_system_context(sid)
+    return build_role_system_context(sid, lang=(lang or "zh").strip().lower())
 
 
 def model_role_for_specialist(specialist_id: SpecialistId) -> AgentRoleId:
