@@ -32,9 +32,10 @@
   - 生效：`oclaw/oclaw_runtime/gateway.py`, `oclaw/oclaw_runtime/direct_loop.py`
 
 - `AIA_TURN_MAX_TOOL_ROUNDS`
-  - 默认：`8`
-  - 作用：工具循环轮次上限
-  - 生效：`oclaw/oclaw_runtime/gateway.py`, `oclaw/oclaw_runtime/direct_loop.py`
+  - 默认：`30`
+  - 上限：`100`（Admin / gateway / worker 会钳制）
+  - 作用：单轮工具循环轮次上限（一轮 = 模型思考一次并执行一批工具）
+  - 生效：`runtime/gateway.py`, `runtime/direct_loop.py`, `runtime/worker.py`
 
 - `AIA_TURN_MAX_CONTEXT_MESSAGES`
   - 默认：`80`

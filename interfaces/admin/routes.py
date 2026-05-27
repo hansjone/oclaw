@@ -1961,7 +1961,7 @@ def build_admin_router() -> APIRouter:
         tmr_raw = str(store.get_setting("AIA_TURN_MAX_TOOL_ROUNDS") or "").strip()
         tmc_raw = str(store.get_setting("AIA_TURN_MAX_CONTEXT_MESSAGES") or "").strip()
         turn_max_tool_workers = max(1, min(int(tmw_raw), 32)) if tmw_raw.isdigit() else 8
-        turn_max_tool_rounds = max(1, min(int(tmr_raw), 30)) if tmr_raw.isdigit() else 8
+        turn_max_tool_rounds = max(1, min(int(tmr_raw), 100)) if tmr_raw.isdigit() else 30
         turn_max_context_messages = max(10, min(int(tmc_raw), 400)) if tmc_raw.isdigit() else 80
         # Oclaw takeover: legacy runner switches are disconnected (kept in DB for later).
         turn_runner_impl = "oclaw"
@@ -2057,7 +2057,7 @@ def build_admin_router() -> APIRouter:
         sm = True
         sig_budget_n = 2
         tmw = payload.get("turn_max_tool_workers", 8)
-        tmr = payload.get("turn_max_tool_rounds", 8)
+        tmr = payload.get("turn_max_tool_rounds", 30)
         tmc = payload.get("turn_max_context_messages", 80)
         tri = "oclaw"
         try:
@@ -2065,9 +2065,9 @@ def build_admin_router() -> APIRouter:
         except Exception:
             tmw_n = 8
         try:
-            tmr_n = max(1, min(int(tmr), 30))
+            tmr_n = max(1, min(int(tmr), 100))
         except Exception:
-            tmr_n = 8
+            tmr_n = 30
         try:
             tmc_n = max(10, min(int(tmc), 400))
         except Exception:

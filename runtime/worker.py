@@ -269,7 +269,7 @@ def _worker_loop(*, store: Any, worker_id: str, poll_interval_s: float) -> None:
                 system_prompt = str(getattr(executor, "system_prompt", "") or "")
 
             max_messages = int(store.get_setting("AIA_TURN_MAX_CONTEXT_MESSAGES") or 80)
-            max_tool_rounds = int(store.get_setting("AIA_TURN_MAX_TOOL_ROUNDS") or 8)
+            max_tool_rounds = int(store.get_setting("AIA_TURN_MAX_TOOL_ROUNDS") or 30)
             max_tool_workers = int(store.get_setting("AIA_TURN_MAX_TOOL_WORKERS") or 8)
 
             msg = StandardMessage(
@@ -301,7 +301,7 @@ def _worker_loop(*, store: Any, worker_id: str, poll_interval_s: float) -> None:
                     parent_span_id=None,
                     run_id=run_id,
                     max_messages=max(10, min(max_messages, 400)),
-                    max_tool_rounds=max(1, min(max_tool_rounds, 30)),
+                    max_tool_rounds=max(1, min(max_tool_rounds, 100)),
                     max_tool_workers=max(1, min(max_tool_workers, 32)),
                     max_attempts=2,
                     memory_context=memory_ctx,

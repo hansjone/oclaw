@@ -1364,7 +1364,7 @@ def run_oclaw_direct_loop(
     run_id: str | None = None,
     attempt_no: int | None = None,
     max_messages: int = 80,
-    max_tool_rounds: int = 8,
+    max_tool_rounds: int = 30,
     max_tool_workers: int = 8,
     on_token: Optional[Callable[[str], None]] = None,
     on_progress: Optional[Callable[[str], None]] = None,

@@ -1198,7 +1198,7 @@ class OclawGateway:
                     parent_span_id=None,
                     run_id=rid,
                     max_messages=_get_int_setting("AIA_TURN_MAX_CONTEXT_MESSAGES", 80, 10, 400),
-                    max_tool_rounds=_get_int_setting("AIA_TURN_MAX_TOOL_ROUNDS", 8, 1, 30),
+                    max_tool_rounds=_get_int_setting("AIA_TURN_MAX_TOOL_ROUNDS", 30, 1, 100),
                     max_tool_workers=_get_int_setting("AIA_TURN_MAX_TOOL_WORKERS", 8, 1, 32),
                     max_attempts=_get_int_setting("AIA_OCLAW_MAX_ATTEMPTS", 2, 1, 5),
                     memory_context=memory_context,

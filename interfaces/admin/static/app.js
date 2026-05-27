@@ -4381,7 +4381,7 @@ async function renderPlugins() {
     tool_loop_state_machine: true,
     tool_signature_budget: 2,
     turn_max_tool_workers: 8,
-    turn_max_tool_rounds: 8,
+    turn_max_tool_rounds: 30,
     turn_max_context_messages: 80,
     turn_runner_impl: "oclaw",
     manager_decision_mode: "",
@@ -4635,8 +4635,8 @@ async function renderPlugins() {
     class: "input",
     type: "number",
     min: "1",
-    max: "30",
-    value: String(Number(toolPolicy.turn_max_tool_rounds || 8)),
+    max: "100",
+    value: String(Number(toolPolicy.turn_max_tool_rounds || 30)),
     style: "max-width:120px",
   });
   const turnMaxCtxInput = el("input", {
@@ -4728,7 +4728,7 @@ async function renderPlugins() {
     onclick: async () => {
       const r = await apiPost("/admin/api/tool-policy", {
         turn_max_tool_workers: Number(turnMaxWorkersInput.value || 8),
-        turn_max_tool_rounds: Number(turnMaxRoundsInput.value || 8),
+        turn_max_tool_rounds: Number(turnMaxRoundsInput.value || 30),
         turn_max_context_messages: Number(turnMaxCtxInput.value || 80),
         // manager_decision_mode is legacy-only; no longer submitted.
         sse_queue_maxsize: Number(sseQueueMaxsizeInput.value || 2000),
@@ -6069,7 +6069,7 @@ async function renderPlugins() {
       turnMaxWorkersInput,
     ]),
     el("div", { class: "row" }, [
-      el("label", { text: "Turn max tool rounds (1-30)" }),
+      el("label", { text: "Turn max tool rounds (1-100)" }),
       turnMaxRoundsInput,
     ]),
     el("div", { class: "row" }, [
