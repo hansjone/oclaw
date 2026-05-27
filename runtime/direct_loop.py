@@ -28,6 +28,7 @@ from runtime.dsml_tool_parse import (
     contains_dsml_tool_markers,
     dsml_text_tools_enabled,
     promote_dsml_tool_calls_in_response,
+    try_promote_dsml_from_fields,
 )
 from runtime.tools.experts.network_ops.netx_tools import ops_netx_system_context_extension
 
@@ -1497,6 +1498,15 @@ def run_oclaw_direct_loop(
             llm_tool_calls=llm_tool_calls,
         )
         combined_for_intent = f"{assistant_text}\n{reasoning_text}".strip()
+        # Last-chance promote when DSML spans content+reasoning (or first pass was skipped).
+        if not llm_tool_calls and contains_dsml_tool_markers(combined_for_intent):
+            assistant_text, reasoning_text, llm_tool_calls = promote_dsml_tool_calls_in_response(
+                assistant_text,
+                reasoning_text,
+                [],
+            )
+            combined_for_intent = f"{assistant_text}\n{reasoning_text}".strip()
+
         if not llm_tool_calls:
             if contains_dsml_tool_markers(combined_for_intent):
                 textual_tool_intent_names = (
@@ -1506,6 +1516,16 @@ def run_oclaw_direct_loop(
                 textual_tool_intent_names = _extract_textual_tool_intent_names(combined_for_intent)
         else:
             textual_tool_intent_names = []
+
+        # Avoid protocol_mismatch stub tool_call rows when full DSML parse still succeeds.
+        if textual_tool_intent_names and not llm_tool_calls:
+            parsed, clean_c, clean_r = try_promote_dsml_from_fields(
+                content=assistant_text,
+                reasoning_content=reasoning_text,
+            )
+            if parsed:
+                assistant_text, reasoning_text, llm_tool_calls = clean_c, clean_r, parsed
+                textual_tool_intent_names = []
 
         if textual_tool_intent_names:
             step = _persist_dsml_protocol_mismatch_step(

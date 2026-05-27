@@ -130,7 +130,12 @@ class _ModelAlwaysDsml:
 
     def chat(self, msgs, tools, on_token=None):  # noqa: ANN001,ARG002
         return SimpleNamespace(
-            content='<||DSML||tool_calls><||DSML||invoke name="read_file"></||DSML||invoke></||DSML||tool_calls>',
+            content=(
+                "<||DSML||tool_calls>"
+                '<||DSML||invoke name="read_file">'
+                "<||DSML||parameter name=\"path\" string=\"true\">"
+                "</||DSML||tool_calls>"
+            ),
             reasoning_content="",
             tool_calls=[],
         )
@@ -187,7 +192,7 @@ class _ModelMixedTextualToolIntent:
         )
 
 
-def test_direct_loop_mixed_text_with_tool_intent_is_blocked(tmp_path, monkeypatch) -> None:  # noqa: ANN001
+def test_direct_loop_mixed_text_dsml_promoted_and_executes(tmp_path, monkeypatch) -> None:  # noqa: ANN001
     db = tmp_path / "ops.sqlite"
     store = SqliteStore(str(db))
     sess = store.create_session("t")
@@ -212,11 +217,70 @@ def test_direct_loop_mixed_text_with_tool_intent_is_blocked(tmp_path, monkeypatc
         persist_user_message=True,
         max_tool_rounds=1,
     )
-    assert "DSML" in out.final_text
-    rows = store.get_messages(session_id=sess.id, limit=20)
+    rows = store.get_messages(session_id=sess.id, limit=30)
     tool_rows = [r for r in rows if getattr(r, "role", "") == "tool"]
     assert tool_rows
-    assert any("run_command" in str(getattr(r, "tool_calls", "") or "") for r in tool_rows)
+    assert any('"ok": true' in str(getattr(r, "content", "") or "") for r in tool_rows)
+    assert not any("model_protocol_mismatch_dsml" in str(getattr(r, "content", "") or "") for r in tool_rows)
+    assert any(str(getattr(r, "event_type", "") or "") == "tool_result" for r in rows)
+
+
+def test_direct_loop_split_reasoning_dsml_executes_tool_result(tmp_path, monkeypatch) -> None:  # noqa: ANN001
+    p = "\uFF5C"
+    reasoning = (
+        f"<{p}{p}DSML{p}{p}tool_calls>\n"
+        f"<{p}{p}DSML{p}{p}invoke name=\"read_file\">\n"
+        f"<{p}{p}DSML{p}{p}parameter name=\"path\" string=\"true\">README.md</{p}{p}DSML{p}{p}parameter>\n"
+        f"</{p}{p}DSML{p}{p}invoke>\n"
+        f"</{p}{p}DSML{p}{p}tool_calls>"
+    )
+
+    class _ModelSplitReasoningDsml:
+        base_url = "https://api.deepseek.com/v1"
+        thinking_mode_enabled = True
+
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def chat(self, msgs, tools, on_token=None):  # noqa: ANN001,ARG002
+            self.calls += 1
+            if self.calls == 1:
+                return SimpleNamespace(
+                    content="让我检查一下。",
+                    reasoning_content=reasoning,
+                    tool_calls=[],
+                )
+            return SimpleNamespace(content="检查完毕。", reasoning_content="", tool_calls=[])
+
+    db = tmp_path / "ops.sqlite"
+    store = SqliteStore(str(db))
+    sess = store.create_session("t")
+    model = _ModelSplitReasoningDsml()
+    monkeypatch.setenv("AIA_EMPTY_ASSISTANT_RETRY_DELAY_MS", "0")
+    dummy_tool = ToolSpec(
+        name="read_file",
+        description="dummy",
+        parameters={"type": "object", "properties": {}, "additionalProperties": True},
+        handler=lambda args: {"ok": True, "path": args.get("path")},
+        read_only=True,
+    )
+    out = run_oclaw_direct_loop(
+        store=store,
+        session_id=sess.id,
+        lang="zh",
+        system_prompt="x",
+        model=model,
+        tools=ToolRegistry([dummy_tool]),
+        user_text="hi",
+        persist_user_message=True,
+        max_tool_rounds=2,
+    )
+    assert out.final_text == "检查完毕。"
+    rows = store.get_messages(session_id=sess.id, limit=30)
+    tool_rows = [r for r in rows if getattr(r, "role", "") == "tool"]
+    assert tool_rows
+    assert any('"ok": true' in str(getattr(r, "content", "") or "") for r in tool_rows)
+    assert str(getattr(rows[-1], "event_type", "") or "") == "assistant_text"
 
 
 class _ModelDeepseekDsmlThenPlain:
