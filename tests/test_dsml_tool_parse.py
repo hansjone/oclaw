@@ -67,6 +67,23 @@ def test_malformed_returns_none() -> None:
     assert try_parse_deepseek_v4_dsml_tool_calls("<||DSML||tool_calls>broken") is None
 
 
+def test_parse_double_fullwidth_pipe_variant() -> None:
+    p = "\uFF5C"
+    text = (
+        f"<{p}{p}DSML{p}{p}tool_calls>\n"
+        f"<{p}{p}DSML{p}{p}invoke name=\"run_command\">\n"
+        f"<{p}{p}DSML{p}{p}parameter name=\"command\" string=\"true\">"
+        "echo %HTTP_PROXY% & echo %HTTPS_PROXY%</"
+        f"{p}{p}DSML{p}{p}parameter>\n"
+        f"</{p}{p}DSML{p}{p}invoke>\n"
+        f"</{p}{p}DSML{p}{p}tool_calls>"
+    )
+    calls = try_parse_deepseek_v4_dsml_tool_calls(text)
+    assert calls is not None and len(calls) == 1
+    assert calls[0].name == "run_command"
+    assert "HTTP_PROXY" in str(calls[0].arguments.get("command") or "")
+
+
 def test_parse_spaced_pipe_variant_from_screenshot() -> None:
     text = (
         "< | | DSML | | tool_calls>\n"

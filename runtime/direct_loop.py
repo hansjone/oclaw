@@ -25,6 +25,7 @@ from runtime.orchestration.trace import new_span_id
 from runtime.tools.base import ToolRegistry
 from runtime.hooks_runtime import trigger_hook_event
 from runtime.dsml_tool_parse import (
+    contains_dsml_tool_markers,
     dsml_text_tools_enabled,
     try_parse_dsml_tool_calls_from_fields,
 )
@@ -856,7 +857,7 @@ def _promote_dsml_tool_calls(
         content=assistant_text,
         reasoning_content=reasoning_text,
     )
-    if parsed is not None:
+    if parsed:
         return clean_content, clean_reasoning, parsed
     return assistant_text, reasoning_text, llm_tool_calls
 
@@ -902,7 +903,7 @@ def _chat_with_empty_body_retry(
         )
         if allow_dsml_text_tools:
             parsed, _, _ = try_parse_dsml_tool_calls_from_fields(content=content, reasoning_content=reasoning)
-            if parsed is not None:
+            if parsed:
                 textual_tool_intent = False
         if (content.strip() or tool_calls) and not textual_tool_intent:
             return resp
@@ -1483,9 +1484,15 @@ def run_oclaw_direct_loop(
             llm_tool_calls=llm_tool_calls,
         )
         combined_for_intent = f"{assistant_text}\n{reasoning_text}".strip()
-        textual_tool_intent_names = (
-            _extract_textual_tool_intent_names(combined_for_intent) if not llm_tool_calls else []
-        )
+        if not llm_tool_calls:
+            if contains_dsml_tool_markers(combined_for_intent):
+                textual_tool_intent_names = (
+                    _extract_textual_tool_intent_names(combined_for_intent) or ["unknown_tool"]
+                )
+            else:
+                textual_tool_intent_names = _extract_textual_tool_intent_names(combined_for_intent)
+        else:
+            textual_tool_intent_names = []
 
         if textual_tool_intent_names:
             step = _persist_dsml_protocol_mismatch_step(

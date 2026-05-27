@@ -18,8 +18,8 @@ from svc.llm.transports.base import (
 )
 from runtime.dsml_tool_parse import (
     DeepSeekTextFilter,
-    dsml_text_tools_enabled,
-    try_parse_dsml_tool_calls_from_fields,
+    promote_dsml_tool_calls_in_response,
+    should_recover_dsml_tool_calls,
 )
 from svc.persistence.assistant_store import get_assistant_store
 
@@ -461,13 +461,11 @@ def _should_recover_dsml_tool_calls(
     *,
     thinking_mode_enabled: bool = False,
 ) -> bool:
-    if dsml_text_tools_enabled(base_url=str(base_url or ""), model_id=str(model or "")):
-        return True
-    if thinking_mode_enabled:
-        mid = str(model or "").strip().lower()
-        if mid.startswith("deepseek-") or "deepseek" in mid:
-            return True
-    return False
+    return should_recover_dsml_tool_calls(
+        model_id=str(model or ""),
+        base_url=str(base_url or ""),
+        thinking_mode_enabled=thinking_mode_enabled,
+    )
 
 
 def _promote_dsml_in_llm_response(
@@ -475,15 +473,7 @@ def _promote_dsml_in_llm_response(
     reasoning: str,
     tool_calls: list[LLMToolCall],
 ) -> tuple[str, str, list[LLMToolCall]]:
-    if tool_calls:
-        return content, reasoning, tool_calls
-    parsed, clean_content, clean_reasoning = try_parse_dsml_tool_calls_from_fields(
-        content=content,
-        reasoning_content=reasoning,
-    )
-    if parsed is not None:
-        return clean_content, clean_reasoning, parsed
-    return content, reasoning, tool_calls
+    return promote_dsml_tool_calls_in_response(content, reasoning, tool_calls)
 
 
 class OpenAIChatModel(ChatModel):

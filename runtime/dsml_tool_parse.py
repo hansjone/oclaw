@@ -21,22 +21,23 @@ from svc.llm.transports.base import LLMToolCall
 # Official DeepSeek DSML token uses FULLWIDTH VERTICAL LINE (U+FF5C).
 _DSML_PIPE = "\uFF5C"
 _DSML_BARS = ("|", _DSML_PIPE)
+_DSML_PIPE_GROUP = rf"(?:[|{_DSML_PIPE}]\s*)+"
 _DSML_WRAPPER_KINDS = ("tool_calls", "function_calls", "tool_call", "function_call")
 
 _RE_INVOKE_OPEN = re.compile(
-    rf"<\s*[{''.join(re.escape(b) for b in _DSML_BARS)}]\s*DSML\s*[{''.join(re.escape(b) for b in _DSML_BARS)}]\s*invoke\s+name\s*=\s*\"([^\"]+)\"\s*>",
+    rf"<\s*{_DSML_PIPE_GROUP}DSML\s*{_DSML_PIPE_GROUP}invoke\s+name\s*=\s*\"([^\"]+)\"\s*>",
     flags=re.IGNORECASE,
 )
 _RE_INVOKE_CLOSE = re.compile(
-    rf"</\s*[{''.join(re.escape(b) for b in _DSML_BARS)}]\s*DSML\s*[{''.join(re.escape(b) for b in _DSML_BARS)}]\s*invoke\s*>",
+    rf"</\s*{_DSML_PIPE_GROUP}DSML\s*{_DSML_PIPE_GROUP}invoke\s*>",
     flags=re.IGNORECASE,
 )
 _RE_PARAM_OPEN = re.compile(
-    rf"<\s*[{''.join(re.escape(b) for b in _DSML_BARS)}]\s*DSML\s*[{''.join(re.escape(b) for b in _DSML_BARS)}]\s*parameter\s+name\s*=\s*\"([^\"]+)\"\s+string\s*=\s*\"(true|false)\"\s*>",
+    rf"<\s*{_DSML_PIPE_GROUP}DSML\s*{_DSML_PIPE_GROUP}parameter\s+name\s*=\s*\"([^\"]+)\"\s+string\s*=\s*\"(true|false)\"\s*>",
     flags=re.IGNORECASE,
 )
 _RE_PARAM_CLOSE = re.compile(
-    rf"</\s*[{''.join(re.escape(b) for b in _DSML_BARS)}]\s*DSML\s*[{''.join(re.escape(b) for b in _DSML_BARS)}]\s*parameter\s*>",
+    rf"</\s*{_DSML_PIPE_GROUP}DSML\s*{_DSML_PIPE_GROUP}parameter\s*>",
     flags=re.IGNORECASE,
 )
 
@@ -54,20 +55,20 @@ def _dsml_close_tokens() -> list[str]:
 
 
 _RE_SPACED_DSML_OPEN = re.compile(
-    rf"<\s*(?:[|{_DSML_PIPE}]\s*)+DSML\s*(?:[|{_DSML_PIPE}]\s*)+",
+    rf"<\s*{_DSML_PIPE_GROUP}DSML\s*{_DSML_PIPE_GROUP}",
     flags=re.IGNORECASE,
 )
 _RE_SPACED_DSML_CLOSE = re.compile(
-    rf"</\s*(?:[|{_DSML_PIPE}]\s*)+DSML\s*(?:[|{_DSML_PIPE}]\s*)+",
+    rf"</\s*{_DSML_PIPE_GROUP}DSML\s*{_DSML_PIPE_GROUP}",
     flags=re.IGNORECASE,
 )
 _RE_DSML_BLOCK_OPEN = re.compile(
-    rf"<\s*(?:[|{_DSML_PIPE}]\s*)+DSML\s*(?:[|{_DSML_PIPE}]\s*)+"
+    rf"<\s*{_DSML_PIPE_GROUP}DSML\s*{_DSML_PIPE_GROUP}"
     rf"(?:{'|'.join(_DSML_WRAPPER_KINDS)})\s*>",
     flags=re.IGNORECASE,
 )
 _RE_DSML_BLOCK_CLOSE = re.compile(
-    rf"</\s*(?:[|{_DSML_PIPE}]\s*)+DSML\s*(?:[|{_DSML_PIPE}]\s*)+"
+    rf"</\s*{_DSML_PIPE_GROUP}DSML\s*{_DSML_PIPE_GROUP}"
     rf"(?:{'|'.join(_DSML_WRAPPER_KINDS)})\s*>",
     flags=re.IGNORECASE,
 )
@@ -80,6 +81,9 @@ _MAX_CLOSE_TOKEN_LEN = max(len(t) for t in _DSML_CLOSE_TOKENS)
 def normalize_dsml_markup(text: str) -> str:
     """Map common gateway variants to the canonical DSML delimiter sequence."""
     s = str(text or "")
+    ff2 = f"{_DSML_PIPE}{_DSML_PIPE}"
+    s = s.replace(f"<{ff2}DSML{ff2}", f"<{_DSML_PIPE}DSML{_DSML_PIPE}")
+    s = s.replace(f"</{ff2}DSML{ff2}", f"</{_DSML_PIPE}DSML{_DSML_PIPE}")
     s = s.replace("<||DSML||", f"<{_DSML_PIPE}DSML{_DSML_PIPE}")
     s = s.replace("</||DSML||", f"</{_DSML_PIPE}DSML{_DSML_PIPE}")
     s = _RE_SPACED_DSML_OPEN.sub(f"<{_DSML_PIPE}DSML{_DSML_PIPE}", s)
@@ -120,9 +124,14 @@ def _longest_dsml_open_prefix_suffix_length(text: str) -> int:
 
 
 def _wrapper_kind_regex(kind: str) -> tuple[re.Pattern[str], re.Pattern[str]]:
-    bars = rf"[{''.join(re.escape(b) for b in _DSML_BARS)}]"
-    open_re = re.compile(rf"<\s*{bars}\s*DSML\s*{bars}\s*{re.escape(kind)}\s*>", flags=re.IGNORECASE)
-    close_re = re.compile(rf"</\s*{bars}\s*DSML\s*{bars}\s*{re.escape(kind)}\s*>", flags=re.IGNORECASE)
+    open_re = re.compile(
+        rf"<\s*{_DSML_PIPE_GROUP}DSML\s*{_DSML_PIPE_GROUP}{re.escape(kind)}\s*>",
+        flags=re.IGNORECASE,
+    )
+    close_re = re.compile(
+        rf"</\s*{_DSML_PIPE_GROUP}DSML\s*{_DSML_PIPE_GROUP}{re.escape(kind)}\s*>",
+        flags=re.IGNORECASE,
+    )
     return open_re, close_re
 
 
@@ -314,6 +323,47 @@ def dsml_text_tools_enabled(*, base_url: str = "", model_id: str = "") -> bool:
     return False
 
 
+def should_recover_dsml_tool_calls(
+    model_id: str = "",
+    base_url: str = "",
+    *,
+    thinking_mode_enabled: bool = False,
+) -> bool:
+    if dsml_text_tools_enabled(base_url=base_url, model_id=model_id):
+        return True
+    if thinking_mode_enabled:
+        mid = str(model_id or "").strip().lower()
+        if mid.startswith("deepseek-") or "deepseek" in mid:
+            return True
+    return False
+
+
+def contains_dsml_tool_markers(text: str) -> bool:
+    raw = str(text or "")
+    if not raw.strip():
+        return False
+    lower = raw.lower()
+    if "dsml" not in lower:
+        return False
+    return ("tool_calls" in lower) or ("function_calls" in lower) or ("invoke name" in lower)
+
+
+def promote_dsml_tool_calls_in_response(
+    content: str,
+    reasoning: str,
+    tool_calls: list[LLMToolCall],
+) -> tuple[str, str, list[LLMToolCall]]:
+    if tool_calls:
+        return content, reasoning, tool_calls
+    parsed, clean_content, clean_reasoning = try_parse_dsml_tool_calls_from_fields(
+        content=content,
+        reasoning_content=reasoning,
+    )
+    if parsed:
+        return clean_content, clean_reasoning, parsed
+    return content, reasoning, tool_calls
+
+
 class DeepSeekTextFilter:
     """Stream filter: hide DSML from visible text and capture blocks for recovery."""
 
@@ -417,8 +467,11 @@ class DeepSeekTextFilter:
 
 __all__ = [
     "DeepSeekTextFilter",
+    "contains_dsml_tool_markers",
     "dsml_text_tools_enabled",
     "normalize_dsml_markup",
+    "promote_dsml_tool_calls_in_response",
+    "should_recover_dsml_tool_calls",
     "strip_first_dsml_tool_calls_block",
     "try_parse_deepseek_v4_dsml_tool_calls",
     "try_parse_dsml_tool_calls_from_fields",

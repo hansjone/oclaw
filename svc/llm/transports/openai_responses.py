@@ -9,6 +9,7 @@ from typing import Any, Optional
 from collections.abc import Callable, Iterable
 
 from svc.llm.transports.base import ChatModel, LLMResponse, LLMToolCall, normalize_image_b64_payload
+from runtime.dsml_tool_parse import promote_dsml_tool_calls_in_response, should_recover_dsml_tool_calls
 
 logger = logging.getLogger(__name__)
 
@@ -339,6 +340,18 @@ class OpenAIResponsesModel(ChatModel):
         if self.base_url:
             kw["base_url"] = self.base_url
         self._client = OpenAI(**kw)
+
+    def _finalize_response(self, content: str, tool_calls: list[LLMToolCall], reasoning: str) -> LLMResponse:
+        text = str(content or "")
+        reasoning_text = str(reasoning or "")
+        calls = list(tool_calls or [])
+        if should_recover_dsml_tool_calls(
+            model_id=str(self.model or ""),
+            base_url=str(self.base_url or ""),
+            thinking_mode_enabled=bool(getattr(self, "thinking_mode_enabled", False)),
+        ):
+            text, reasoning_text, calls = promote_dsml_tool_calls_in_response(text, reasoning_text, calls)
+        return LLMResponse(content=text, tool_calls=calls, reasoning_content=reasoning_text.strip())
 
     @staticmethod
     def _strip_leading_system_messages(messages: list[dict[str, Any]]) -> tuple[str, list[dict[str, Any]]]:
@@ -692,7 +705,7 @@ class OpenAIResponsesModel(ChatModel):
                                 on_token(text)
                     if cand_label != input_candidates[0][0]:
                         logger.info("openai_responses: succeeded with input variant %s", cand_label)
-                    return LLMResponse(content=text, tool_calls=tool_calls, reasoning_content=reasoning_text)
+                    return self._finalize_response(text, tool_calls, reasoning_text)
                 except Exception as exc:
                     emsg = str(exc)
                     # Fallback: provider thinking-mode replay contract.
@@ -721,7 +734,7 @@ class OpenAIResponsesModel(ChatModel):
                                         on_token(text)
                             if cand_label != input_candidates[0][0]:
                                 logger.info("openai_responses: succeeded with input variant %s", cand_label)
-                            return LLMResponse(content=text, tool_calls=tool_calls, reasoning_content=reasoning_text)
+                            return self._finalize_response(text, tool_calls, reasoning_text)
                         except Exception:
                             pass
                     if _env_truthy("AIA_RESPONSES_LOG_API_ERROR_DETAIL"):
@@ -759,7 +772,7 @@ class OpenAIResponsesModel(ChatModel):
                         on_token(text)
                     if cand_label != input_candidates[0][0]:
                         logger.info("openai_responses non-stream: succeeded with input variant %s", cand_label)
-                    return LLMResponse(content=text, tool_calls=tool_calls, reasoning_content=reasoning_text)
+                    return self._finalize_response(text, tool_calls, reasoning_text)
                 except Exception as e2:
                     emsg2 = str(e2)
                     if "reasoning_content" in emsg2 and "thinking mode" in emsg2 and "must be passed back" in emsg2:
@@ -787,7 +800,7 @@ class OpenAIResponsesModel(ChatModel):
                                     "openai_responses non-stream: succeeded with input variant %s",
                                     cand_label,
                                 )
-                            return LLMResponse(content=text, tool_calls=tool_calls, reasoning_content=reasoning_text)
+                            return self._finalize_response(text, tool_calls, reasoning_text)
                         except Exception:
                             pass
                     if _env_truthy("AIA_RESPONSES_LOG_API_ERROR_DETAIL"):
