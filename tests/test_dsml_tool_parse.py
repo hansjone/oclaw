@@ -67,6 +67,24 @@ def test_malformed_returns_none() -> None:
     assert try_parse_deepseek_v4_dsml_tool_calls("<||DSML||tool_calls>broken") is None
 
 
+def test_promote_combined_when_dsml_only_in_reasoning() -> None:
+    from runtime.dsml_tool_parse import try_promote_dsml_from_fields
+
+    p = "\uFF5C"
+    reasoning = (
+        f"<{p}{p}DSML{p}{p}tool_calls>\n"
+        f"<{p}{p}DSML{p}{p}invoke name=\"run_command\">\n"
+        f"<{p}{p}DSML{p}{p}parameter name=\"command\" string=\"true\">echo</{p}{p}DSML{p}{p}parameter>\n"
+        f"</{p}{p}DSML{p}{p}invoke>\n"
+        f"</{p}{p}DSML{p}{p}tool_calls>"
+    )
+    parsed, clean_c, clean_r = try_promote_dsml_from_fields(content="让我检查一下。", reasoning_content=reasoning)
+    assert parsed is not None and len(parsed) == 1
+    assert parsed[0].name == "run_command"
+    assert "检查一下" in clean_c
+    assert "DSML" not in clean_r
+
+
 def test_parse_double_fullwidth_pipe_variant() -> None:
     p = "\uFF5C"
     text = (

@@ -307,6 +307,44 @@ def try_parse_dsml_tool_calls_from_fields(
     return None, str(content or ""), str(reasoning_content or "")
 
 
+def try_promote_dsml_from_fields(
+    *,
+    content: str = "",
+    reasoning_content: str = "",
+) -> tuple[list[LLMToolCall] | None, str, str]:
+    """Parse DSML per-field, then fall back to combined ``content+reasoning`` text."""
+    parsed, clean_content, clean_reasoning = try_parse_dsml_tool_calls_from_fields(
+        content=content,
+        reasoning_content=reasoning_content,
+    )
+    if parsed:
+        return parsed, clean_content, clean_reasoning
+
+    combined = "\n".join(p for p in (str(content or ""), str(reasoning_content or "")) if str(p or "").strip()).strip()
+    if not combined:
+        return None, str(content or ""), str(reasoning_content or "")
+
+    parsed2 = try_parse_deepseek_v4_dsml_tool_calls(combined)
+    if not parsed2:
+        return None, str(content or ""), str(reasoning_content or "")
+
+    clean_c = str(content or "")
+    clean_r = str(reasoning_content or "")
+    if contains_dsml_tool_markers(clean_c):
+        stripped_c = strip_first_dsml_tool_calls_block(clean_c)
+        if stripped_c is not None:
+            clean_c = stripped_c
+    if contains_dsml_tool_markers(clean_r):
+        stripped_r = strip_first_dsml_tool_calls_block(clean_r)
+        if stripped_r is not None:
+            clean_r = stripped_r
+    if contains_dsml_tool_markers(clean_c) or contains_dsml_tool_markers(clean_r):
+        stripped = strip_first_dsml_tool_calls_block(combined)
+        prefix = stripped if stripped is not None else ""
+        return parsed2, prefix, ""
+    return parsed2, clean_c, clean_r
+
+
 def dsml_text_tools_enabled(*, base_url: str = "", model_id: str = "") -> bool:
     """Whether DSML-in-text should be promoted to native tool calls."""
     env = str(os.getenv("AIA_DSML_TEXT_TOOLS") or "").strip().lower()
@@ -355,7 +393,7 @@ def promote_dsml_tool_calls_in_response(
 ) -> tuple[str, str, list[LLMToolCall]]:
     if tool_calls:
         return content, reasoning, tool_calls
-    parsed, clean_content, clean_reasoning = try_parse_dsml_tool_calls_from_fields(
+    parsed, clean_content, clean_reasoning = try_promote_dsml_from_fields(
         content=content,
         reasoning_content=reasoning,
     )
@@ -475,4 +513,5 @@ __all__ = [
     "strip_first_dsml_tool_calls_block",
     "try_parse_deepseek_v4_dsml_tool_calls",
     "try_parse_dsml_tool_calls_from_fields",
+    "try_promote_dsml_from_fields",
 ]

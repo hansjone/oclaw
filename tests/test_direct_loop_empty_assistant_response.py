@@ -161,7 +161,7 @@ def test_direct_loop_dsml_text_persisted_as_failed_tool_pair(tmp_path, monkeypat
         persist_user_message=True,
         max_tool_rounds=1,
     )
-    assert out.final_text == ""
+    assert "DSML" in out.final_text
     rows = store.get_messages(session_id=sess.id, limit=20)
     tool_rows = [r for r in rows if getattr(r, "role", "") == "tool"]
     assert tool_rows
@@ -212,7 +212,7 @@ def test_direct_loop_mixed_text_with_tool_intent_is_blocked(tmp_path, monkeypatc
         persist_user_message=True,
         max_tool_rounds=1,
     )
-    assert out.final_text == ""
+    assert "DSML" in out.final_text
     rows = store.get_messages(session_id=sess.id, limit=20)
     tool_rows = [r for r in rows if getattr(r, "role", "") == "tool"]
     assert tool_rows

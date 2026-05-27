@@ -27,7 +27,7 @@ from runtime.hooks_runtime import trigger_hook_event
 from runtime.dsml_tool_parse import (
     contains_dsml_tool_markers,
     dsml_text_tools_enabled,
-    try_parse_dsml_tool_calls_from_fields,
+    promote_dsml_tool_calls_in_response,
 )
 from runtime.tools.experts.network_ops.netx_tools import ops_netx_system_context_extension
 
@@ -843,6 +843,18 @@ def _prepare_llm_tools(
     return llm_tools
 
 
+def _dsml_mismatch_user_message(*, lang: str) -> str:
+    if str(lang or "").strip().lower().startswith("zh"):
+        return (
+            "模型返回了 DSML 工具标记，但未能解析为可执行的工具调用，本轮未实际执行工具。"
+            "请重试，或检查模型/网关是否应输出原生 tool_calls。"
+        )
+    return (
+        "The model returned DSML tool markup, but it could not be parsed into executable tool calls; "
+        "no tools were run this turn. Please retry or verify the model/gateway emits native tool_calls."
+    )
+
+
 def _promote_dsml_tool_calls(
     *,
     allow: bool,
@@ -853,12 +865,13 @@ def _promote_dsml_tool_calls(
     """Runtime fallback: promote DSML in content/reasoning to native tool calls."""
     if not allow or llm_tool_calls:
         return assistant_text, reasoning_text, llm_tool_calls
-    parsed, clean_content, clean_reasoning = try_parse_dsml_tool_calls_from_fields(
-        content=assistant_text,
-        reasoning_content=reasoning_text,
+    clean_content, clean_reasoning, promoted = promote_dsml_tool_calls_in_response(
+        assistant_text,
+        reasoning_text,
+        [],
     )
-    if parsed:
-        return clean_content, clean_reasoning, parsed
+    if promoted:
+        return clean_content, clean_reasoning, promoted
     return assistant_text, reasoning_text, llm_tool_calls
 
 
@@ -902,8 +915,8 @@ def _chat_with_empty_body_retry(
             _extract_textual_tool_intent_names(f"{content}\n{reasoning}")
         )
         if allow_dsml_text_tools:
-            parsed, _, _ = try_parse_dsml_tool_calls_from_fields(content=content, reasoning_content=reasoning)
-            if parsed:
+            _, _, promoted_probe = promote_dsml_tool_calls_in_response(content, reasoning, [])
+            if promoted_probe:
                 textual_tool_intent = False
         if (content.strip() or tool_calls) and not textual_tool_intent:
             return resp
@@ -1502,6 +1515,7 @@ def run_oclaw_direct_loop(
                 assistant_text=assistant_text,
                 invoke_names=textual_tool_intent_names,
             )
+            final_text = _dsml_mismatch_user_message(lang=lang)
         else:
             step = _persist_assistant_step(
                 store=store,
@@ -1511,7 +1525,7 @@ def run_oclaw_direct_loop(
                 reasoning_text=reasoning_text,
                 llm_tool_calls=llm_tool_calls,
             )
-        final_text = step.assistant_text
+            final_text = step.assistant_text
         if not step.llm_tool_calls:
             break
         if round_idx == (max_rounds - 1):
@@ -1574,7 +1588,8 @@ def run_oclaw_direct_loop(
         if on_progress:
             on_progress(f"oclaw: tools done ({elapsed_ms}ms)")
 
-    if hit_tool_round_limit:
+    need_finalize = hit_tool_round_limit or (bool(tool_traces) and not str(final_text or "").strip())
+    if need_finalize:
         _check_stop(should_stop)
         if on_progress:
             on_progress("oclaw: finalize…")
