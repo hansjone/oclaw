@@ -53,6 +53,24 @@ def _dsml_close_tokens() -> list[str]:
     return tokens
 
 
+_RE_SPACED_DSML_OPEN = re.compile(
+    rf"<\s*(?:[|{_DSML_PIPE}]\s*)+DSML\s*(?:[|{_DSML_PIPE}]\s*)+",
+    flags=re.IGNORECASE,
+)
+_RE_SPACED_DSML_CLOSE = re.compile(
+    rf"</\s*(?:[|{_DSML_PIPE}]\s*)+DSML\s*(?:[|{_DSML_PIPE}]\s*)+",
+    flags=re.IGNORECASE,
+)
+_RE_DSML_BLOCK_OPEN = re.compile(
+    rf"<\s*(?:[|{_DSML_PIPE}]\s*)+DSML\s*(?:[|{_DSML_PIPE}]\s*)+"
+    rf"(?:{'|'.join(_DSML_WRAPPER_KINDS)})\s*>",
+    flags=re.IGNORECASE,
+)
+_RE_DSML_BLOCK_CLOSE = re.compile(
+    rf"</\s*(?:[|{_DSML_PIPE}]\s*)+DSML\s*(?:[|{_DSML_PIPE}]\s*)+"
+    rf"(?:{'|'.join(_DSML_WRAPPER_KINDS)})\s*>",
+    flags=re.IGNORECASE,
+)
 _DSML_OPEN_TOKENS = _dsml_open_tokens()
 _DSML_CLOSE_TOKENS = _dsml_close_tokens()
 _MAX_OPEN_TOKEN_LEN = max(len(t) for t in _DSML_OPEN_TOKENS)
@@ -64,7 +82,23 @@ def normalize_dsml_markup(text: str) -> str:
     s = str(text or "")
     s = s.replace("<||DSML||", f"<{_DSML_PIPE}DSML{_DSML_PIPE}")
     s = s.replace("</||DSML||", f"</{_DSML_PIPE}DSML{_DSML_PIPE}")
+    s = _RE_SPACED_DSML_OPEN.sub(f"<{_DSML_PIPE}DSML{_DSML_PIPE}", s)
+    s = _RE_SPACED_DSML_CLOSE.sub(f"</{_DSML_PIPE}DSML{_DSML_PIPE}", s)
     return s
+
+
+def _find_earliest_block_open(text: str) -> tuple[int, int] | None:
+    m = _RE_DSML_BLOCK_OPEN.search(text)
+    if not m:
+        return None
+    return int(m.start()), int(m.end())
+
+
+def _find_earliest_block_close(text: str) -> tuple[int, int] | None:
+    m = _RE_DSML_BLOCK_CLOSE.search(text)
+    if not m:
+        return None
+    return int(m.start()), int(m.end())
 
 
 def _find_earliest_token(text: str, tokens: list[str]) -> tuple[int, str] | None:
@@ -183,6 +217,8 @@ def _parse_invokes(inner: str) -> list[tuple[str, dict[str, Any]]] | None:
     while pos < len(inner):
         m = _RE_INVOKE_OPEN.search(inner, pos)
         if not m:
+            if not out and re.search(r"invoke\s+name\s*=", inner[pos:], flags=re.IGNORECASE):
+                return None
             break
         name = str(m.group(1) or "").strip()
         sub_start = int(m.end())
@@ -252,6 +288,8 @@ def try_parse_dsml_tool_calls_from_fields(
         parsed = try_parse_deepseek_v4_dsml_tool_calls(text)
         if parsed is None:
             continue
+        if not parsed and re.search(r"invoke\s+name\s*=", text, flags=re.IGNORECASE):
+            continue
         stripped = strip_first_dsml_tool_calls_block(text)
         clean = stripped if stripped is not None else ""
         if field_name == "content":
@@ -315,9 +353,18 @@ class DeepSeekTextFilter:
 
         while self._buffer:
             if self._inside_dsml:
-                close = _find_earliest_token(self._buffer, _DSML_CLOSE_TOKENS)
+                close = _find_earliest_block_close(self._buffer)
                 if close:
-                    idx, token = close
+                    idx, end = close
+                    self._dsml_capture += self._buffer[:idx]
+                    self._captured_blocks.append(self._dsml_capture)
+                    self._dsml_capture = ""
+                    self._buffer = self._buffer[end:]
+                    self._inside_dsml = False
+                    continue
+                legacy_close = _find_earliest_token(self._buffer, _DSML_CLOSE_TOKENS)
+                if legacy_close:
+                    idx, token = legacy_close
                     self._dsml_capture += self._buffer[:idx]
                     self._captured_blocks.append(self._dsml_capture)
                     self._dsml_capture = ""
@@ -334,9 +381,18 @@ class DeepSeekTextFilter:
                     self._inside_dsml = False
                 return output
 
-            open_match = _find_earliest_token(self._buffer, _DSML_OPEN_TOKENS)
+            open_match = _find_earliest_block_open(self._buffer)
             if open_match:
-                idx, token = open_match
+                idx, end = open_match
+                emit(self._buffer[:idx])
+                self._buffer = self._buffer[end:]
+                self._inside_dsml = True
+                self._dsml_capture = ""
+                continue
+
+            legacy_open = _find_earliest_token(self._buffer, _DSML_OPEN_TOKENS)
+            if legacy_open:
+                idx, token = legacy_open
                 emit(self._buffer[:idx])
                 self._buffer = self._buffer[idx + len(token) :]
                 self._inside_dsml = True

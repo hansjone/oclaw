@@ -707,13 +707,14 @@ class OpenAIChatModel(ChatModel):
             return self._llm_response_from_completion(completion, on_token=on_token)
 
         tool_acc: dict[int, dict[str, Any]] = {}
-        reasoning_parts: list[str] = []
         recover_dsml = _should_recover_dsml_tool_calls(
             self.model,
             self.base_url,
             thinking_mode_enabled=bool(getattr(self, "thinking_mode_enabled", False)),
         )
         dsml_filter = DeepSeekTextFilter() if recover_dsml else None
+        content_visible_parts: list[str] = []
+        reasoning_visible_parts: list[str] = []
 
         def _emit_visible_text(parts: list[str]) -> None:
             if not on_token:
@@ -723,16 +724,21 @@ class OpenAIChatModel(ChatModel):
                     on_token(part)
 
         def _consume_stream(stream_obj: Any) -> None:
-            nonlocal tool_acc, reasoning_parts
+            nonlocal tool_acc
             for chunk in stream_obj:
                 if not chunk.choices:
                     continue
                 delta = chunk.choices[0].delta
                 rc = getattr(delta, "reasoning_content", None) or ""
                 if rc:
-                    reasoning_parts.append(rc)
-                    if on_token:
-                        on_token(rc)
+                    if dsml_filter is not None:
+                        parts = dsml_filter.push(rc)
+                        reasoning_visible_parts.extend(parts)
+                        _emit_visible_text(parts)
+                    else:
+                        reasoning_visible_parts.append(rc)
+                        if on_token:
+                            on_token(rc)
                 if delta.tool_calls:
                     for tc in delta.tool_calls:
                         idx = int(tc.index)
@@ -753,8 +759,11 @@ class OpenAIChatModel(ChatModel):
                             slot["thought_signature"] = sig
                 if delta.content:
                     if dsml_filter is not None:
-                        _emit_visible_text(dsml_filter.push(delta.content))
+                        parts = dsml_filter.push(delta.content)
+                        content_visible_parts.extend(parts)
+                        _emit_visible_text(parts)
                     else:
+                        content_visible_parts.append(delta.content)
                         if on_token:
                             on_token(delta.content)
 
@@ -764,12 +773,15 @@ class OpenAIChatModel(ChatModel):
             raise
 
         if dsml_filter is not None:
-            _emit_visible_text(dsml_filter.flush())
-            content = dsml_filter.visible_text
+            for part in dsml_filter.flush():
+                content_visible_parts.append(part)
+                if on_token and part:
+                    on_token(part)
+            content = "".join(content_visible_parts)
+            reasoning_text = "".join(reasoning_visible_parts).strip()
         else:
-            content = ""
-
-        reasoning_text = "".join(reasoning_parts).strip()
+            content = "".join(content_visible_parts)
+            reasoning_text = "".join(reasoning_visible_parts).strip()
 
         tool_calls: list[LLMToolCall] = []
         for idx in sorted(tool_acc.keys()):

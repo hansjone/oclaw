@@ -67,6 +67,44 @@ def test_malformed_returns_none() -> None:
     assert try_parse_deepseek_v4_dsml_tool_calls("<||DSML||tool_calls>broken") is None
 
 
+def test_parse_spaced_pipe_variant_from_screenshot() -> None:
+    text = (
+        "< | | DSML | | tool_calls>\n"
+        '< | | DSML | | invoke name="read_file">\n'
+        '< | | DSML | | parameter name="path" string="true">_local/x.json</ | | DSML | | parameter>\n'
+        "</ | | DSML | | invoke>\n"
+        '< | | DSML | | invoke name="grep">\n'
+        '< | | DSML | | parameter name="pattern" string="true">foo</ | | DSML | | parameter>\n'
+        "</ | | DSML | | invoke>\n"
+        "</ | | DSML | | tool_calls>"
+    )
+    calls = try_parse_deepseek_v4_dsml_tool_calls(text)
+    assert calls is not None and len(calls) == 2
+    assert calls[0].name == "read_file"
+    assert calls[0].arguments == {"path": "_local/x.json"}
+    assert calls[1].name == "grep"
+
+
+def test_stream_filter_spaced_pipe_variant() -> None:
+    text = (
+        "prefix\n"
+        "< | | DSML | | tool_calls>\n"
+        '< | | DSML | | invoke name="run_command"></ | | DSML | | invoke>\n'
+        "</ | | DSML | | tool_calls>"
+    )
+    filt = DeepSeekTextFilter()
+    visible = ""
+    for part in filt.push(text):
+        visible += part
+    for part in filt.flush():
+        visible += part
+    assert "prefix" in visible
+    assert "DSML" not in visible
+    recovered = filt.recovered_tool_calls()
+    assert len(recovered) == 1
+    assert recovered[0].name == "run_command"
+
+
 def test_parse_function_calls_wrapper_v32() -> None:
     text = (
         "<||DSML||function_calls>\n"
