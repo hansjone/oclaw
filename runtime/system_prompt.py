@@ -7,6 +7,7 @@ from typing import Any
 
 from svc.config.paths import PROJECT_ROOT
 from runtime.memory_stage import render_memory_context_block
+from runtime.dsml_tool_parse import dsml_text_tools_enabled
 from runtime.project_context_prompt import build_project_context_block
 from runtime.skill_role_binding import SKILL_ROLE_BINDING_KEY
 from runtime.skills import workspace_skills_layout_signature
@@ -99,8 +100,19 @@ def _executor_prompt_settings_signature(store: Any) -> tuple[str, ...]:
     return tuple(parts)
 
 
-def _unified_skill_policy_guidance() -> str:
+def _unified_skill_policy_guidance(*, dsml_recovery_enabled: bool = False) -> str:
     # Global policy for all agents (including dynamic/ephemeral) — appended to base_system in build_executor_system_prompt.
+    if dsml_recovery_enabled:
+        tool_call_lines = (
+            "- 工具调用优先使用模型的原生 `tool_calls` 协议；若模型输出 DeepSeek DSML 标记，"
+            "运行时会自动转换，请勿在可见回复中重复或解释 DSML/XML 语法。\n"
+        )
+    else:
+        tool_call_lines = (
+            "- 工具调用必须通过模型的原生 `tool_calls` 协议返回；不要在正文输出 DSML/XML/工具协议 JSON 模板。\n"
+            "- 若当前模型链路不支持原生 `tool_calls`，请用自然语言明确说明“当前无法发起工具调用”，"
+            "并请求切换到支持该协议的链路；不要伪造或模拟工具调用。\n"
+        )
     return (
         "## 技能使用政策（Skill Usage Policy）：\n"
         "- 每次会话启动后，在进行文件/路径相关操作前，必须先读取 `skills/_workspace/public/path-convention/SKILL.md` 了解当前路径规范。\n"
@@ -119,8 +131,7 @@ def _unified_skill_policy_guidance() -> str:
         "- 如果脚本依赖相对路径（例如 `.learnings/`），请将工作目录设置为用户工作区。\n"
         "- 在没有显式工具调用成功结果前，不要假设脚本已经执行。\n"
         "- 在 Windows 上，`.sh` 可能需要 Git Bash、WSL 或等效环境。\n"
-        "- 工具调用必须通过模型的原生 `tool_calls` 协议返回；不要在正文输出 DSML/XML/工具协议 JSON 模板。\n"
-        "- 若当前模型链路不支持原生 `tool_calls`，请用自然语言明确说明“当前无法发起工具调用”，并请求切换到支持该协议的链路；不要伪造或模拟工具调用。\n"
+        f"{tool_call_lines}"
         "- 当用户目标是“安装 skill/技能”时，必须遵循 `oclaw-skill-manager` 的安装策略，并以其为唯一规范来源。\n"
         "- 安装路径强约束：仅允许 `skill_auto_install`（`_workspace` lane）；不得改用任何非 auto 路径或脚本绕过。\n"
         "- 严禁臆测前置条件：不要把未在规范中声明的环境变量、端口、服务启动状态当作必需前提。\n"
@@ -157,6 +168,7 @@ def build_executor_system_prompt(
     skill_binding_role: str | None = None,
     workspace_owner_session_id: str | None = None,
     session_id: str | None = None,
+    model_id: str = "",
 ) -> str:
     """Build the final system string for the oclaw executor (memory block + skills catalog).
 
@@ -172,6 +184,7 @@ def build_executor_system_prompt(
         skill_binding_role=skill_binding_role,
         workspace_owner_session_id=workspace_owner_session_id,
         session_id=session_id,
+        model_id=model_id,
     )
     mem_block = render_memory_context_block(memory_context or OclawMemoryContext())
     if not mem_block:
@@ -193,6 +206,7 @@ def get_executor_prompt_static(
     skill_binding_role: str | None = None,
     workspace_owner_session_id: str | None = None,
     session_id: str | None = None,
+    model_id: str = "",
 ) -> str:
     excl, lane_seg = _skill_catalog_lane_flags(
         skill_binding_role=skill_binding_role,
@@ -201,6 +215,7 @@ def get_executor_prompt_static(
     )
     cache_key = (
         str(base_url or "").strip(),
+        str(model_id or "").strip().lower(),
         str(base_system or "").strip(),
         str(workspace_dir or "").strip(),
         str(skill_binding_role or "").strip().lower(),
@@ -217,7 +232,8 @@ def get_executor_prompt_static(
     if isinstance(cached, str):
         return cached
     final_system = str(base_system or "").strip()
-    guide = _unified_skill_policy_guidance().strip()
+    dsml_recovery = dsml_text_tools_enabled(base_url=str(base_url or ""), model_id=str(model_id or ""))
+    guide = _unified_skill_policy_guidance(dsml_recovery_enabled=dsml_recovery).strip()
     if guide and guide not in final_system:
         final_system = f"{final_system}\n\n{guide}".strip()
     project_block = build_project_context_block(store=store, workspace_dir=workspace_dir)

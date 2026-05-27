@@ -153,6 +153,12 @@
   - 示例：`_local/system.env.example`
   - 生效：`svc/llm/transports/openai_chat_completions.py`
 
+- `AIA_DSML_TEXT_TOOLS`
+  - 默认：未设置时，若 LLM **`base_url`** 或 **`model`** 含 `deepseek` 则 **开启**；否则关闭
+  - 作用：将 assistant 正文/reasoning 中的 **DeepSeek DSML** 标记（如 `<｜DSML｜tool_calls>…`）自动转换为原生 **`tool_calls`** 并执行；streaming 时过滤 DSML，避免泄漏到 UI
+  - 取值：`1` / `true` 强制开启（本地 vLLM/Foundry 等代理 **建议设置**）；`0` / `false` 强制关闭
+  - 生效：`runtime/dsml_tool_parse.py`、`svc/llm/transports/openai_chat_completions.py`、`runtime/direct_loop.py`
+
 ## 工具执行与安全
 
 - `AIA_DISABLE_TOOL_CONFIRM`

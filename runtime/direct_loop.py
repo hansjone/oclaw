@@ -24,7 +24,10 @@ from runtime.types import OclawMemoryContext
 from runtime.orchestration.trace import new_span_id
 from runtime.tools.base import ToolRegistry
 from runtime.hooks_runtime import trigger_hook_event
-from runtime.dsml_tool_parse import strip_first_dsml_tool_calls_block, try_parse_deepseek_v4_dsml_tool_calls
+from runtime.dsml_tool_parse import (
+    dsml_text_tools_enabled,
+    try_parse_dsml_tool_calls_from_fields,
+)
 from runtime.tools.experts.network_ops.netx_tools import ops_netx_system_context_extension
 
 _OCLAW_TOOL_RESULT_HARD_CAP_CHARS = 24_000
@@ -611,6 +614,7 @@ def _build_model_context(
         skill_binding_role=skill_binding_role,
         workspace_owner_session_id=workspace_owner_session_id,
         session_id=session_id,
+        model_id=str(getattr(model, "model", "") or ""),
     )
     # Hook integration: wiki-auto-inject can prepend retrieval snippets
     # before prompt build when query/topic hints indicate supplemental lookup.
@@ -838,22 +842,23 @@ def _prepare_llm_tools(
     return llm_tools
 
 
-def _dsml_text_tools_enabled(*, base_url: str, model_id: str = "") -> bool:
-    """When true, treat DeepSeek-V4-style DSML in assistant ``content`` as native tool calls.
-
-    Opt-in via ``AIA_DSML_TEXT_TOOLS=1``, opt-out via ``=0``. When unset, defaults on if
-    ``base_url`` or ``model_id`` looks like DeepSeek (per upstream DSML tool spec).
-    """
-    env = str(os.getenv("AIA_DSML_TEXT_TOOLS") or "").strip().lower()
-    if env in {"0", "false", "no", "off"}:
-        return False
-    if env in {"1", "true", "yes", "on"}:
-        return True
-    bu = str(base_url or "").strip().lower()
-    mid = str(model_id or "").strip().lower()
-    if "deepseek" in bu or "deepseek" in mid:
-        return True
-    return False
+def _promote_dsml_tool_calls(
+    *,
+    allow: bool,
+    assistant_text: str,
+    reasoning_text: str,
+    llm_tool_calls: list[Any],
+) -> tuple[str, str, list[Any]]:
+    """Runtime fallback: promote DSML in content/reasoning to native tool calls."""
+    if not allow or llm_tool_calls:
+        return assistant_text, reasoning_text, llm_tool_calls
+    parsed, clean_content, clean_reasoning = try_parse_dsml_tool_calls_from_fields(
+        content=assistant_text,
+        reasoning_content=reasoning_text,
+    )
+    if parsed is not None:
+        return clean_content, clean_reasoning, parsed
+    return assistant_text, reasoning_text, llm_tool_calls
 
 
 def _tool_names_for_trace(tools: list[dict[str, Any]]) -> list[str]:
@@ -890,10 +895,15 @@ def _chat_with_empty_body_retry(
     resp = model.chat(msgs, llm_tools, on_token=on_token)
     while True:
         content = str(getattr(resp, "content", "") or "")
+        reasoning = str(getattr(resp, "reasoning_content", "") or "")
         tool_calls = list(getattr(resp, "tool_calls", []) or [])
-        textual_tool_intent = (not tool_calls) and bool(_extract_textual_tool_intent_names(content))
-        if allow_dsml_text_tools and try_parse_deepseek_v4_dsml_tool_calls(content) is not None:
-            textual_tool_intent = False
+        textual_tool_intent = (not tool_calls) and bool(
+            _extract_textual_tool_intent_names(f"{content}\n{reasoning}")
+        )
+        if allow_dsml_text_tools:
+            parsed, _, _ = try_parse_dsml_tool_calls_from_fields(content=content, reasoning_content=reasoning)
+            if parsed is not None:
+                textual_tool_intent = False
         if (content.strip() or tool_calls) and not textual_tool_intent:
             return resp
         elapsed_ms = int((time.perf_counter() - started) * 1000.0)
@@ -1409,7 +1419,11 @@ def run_oclaw_direct_loop(
 
     base_url = str(getattr(model, "base_url", "") or "")
     model_id = str(getattr(model, "model", "") or "")
-    allow_dsml_text_tools = _dsml_text_tools_enabled(base_url=base_url, model_id=model_id)
+    allow_dsml_text_tools = dsml_text_tools_enabled(base_url=base_url, model_id=model_id)
+    if not allow_dsml_text_tools and bool(getattr(model, "thinking_mode_enabled", False)):
+        mid = model_id.lower()
+        if mid.startswith("deepseek-") or "deepseek" in mid:
+            allow_dsml_text_tools = True
 
     max_rounds = max(1, int(max_tool_rounds or 1))
     for round_idx in range(max_rounds):
@@ -1462,14 +1476,16 @@ def run_oclaw_direct_loop(
         assistant_text = str(getattr(resp, "content", "") or "")
         reasoning_text = str(getattr(resp, "reasoning_content", "") or "")
         llm_tool_calls = list(getattr(resp, "tool_calls", []) or [])
-        if allow_dsml_text_tools and not llm_tool_calls:
-            dsml_parsed = try_parse_deepseek_v4_dsml_tool_calls(assistant_text)
-            if dsml_parsed is not None:
-                llm_tool_calls = dsml_parsed
-                stripped = strip_first_dsml_tool_calls_block(assistant_text)
-                if stripped is not None:
-                    assistant_text = stripped
-        textual_tool_intent_names = _extract_textual_tool_intent_names(assistant_text) if not llm_tool_calls else []
+        assistant_text, reasoning_text, llm_tool_calls = _promote_dsml_tool_calls(
+            allow=allow_dsml_text_tools,
+            assistant_text=assistant_text,
+            reasoning_text=reasoning_text,
+            llm_tool_calls=llm_tool_calls,
+        )
+        combined_for_intent = f"{assistant_text}\n{reasoning_text}".strip()
+        textual_tool_intent_names = (
+            _extract_textual_tool_intent_names(combined_for_intent) if not llm_tool_calls else []
+        )
 
         if textual_tool_intent_names:
             step = _persist_dsml_protocol_mismatch_step(

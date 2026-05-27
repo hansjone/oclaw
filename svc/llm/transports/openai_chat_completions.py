@@ -16,6 +16,11 @@ from svc.llm.transports.base import (
     coerce_thought_signature_for_storage,
     normalize_image_b64_payload,
 )
+from runtime.dsml_tool_parse import (
+    DeepSeekTextFilter,
+    dsml_text_tools_enabled,
+    try_parse_dsml_tool_calls_from_fields,
+)
 from svc.persistence.assistant_store import get_assistant_store
 
 logger = logging.getLogger(__name__)
@@ -450,6 +455,37 @@ def _extract_thought_signature_from_tool_delta(tc: Any) -> str | None:
     return None
 
 
+def _should_recover_dsml_tool_calls(
+    model: str | None,
+    base_url: str | None,
+    *,
+    thinking_mode_enabled: bool = False,
+) -> bool:
+    if dsml_text_tools_enabled(base_url=str(base_url or ""), model_id=str(model or "")):
+        return True
+    if thinking_mode_enabled:
+        mid = str(model or "").strip().lower()
+        if mid.startswith("deepseek-") or "deepseek" in mid:
+            return True
+    return False
+
+
+def _promote_dsml_in_llm_response(
+    content: str,
+    reasoning: str,
+    tool_calls: list[LLMToolCall],
+) -> tuple[str, str, list[LLMToolCall]]:
+    if tool_calls:
+        return content, reasoning, tool_calls
+    parsed, clean_content, clean_reasoning = try_parse_dsml_tool_calls_from_fields(
+        content=content,
+        reasoning_content=reasoning,
+    )
+    if parsed is not None:
+        return clean_content, clean_reasoning, parsed
+    return content, reasoning, tool_calls
+
+
 class OpenAIChatModel(ChatModel):
     def __init__(
         self,
@@ -598,12 +634,12 @@ class OpenAIChatModel(ChatModel):
         msg = completion.choices[0].message
         reasoning_parts = getattr(msg, "reasoning_content", None) or ""
         reasoning_text = str(reasoning_parts).strip() if reasoning_parts else ""
-        content = msg.content or ""
-        if on_token:
-            if reasoning_text:
-                on_token(reasoning_text)
-            if content:
-                on_token(content)
+        content = str(msg.content or "")
+        recover_dsml = _should_recover_dsml_tool_calls(
+            self.model,
+            self.base_url,
+            thinking_mode_enabled=bool(getattr(self, "thinking_mode_enabled", False)),
+        )
 
         tool_calls: list[LLMToolCall] = []
         if msg.tool_calls:
@@ -624,6 +660,18 @@ class OpenAIChatModel(ChatModel):
                 if sig is None and fn is not None:
                     sig = _extract_thought_signature_from_tool_delta(fn)
                 tool_calls.append(LLMToolCall(id=tid, name=name, arguments=args, thought_signature=sig))
+
+        if recover_dsml:
+            content, reasoning_text, tool_calls = _promote_dsml_in_llm_response(
+                content, reasoning_text, tool_calls
+            )
+
+        if on_token:
+            if reasoning_text:
+                on_token(reasoning_text)
+            if content:
+                on_token(content)
+
         return LLMResponse(content=content, tool_calls=tool_calls, reasoning_content=reasoning_text)
 
     def chat(
@@ -658,12 +706,24 @@ class OpenAIChatModel(ChatModel):
             completion = self._create_chat_completion(norm_msgs, tools, stream=False)
             return self._llm_response_from_completion(completion, on_token=on_token)
 
-        content_parts: list[str] = []
         tool_acc: dict[int, dict[str, Any]] = {}
         reasoning_parts: list[str] = []
+        recover_dsml = _should_recover_dsml_tool_calls(
+            self.model,
+            self.base_url,
+            thinking_mode_enabled=bool(getattr(self, "thinking_mode_enabled", False)),
+        )
+        dsml_filter = DeepSeekTextFilter() if recover_dsml else None
+
+        def _emit_visible_text(parts: list[str]) -> None:
+            if not on_token:
+                return
+            for part in parts:
+                if part:
+                    on_token(part)
 
         def _consume_stream(stream_obj: Any) -> None:
-            nonlocal content_parts, tool_acc, reasoning_parts
+            nonlocal tool_acc, reasoning_parts
             for chunk in stream_obj:
                 if not chunk.choices:
                     continue
@@ -692,16 +752,23 @@ class OpenAIChatModel(ChatModel):
                         if sig is not None:
                             slot["thought_signature"] = sig
                 if delta.content:
-                    content_parts.append(delta.content)
-                    if on_token:
-                        on_token(delta.content)
+                    if dsml_filter is not None:
+                        _emit_visible_text(dsml_filter.push(delta.content))
+                    else:
+                        if on_token:
+                            on_token(delta.content)
 
         try:
             _consume_stream(stream)
         except Exception:
             raise
 
-        content = "".join(content_parts)
+        if dsml_filter is not None:
+            _emit_visible_text(dsml_filter.flush())
+            content = dsml_filter.visible_text
+        else:
+            content = ""
+
         reasoning_text = "".join(reasoning_parts).strip()
 
         tool_calls: list[LLMToolCall] = []
@@ -721,6 +788,15 @@ class OpenAIChatModel(ChatModel):
             ts_raw = slot.get("thought_signature")
             tsig = coerce_thought_signature_for_storage(ts_raw) if ts_raw is not None else None
             tool_calls.append(LLMToolCall(id=str(tid), name=str(name), arguments=args, thought_signature=tsig))
+
+        if recover_dsml and not tool_calls:
+            recovered = dsml_filter.recovered_tool_calls() if dsml_filter is not None else []
+            if recovered:
+                tool_calls = recovered
+            else:
+                content, reasoning_text, tool_calls = _promote_dsml_in_llm_response(
+                    content, reasoning_text, tool_calls
+                )
 
         return LLMResponse(content=content, tool_calls=tool_calls, reasoning_content=reasoning_text)
 
