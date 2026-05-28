@@ -98,6 +98,23 @@ def _localize_netx_payload(data: dict[str, Any], *, lang: str) -> dict[str, Any]
     return data
 
 
+def _http_post_json(path: str, body: dict[str, Any], *, timeout: float = 180.0) -> dict[str, Any]:
+    base = _netx_base_url()
+    url = f"{base}{path}"
+    try:
+        with httpx.Client(timeout=timeout, trust_env=False) as client:
+            resp = client.post(url, json=body, headers=_netx_headers())
+            text = resp.text
+            if not resp.is_success:
+                return {"ok": False, "error": f"netx_http_{resp.status_code}", "detail": text[:800]}
+            data = resp.json() if text else {}
+            if isinstance(data, dict):
+                data = _localize_netx_payload(data, lang=str(NETX_TOOL_LANG.get() or "zh"))
+            return {"ok": True, "data": data if isinstance(data, dict) else {"raw": data}}
+    except Exception as exc:
+        return {"ok": False, "error": "netx_request_failed", "detail": str(exc)[:800]}
+
+
 def _http_json(method: str, path: str, *, params: dict[str, Any] | None = None) -> dict[str, Any]:
     base = _netx_base_url()
     url = f"{base}{path}"
@@ -970,6 +987,146 @@ def netx_aggregate_ume_alarms_raw_tool() -> ToolSpec:
     )
 
 
+def netx_list_managed_ne_tool() -> ToolSpec:
+    """List netx managed NEs (inventory for CLI login targets)."""
+
+    def handler(args: dict[str, Any]) -> dict[str, Any]:
+        page = max(1, int(args.get("page") or 1))
+        page_size = min(500, max(1, int(args.get("page_size") or 50)))
+        params: dict[str, Any] = {"page": page, "page_size": page_size}
+        if str(args.get("keyword") or "").strip():
+            params["keyword"] = str(args.get("keyword")).strip()
+        if str(args.get("vendor") or "").strip():
+            params["vendor"] = str(args.get("vendor")).strip()
+        if str(args.get("connect_status") or "").strip():
+            params["connect_status"] = str(args.get("connect_status")).strip()
+        return _http_json("GET", "/v1/managed-ne", params=params)
+
+    return ToolSpec(
+        name="netx_list_managed_ne",
+        description=(
+            "列出 netx「网元管理」中已纳管的设备（GET /v1/managed-ne）。"
+            "返回 id、name、ip、vendor、device_type、connect_status 等（不含密码）。"
+            "keyword 可匹配名称/IP/用户名/标签；connect_status 可选 unknown/testing/pass/fail。"
+            "登录查配置前先用本工具定位 ne_id，再 netx_get_managed_ne / netx_exec_managed_ne。"
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "keyword": {"type": "string", "description": "名称/IP/用户名/标签包含（可选）"},
+                "vendor": {"type": "string", "description": "厂商过滤（可选）"},
+                "connect_status": {
+                    "type": "string",
+                    "enum": ["unknown", "testing", "pass", "fail"],
+                    "description": "连通性状态过滤（可选）",
+                },
+                "page": {"type": "integer", "minimum": 1, "default": 1},
+                "page_size": {"type": "integer", "minimum": 1, "maximum": 500, "default": 50},
+            },
+            "required": [],
+            "additionalProperties": False,
+        },
+        handler=handler,
+        tags=frozenset({"netx", "ops", "managed_ne", "inventory", "read_only"}),
+        risk_level="low",
+        read_only=True,
+    )
+
+
+def netx_get_managed_ne_tool() -> ToolSpec:
+    """Single managed NE metadata from netx."""
+
+    def handler(args: dict[str, Any]) -> dict[str, Any]:
+        ne_id = str(args.get("ne_id") or "").strip()
+        if not ne_id:
+            return {"ok": False, "error": "ne_id_required", "error_code": "ne_id_required"}
+        return _http_json("GET", f"/v1/managed-ne/{ne_id}", params=None)
+
+    return ToolSpec(
+        name="netx_get_managed_ne",
+        description=(
+            "读取 netx 单条纳管网元详情（GET /v1/managed-ne/{ne_id}）。"
+            "含 connect_status、connect_message、connect_detail（连通测试日志）、跳板 hop_* 配置摘要。"
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "ne_id": {"type": "string", "description": "网元 UUID（列表 items[].id）"},
+            },
+            "required": ["ne_id"],
+            "additionalProperties": False,
+        },
+        handler=handler,
+        tags=frozenset({"netx", "ops", "managed_ne", "read_only"}),
+        risk_level="low",
+        read_only=True,
+    )
+
+
+def netx_exec_managed_ne_tool() -> ToolSpec:
+    """Run read-only CLI on a managed NE via netx."""
+
+    def handler(args: dict[str, Any]) -> dict[str, Any]:
+        ne_id = str(args.get("ne_id") or "").strip()
+        if not ne_id:
+            return {"ok": False, "error": "ne_id_required", "error_code": "ne_id_required"}
+        raw_cmds = args.get("commands")
+        if not isinstance(raw_cmds, list) or not raw_cmds:
+            return {"ok": False, "error": "commands_required", "error_code": "commands_required"}
+        commands = [str(c).strip() for c in raw_cmds if str(c).strip()]
+        if not commands:
+            return {"ok": False, "error": "commands_required", "error_code": "commands_required"}
+        if len(commands) > 5:
+            return {"ok": False, "error": "too_many_commands", "error_code": "too_many_commands"}
+        body: dict[str, Any] = {"ne_id": ne_id, "commands": commands}
+        rts = args.get("read_timeout_sec")
+        if rts is not None:
+            body["read_timeout_sec"] = int(rts)
+        out = _http_post_json("/v1/managed-ne/exec", body, timeout=300.0)
+        if not out.get("ok"):
+            return out
+        data = out.get("data") or {}
+        if isinstance(data, dict) and data.get("ok") is False:
+            return {"ok": False, "data": data, "error": str(data.get("error") or "exec_failed")}
+        return {"ok": True, "data": data}
+
+    return ToolSpec(
+        name="netx_exec_managed_ne",
+        description=(
+            "经 netx 登录「网元管理」中的设备并执行只读 CLI（POST /v1/managed-ne/exec）。"
+            "每条命令须以 show / display / get / ping / traceroute / terminal length / ? 开头；"
+            "禁止管道符、分号及改配置类命令；单次最多 5 条；默认读超时 60s。"
+            "返回合并输出（含命令回显）；失败时含 error/detail。"
+            "先 netx_list_managed_ne 解析 ne_id；若 connect_status 非 pass 可先 netx_get_managed_ne 看 connect_detail。"
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "ne_id": {"type": "string", "description": "纳管网元 UUID"},
+                "commands": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "minItems": 1,
+                    "maxItems": 5,
+                    "description": "只读 CLI 列表，如 show version、display interface brief",
+                },
+                "read_timeout_sec": {
+                    "type": "integer",
+                    "minimum": 10,
+                    "maximum": 120,
+                    "description": "单条命令 Netmiko 读超时（秒），默认 60",
+                },
+            },
+            "required": ["ne_id", "commands"],
+            "additionalProperties": False,
+        },
+        handler=handler,
+        tags=frozenset({"netx", "ops", "managed_ne", "cli", "exec"}),
+        risk_level="medium",
+        read_only=False,
+    )
+
+
 __all__ = [
     # "netx_query_alarms_tool",
     # "netx_aggregate_alarms_tool",
@@ -987,4 +1144,7 @@ __all__ = [
     "netx_aggregate_ume_alarms_raw_tool",
     "netx_list_ume_alarm_fields_tool",
     "netx_sql_query_ume_tool",
+    "netx_list_managed_ne_tool",
+    "netx_get_managed_ne_tool",
+    "netx_exec_managed_ne_tool",
 ]

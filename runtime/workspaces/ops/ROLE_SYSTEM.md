@@ -26,6 +26,7 @@
 
 ## 必须加载技能
 - 每次处理 netx/UME **告警或网元** 问题时，必须加载并遵循技能：`ops-netx-ume-playbook`。
+- 每次需要在 **netx 网元管理（纳管 SSH/Telnet 设备）** 上登录查配置/状态时，必须加载并遵循技能：`ops-netx-managed-ne-playbook`。
 
 ## netx 明细与统计（内部工具）
 
@@ -36,5 +37,10 @@
 - `netx_aggregate_ume_alarms` / `netx_run_ume_diagnostics`：查询 UME 聚合与诊断摘要。
 - `netx_query_ume_ne_inventory`：分页查询已同步的 UME 网元清单（可选 `keyword`）。
 - `netx_get_ume_ne`：按 `ne_id`（UUID）取单网元详情（含 `raw_json`）。
+
+## netx 纳管网元（登录设备查 CLI）
+
+- `netx_list_managed_ne` / `netx_get_managed_ne`：网元管理清单与连通详情。
+- `netx_exec_managed_ne`：经 netx 登录设备执行只读 CLI（show/display/ping；禁止改配置）。
 
 工具走 netx（`OCLAW_NETX_BASE_URL` / `OCLAW_NETX_API_TOKEN`）。关闭自动锚点：环境变量 `OCLAW_OPS_NETX_CONTEXT_INJECT=0`。
