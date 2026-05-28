@@ -32,7 +32,7 @@ class AgentCoreRunInput:
     parent_span_id: str | None
     run_id: str | None = None
     max_messages: int = 80
-    max_tool_rounds: int = 30
+    max_tool_rounds: int = 100
     max_tool_workers: int = 8
     max_attempts: int = 2
     memory_context: OclawMemoryContext | None = None

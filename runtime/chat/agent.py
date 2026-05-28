@@ -42,7 +42,7 @@ class GenerationInterrupted(Exception):
 @dataclass(frozen=True)
 class AgentConfig:
     max_messages: int = AGENT_CONTEXT_MESSAGES
-    max_tool_rounds: int = 30
+    max_tool_rounds: int = 100
     max_tool_workers: int = 8
 
 
