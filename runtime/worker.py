@@ -10,7 +10,7 @@ from runtime.agents.factory import build_gateway_executor
 from runtime.agent_core_run import AgentCoreRunInput, run_agent_core
 from runtime.memory_stage import build_memory_context
 from runtime.relay_pointer import build_acp_relay_result, validate_relay_share_envelope
-from runtime.types import StandardMessage
+from runtime.types import StandardMessage, normalize_interaction_mode, normalize_requested_specialist
 from runtime.chat.model_path_audit import ensure_no_tool_or_embedded_image_payload
 from runtime.session_auto_title import (
     AUTO_TITLE_SYSTEM_PROMPT_EN,
@@ -171,8 +171,8 @@ def _worker_loop(*, store: Any, worker_id: str, poll_interval_s: float) -> None:
         except Exception:
             payload = {}
 
-            trace_id = str(payload.get("trace_id") or "")
-            run_id = str(payload.get("run_id") or "").strip() or None
+        trace_id = str(payload.get("trace_id") or "")
+        run_id = str(payload.get("run_id") or "").strip() or None
         session_id = str(task.session_id or "")
         try:
             if trace_id:
@@ -239,7 +239,24 @@ def _worker_loop(*, store: Any, worker_id: str, poll_interval_s: float) -> None:
             user_id = str(payload.get("user_id") or "")
             viewer_username = str(payload.get("viewer_username") or "")
             model_profile_id = str(payload.get("model_profile_id") or "") or None
-            selected_specialist = str(payload.get("selected_specialist") or "") or str(metadata.get("selected_specialist") or "")
+            interaction_mode = normalize_interaction_mode(
+                str(payload.get("interaction_mode") or metadata.get("interaction_mode") or "")
+            )
+            requested_specialist = normalize_requested_specialist(
+                str(payload.get("requested_specialist") or metadata.get("selected_specialist") or "")
+            )
+            manager_specialist = normalize_requested_specialist(
+                str(
+                    payload.get("manager_selected_specialist")
+                    or payload.get("selected_specialist")
+                    or requested_specialist
+                    or ""
+                )
+            )
+            skill_binding_role = str(manager_specialist or "generalist")
+            wire_policy_role = (
+                "manager" if interaction_mode == "comprehensive" else str(requested_specialist or skill_binding_role)
+            )
             memory_ctx = build_memory_context(
                 store=store,
                 session_id=session_id,
@@ -250,7 +267,7 @@ def _worker_loop(*, store: Any, worker_id: str, poll_interval_s: float) -> None:
             executor = build_gateway_executor(
                 store,
                 lang=lang,
-                specialist=selected_specialist or "generalist",
+                specialist=skill_binding_role,
                 profile_id=model_profile_id,
                 viewer_user_id=user_id or None,
                 viewer_username=viewer_username or None,
@@ -293,6 +310,7 @@ def _worker_loop(*, store: Any, worker_id: str, poll_interval_s: float) -> None:
                 store=store,
                 data=AgentCoreRunInput(
                     msg=msg,
+                    persisted_user_text=str(user_text or ""),
                     lang=lang,
                     system_prompt=system_prompt,
                     model=executor.model,
@@ -307,6 +325,8 @@ def _worker_loop(*, store: Any, worker_id: str, poll_interval_s: float) -> None:
                     memory_context=memory_ctx,
                     oclaw_task_id=str(task.id),
                     oclaw_worker_id=worker_id,
+                    skill_binding_role=skill_binding_role,
+                    wire_policy_role=wire_policy_role,
                 ),
             )
             base_result = {

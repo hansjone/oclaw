@@ -111,6 +111,16 @@ def decide_route(msg: StandardMessage, *, store: Any | None = None, model: Any |
         skill_count = int(md.get("skills_total") or 0)
     except Exception:
         skill_count = 0
+    # Image/video legacy lanes run synchronously in-process (DashScope HTTP + poll).
+    # Do not queue them as async_task for long prompts with attachments.
+    if requested_specialist in ("video", "image"):
+        return RouterDecision(
+            mode="sync_direct",
+            reason=f"{requested_specialist}_expert_legacy_lane",
+            skill_signal=f"skills={int(skill_count)}",
+            interaction_mode=interaction_mode,
+            requested_specialist=requested_specialist,
+        )
     mode = _router_mode_from_store(store)
     if mode == "llm_json":
         d = _decide_llm_json(msg, model=model)

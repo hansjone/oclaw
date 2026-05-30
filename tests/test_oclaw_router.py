@@ -114,6 +114,24 @@ def test_requested_specialist_normalization_defaults_to_generalist() -> None:
     assert normalize_requested_specialist("unknown") == "generalist"
 
 
+def test_router_video_expert_sync_despite_long_attachments() -> None:
+    long_text = "x" * 150
+    msg = StandardMessage(
+        session_id="s1",
+        tenant_id="t1",
+        user_id="u1",
+        role="user",
+        channel="admin_chat",
+        text=long_text,
+        attachments=[{"type": "image_ref", "attachment_id": "a" * 64}],
+        metadata={"interaction_mode": "expert", "selected_specialist": "video"},
+    )
+    d = decide_route(msg)
+    assert d.mode == "sync_direct"
+    assert d.reason == "video_expert_legacy_lane"
+    assert d.requested_specialist == "video"
+
+
 def test_router_carries_interaction_mode_and_requested_specialist() -> None:
     msg = StandardMessage(
         session_id="s1",
