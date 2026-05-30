@@ -5091,7 +5091,7 @@ async function renderPlugins() {
       } else if (parsed && typeof parsed === "object" && parsed.mcpServers && typeof parsed.mcpServers === "object") {
         detectedMcpServersShape = true;
         installStatus.textContent =
-          "[json] detected mcpServers shape; streamableHttp/sse entries will be installed via mcp-remote bridge";
+          "[json] detected mcpServers shape; stdio uses command/args (local), HTTP/SSE uses mcp-remote bridge";
         const envVarRe = /\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g;
         list = Object.entries(parsed.mcpServers).map(([rawKey, rawServer]) => {
           const key = String(rawKey || "").trim();
@@ -5149,16 +5149,33 @@ async function renderPlugins() {
             };
           }
 
-          // Best-effort passthrough for stdio-like definitions.
+          // Best-effort passthrough for stdio-like definitions (Cursor command/args/env).
           const cmd = String(s.command || s.entry_command || "").trim();
           const cmdArgs = Array.isArray(s.args) ? s.args.map((x) => String(x)) : [];
+          const stdioLocal = !!cmd;
+          const cursorEnv = s.env && typeof s.env === "object" ? s.env : {};
+          const envFromCursor = {};
+          Object.entries(cursorEnv).forEach(([ek, ev]) => {
+            const envName = String(ek || "").trim();
+            if (!envName) return;
+            envFromCursor[envName] = {
+              type: "string",
+              default: String(ev == null ? "" : ev),
+              description: "From mcpServers env; copy to mcp_local.env if runtime needs it",
+            };
+          });
+          const mergedEnvSchema = { ...envFromCursor, ...envSchema };
+          if (s.env_schema && typeof s.env_schema === "object") {
+            Object.assign(mergedEnvSchema, s.env_schema);
+          }
+          const explicitSourceType = String(s.source_type || "").trim();
           return {
-            source_type: String(s.source_type || "npm").trim() || "npm",
-            source_ref: String(s.source_ref || "mcp-remote").trim() || "mcp-remote",
+            source_type: explicitSourceType || (stdioLocal ? "local" : "npm"),
+            source_ref: String(s.source_ref || (stdioLocal ? key : "mcp-remote")).trim() || (stdioLocal ? key : "mcp-remote"),
             server_id: key || String(s.name || s.server_id || "mcp-server").trim() || "mcp-server",
             entry_command: cmd,
             entry_args: cmdArgs,
-            env_schema: Object.keys(envSchema).length ? envSchema : (s.env_schema && typeof s.env_schema === "object" ? s.env_schema : {}),
+            env_schema: mergedEnvSchema,
             required_permissions: Array.isArray(s.required_permissions) ? s.required_permissions.map((x) => String(x)) : [],
             risk_level: String(s.risk_level || "high"),
             enabled: Object.prototype.hasOwnProperty.call(s, "isActive") ? !!s.isActive : true,

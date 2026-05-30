@@ -2820,7 +2820,7 @@ def build_admin_router() -> APIRouter:
         _require_permission(ctx, "admin:tenant:write")
         source_type = str(payload.get("source_type") or "").strip().lower()
         source_ref = str(payload.get("source_ref") or "").strip()
-        if source_type not in {"github", "npm", "pypi"} or not source_ref:
+        if source_type not in {"github", "npm", "pypi", "local"} or not source_ref:
             return {"ok": False, "error": "invalid_source"}
         server_id = _safe_server_id(str(payload.get("server_id") or source_ref))
         manifest = McpServerManifest(
@@ -3169,7 +3169,7 @@ def build_admin_router() -> APIRouter:
         _require_permission(ctx, "admin:tenant:write")
         source_type = str(payload.get("source_type") or "").strip().lower()
         source_ref = str(payload.get("source_ref") or "").strip()
-        if source_type not in {"github", "npm", "pypi"} or not source_ref:
+        if source_type not in {"github", "npm", "pypi", "local"} or not source_ref:
             return {"ok": False, "error_code": "mcp_invalid_source", "error": "invalid_source"}
         manifest = McpServerManifest(
             server_id=_safe_server_id(str(payload.get("server_id") or source_ref)),

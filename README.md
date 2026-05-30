@@ -56,7 +56,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\start_all.ps1 -Background
 
 ### 可选：运维专家（network_ops）与 netx
 
-若要在 ops 专家模式下调 **netx** 告警库，需单独启动 netx 服务，并在 `_local/system.env` 中配置 `OCLAW_NETX_BASE_URL`（及可选的 `OCLAW_NETX_API_TOKEN`）。说明见 `docs/NETX_MCP_INTEGRATION.md`。
+若要在 ops 专家模式下调 **netx** 告警库，需单独启动 netx 服务，并在 Admin 安装 **netx MCP**（`server_id=netx`，env `NETX_API_URL`）。说明见 `docs/NETX_MCP_INTEGRATION.md`。迁移期可选 `OCLAW_NETX_BUILTIN_TOOLS=1` 启用旧 inline 工具。
 
 ### 可选：股票分析专家（A股/港股，信号建议）
 

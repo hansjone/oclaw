@@ -61,6 +61,8 @@ def _install_command(manifest: McpServerManifest) -> list[str]:
     if manifest.source_type == "pypi":
         pkg = manifest.source_ref + (f"=={manifest.version}" if manifest.version else "")
         return [sys.executable, "-m", "pip", "install", pkg]
+    if manifest.source_type == "local":
+        return []
     raise ValueError(f"unsupported_source_type:{manifest.source_type}")
 
 
@@ -85,6 +87,8 @@ def _uninstall_command(manifest: McpServerManifest) -> list[str]:
         return [sys.executable, "-m", "pip", "uninstall", "-y", str(manifest.source_ref or "").strip()]
     if manifest.source_type == "github":
         return []
+    if manifest.source_type == "local":
+        return []
     raise ValueError(f"unsupported_source_type:{manifest.source_type}")
 
 
@@ -93,6 +97,12 @@ def install_mcp_server(manifest: McpServerManifest, *, dry_run: bool = False) ->
         cmd = _install_command(manifest)
     except Exception as exc:
         return McpInstallResult(ok=False, error_code="mcp_invalid_source", error=str(exc))
+    if manifest.source_type == "local" and not cmd:
+        return McpInstallResult(
+            ok=True,
+            install_command="",
+            details={"skipped": True, "reason": "local_source_no_package_install"},
+        )
     cmd_text = " ".join(cmd)
     if dry_run:
         return McpInstallResult(ok=True, install_command=cmd_text, details={"dry_run": True})

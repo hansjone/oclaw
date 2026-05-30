@@ -16,13 +16,17 @@ class McpProcessRuntime:
     command: list[str]
     timeout_s: float = 30.0
     env_allowlist: list[str] | None = None
+    env_defaults: dict[str, str] | None = None
     _proc: subprocess.Popen[str] | None = None
     _lock: threading.Lock = field(default_factory=threading.Lock)
     _initialized: bool = False
     _request_id: int = 0
 
     @staticmethod
-    def _build_runtime_env(env_allowlist: list[str] | None) -> dict[str, str] | None:
+    def _build_runtime_env(
+        env_allowlist: list[str] | None,
+        env_defaults: dict[str, str] | None = None,
+    ) -> dict[str, str] | None:
         if env_allowlist is None:
             return None
         from runtime.operations.mcp_env import mcp_local_env_merged
@@ -46,6 +50,16 @@ class McpProcessRuntime:
             key = str(k or "").strip()
             if key and key in os.environ and str(os.environ[key] or "").strip():
                 env[key] = os.environ[key]
+        for k, v in (env_defaults or {}).items():
+            key = str(k or "").strip()
+            val = str(v or "").strip()
+            if not key or not val:
+                continue
+            if key not in env or not str(env.get(key) or "").strip():
+                env[key] = val
+        # MCP JSON-RPC on stdio is UTF-8; force child Python off Windows GBK console encoding.
+        env.setdefault("PYTHONIOENCODING", "utf-8")
+        env.setdefault("PYTHONUTF8", "1")
         return env
 
     @staticmethod
@@ -68,11 +82,19 @@ class McpProcessRuntime:
     def start(self) -> None:
         if self._proc and self._proc.poll() is None:
             return
-        env = self._build_runtime_env(self.env_allowlist)
+        env = self._build_runtime_env(self.env_allowlist, self.env_defaults)
         cmd = list(self.command or [])
         if cmd:
             cmd[0] = self._resolve_command(str(cmd[0]), env)
-        popen_kwargs: dict[str, Any] = {"stdin": subprocess.PIPE, "stdout": subprocess.PIPE, "stderr": subprocess.PIPE, "text": True, "encoding": "utf-8", "env": env}
+        popen_kwargs: dict[str, Any] = {
+            "stdin": subprocess.PIPE,
+            "stdout": subprocess.PIPE,
+            "stderr": subprocess.PIPE,
+            "text": True,
+            "encoding": "utf-8",
+            "errors": "replace",
+            "env": env,
+        }
         if os.name == "nt":
             startupinfo = subprocess.STARTUPINFO()
             startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW

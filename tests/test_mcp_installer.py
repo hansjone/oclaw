@@ -23,6 +23,13 @@ class McpInstallerTests(unittest.TestCase):
         self.assertIn(" install -g ", res.install_command)
         self.assertIn("demo-server@1.0.0", res.install_command)
 
+    def test_install_local_skips_package_step(self) -> None:
+        m = McpServerManifest(server_id="netx", source_type="local", source_ref="netx-mcp-http", entry_command="python")
+        res = install_mcp_server(m, dry_run=False)
+        self.assertTrue(res.ok)
+        self.assertEqual(res.install_command, "")
+        self.assertEqual((res.details or {}).get("reason"), "local_source_no_package_install")
+
     def test_invalid_source(self) -> None:
         m = McpServerManifest(server_id="x", source_type="invalid", source_ref="x")
         res = install_mcp_server(m, dry_run=True)

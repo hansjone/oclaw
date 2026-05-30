@@ -5,12 +5,36 @@ import json
 import os
 from typing import Any
 
-from runtime.operations.mcp_env import mcp_env_allowlist_keys
 from runtime.skills import SkillSpec, materialize_skills_from_tool_specs
 from runtime.tools.base import ToolSpec
 from runtime.tools.mcp.filesystem_argv import build_mcp_process_command
 from runtime.tools.mcp.runtime import McpProcessRuntime
 from runtime.tools.public.bailian_webparser_tool import bailian_webparser_tool
+
+
+def _mcp_row_env_config(row: dict[str, Any]) -> tuple[list[str], dict[str, str]]:
+    """Per-server env allowlist + defaults from registry ``env_schema`` (e.g. Cursor ``mcpServers.env``)."""
+    from runtime.operations.mcp_env import mcp_env_allowlist_keys
+
+    schema = row.get("env_schema") if isinstance(row.get("env_schema"), dict) else {}
+    defaults: dict[str, str] = {}
+    schema_keys: list[str] = []
+    for k, spec in schema.items():
+        key = str(k or "").strip()
+        if not key:
+            continue
+        schema_keys.append(key)
+        if isinstance(spec, dict) and spec.get("default") is not None:
+            dv = str(spec.get("default") or "").strip()
+            if dv:
+                defaults[key] = dv
+    seen: set[str] = set()
+    allowlist: list[str] = []
+    for k in [*mcp_env_allowlist_keys(), *schema_keys]:
+        if k and k not in seen:
+            seen.add(k)
+            allowlist.append(k)
+    return allowlist, defaults
 
 
 @dataclass
@@ -23,9 +47,15 @@ class _McpBoundTool:
     timeout_s: float = 30.0
     required_permissions: frozenset[str] = frozenset()
     env_allowlist: list[str] | None = None
+    env_defaults: dict[str, str] | None = None
 
     def to_spec(self) -> ToolSpec:
-        rt = McpProcessRuntime(command=self.command, timeout_s=self.timeout_s, env_allowlist=self.env_allowlist)
+        rt = McpProcessRuntime(
+            command=self.command,
+            timeout_s=self.timeout_s,
+            env_allowlist=self.env_allowlist,
+            env_defaults=self.env_defaults,
+        )
 
         def _handler(args: dict[str, Any]) -> dict[str, Any]:
             res = rt.call_tool(tool_name=self.tool_name, arguments=args or {})
@@ -112,7 +142,6 @@ def materialize_mcp_tools_for_specialist(
         return []
     out: list[ToolSpec] = []
     rows = store.list_mcp_servers(enabled_only=True) if store else []
-    env_allowlist = mcp_env_allowlist_keys()
     for row in rows:
         server_id = str(row.get("server_id") or "").strip()
         cmd = str(row.get("entry_command") or "").strip()
@@ -120,6 +149,7 @@ def materialize_mcp_tools_for_specialist(
             continue
         if binding_server_ids is not None and sp and server_id not in binding_server_ids:
             continue
+        env_allowlist, env_defaults = _mcp_row_env_config(row)
         raw_args = [x for x in (row.get("entry_args") or []) if isinstance(x, str)]
         command = build_mcp_process_command(
             cmd,
@@ -161,6 +191,7 @@ def materialize_mcp_tools_for_specialist(
                 timeout_s=float(row.get("timeout_s") or 30.0),
                 required_permissions=frozenset(str(x) for x in (row.get("required_permissions") or [])),
                 env_allowlist=env_allowlist,
+                env_defaults=env_defaults,
             ).to_spec()
             out.append(spec)
     return out

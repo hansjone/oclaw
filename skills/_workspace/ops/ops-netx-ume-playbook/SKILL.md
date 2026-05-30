@@ -1,97 +1,55 @@
----
+﻿---
 name: ops-netx-ume-playbook
-description: 面向 ops 专家的 netx UME 运维作业手册。覆盖告警查询/聚合/诊断、网元清单与单网元详情、raw 字段过滤与 UME 只读 SQL。
----
+description: 闈㈠悜 ops 涓撳鐨?netx UME 杩愮淮浣滀笟鎵嬪唽銆傝鐩栧憡璀︽煡璇?鑱氬悎/璇婃柇銆佺綉鍏冩竻鍗曚笌鍗曠綉鍏冭鎯呫€乺aw 瀛楁杩囨护涓?UME 鍙 SQL銆?---
 
-# Ops Netx UME 作业手册
+# Ops Netx UME 浣滀笟鎵嬪唽
 
-## 强制使用范围
+## 寮哄埗浣跨敤鑼冨洿
 
-凡是涉及 netx/UME **告警**或 **网元信息** 的 ops 请求，必须优先加载并遵循本技能。
+鍑℃槸娑夊強 netx/UME **鍛婅**鎴?**缃戝厓淇℃伅** 鐨?ops 璇锋眰锛屽繀椤讳紭鍏堝姞杞藉苟閬靛惊鏈妧鑳姐€?
+## 宸ュ叿閫夋嫨椤哄簭
 
-## 工具选择顺序
-
-1. 基础视图（先看整体）：
-   - `netx_query_ume_alarms`
+1. 鍩虹瑙嗗浘锛堝厛鐪嬫暣浣擄級锛?   - `netx_query_ume_alarms`
    - `netx_aggregate_ume_alarms`
    - `netx_run_ume_diagnostics`
-2. 字段感知深查（需要细节）：
-   - `netx_list_ume_alarm_fields`
-   - `netx_query_ume_alarms_raw`（优先使用 `select_fields` 控制返回字段）
-3. 自定义聚合（非 SQL）：
-   - `netx_aggregate_ume_alarms_raw`（`group_by`，可选 `group_by2`）
-4. 高级分析（SQL）：
-   - `netx_sql_query_ume`（仅 SELECT、仅 UME 表；重查询建议设置 `statement_timeout_ms`）
-5. **网元（inventory，与 netx「网元清单」同源）**：
-   - 列表/搜索：`netx_query_ume_ne_inventory`（`keyword` + 分页）
-   - 单条详情（含 `raw_json`）：`netx_get_ume_ne`（`ne_id` = UUID）
+2. 瀛楁鎰熺煡娣辨煡锛堥渶瑕佺粏鑺傦級锛?   - `netx_list_ume_alarm_fields`
+   - `netx_query_ume_alarms_raw`锛堜紭鍏堜娇鐢?`select_fields` 鎺у埗杩斿洖瀛楁锛?3. 鑷畾涔夎仛鍚堬紙闈?SQL锛夛細
+   - `netx_aggregate_ume_alarms_raw`锛坄group_by`锛屽彲閫?`group_by2`锛?4. 楂樼骇鍒嗘瀽锛圫QL锛夛細
+   - `netx_sql_query_ume`锛堜粎 SELECT銆佷粎 UME 琛紱閲嶆煡璇㈠缓璁缃?`statement_timeout_ms`锛?5. **缃戝厓锛坕nventory锛屼笌 netx銆岀綉鍏冩竻鍗曘€嶅悓婧愶級**锛?   - 鍒楄〃/鎼滅储锛歚netx_query_ume_ne_inventory`锛坄keyword` + 鍒嗛〉锛?   - 鍗曟潯璇︽儏锛堝惈 `raw_json`锛夛細`netx_get_ume_ne`锛坄ne_id` = UUID锛?
+## 蹇€熷喅绛栨爲锛堝己鎺ㄨ崘锛?
+- **鍙渶瑕佹暣浣撴€佸娍 / Top 椋庨櫓 / 蹇€熺畝鎶?*锛?  - 鍏?`netx_aggregate_ume_alarms` + `netx_run_ume_diagnostics`
+  - 蹇呰鏃跺啀鐢?`netx_query_ume_alarms` 鐪嬪墠 1 椤靛仛鏍锋湰鏍稿
+- **闇€瑕佲€滃彲寮曠敤璇佹嵁鈥濈殑鍏蜂綋鍛婅鏄庣粏**锛?  - 鍏?`netx_list_ume_alarm_fields`
+  - 鍐?`netx_query_ume_alarms_raw`锛屽苟鐢?`select_fields` 鍙彇蹇呰瀛楁
+- **闇€瑕佹寜浠绘剰瀛楁鍋氱粺璁★紙浣嗕笉鎯冲啓 SQL锛?*锛?  - `netx_aggregate_ume_alarms_raw`锛坄group_by` / `group_by2`锛?- **闇€瑕佸鏉傛潯浠?/ 鑷畾涔夎绠?/ 澶氭潯浠跺叧鑱?*锛?  - `netx_sql_query_ume`锛堝繀椤昏繃婊?+ `statement_timeout_ms`锛?- **鏌ョ綉鍏冩槸璋併€両P/鏍囩銆佸湪绾跨姸鎬併€佹垨鏍稿鍛婅閲岀殑 ne_id**锛?  - 鍏?`netx_query_ume_ne_inventory`锛坄keyword` 鍙～鍚嶇О銆佷富鏈哄悕銆佹爣绛俱€両P 鎴?UUID 鐗囨锛?  - 闇€瑕佸畬鏁村瓧娈典笌 `raw_json` 鏃跺啀 `netx_get_ume_ne`
 
-## 快速决策树（强推荐）
+## 绾︽潫涓庢姢鏍?
+- 浼樺厛浣跨敤闈?SQL 宸ュ叿锛涗粎褰撳伐鍏峰弬鏁版棤娉曡〃杈鹃渶姹傛椂鍐嶇敤 SQL銆?- 榛樿杩囨护浼樺厛绾э紙鍏堟敹鏁涘啀鎵╁睍锛夛細
+  - 棣栭€夛細`severity`锛堝厛鎶婇棶棰樼缉灏忓埌 critical/major 绛夛級
+  - 鍏舵锛歚keyword`锛堢綉鍏冨悕/鏍囩/IP/瀵硅薄鍚?鍛婅鍏抽敭瀛楋級
+  - 鍐嶆锛歚time_from/time_to`锛堟寜 `last_seen_at` 闄愬畾鏃堕棿绐楋級
+  - 鏈€鍚庯細`event_type` 鎴?`ne_id`锛堝綋浣犳槑纭煡閬撹閿佸畾浜嬩欢绫诲瀷/缃戝厓鏃讹級
+- 绂佹鈥滀负浜嗗噾鍏ㄩ噺鑰屾棤鑴戠炕椤碘€濓細
+  - `netx_query_ume_alarms` 榛樿鍙湅鍓?1 椤碉紙蹇呰鏃舵渶澶?2 椤碉級
+  - 濡傞渶鏇村鏁版嵁锛屽繀椤诲厛鏄庣‘杩囨护鏉′欢锛坄severity/ne_id/keyword/time_from/time_to/event_type` 绛夛級鎴栨敼鐢ㄨ仛鍚?SQL
+- 鎺у埗鍝嶅簲浣撶Н锛?  - 榛樿 `page_size=50`锛堥櫎闈炴槑纭渶瑕佹洿澶氾紝鍚﹀垯涓嶈涓婃潵灏辨媺婊?500锛?  - 鍔ㄦ€佽仛鍚堥粯璁?`limit=200`
+  - 鍚堢悊璁剧疆 `page_size`
+  - raw 鏌ヨ灏介噺浼?`select_fields`锛涙垨浣跨敤 `field_preset=brief/evidence/ne_debug`
+  - 鍏堝姞杩囨护鏉′欢锛屽啀澧炲ぇ鍒嗛〉鑼冨洿
+- 鏃堕棿绐楄繃婊ら粯璁ゅ熀浜?`last_seen_at` 璇箟锛岄櫎闈為渶姹傛槑纭姹傚叾瀹冨彛寰勩€?- 鑻ユ暟鎹柊椴滃害涓嶆槑纭紝鍏堟煡鐪?runtime 閿氱偣鐘舵€侊紝鍐嶄笅缁撹銆?- SQL 浣跨敤瑙勫垯锛坄netx_sql_query_ume`锛夛細
+  - 寤鸿鎬绘槸璁剧疆 `statement_timeout_ms`锛堜緥濡?3000~10000锛?  - 鎺ㄨ崘榛樿浠?`statement_timeout_ms=8000` 寮€濮?  - 闄ら潪鍙槸 `count(*)`锛屽惁鍒欏簲鍖呭惈杩囨护鏉′欢锛堣嚦灏戞椂闂寸獥鎴?`ne_id`/涓ラ噸搴﹁繃婊わ級锛岄伩鍏嶅叏琛ㄦ壂鎻?
+## 杈撳嚭绾﹀畾
 
-- **只需要整体态势 / Top 风险 / 快速简报**：
-  - 先 `netx_aggregate_ume_alarms` + `netx_run_ume_diagnostics`
-  - 必要时再用 `netx_query_ume_alarms` 看前 1 页做样本核对
-- **需要“可引用证据”的具体告警明细**：
-  - 先 `netx_list_ume_alarm_fields`
-  - 再 `netx_query_ume_alarms_raw`，并用 `select_fields` 只取必要字段
-- **需要按任意字段做统计（但不想写 SQL）**：
-  - `netx_aggregate_ume_alarms_raw`（`group_by` / `group_by2`）
-- **需要复杂条件 / 自定义计算 / 多条件关联**：
-  - `netx_sql_query_ume`（必须过滤 + `statement_timeout_ms`）
-- **查网元是谁、IP/标签、在线状态、或核对告警里的 ne_id**：
-  - 先 `netx_query_ume_ne_inventory`（`keyword` 可填名称、主机名、标签、IP 或 UUID 片段）
-  - 需要完整字段与 `raw_json` 时再 `netx_get_ume_ne`
+- 杈撳嚭蹇呴』鍖呭惈锛?  - 绠€鏄庣粨璁?  - 璇佹嵁渚濇嵁锛堝伐鍏疯緭鍑猴級
+  - 鍙墽琛屼笅涓€姝?- 娌℃湁宸ュ叿璇佹嵁鏃讹紝涓嶅緱鑷嗘祴鍛婅浜嬪疄銆?- **鐢ㄦ埛鐢ㄨ嫳鏂囨彁闂椂锛堝己鍒讹級**锛氬洖澶嶄腑**涓嶅緱鍑虹幇浠讳綍姹夊瓧**锛涘伐鍏烽噷鐨勪腑鏂囧憡璀﹀瓧娈碉紙鍘熷洜銆佸璞″悕銆佹弿杩扮瓑锛夊繀椤诲厛**璇戞垚鑻辨枃**鍐嶅啓鍏ヨ〃鏍兼垨姝ｆ枃锛岀姝㈠師鏍风矘璐达紱缃戝厓鍚嶇敤 `host_name`锛屽崗璁被缁村害鐢ㄨ嫳鏂囩被鍒悕锛圤ther/Clock/鈥︼級銆?
+### 缃戝厓灞曠ず锛氫互 host_name 涓轰富閿紙寮哄埗锛?
+- **鍛婅/缁熻閲屾爣璇嗙綉鍏冩椂锛屼富閿案杩滄槸 `host_name`**锛堜富鏈哄悕锛夛紝涓嶆槸 `ne_id`銆傝〃鏍肩涓€鍒椼€乀op 缃戝厓銆佸垎缁勯敭銆佺粨璁洪噷鐨勭綉鍏冨悕閮界敤瀹冦€?- **浼樺厛鏁版嵁婧?*锛堝悓姝ユ椂宸插啓鍏ュ憡璀﹁〃锛夛細
+  - `netx_query_ume_alarms` 鈫?瀛楁 **`host_name`**
+  - `netx_query_ume_alarms_raw` 鈫?**`alarm_host_name`**锛坄select_fields` / `brief` / `evidence` 棰勮宸插寘鍚級
+  - 鑱氬悎 鈫?`group_by=alarm_host_name` 鎴?`group_by=ne_host_name`
+- **绂佹**瀵圭敤鎴峰睍绀鸿８ `ne_id` / `alarm_ne_id`锛沗ne_id` 浠呬綔鏌ヨ鍙傛暟銆?- `host_name` 涓虹┖鏃讹細鐢?`user_label` / `ne_name` 骞舵敞鏄庣己澶憋紱浠嶄笉寰楅€€鍥?UUID銆?- 浠呭綋鍒楄〃鎺ュ彛缂?`host_name` 鏃跺啀 `netx_get_ume_ne` / 缃戝厓娓呭崟 / SQL JOIN 琛ュ叏銆?
+## 鎺ㄨ崘鍒嗘瀽妯″紡
 
-## 约束与护栏
-
-- 优先使用非 SQL 工具；仅当工具参数无法表达需求时再用 SQL。
-- 默认过滤优先级（先收敛再扩展）：
-  - 首选：`severity`（先把问题缩小到 critical/major 等）
-  - 其次：`keyword`（网元名/标签/IP/对象名/告警关键字）
-  - 再次：`time_from/time_to`（按 `last_seen_at` 限定时间窗）
-  - 最后：`event_type` 或 `ne_id`（当你明确知道要锁定事件类型/网元时）
-- 禁止“为了凑全量而无脑翻页”：
-  - `netx_query_ume_alarms` 默认只看前 1 页（必要时最多 2 页）
-  - 如需更多数据，必须先明确过滤条件（`severity/ne_id/keyword/time_from/time_to/event_type` 等）或改用聚合/SQL
-- 控制响应体积：
-  - 默认 `page_size=50`（除非明确需要更多，否则不要上来就拉满 500）
-  - 动态聚合默认 `limit=200`
-  - 合理设置 `page_size`
-  - raw 查询尽量传 `select_fields`；或使用 `field_preset=brief/evidence/ne_debug`
-  - 先加过滤条件，再增大分页范围
-- 时间窗过滤默认基于 `last_seen_at` 语义，除非需求明确要求其它口径。
-- 若数据新鲜度不明确，先查看 runtime 锚点状态，再下结论。
-- SQL 使用规则（`netx_sql_query_ume`）：
-  - 建议总是设置 `statement_timeout_ms`（例如 3000~10000）
-  - 推荐默认从 `statement_timeout_ms=8000` 开始
-  - 除非只是 `count(*)`，否则应包含过滤条件（至少时间窗或 `ne_id`/严重度过滤），避免全表扫描
-
-## 输出约定
-
-- 输出必须包含：
-  - 简明结论
-  - 证据依据（工具输出）
-  - 可执行下一步
-- 没有工具证据时，不得臆测告警事实。
-- **用户用英文提问时（强制）**：回复中**不得出现任何汉字**；工具里的中文告警字段（原因、对象名、描述等）必须先**译成英文**再写入表格或正文，禁止原样粘贴；网元名用 `host_name`，协议类维度用英文类别名（Other/Clock/…）。
-
-### 网元展示：以 host_name 为主键（强制）
-
-- **告警/统计里标识网元时，主键永远是 `host_name`**（主机名），不是 `ne_id`。表格第一列、Top 网元、分组键、结论里的网元名都用它。
-- **优先数据源**（同步时已写入告警表）：
-  - `netx_query_ume_alarms` → 字段 **`host_name`**
-  - `netx_query_ume_alarms_raw` → **`alarm_host_name`**（`select_fields` / `brief` / `evidence` 预设已包含）
-  - 聚合 → `group_by=alarm_host_name` 或 `group_by=ne_host_name`
-- **禁止**对用户展示裸 `ne_id` / `alarm_ne_id`；`ne_id` 仅作查询参数。
-- `host_name` 为空时：用 `user_label` / `ne_name` 并注明缺失；仍不得退回 UUID。
-- 仅当列表接口缺 `host_name` 时再 `netx_get_ume_ne` / 网元清单 / SQL JOIN 补全。
-
-## 推荐分析模式
-
-- 高风险网元：`netx_aggregate_ume_alarms_raw` + `group_by=alarm_host_name`（首选）或 `ne_host_name` + 严重度过滤；勿按 `alarm_ne_id` 分组对外展示。
-- 严重度分布：`group_by=alarm_perceived_severity`。
-- 事件趋势切片：raw 查询中组合 `time_from/time_to` + `event_type`。
-
-## 参考模板
-
-- 快速模板见：[reference.md](reference.md)
+- 楂橀闄╃綉鍏冿細`netx_aggregate_ume_alarms_raw` + `group_by=alarm_host_name`锛堥閫夛級鎴?`ne_host_name` + 涓ラ噸搴﹁繃婊わ紱鍕挎寜 `alarm_ne_id` 鍒嗙粍瀵瑰灞曠ず銆?- 涓ラ噸搴﹀垎甯冿細`group_by=alarm_perceived_severity`銆?- 浜嬩欢瓒嬪娍鍒囩墖锛歳aw 鏌ヨ涓粍鍚?`time_from/time_to` + `event_type`銆?
+## 鍙傝€冩ā鏉?
+- 蹇€熸ā鏉胯锛歔reference.md](reference.md)

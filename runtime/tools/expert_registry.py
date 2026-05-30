@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 import inspect
 import logging
+import os
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -19,6 +20,22 @@ _DEPRECATED_TOOL_NAMES: set[str] = {
     # Deprecated internal tool from legacy src/tools chain.
     "get_weather",
 }
+
+
+def netx_builtin_tools_enabled() -> bool:
+    """When false, skip ``network_ops/netx_tools.py`` factories (use MCP ``mcp__netx__*`` instead)."""
+    return str(os.getenv("OCLAW_NETX_BUILTIN_TOOLS") or "0").strip().lower() not in {
+        "0",
+        "false",
+        "no",
+        "off",
+    }
+
+
+def _skip_expert_module(module_path: Path) -> bool:
+    if module_path.stem == "netx_tools" and not netx_builtin_tools_enabled():
+        return True
+    return False
 
 
 def _load_module_from_path(module_path: Path, module_name: str) -> Any | None:
@@ -52,12 +69,14 @@ def discover_expert_tool_factories() -> dict[str, list[ToolFactory]]:
         for module_path in sorted(expert_dir.glob("*.py")):
             if module_path.name == "__init__.py":
                 continue
+            if _skip_expert_module(module_path):
+                continue
             mod_name = f"runtime.tools.experts.{expert}.{module_path.stem}"
             module = _load_module_from_path(module_path, mod_name)
             if module is None:
                 continue
             exported = getattr(module, "__all__", None)
-            if isinstance(exported, list) and exported:
+            if isinstance(exported, list):
                 for name in sorted(exported):
                     value = getattr(module, name, None)
                     if callable(value) and name.endswith("_tool"):
