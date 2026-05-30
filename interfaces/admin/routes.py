@@ -36,6 +36,7 @@ from svc.config.passwords import load_expected_password
 from svc.persistence.sqlite_store import SqliteStore
 from svc.persistence.assistant_store import get_assistant_store
 from runtime.agents.specialists import discover_specialist_ids, parse_agent_profile_bindings
+from runtime.tools.mcp.env_config import mcp_runtime_for_row
 from runtime.tools.mcp.installer import (
     _safe_server_id,
     detect_local_dependencies,
@@ -130,10 +131,7 @@ def _mcp_health_and_sync_one(store: SqliteStore, row: dict[str, Any]) -> dict[st
         detail = {"synced_tools": len(tools), "compat_mode": "bailian_webparser"}
         store.set_mcp_server_health(server_id=sid, status="ok", detail=detail)
         return {"server_id": sid, "ok": True, "health": detail, "tools_synced": len(tools)}
-    rt = McpProcessRuntime(
-        build_mcp_process_command(cmd, args, store=store),
-        timeout_s=float(row.get("timeout_s") or 30.0),
-    )
+    rt = mcp_runtime_for_row(row, store=store)
     try:
         health = rt.health()
         health_ok = bool(health.get("ok"))
@@ -3237,10 +3235,7 @@ def build_admin_router() -> APIRouter:
             detail = {"ok": True, "status": "ok", "compat_mode": "bailian_webparser", "tools_count": 1}
             store.set_mcp_server_health(server_id=server_id, status="ok", detail=detail)
             return {"ok": True, "response": detail}
-        rt = McpProcessRuntime(
-            build_mcp_process_command(cmd, args, store=store),
-            timeout_s=float(row.get("timeout_s") or 30.0),
-        )
+        rt = mcp_runtime_for_row(row, store=store)
         try:
             response = rt.health()
             ok = bool(response.get("ok"))
@@ -3293,10 +3288,7 @@ def build_admin_router() -> APIRouter:
                 detail={"synced_tools": len(norm), "compat_mode": "bailian_webparser"},
             )
             return {"ok": True, "server_id": server_id, "tools": norm, "compat_mode": "bailian_webparser"}
-        rt = McpProcessRuntime(
-            build_mcp_process_command(cmd, args, store=store),
-            timeout_s=float(row.get("timeout_s") or 30.0),
-        )
+        rt = mcp_runtime_for_row(row, store=store)
         try:
             response = rt.tools_list()
             items = response.get("tools") if isinstance(response, dict) else None

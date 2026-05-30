@@ -5,6 +5,7 @@ import json
 import os
 from typing import Any
 
+from runtime.tools.mcp.env_config import mcp_row_env_config
 from runtime.skills import SkillSpec, materialize_skills_from_tool_specs
 from runtime.tools.base import ToolSpec
 from runtime.tools.mcp.filesystem_argv import build_mcp_process_command
@@ -13,28 +14,7 @@ from runtime.tools.public.bailian_webparser_tool import bailian_webparser_tool
 
 
 def _mcp_row_env_config(row: dict[str, Any]) -> tuple[list[str], dict[str, str]]:
-    """Per-server env allowlist + defaults from registry ``env_schema`` (e.g. Cursor ``mcpServers.env``)."""
-    from runtime.operations.mcp_env import mcp_env_allowlist_keys
-
-    schema = row.get("env_schema") if isinstance(row.get("env_schema"), dict) else {}
-    defaults: dict[str, str] = {}
-    schema_keys: list[str] = []
-    for k, spec in schema.items():
-        key = str(k or "").strip()
-        if not key:
-            continue
-        schema_keys.append(key)
-        if isinstance(spec, dict) and spec.get("default") is not None:
-            dv = str(spec.get("default") or "").strip()
-            if dv:
-                defaults[key] = dv
-    seen: set[str] = set()
-    allowlist: list[str] = []
-    for k in [*mcp_env_allowlist_keys(), *schema_keys]:
-        if k and k not in seen:
-            seen.add(k)
-            allowlist.append(k)
-    return allowlist, defaults
+    return mcp_row_env_config(row)
 
 
 @dataclass

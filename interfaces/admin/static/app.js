@@ -5014,6 +5014,8 @@ async function renderPlugins() {
     class: "btn btn--primary",
     text: "Install MCP",
     onclick: async () => {
+      installStatus.textContent = "[install] running preflight...";
+      try {
       const payload = {
         source_type: sourceType.value,
         source_ref: sourceRef.value.trim(),
@@ -5063,6 +5065,9 @@ async function renderPlugins() {
       installStatus.textContent = JSON.stringify(res);
       markPrewarmReminder("mcp_installed");
       router();
+      } catch (err) {
+        installStatus.textContent = `[install] failed: ${String((err && err.message) || err || "install_failed")}`;
+      }
     },
   });
   const jsonInstallBtn = el("button", {
@@ -5075,6 +5080,8 @@ async function renderPlugins() {
         installStatus.textContent = "[json] empty payload";
         return;
       }
+      installStatus.textContent = "[json] installing...";
+      try {
       let parsed;
       try {
         parsed = JSON.parse(raw);
@@ -5237,6 +5244,9 @@ async function renderPlugins() {
       }
       markPrewarmReminder("mcp_batch_installed");
       router();
+      } catch (err) {
+        installStatus.textContent = `[json] failed: ${String((err && err.message) || err || "install_failed")}`;
+      }
     },
   });
   const cliInstallModal = el("div", { class: "session-monitor-modal", style: "display:none;" });

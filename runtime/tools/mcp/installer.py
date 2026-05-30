@@ -169,7 +169,52 @@ def preflight_mcp_server(manifest: McpServerManifest) -> dict[str, Any]:
         return {"ok": False, "error_code": "mcp_entry_not_found", "error": f"entry_command_not_found:{entry}", "warnings": warnings, "fix_suggestions": fix_suggestions}
     env_schema = manifest.env_schema if isinstance(manifest.env_schema, dict) else {}
     required_env = [str(k) for k, v in env_schema.items() if isinstance(v, dict) and bool(v.get("required"))]
+    mod_err = _preflight_python_module(entry, manifest.entry_args or [])
+    if mod_err is not None:
+        return {**mod_err, "warnings": warnings, "fix_suggestions": fix_suggestions}
     return {"ok": True, "error_code": "", "error": "", "entry_command_path": found, "required_env": required_env, "warnings": warnings, "fix_suggestions": fix_suggestions}
+
+
+def _preflight_python_module(entry: str, entry_args: list[str]) -> dict[str, Any] | None:
+    """When entry is ``python -m <mod>``, verify that interpreter can import ``mod``."""
+    argv = [str(x or "").strip() for x in entry_args if str(x or "").strip()]
+    if str(entry or "").strip().lower() not in {"python", "python3", "py"}:
+        return None
+    if len(argv) < 2 or argv[0] != "-m":
+        return None
+    mod = argv[1].split(".")[0]
+    if not mod:
+        return None
+    exe = shutil.which(entry) or entry
+    try:
+        cp = _run_command([exe, "-c", f"import {mod}"], timeout=12)
+    except Exception as exc:
+        return {
+            "ok": False,
+            "error_code": "mcp_python_module_check_failed",
+            "error": str(exc),
+            "fix_suggestions": [
+                {
+                    "title": f"Install module for this Python ({exe})",
+                    "command": f'"{exe}" -m pip install "git+https://github.com/hansjone/netx.git#subdirectory=packages/netx-mcp"',
+                }
+            ],
+        }
+    if cp.returncode == 0:
+        return None
+    err = (cp.stderr or cp.stdout or "").strip()
+    return {
+        "ok": False,
+        "error_code": "mcp_python_module_missing",
+        "error": err[:500] or f"cannot import {mod}",
+        "fix_suggestions": [
+            {
+                "title": f"Install {mod} for the same Python oclaw uses",
+                "command": f'"{exe}" -m pip install "git+https://github.com/hansjone/netx.git#subdirectory=packages/netx-mcp"',
+            },
+            {"title": "Verify import", "command": f'"{exe}" -c "import {mod}; print(\'ok\')"'},
+        ],
+    }
 
 
 def detect_local_dependencies() -> list[dict[str, Any]]:
