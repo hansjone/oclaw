@@ -522,10 +522,13 @@ async function _buildAggregatedAssistantBubble(tsIso, items) {
     }
     if (kind === "assistant_text") {
       const aet = String((it && it.assistantEventType) || "assistant_text").toLowerCase();
-      if (aet === "tool_call" && adminChatShowToolOutput) {
-        const t0 = String(text || "").trim();
-        if (t0 && !_foldProcessTextRedundant(t0, collapsedItems)) {
-          collapsedItems.push({ title: t("reasoning.processNotes"), text: t0 });
+      if (aet === "tool_call") {
+        // Main-channel process notes belong in the reasoning fold only — never in visible body text.
+        if (adminChatShowToolOutput) {
+          const t0 = String(text || "").trim();
+          if (t0 && !_foldProcessTextRedundant(t0, collapsedItems)) {
+            collapsedItems.push({ title: t("reasoning.processNotes"), text: t0 });
+          }
         }
         const attsAssistant = await renderAttachmentsEl(it && it.attachments);
         if (attsAssistant) inner.appendChild(attsAssistant);
@@ -4263,6 +4266,8 @@ async function renderChatUi() {
     if (!message || typeof message !== "object") return [];
     const mesAttParsed = parseAttachments(message.attachments);
     const mesAtt = mesAttParsed.length ? mesAttParsed : null;
+    const srcEventType = _normalizeEventType(message.event_type || message.eventType);
+    const fallbackEventType = srcEventType === "tool_call" ? "tool_call" : "assistant_text";
     const base = {
       role: "assistant",
       id: message.id,
@@ -4301,25 +4306,32 @@ async function renderChatUi() {
     const textFallback = decodeEscapedNewlines(
       typeof message.content === "string" ? message.content : typeof message.text === "string" ? message.text : "",
     ).trim();
-    const hasAssistantText = out.some((row) => String(row.event_type || "") === "assistant_text");
-    if (textFallback && !hasAssistantText) {
-      out.push({ ...base, content: textFallback, event_type: "assistant_text" });
+    const hasBodyText = out.some((row) => {
+      const et = _normalizeEventType(row.event_type);
+      return et === "assistant_text" || et === "tool_call";
+    });
+    if (textFallback && !hasBodyText) {
+      out.push({ ...base, content: textFallback, event_type: fallbackEventType });
     }
     if (!out.length && (textFallback || (mesAtt && mesAtt.length))) {
       return [
         {
           ...base,
           content: textFallback,
-          event_type: "assistant_text",
+          event_type: fallbackEventType,
           tool_calls: message.tool_calls != null ? message.tool_calls : message.toolCalls,
           ...(mesAtt && mesAtt.length ? { attachments: mesAtt } : {}),
         },
       ];
     }
     if (out.length) {
+      const _isBodyRow = (row) => {
+        const et = _normalizeEventType(row && row.event_type);
+        return et === "assistant_text" || et === "tool_call";
+      };
       let attachIdx = out.length - 1;
       for (let i = out.length - 1; i >= 0; i -= 1) {
-        if (String(out[i].event_type || "") === "assistant_text") {
+        if (_isBodyRow(out[i])) {
           attachIdx = i;
           break;
         }
@@ -4328,10 +4340,10 @@ async function renderChatUi() {
         ...out[attachIdx],
         tool_calls: message.tool_calls != null ? message.tool_calls : message.toolCalls,
       };
-      // Avoid duplicating blobs: attach WS/API root attachments to the latest assistant_text row only.
+      // Avoid duplicating blobs: attach WS/API root attachments to the latest body row only.
       if (mesAtt && mesAtt.length) {
         for (let i = out.length - 1; i >= 0; i -= 1) {
-          if (String(out[i].event_type || "") === "assistant_text") {
+          if (_isBodyRow(out[i])) {
             out[i] = { ...out[i], attachments: mesAtt };
             break;
           }
@@ -4934,7 +4946,7 @@ ${autoLimit ? `<div style="margin-top:8px;"><span class="muted">auto-added claus
                   hasRealStreamText ||
                   (Array.isArray(chatStreamSegments) && chatStreamSegments.length > 0) ||
                   !!String(chatStream || "").trim();
-                const fbLine = chatStream || extractWsAssistantText(payload.message || {});
+                const fbLine = extractWsAssistantText(payload.message || {}) || chatStream;
                 const fbTrim = String(fbLine || "").trim();
                 const fbOk = !!fbTrim && !_isSilentReplyStream(fbTrim);
                 const n = await loadMessagesForActive({ keepDomIfNoHistoryRows: hadStream });
@@ -4959,7 +4971,10 @@ ${autoLimit ? `<div style="margin-top:8px;"><span class="muted">auto-added claus
                 }
                 scrollMessagesToBottom(true);
               } else {
-                ok = await appendFinalAssistant(payload.message, chatStream || extractWsAssistantText(payload.message || {}));
+                ok = await appendFinalAssistant(
+                  payload.message,
+                  extractWsAssistantText(payload.message || {}) || chatStream,
+                );
               }
               if (!ok) _markStreamTerminal("end", t("chat.status.end"));
               chatStream = "";
