@@ -5,10 +5,15 @@ from dataclasses import dataclass
 from runtime.application.gateway.inbound_service import (
     _collect_reply_attachments_from_history,
     _collect_recent_tool_attachments,
+    _get_channel_dispatch_setting,
+    _latest_user_turn_uuid,
     _maybe_add_media_path_for_wechat_reply,
     _maybe_expand_reply_attachments_for_channel,
     _parse_message_attachments,
+    _persist_channel_assistant_if_turn_missing,
+    _resolve_channel_dispatch,
     _should_suppress_channel_reply,
+    _user_facing_wechat_reply,
 )
 
 
@@ -21,6 +26,88 @@ def test_should_suppress_weixin_openai_missing_api_key_message() -> None:
 def test_should_not_suppress_non_weixin_channel() -> None:
     text = '⚠️ Missing API key for provider "openai". Configure the gateway auth for that provider, then try again.'
     assert _should_suppress_channel_reply(channel="admin_chat", text=text) is False
+
+
+def test_user_facing_wechat_reply_maps_empty_and_api_key_errors() -> None:
+    assert _user_facing_wechat_reply(reply="") == "暂时无法回复，请稍后再试。"
+    assert "API" in _user_facing_wechat_reply(
+        reply='Missing API key for provider "openai". Configure the gateway auth for that provider.'
+    )
+    assert _user_facing_wechat_reply(reply="你好") == "你好"
+
+
+def test_persist_channel_assistant_if_turn_missing_inserts_once() -> None:
+    class _Msg:
+        def __init__(self, role: str, turn_uuid: str) -> None:
+            self.role = role
+            self.turn_uuid = turn_uuid
+
+    class _Store:
+        def __init__(self) -> None:
+            self.rows: list[_Msg] = [_Msg("user", "turn-1")]
+            self.added: list[tuple[str, str, str]] = []
+
+        def get_messages(self, *, session_id: str, limit: int = 80) -> list[_Msg]:
+            _ = (session_id, limit)
+            return list(self.rows)
+
+        def add_message(self, **kwargs: object) -> None:
+            self.added.append(
+                (
+                    str(kwargs.get("session_id") or ""),
+                    str(kwargs.get("turn_uuid") or ""),
+                    str(kwargs.get("content") or ""),
+                )
+            )
+            self.rows.append(_Msg("assistant", str(kwargs.get("turn_uuid") or "")))
+
+    store = _Store()
+    _persist_channel_assistant_if_turn_missing(
+        store=store,
+        session_id="s1",
+        turn_uuid="",
+        final_text="暂时无法回复，请稍后再试。",
+    )
+    assert len(store.added) == 1
+    assert store.added[0] == ("s1", "turn-1", "暂时无法回复，请稍后再试。")
+    _persist_channel_assistant_if_turn_missing(
+        store=store,
+        session_id="s1",
+        turn_uuid="turn-1",
+        final_text="暂时无法回复，请稍后再试。",
+    )
+    assert len(store.added) == 1
+
+
+def test_latest_user_turn_uuid() -> None:
+    class _Msg:
+        def __init__(self, role: str, turn_uuid: str) -> None:
+            self.role = role
+            self.turn_uuid = turn_uuid
+
+    class _Store:
+        def get_messages(self, *, session_id: str, limit: int = 80) -> list[_Msg]:
+            _ = (session_id, limit)
+            return [_Msg("assistant", "a1"), _Msg("user", "u2")]
+
+    assert _latest_user_turn_uuid(_Store(), session_id="s") == "u2"
+
+
+def test_channel_dispatch_wechat_reads_weixin_settings() -> None:
+    class _Store:
+        def get_setting(self, key: str) -> str:
+            data = {
+                "channel.dispatch.interaction_mode.weixin": "comprehensive",
+                "channel.dispatch.specialist.weixin": "ops",
+                "channel.dispatch.lang.weixin": "zh",
+            }
+            return str(data.get(key) or "")
+
+    mode, spec, lang = _resolve_channel_dispatch(_Store(), channel="wechat", account=None)
+    assert mode == "comprehensive"
+    assert spec == "ops"
+    assert lang == "zh"
+    assert _get_channel_dispatch_setting(_Store(), "channel.dispatch.specialist.", "wechat") == "ops"
 
 
 def test_parse_message_attachments_accepts_json_string() -> None:
@@ -55,14 +142,36 @@ def test_collect_reply_attachments_prefers_matching_assistant_text() -> None:
     assert out[0].get("attachment_id") == "new"
 
 
+def test_collect_reply_attachments_does_not_reuse_stale_images_on_text_only_reply() -> None:
+    rows = [
+        _Row(role="assistant", content="here is a chart", attachments='[{"attachment_id":"old"}]'),
+        _Row(role="assistant", content="ok", attachments=None),
+    ]
+    out = _collect_reply_attachments_from_history(store=_FakeStore(rows), session_id="s1", reply_text="ok")
+    assert out == []
+
+
 def test_collect_recent_tool_attachments_falls_back_to_tool_media() -> None:
     rows = [
-        _Row(role="assistant", content="x", attachments=None),
+        _Row(role="user", content="draw", attachments=None),
         _Row(role="tool", content="{}", attachments='[{"type":"image_ref","attachment_id":"a1"}]'),
+        _Row(role="assistant", content="x", attachments=None),
     ]
     out = _collect_recent_tool_attachments(store=_FakeStore(rows), session_id="s1")
     assert len(out) == 1
     assert out[0].get("attachment_id") == "a1"
+
+
+def test_collect_recent_tool_attachments_ignores_media_from_prior_turn() -> None:
+    rows = [
+        _Row(role="user", content="old question", attachments=None),
+        _Row(role="tool", content="{}", attachments='[{"type":"image_ref","attachment_id":"stale"}]'),
+        _Row(role="assistant", content="old answer", attachments=None),
+        _Row(role="user", content="new question", attachments=None),
+        _Row(role="assistant", content="new answer", attachments=None),
+    ]
+    out = _collect_recent_tool_attachments(store=_FakeStore(rows), session_id="s1")
+    assert out == []
 
 
 def test_maybe_add_media_path_for_wechat_reply_sets_media_path(monkeypatch) -> None:

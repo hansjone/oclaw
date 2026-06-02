@@ -280,8 +280,33 @@ powershell -ExecutionPolicy Bypass -File .\runtime\operations\scripts\whatsapp_s
 说明：
 
 - `whatsapp_login.ps1` 会在控制台打印二维码，请用 WhatsApp 手机端的“关联设备”扫码完成绑定。
-- 登录态会落盘在 `data/channel_sidecar/whatsapp/state/auth/`，重启后无需重复扫码。
+- 登录态会落盘在 `data/channel_sidecar/whatsapp/state/auth/`，重启 sidecar 后**一般无需重复扫码**。
 - sidecar 收到消息后会调用本地网关 `POST /inbound/whatsapp` 获取 `replies[]` 并回发。
+- sidecar 日志出现 `logged out` 时，需删除上述 `auth` 目录后再执行 `whatsapp_login.ps1`（见下节）。
+
+#### 重新绑定设备（换号 / 手机端已解除关联 / 要出新二维码）
+
+与首次安装不同：**必须先清掉旧登录态**，否则 `whatsapp_login.ps1` 可能不会出现二维码。
+
+在仓库根目录执行：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\runtime\operations\scripts\whatsapp_stop.ps1 -Force
+Remove-Item -Recurse -Force .\data\channel_sidecar\whatsapp\state\auth
+powershell -ExecutionPolicy Bypass -File .\runtime\operations\scripts\whatsapp_login.ps1
+powershell -ExecutionPolicy Bypass -File .\runtime\operations\scripts\whatsapp_start.ps1
+powershell -ExecutionPolicy Bypass -File .\runtime\operations\scripts\whatsapp_status.ps1
+```
+
+可选：在手机 WhatsApp **设置 → 已关联的设备** 中删除旧的 “oclaw” 设备，再扫码。
+
+#### 重新绑定 oclaw 用户（控制台渠道绑定）
+
+设备已连上、只需把某个 WhatsApp 联系人归属到团队用户时：
+
+1. 打开 `http://127.0.0.1:8787/admin` → **用户/渠道绑定**，渠道选 `whatsapp`。
+2. 生成绑定码；用该 WhatsApp 向机器人发送：`bind <绑定码>`（与微信相同）。
+3. 无需删除 `state/auth`（那是设备登录态，不是用户归属）。
 
 Admin 可视化调度（新增）：
 

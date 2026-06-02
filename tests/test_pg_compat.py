@@ -44,3 +44,9 @@ def test_scrub_nul_bytes_from_text() -> None:
 
 def test_scrub_nul_bytes_from_jsonable_nested() -> None:
     assert pg_compat.scrub_nul_bytes_from_jsonable({"x": "y\x00z"}) == {"x": "yz"}
+
+
+def test_escape_percent_in_sql_literals_for_like_b64_prefix() -> None:
+    sql = "SELECT 1 FROM llm_profile WHERE api_key LIKE 'b64:%'"
+    adapted = pg_compat.adapt_sql_for_postgres(sql)
+    assert "LIKE 'b64:%%'" in adapted

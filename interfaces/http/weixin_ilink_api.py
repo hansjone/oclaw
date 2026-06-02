@@ -49,6 +49,40 @@ def _now_ms() -> int:
     return int(time.time() * 1000)
 
 
+def _native_reply_timeout_sec() -> float:
+    raw = str(os.getenv("AIA_CHANNEL_NATIVE_REPLY_TIMEOUT_SEC") or "90").strip()
+    try:
+        value = float(raw)
+    except ValueError:
+        value = 90.0
+    return max(10.0, min(value, 600.0))
+
+
+async def _run_native_reply_usecase(payload: dict[str, Any]) -> dict[str, Any]:
+    timeout = _native_reply_timeout_sec()
+    try:
+        return await asyncio.wait_for(
+            asyncio.to_thread(_process_inbound_payload_usecase, payload),
+            timeout=timeout,
+        )
+    except asyncio.TimeoutError:
+        channel = _normalize_channel(payload.get("channel"))
+        chat_id = str(payload.get("chat_id") or payload.get("user_id") or "").strip()
+        return {
+            "ok": False,
+            "error": "native_reply_timeout",
+            "replies": [
+                {
+                    "channel": channel,
+                    "chat_id": chat_id,
+                    "text": "处理超时，请稍后再试。",
+                    "attachments": [],
+                    "metadata": {},
+                }
+            ],
+        }
+
+
 def _normalize_channel(raw: Any) -> str:
     ch = str(raw or "wechat").strip().lower()
     return ch if ch else "wechat"
@@ -468,7 +502,7 @@ async def weixin_native_reply(
         return {"ok": False, "error": "missing user_id", "replies": []}
     if not str(payload.get("account_id") or "").strip():
         return {"ok": False, "error": "missing account_id", "replies": []}
-    out = await asyncio.to_thread(_process_inbound_payload_usecase, payload)
+    out = await _run_native_reply_usecase(payload)
     replies = out.get("replies") if isinstance(out, dict) else []
     if not isinstance(replies, list):
         replies = []
@@ -490,7 +524,7 @@ async def whatsapp_native_reply(
         return {"ok": False, "error": "missing user_id", "replies": []}
     if not str(payload.get("account_id") or "").strip():
         return {"ok": False, "error": "missing account_id", "replies": []}
-    out = await asyncio.to_thread(_process_inbound_payload_usecase, payload)
+    out = await _run_native_reply_usecase(payload)
     replies = out.get("replies") if isinstance(out, dict) else []
     if not isinstance(replies, list):
         replies = []

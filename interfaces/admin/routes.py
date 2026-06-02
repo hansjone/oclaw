@@ -333,6 +333,48 @@ def build_admin_router() -> APIRouter:
             return parts[1].strip()
         return ""
 
+    def _resolve_login_tenant_id(store: SqliteStore, *, username: str, tenant_id: str) -> str:
+        """Pick tenant when login body omits tenant_id.
+
+        Chat login sends tenant_id=\"\". Using list_tenants(limit=1) alone picks the newest tenant
+        (often pg-smoke), which has no chat history. For administrator, prefer the Team tenant,
+        then the tenant with the most owned sessions.
+        """
+        explicit = str(tenant_id or "").strip()
+        if explicit:
+            return explicit
+        uname = str(username or "").strip().lower()
+        tenants = store.list_tenants(limit=500)
+        if not tenants:
+            return ""
+        if uname == "administrator":
+            for row in tenants:
+                tid = str((row or {}).get("id") or "").strip()
+                if not tid:
+                    continue
+                if str((row or {}).get("name") or "").strip().lower() != "team":
+                    continue
+                if store.get_user_by_username(tenant_id=tid, username="administrator"):
+                    return tid
+            best_tid = ""
+            best_n = -1
+            for row in tenants:
+                tid = str((row or {}).get("id") or "").strip()
+                if not tid:
+                    continue
+                user = store.get_user_by_username(tenant_id=tid, username="administrator")
+                if not user:
+                    continue
+                uid = str(user.get("id") or "")
+                meta = store.get_sessions_list_meta_for_user(tenant_id=tid, user_id=uid)
+                n = int(meta.session_count or 0)
+                if n > best_n:
+                    best_n = n
+                    best_tid = tid
+            if best_tid:
+                return best_tid
+        return str((tenants[0] or {}).get("id") or "").strip()
+
     def _resolve_auth(store: SqliteStore, authorization: str | None) -> dict[str, Any]:
         token = _extract_bearer(authorization)
         if not token:
@@ -3751,11 +3793,6 @@ def build_admin_router() -> APIRouter:
         payload = payload or {}
         store = get_assistant_store()
         _ensure_admin_bootstrap(store)
-        tenant_id = str(payload.get("tenant_id") or "").strip()
-        if not tenant_id:
-            tenants = store.list_tenants(limit=1)
-            if tenants:
-                tenant_id = str((tenants[0] or {}).get("id") or "").strip()
         purpose = str(payload.get("purpose") or "console").strip().lower()
         if purpose not in {"console", "chat"}:
             purpose = "console"
@@ -3763,6 +3800,11 @@ def build_admin_router() -> APIRouter:
             username = str(payload.get("username") or "administrator").strip().lower()
         else:
             username = str(payload.get("username") or "").strip().lower()
+        tenant_id = _resolve_login_tenant_id(
+            store,
+            username=username,
+            tenant_id=str(payload.get("tenant_id") or "").strip(),
+        )
         password = str(payload.get("password") or "").strip()
         if not tenant_id or not password:
             return {"ok": False, "error": "tenant_id, username, password are required"}

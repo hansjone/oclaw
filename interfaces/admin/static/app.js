@@ -1528,20 +1528,28 @@ async function renderStack() {
   const createChannelDispatchCard = (channel, title, initial) => {
     const curMode = String((initial && initial.interaction_mode) || "expert").trim() || "expert";
     const curSpecialist = String((initial && initial.specialist) || "generalist").trim() || "generalist";
+    const curLang = String((initial && initial.lang) || "auto").trim().toLowerCase() || "auto";
     const specialistSel = el("select", { class: "input" }, availableDispatchSpecialists.map((sid) =>
       el("option", { value: sid, text: sid, selected: sid === curSpecialist ? "selected" : undefined }),
     ));
-    const status = el("div", { class: "muted", text: `mode=${curMode} specialist=${curSpecialist}` });
+    const langSel = el("select", { class: "input" }, [
+      el("option", { value: "auto", text: currentLang === "zh" ? "自动" : "Auto", selected: curLang === "auto" ? "selected" : undefined }),
+      el("option", { value: "zh", text: currentLang === "zh" ? "中文" : "Chinese", selected: curLang === "zh" ? "selected" : undefined }),
+      el("option", { value: "en", text: currentLang === "zh" ? "英文" : "English", selected: curLang === "en" ? "selected" : undefined }),
+    ]);
+    const status = el("div", { class: "muted", text: `mode=${curMode} specialist=${curSpecialist} lang=${curLang}` });
     const saveExpertBtn = el("button", {
       class: "btn",
       text: currentLang === "zh" ? "绑定专家" : "Bind specialist",
       onclick: async () => {
         const specialist = String(specialistSel.value || "generalist").trim() || "generalist";
+        const lang = String(langSel.value || "auto").trim().toLowerCase() || "auto";
         const resp = await apiPost(`/admin/api/chat/settings/channel-dispatch/${encodeURIComponent(channel)}`, {
           interaction_mode: "expert",
           specialist,
+          lang,
         });
-        status.textContent = `mode=${String(resp.interaction_mode || "expert")} specialist=${String(resp.specialist || specialist)}`;
+        status.textContent = `mode=${String(resp.interaction_mode || "expert")} specialist=${String(resp.specialist || specialist)} lang=${String(resp.lang || lang)}`;
       },
     });
     const saveComprehensiveBtn = el("button", {
@@ -1549,11 +1557,13 @@ async function renderStack() {
       text: currentLang === "zh" ? "综合" : "Comprehensive",
       onclick: async () => {
         const specialist = String(specialistSel.value || "generalist").trim() || "generalist";
+        const lang = String(langSel.value || "auto").trim().toLowerCase() || "auto";
         const resp = await apiPost(`/admin/api/chat/settings/channel-dispatch/${encodeURIComponent(channel)}`, {
           interaction_mode: "comprehensive",
           specialist,
+          lang,
         });
-        status.textContent = `mode=${String(resp.interaction_mode || "comprehensive")} specialist=${String(resp.specialist || specialist)}`;
+        status.textContent = `mode=${String(resp.interaction_mode || "comprehensive")} specialist=${String(resp.specialist || specialist)} lang=${String(resp.lang || lang)}`;
       },
     });
     return el("div", { class: "card" }, [
@@ -1561,6 +1571,8 @@ async function renderStack() {
       el("div", { class: "row" }, [
         el("label", { text: currentLang === "zh" ? "专家" : "Specialist" }),
         specialistSel,
+        el("label", { text: currentLang === "zh" ? "语言" : "Lang" }),
+        langSel,
         saveExpertBtn,
         saveComprehensiveBtn,
       ]),

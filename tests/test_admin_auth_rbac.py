@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 from interfaces.http.fastapi_app import create_app
 from svc.persistence.db.engine import clear_assistant_engine_cache
 from svc.persistence.sqlite_store import SqliteStore
-from svc.persistence.assistant_store import get_assistant_store
+from svc.persistence.assistant_store import get_assistant_store, reset_assistant_store_singleton
 
 
 class AdminAuthRBACTests(unittest.TestCase):
@@ -21,6 +21,10 @@ class AdminAuthRBACTests(unittest.TestCase):
         import os
 
         os.environ["OPS_ASSISTANT_DB_PATH"] = str(db)
+        os.environ["AIA_ASSISTANT_DB_PATH"] = str(db)
+        os.environ["AIA_ASSISTANT_DB_BACKEND"] = "sqlite"
+        os.environ.pop("AIA_ASSISTANT_DATABASE_URL", None)
+        reset_assistant_store_singleton()
         os.environ["OPS_ASSISTANT_PASSWORD"] = "test-admin-pass"
         store = SqliteStore(str(db))
         t = store.create_tenant("Team")
@@ -38,6 +42,7 @@ class AdminAuthRBACTests(unittest.TestCase):
 
     def tearDown(self) -> None:
         clear_assistant_engine_cache()
+        reset_assistant_store_singleton()
         self._tmp.cleanup()
 
     def _login(self, username: str = "administrator", password: str = "test-admin-pass") -> str:
@@ -122,6 +127,31 @@ class AdminAuthRBACTests(unittest.TestCase):
         data = resp.json()
         self.assertTrue(data.get("ok"), data)
         self.assertEqual(str((data.get("session") or {}).get("username") or ""), "carol")
+
+    def test_administrator_login_without_tenant_id_prefers_team(self) -> None:
+        store = get_assistant_store()
+        newer = store.create_tenant("pg-smoke-newer")
+        store.create_user_account(
+            tenant_id=str(newer["id"]),
+            username="administrator",
+            display_name="Admin",
+            role="admin",
+            password_hash=hashlib.sha256("test-admin-pass".encode("utf-8")).hexdigest(),
+            is_active=True,
+        )
+        self.client.post("/admin/api/auth/bootstrap", json={})
+        resp = self.client.post(
+            "/admin/api/auth/login",
+            json={
+                "tenant_id": "",
+                "username": "administrator",
+                "password": "test-admin-pass",
+                "purpose": "chat",
+            },
+        )
+        data = resp.json()
+        self.assertTrue(data.get("ok"), data)
+        self.assertEqual(str((data.get("session") or {}).get("tenant_id") or ""), self.tenant_id)
 
     def test_console_login_allows_member_username_with_admin_read(self) -> None:
         store = get_assistant_store()

@@ -11,6 +11,7 @@ from svc.persistence.assistant_store import get_assistant_store
 
 _CHANNEL_DISPATCH_INTERACTION_KEY_PREFIX = "channel.dispatch.interaction_mode."
 _CHANNEL_DISPATCH_SPECIALIST_KEY_PREFIX = "channel.dispatch.specialist."
+_CHANNEL_DISPATCH_LANG_KEY_PREFIX = "channel.dispatch.lang."
 
 
 def _channel_dispatch_interaction_key(channel: str) -> str:
@@ -20,28 +21,65 @@ def _channel_dispatch_interaction_key(channel: str) -> str:
 def _channel_dispatch_specialist_key(channel: str) -> str:
     return f"{_CHANNEL_DISPATCH_SPECIALIST_KEY_PREFIX}{str(channel or '').strip().lower()}"
 
+def _channel_dispatch_lang_key(channel: str) -> str:
+    return f"{_CHANNEL_DISPATCH_LANG_KEY_PREFIX}{str(channel or '').strip().lower()}"
 
-def _resolve_channel_dispatch(store: Any, *, channel: str, account: dict[str, Any] | None) -> tuple[str, str]:
+
+def _normalize_channel_dispatch_lang(raw: Any) -> str:
+    v = str(raw or "").strip().lower()
+    if v in {"auto", "zh", "en"}:
+        return v
+    return "auto"
+
+
+def _channel_dispatch_setting_aliases(channel: str) -> tuple[str, ...]:
     ch = str(channel or "").strip().lower()
-    interaction_mode = normalize_interaction_mode(store.get_setting(_channel_dispatch_interaction_key(ch)) or "expert")
-    specialist = normalize_requested_specialist(store.get_setting(_channel_dispatch_specialist_key(ch)) or "generalist")
+    if ch == "wechat":
+        return ("wechat", "weixin")
+    if ch == "weixin":
+        return ("weixin", "wechat")
+    return (ch,)
+
+
+def _get_channel_dispatch_setting(store: Any, key_prefix: str, channel: str) -> str:
+    for alias in _channel_dispatch_setting_aliases(channel):
+        val = str(store.get_setting(f"{key_prefix}{alias}") or "").strip()
+        if val:
+            return val
+    return ""
+
+
+def _resolve_channel_dispatch(store: Any, *, channel: str, account: dict[str, Any] | None) -> tuple[str, str, str]:
+    ch = str(channel or "").strip().lower()
+    interaction_mode = normalize_interaction_mode(
+        _get_channel_dispatch_setting(store, _CHANNEL_DISPATCH_INTERACTION_KEY_PREFIX, ch) or "expert"
+    )
+    specialist = normalize_requested_specialist(
+        _get_channel_dispatch_setting(store, _CHANNEL_DISPATCH_SPECIALIST_KEY_PREFIX, ch) or "generalist"
+    )
+    lang = _normalize_channel_dispatch_lang(
+        _get_channel_dispatch_setting(store, _CHANNEL_DISPATCH_LANG_KEY_PREFIX, ch) or "auto"
+    )
     cfg = (account or {}).get("config")
     if isinstance(cfg, dict):
         cfg_mode = cfg.get("interaction_mode")
         cfg_specialist = cfg.get("specialist")
+        cfg_lang = cfg.get("lang")
         if cfg_mode is not None:
             interaction_mode = normalize_interaction_mode(cfg_mode)
         if cfg_specialist is not None:
             specialist = normalize_requested_specialist(cfg_specialist)
-    return interaction_mode, specialist
+        if cfg_lang is not None:
+            lang = _normalize_channel_dispatch_lang(cfg_lang)
+    return interaction_mode, specialist, lang
 
 
-def _build_admin_gateway_executor(store: Any, *, tenant_id: str, specialist: str, session_id: str) -> Any:
+def _build_admin_gateway_executor(store: Any, *, tenant_id: str, specialist: str, session_id: str, lang: str) -> Any:
     from runtime.agents.factory import build_gateway_executor
 
     return build_gateway_executor(
         store,
-        lang="zh",
+        lang=str(lang or "zh"),
         specialist=specialist,
         viewer_user_id=None,
         viewer_username="administrator",
@@ -301,6 +339,45 @@ def _parse_generic_inbound(channel_name: str, payload: dict[str, Any]) -> Inboun
     )
 
 
+def _channel_attachments_for_gateway(raw: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Ingest sidecar local_path blobs into attachment store refs for handle_turn."""
+    from pathlib import Path
+
+    from svc.files.attachment_assets import AttachmentAssetStore
+
+    out: list[dict[str, Any]] = []
+    ast = AttachmentAssetStore()
+    for a in raw or []:
+        if not isinstance(a, dict):
+            continue
+        aid = str(a.get("attachment_id") or a.get("attachmentId") or "").strip().lower()
+        if aid:
+            t = str(a.get("type") or "").strip().lower() or "binary_ref"
+            out.append({"type": t, "attachment_id": aid})
+            continue
+        lp = str(a.get("local_path") or a.get("media_path") or "").strip()
+        if not lp:
+            continue
+        p = Path(lp)
+        if not p.is_file():
+            continue
+        kind = str(a.get("kind") or "").strip().lower()
+        mime = str(a.get("media_type") or a.get("mime") or a.get("mime_type") or "").strip()
+        if not mime:
+            mime = "application/octet-stream"
+        try:
+            meta = ast.save_bytes(p.read_bytes(), filename=p.name, mime=mime)
+        except Exception:
+            continue
+        if kind == "image" or mime.startswith("image/"):
+            out.append({"type": "image_ref", "attachment_id": meta.attachment_id})
+        elif kind == "video" or mime.startswith("video/"):
+            out.append({"type": "video_ref", "attachment_id": meta.attachment_id})
+        else:
+            out.append({"type": "binary_ref", "attachment_id": meta.attachment_id})
+    return out
+
+
 def _parse_message_attachments(raw: Any) -> list[dict[str, Any]]:
     if raw is None:
         return []
@@ -330,10 +407,22 @@ def _first_attachment_id(atts: list[dict[str, Any]]) -> str:
     return ""
 
 
-def _collect_recent_tool_attachments(*, store: Any, session_id: str) -> list[dict[str, Any]]:
-    """Fallback for channel delivery: if assistant attachments are missing, reuse recent tool attachments.
+def _rows_since_last_user_message(rows: list[Any]) -> list[Any]:
+    """Return messages after the most recent user turn (current inbound reply scope)."""
+    last_user_idx = -1
+    for i, row in enumerate(rows or []):
+        role = str(getattr(row, "role", "") or "").strip().lower()
+        if role == "user":
+            last_user_idx = i
+    if last_user_idx < 0:
+        return list(rows or [])
+    return list(rows[last_user_idx + 1 :])
 
-    This is intentionally conservative: only returns attachments when they look like media or refs.
+
+def _collect_recent_tool_attachments(*, store: Any, session_id: str) -> list[dict[str, Any]]:
+    """Fallback for channel delivery: reuse tool media produced during the current user turn only.
+
+    Avoids re-sending images from earlier conversation turns when the latest assistant row has no attachments.
     """
     sid = str(session_id or "").strip()
     if not sid:
@@ -342,15 +431,14 @@ def _collect_recent_tool_attachments(*, store: Any, session_id: str) -> list[dic
         rows = store.get_messages(session_id=sid, limit=80)
     except Exception:
         rows = []
-    # Prefer newest tool attachments.
-    for row in reversed(list(rows or [])):
+    scoped = _rows_since_last_user_message(list(rows or []))
+    for row in reversed(scoped):
         role = str(getattr(row, "role", "") or "").strip().lower()
         if role != "tool":
             continue
         atts = _parse_message_attachments(getattr(row, "attachments", None))
         if not atts:
             continue
-        # Only accept common media/ref shapes.
         ok = False
         for a in atts:
             if not isinstance(a, dict):
@@ -447,6 +535,11 @@ def _maybe_expand_reply_attachments_for_channel(reply: dict[str, Any]) -> None:
 
 
 def _collect_reply_attachments_from_history(*, store: Any, session_id: str, reply_text: str) -> list[dict[str, Any]]:
+    """Attachments for the assistant message whose text equals ``reply_text`` (latest match only).
+
+    Does not fall back to older assistant rows with attachments — that caused WeChat to re-send stale images
+    on every later text-only reply in the same session.
+    """
     sid = str(session_id or "").strip()
     if not sid:
         return []
@@ -455,19 +548,64 @@ def _collect_reply_attachments_from_history(*, store: Any, session_id: str, repl
     except Exception:
         rows = []
     target = str(reply_text or "").strip()
-    fallback: list[dict[str, Any]] = []
-    matched: list[dict[str, Any]] = []
-    for row in rows or []:
+    if not target:
+        return []
+    for row in reversed(list(rows or [])):
         role = str(getattr(row, "role", "") or "").strip().lower()
         if role != "assistant":
             continue
-        atts = _parse_message_attachments(getattr(row, "attachments", None))
-        if atts:
-            fallback = atts
         content = str(getattr(row, "content", "") or "").strip()
-        if target and content == target and atts:
-            matched = atts
-    return matched or fallback
+        if content != target:
+            continue
+        return _parse_message_attachments(getattr(row, "attachments", None))
+    return []
+
+
+def _user_facing_wechat_reply(*, reply: str) -> str:
+    """Map empty/suppressed provider errors to a short user-visible wechat message."""
+    text = str(reply or "").strip()
+    if not text:
+        return "暂时无法回复，请稍后再试。"
+    if _should_suppress_channel_reply(channel="wechat", text=text):
+        return "模型 API 未配置或不可用，请联系管理员在后台检查大模型配置。"
+    return text
+
+
+def _latest_user_turn_uuid(store: Any, *, session_id: str) -> str:
+    rows = store.get_messages(session_id=str(session_id), limit=80)
+    for m in reversed(rows or []):
+        if str(getattr(m, "role", "") or "").lower() != "user":
+            continue
+        tu = str(getattr(m, "turn_uuid", "") or "").strip()
+        if tu:
+            return tu
+    return ""
+
+
+def _persist_channel_assistant_if_turn_missing(
+    *,
+    store: Any,
+    session_id: str,
+    turn_uuid: str,
+    final_text: str,
+) -> None:
+    """Channel inbound may return user-visible text without a persisted assistant row (LLM timeout)."""
+    from runtime.chat.persist_terminal_fallback import persist_assistant_text_if_turn_missing
+
+    sid = str(session_id or "").strip()
+    body = str(final_text or "").strip()
+    if not sid or not body:
+        return
+    tu = str(turn_uuid or "").strip() or _latest_user_turn_uuid(store, session_id=sid)
+    if not tu:
+        return
+    persist_assistant_text_if_turn_missing(
+        store=store,
+        session_id=sid,
+        turn_uuid=tu,
+        final_text=body,
+        log_prefix="channel_inbound_assistant_persist",
+    )
 
 
 def _should_suppress_channel_reply(*, channel: str, text: str) -> bool:
@@ -519,6 +657,8 @@ def process_inbound_payload(payload: dict[str, Any]) -> dict[str, Any]:
 
     text = inbound.text.strip()
     preface = ""
+    channel_session_id = ""
+    channel_turn_uuid = ""
     if text.lower().startswith("bind "):
         code = text.split(None, 1)[-1].strip()
         info = store.consume_bind_code(
@@ -591,6 +731,7 @@ def process_inbound_payload(payload: dict[str, Any]) -> dict[str, Any]:
                     group_name=group_name,
                 ),
             )
+            channel_session_id = str(session_id)
             store.ensure_ui_session_owner(session_id=session_id, tenant_id=tenant_id, user_id=user_id)
             scope = "group" if inbound.is_group else "direct"
             pe = PolicyEngine()
@@ -629,13 +770,24 @@ def process_inbound_payload(payload: dict[str, Any]) -> dict[str, Any]:
                         reply = cmd_reply
                     elif not reply:
                         user_text = (inbound.text or "").strip()
-                        if user_text:
+                        gw_attachments = _channel_attachments_for_gateway(
+                            list(inbound.attachments or [])
+                        )
+                        if not user_text and gw_attachments:
+                            user_text = "用户发送了附件，请根据附件内容回复。"
+                        if user_text or gw_attachments:
                             try:
                                 from runtime.gateway import OclawGateway
                                 from runtime.types import StandardMessage
+                                from runtime.lang import resolve_runtime_lang
 
-                                interaction_mode, selected_specialist = _resolve_channel_dispatch(
+                                interaction_mode, selected_specialist, dispatch_lang = _resolve_channel_dispatch(
                                     store, channel=inbound.channel, account=account
+                                )
+                                lang = (
+                                    dispatch_lang
+                                    if dispatch_lang in {"zh", "en"}
+                                    else resolve_runtime_lang(store=store, user_text=user_text)
                                 )
                                 gw = OclawGateway(store=store)
                                 msg = StandardMessage(
@@ -645,7 +797,7 @@ def process_inbound_payload(payload: dict[str, Any]) -> dict[str, Any]:
                                     role=str(role or "member"),
                                     channel=str(inbound.channel or "inbound"),
                                     text=str(user_text or ""),
-                                    attachments=[],
+                                    attachments=gw_attachments,
                                     metadata={
                                         "tenant_id": tenant_id,
                                         "user_id": user_id,
@@ -661,22 +813,23 @@ def process_inbound_payload(payload: dict[str, Any]) -> dict[str, Any]:
                                     tenant_id=tenant_id,
                                     specialist="generalist",
                                     session_id=str(session_id),
+                                    lang=lang,
                                 )
                                 specialist_factory = lambda sid: _build_admin_gateway_executor(
                                     store,
                                     tenant_id=tenant_id,
                                     specialist=sid,
                                     session_id=str(session_id),
+                                    lang=lang,
                                 )
-                                reply = str(
-                                    gw.handle_turn(
-                                        msg=msg,
-                                        lang="zh",
-                                        executor=manager,
-                                        specialist_executor_factory=specialist_factory,
-                                    ).reply_text
-                                    or ""
-                                ).strip()
+                                turn_result = gw.handle_turn(
+                                    msg=msg,
+                                    lang=lang,
+                                    executor=manager,
+                                    specialist_executor_factory=specialist_factory,
+                                )
+                                channel_turn_uuid = str(turn_result.turn_uuid or "").strip()
+                                reply = str(turn_result.reply_text or "").strip()
                                 reply_attachments = _collect_reply_attachments_from_history(
                                     store=store,
                                     session_id=str(session_id),
@@ -694,8 +847,19 @@ def process_inbound_payload(payload: dict[str, Any]) -> dict[str, Any]:
             else:
                 reply = f"{preface}\n\n{_menu_text()}"
 
-    if _should_suppress_channel_reply(channel=inbound.channel, text=reply):
+    ch_lower = str(inbound.channel or "").strip().lower()
+    if ch_lower in {"wechat", "weixin"}:
+        reply = _user_facing_wechat_reply(reply=reply)
+    elif _should_suppress_channel_reply(channel=inbound.channel, text=reply):
         return {"ok": True, "replies": []}
+
+    if channel_session_id and reply:
+        _persist_channel_assistant_if_turn_missing(
+            store=store,
+            session_id=channel_session_id,
+            turn_uuid=channel_turn_uuid,
+            final_text=reply,
+        )
 
     if adapter is not None:
         replies = [adapter.format_outbound(OutboundMessage(external_chat_id=inbound.external_chat_id, text=reply))]

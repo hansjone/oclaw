@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+import time
 import unittest
 
 from fastapi.testclient import TestClient
@@ -131,6 +133,36 @@ class WeixinIlinkApiTests(unittest.TestCase):
             self.assertEqual(str((atts[0] or {}).get("name") or ""), "demo.png")
         finally:
             weixin_ilink_api._process_inbound_payload_usecase = old_usecase  # type: ignore[assignment]
+
+    def test_native_reply_timeout_returns_user_message(self) -> None:
+        old_usecase = weixin_ilink_api._process_inbound_payload_usecase
+        old_timeout = weixin_ilink_api._native_reply_timeout_sec
+
+        def _slow_usecase(payload: dict[str, object]) -> dict[str, object]:
+            _ = payload
+            time.sleep(1.2)
+            return {"ok": True, "replies": [{"text": "late"}]}
+
+        try:
+            weixin_ilink_api._process_inbound_payload_usecase = _slow_usecase  # type: ignore[assignment]
+            weixin_ilink_api._native_reply_timeout_sec = lambda: 0.2  # type: ignore[assignment]
+            r = self.client.post(
+                "/weixin/native/reply",
+                headers=self.headers,
+                json={
+                    "channel": "wechat",
+                    "account_id": "bot-1",
+                    "ctx": {"From": "wxid_u4", "To": "wxid_u4", "Body": "hi"},
+                },
+            )
+            self.assertEqual(r.status_code, 200, r.text)
+            data = r.json() or {}
+            replies = data.get("replies") if isinstance(data.get("replies"), list) else []
+            self.assertEqual(len(replies), 1, data)
+            self.assertIn("超时", str((replies[0] or {}).get("text") or ""))
+        finally:
+            weixin_ilink_api._process_inbound_payload_usecase = old_usecase  # type: ignore[assignment]
+            weixin_ilink_api._native_reply_timeout_sec = old_timeout  # type: ignore[assignment]
 
     def test_whatsapp_native_reply_returns_sync_replies(self) -> None:
         old_usecase = weixin_ilink_api._process_inbound_payload_usecase

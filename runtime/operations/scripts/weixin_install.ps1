@@ -15,7 +15,7 @@ $sidecarRoot = Join-Path $oclawRoot "data\\channel_sidecar\\$ChannelId"
 $stateDir = Join-Path $sidecarRoot "state"
 function Sync-WeixinBridgeRunners {
   $bridgeSrc = Join-Path $oclawRoot "runtime\\operations\\weixin_bridge"
-  foreach ($name in @("official_runner.ts", "login.ts")) {
+  foreach ($name in @("official_runner.ts", "login.ts", "poll_diag.ts")) {
     $srcPath = Join-Path $bridgeSrc $name
     if (-not (Test-Path $srcPath)) {
       throw "missing bridge source file: $srcPath"

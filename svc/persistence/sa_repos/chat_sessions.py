@@ -193,6 +193,110 @@ class ChatSessionsSaRepository:
             else None,
         )
 
+    def _administrator_username_predicate(self, username: str) -> Any:
+        uname = str(username or "").strip().lower()
+        return func.lower(app_user.c.username) == uname
+
+    def list_chat_sessions_for_administrator_username(
+        self,
+        *,
+        username: str,
+        limit: int | None,
+        offset: int,
+    ) -> list[ChatSession]:
+        """All sessions owned by any ``app_user`` row with this login name (cross-tenant)."""
+        pred = self._administrator_username_predicate(username)
+        stmt = (
+            select(
+                chat_session.c.id,
+                chat_session.c.title,
+                chat_session.c.created_at,
+                chat_session.c.last_message_at,
+            )
+            .select_from(
+                chat_session.join(
+                    ui_session_owner,
+                    ui_session_owner.c.session_id == chat_session.c.id,
+                ).join(
+                    app_user,
+                    and_(
+                        app_user.c.id == ui_session_owner.c.user_id,
+                        app_user.c.tenant_id == ui_session_owner.c.tenant_id,
+                    ),
+                )
+            )
+            .where(pred)
+            .order_by(*_activity_order())
+        )
+        if limit is not None:
+            stmt = stmt.limit(int(limit)).offset(int(offset))
+        with self._engine.connect() as conn:
+            rows = conn.execute(stmt).mappings().all()
+        return [_session_from_row(r) for r in rows]
+
+    def sessions_list_meta_for_administrator_username(self, *, username: str) -> SessionsListMeta:
+        pred = self._administrator_username_predicate(username)
+        with self._engine.connect() as conn:
+            row = conn.execute(
+                select(
+                    func.count(distinct(chat_session.c.id)).label("c"),
+                    func.max(
+                        func.coalesce(chat_session.c.last_message_at, chat_session.c.created_at)
+                    ).label("latest_activity_at"),
+                )
+                .select_from(
+                    chat_session.join(
+                        ui_session_owner,
+                        ui_session_owner.c.session_id == chat_session.c.id,
+                    ).join(
+                        app_user,
+                        and_(
+                            app_user.c.id == ui_session_owner.c.user_id,
+                            app_user.c.tenant_id == ui_session_owner.c.tenant_id,
+                        ),
+                    )
+                )
+                .where(pred)
+            ).mappings().first()
+        return SessionsListMeta(
+            session_count=int(row["c"] or 0) if row else 0,
+            latest_activity_at=str(row["latest_activity_at"])
+            if row and row.get("latest_activity_at") is not None
+            else None,
+        )
+
+    def fetch_chat_session_for_administrator_username(
+        self, *, session_id: str, username: str
+    ) -> ChatSession | None:
+        sid = str(session_id or "").strip()
+        if not sid:
+            return None
+        pred = self._administrator_username_predicate(username)
+        with self._engine.connect() as conn:
+            row = conn.execute(
+                select(
+                    chat_session.c.id,
+                    chat_session.c.title,
+                    chat_session.c.created_at,
+                    chat_session.c.last_message_at,
+                )
+                .select_from(
+                    chat_session.join(
+                        ui_session_owner,
+                        ui_session_owner.c.session_id == chat_session.c.id,
+                    ).join(
+                        app_user,
+                        and_(
+                            app_user.c.id == ui_session_owner.c.user_id,
+                            app_user.c.tenant_id == ui_session_owner.c.tenant_id,
+                        ),
+                    )
+                )
+                .where(chat_session.c.id == sid, pred)
+                .limit(1)
+            ).mappings().first()
+        return _session_from_row(row) if row else None
+
     def sessions_list_meta_for_user(self, *, tenant_id: str, user_id: str) -> SessionsListMeta:
         tid, uid = str(tenant_id), str(user_id)
         with self._engine.connect() as conn:
@@ -377,6 +481,36 @@ class ChatSessionsSaRepository:
         sid = str(session_id)
         with self._engine.begin() as conn:
             conn.execute(delete(chat_session).where(chat_session.c.id == sid))
+
+    def try_delete_chat_session_for_administrator_username(
+        self, *, session_id: str, username: str
+    ) -> bool:
+        sid = str(session_id or "").strip()
+        if not sid:
+            return False
+        pred = self._administrator_username_predicate(username)
+        with self._engine.begin() as conn:
+            chk = conn.execute(
+                select(1)
+                .select_from(
+                    chat_session.join(
+                        ui_session_owner,
+                        ui_session_owner.c.session_id == chat_session.c.id,
+                    ).join(
+                        app_user,
+                        and_(
+                            app_user.c.id == ui_session_owner.c.user_id,
+                            app_user.c.tenant_id == ui_session_owner.c.tenant_id,
+                        ),
+                    )
+                )
+                .where(chat_session.c.id == sid, pred)
+                .limit(1)
+            ).first()
+            if not chk:
+                return False
+            conn.execute(delete(chat_session).where(chat_session.c.id == sid))
+        return True
 
     def try_delete_chat_session_for_tenant(self, *, session_id: str, tenant_id: str) -> bool:
         sid, tid = str(session_id or "").strip(), str(tenant_id)

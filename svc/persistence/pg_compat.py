@@ -37,6 +37,27 @@ def scrub_nul_bytes_from_jsonable(obj: Any) -> Any:
     return obj
 
 
+def escape_percent_in_sql_literals(sql: str) -> str:
+    """Double ``%`` inside single-quoted literals (psycopg treats ``%`` as placeholder syntax)."""
+    out: list[str] = []
+    i = 0
+    in_single = False
+    while i < len(sql):
+        ch = sql[i]
+        if ch == "'" and (i == 0 or sql[i - 1] != "\\"):
+            in_single = not in_single
+            out.append(ch)
+            i += 1
+            continue
+        if ch == "%" and in_single:
+            out.append("%%")
+            i += 1
+            continue
+        out.append(ch)
+        i += 1
+    return "".join(out)
+
+
 def qmarks_to_percent(sql: str) -> str:
     """Replace ``?`` placeholders outside single-quoted strings with ``%s`` (psycopg)."""
     out: list[str] = []
@@ -218,11 +239,13 @@ def rewrite_sqlite_extensions_for_postgres(sql: str) -> str:
 
 
 def adapt_sql_for_postgres(sql: str) -> str:
-    return qmarks_to_percent(rewrite_sqlite_extensions_for_postgres(sql))
+    rewritten = rewrite_sqlite_extensions_for_postgres(sql)
+    return escape_percent_in_sql_literals(qmarks_to_percent(rewritten))
 
 
 __all__ = [
     "adapt_sql_for_postgres",
+    "escape_percent_in_sql_literals",
     "qmarks_to_percent",
     "rewrite_sqlite_extensions_for_postgres",
     "scrub_nul_bytes_from_jsonable",

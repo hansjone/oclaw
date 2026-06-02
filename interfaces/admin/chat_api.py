@@ -113,6 +113,7 @@ _DISPATCH_REASON_LABELS_SETTING_KEY = "AIA_DISPATCH_REASON_LABELS_JSON"
 _SPECIALIST_FLAGS_SETTING_KEY = "AIA_CHAT_SPECIALIST_FLAGS_JSON"
 _CHANNEL_DISPATCH_INTERACTION_KEY_PREFIX = "channel.dispatch.interaction_mode."
 _CHANNEL_DISPATCH_SPECIALIST_KEY_PREFIX = "channel.dispatch.specialist."
+_CHANNEL_DISPATCH_LANG_KEY_PREFIX = "channel.dispatch.lang."
 
 
 def _channel_dispatch_interaction_key(channel: str) -> str:
@@ -121,6 +122,16 @@ def _channel_dispatch_interaction_key(channel: str) -> str:
 
 def _channel_dispatch_specialist_key(channel: str) -> str:
     return f"{_CHANNEL_DISPATCH_SPECIALIST_KEY_PREFIX}{str(channel or '').strip().lower()}"
+
+def _channel_dispatch_lang_key(channel: str) -> str:
+    return f"{_CHANNEL_DISPATCH_LANG_KEY_PREFIX}{str(channel or '').strip().lower()}"
+
+
+def _normalize_channel_dispatch_lang(raw: Any) -> str:
+    v = str(raw or "").strip().lower()
+    if v in {"auto", "zh", "en"}:
+        return v
+    return "auto"
 
 
 def _normalize_channel_dispatch_channel(raw: Any) -> str:
@@ -361,11 +372,7 @@ def _chat_username(ctx: dict[str, Any]) -> str:
 
 
 def _is_administrator_chat_viewer(ctx: dict[str, Any]) -> bool:
-    """``administrator`` 账户：在单会话读写/导出等接口上可按租户打开任意会话（供审计与 Session Monitor）。
-
-    ``GET /chat/sessions`` **不再**使用租户全量列表，避免与普通用户会话混在同一侧边栏；
-    看全租户会话请用审计页、``GET /admin/api/chat/admin/sessions`` 等专用接口。
-    """
+    """``administrator`` 账户：可跨租户列出/打开本人名下所有 ``ui_session_owner`` 会话（PG 迁移后历史可能在 smoke/Team 等多租户）。"""
     return _chat_username(ctx) == "administrator"
 
 
@@ -377,9 +384,16 @@ def _require_administrator_chat_viewer(ctx: dict[str, Any]) -> None:
 def _resolve_chat_session(store: SqliteStore, ctx: dict[str, Any], session_id: str):
     tenant_id = str(ctx.get("tenant_id") or "")
     user_id = str(ctx.get("user_id") or "")
+    sid = str(session_id or "").strip()
     if _is_administrator_chat_viewer(ctx):
-        return store.get_session_in_tenant(session_id=str(session_id or "").strip(), tenant_id=tenant_id)
-    return store.get_session_for_user(session_id=session_id, tenant_id=tenant_id, user_id=user_id)
+        sess = store.get_session_for_administrator_username(
+            session_id=sid,
+            username=_chat_username(ctx),
+        )
+        if sess is not None:
+            return sess
+        return store.get_session_in_tenant(session_id=sid, tenant_id=tenant_id)
+    return store.get_session_for_user(session_id=sid, tenant_id=tenant_id, user_id=user_id)
 
 
 def _resolve_chat_session_allow_claim_orphan(
@@ -875,12 +889,17 @@ def include_chat_routes(router: APIRouter, *, resolve_auth: Callable[[SqliteStor
         ctx = resolve_auth(store, authorization)
         tenant_id = str(ctx.get("tenant_id") or "")
         user_id = str(ctx.get("user_id") or "")
-        # 含 administrator：侧边栏只列「当前登录用户」名下会话，避免租户内他人会话出现在 /chat。
-        # 全租户会话列表见审计、GET /admin/api/chat/admin/sessions 等。
-        meta = store.get_sessions_list_meta_for_user(tenant_id=tenant_id, user_id=user_id)
-        rows = store.list_sessions_for_user(
-            tenant_id=tenant_id, user_id=user_id, limit=limit, offset=offset
-        )
+        if _is_administrator_chat_viewer(ctx):
+            uname = _chat_username(ctx)
+            meta = store.get_sessions_list_meta_for_administrator_username(username=uname)
+            rows = store.list_sessions_for_administrator_username(
+                username=uname, limit=limit, offset=offset
+            )
+        else:
+            meta = store.get_sessions_list_meta_for_user(tenant_id=tenant_id, user_id=user_id)
+            rows = store.list_sessions_for_user(
+                tenant_id=tenant_id, user_id=user_id, limit=limit, offset=offset
+            )
         return {
             "ok": True,
             "total": int(meta.session_count or 0),
@@ -962,12 +981,23 @@ def include_chat_routes(router: APIRouter, *, resolve_auth: Callable[[SqliteStor
         if not sess:
             raise HTTPException(status_code=404, detail="session_not_found")
         if _is_administrator_chat_viewer(ctx):
-            store.delete_session_in_tenant(session_id=session_id, tenant_id=tenant_id)
+            deleted = store.delete_session_for_administrator_username(
+                session_id=session_id, username=_chat_username(ctx)
+            )
         else:
-            store.delete_session_for_user(session_id=session_id, tenant_id=tenant_id, user_id=user_id)
-        remaining = store.list_sessions_for_user(
-            tenant_id=tenant_id, user_id=user_id, limit=1, offset=0
-        )
+            deleted = store.delete_session_for_user(
+                session_id=session_id, tenant_id=tenant_id, user_id=user_id
+            )
+        if not deleted:
+            raise HTTPException(status_code=404, detail="session_not_found")
+        if _is_administrator_chat_viewer(ctx):
+            remaining = store.list_sessions_for_administrator_username(
+                username=_chat_username(ctx), limit=1, offset=0
+            )
+        else:
+            remaining = store.list_sessions_for_user(
+                tenant_id=tenant_id, user_id=user_id, limit=1, offset=0
+            )
         next_id = str(remaining[0].id) if remaining else ""
         if not next_id:
             lang = _api_lang(store)
@@ -1563,12 +1593,16 @@ def include_chat_routes(router: APIRouter, *, resolve_auth: Callable[[SqliteStor
         specialist = normalize_requested_specialist(
             store.get_setting(_channel_dispatch_specialist_key(ch)) or "generalist"
         )
+        lang = _normalize_channel_dispatch_lang(
+            store.get_setting(_channel_dispatch_lang_key(ch)) or "auto"
+        )
         specialist = _apply_specialist_flags(store, specialist)
         return {
             "ok": True,
             "channel": ch,
             "interaction_mode": interaction_mode,
             "specialist": specialist,
+            "lang": lang,
             "available_specialists": [sid for sid in _chat_specialist_ids() if bool(_specialist_flags_with_overrides(store).get(sid, True))],
         }
 
@@ -1585,14 +1619,17 @@ def include_chat_routes(router: APIRouter, *, resolve_auth: Callable[[SqliteStor
         ch = _normalize_channel_dispatch_channel(channel)
         interaction_mode = normalize_interaction_mode(body.get("interaction_mode") or "expert")
         specialist = normalize_requested_specialist(body.get("specialist") or "generalist")
+        lang = _normalize_channel_dispatch_lang(body.get("lang") or "auto")
         specialist = _apply_specialist_flags(store, specialist)
         store.set_setting(_channel_dispatch_interaction_key(ch), interaction_mode)
         store.set_setting(_channel_dispatch_specialist_key(ch), specialist)
+        store.set_setting(_channel_dispatch_lang_key(ch), lang)
         return {
             "ok": True,
             "channel": ch,
             "interaction_mode": interaction_mode,
             "specialist": specialist,
+            "lang": lang,
         }
 
     @chat.get("/settings/attachment-limits")

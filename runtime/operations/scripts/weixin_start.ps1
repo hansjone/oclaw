@@ -84,7 +84,7 @@ $cleaned = Stop-SidecarProcesses
 Remove-Item -Force $pidFile -ErrorAction SilentlyContinue
 
 if (Test-Path $bridgeSrc) {
-  foreach ($name in @("official_runner.ts", "login.ts")) {
+  foreach ($name in @("official_runner.ts", "login.ts", "poll_diag.ts")) {
     $srcPath = Join-Path $bridgeSrc $name
     if (Test-Path $srcPath) {
       Copy-Item -Path $srcPath -Destination (Join-Path $sidecarRoot $name) -Force
@@ -99,7 +99,7 @@ if (Test-Path (Join-Path $sidecarRoot "official_runner.ts")) {
   $cmd = "cmd.exe"
   $args = @(
     "/c",
-    "cd /d $sidecarRoot && set OCLAW_STATE_DIR=$stateDir&& set AIA_GATEWAY_BASE_URL=$GatewayBaseUrl&& set NODE_PATH=$sidecarRoot\node_modules&& npm.cmd exec -- tsx official_runner.ts"
+    "cd /d $sidecarRoot && set OCLAW_STATE_DIR=$stateDir&& set OPENCLAW_STATE_DIR=$stateDir&& set AIA_GATEWAY_BASE_URL=$GatewayBaseUrl&& set OCLAW_WEIXIN_LOG_FILE=$logPath&& set NODE_PATH=$sidecarRoot\node_modules&& npm.cmd exec -- tsx official_runner.ts"
   )
   $p = Start-Process -FilePath $cmd -ArgumentList $args -WorkingDirectory $sidecarRoot -PassThru -WindowStyle Hidden -RedirectStandardOutput $logPath -RedirectStandardError $errPath
   Set-Content -Path $pidFile -Value $p.Id

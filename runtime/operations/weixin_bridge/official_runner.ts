@@ -8,6 +8,7 @@ type TokenMap = Record<string, string>;
 const LOCAL_BASE_URL = (process.env.AIA_GATEWAY_BASE_URL || "http://127.0.0.1:8787").trim();
 const STATE_DIR = (process.env.OCLAW_STATE_DIR || path.resolve(process.cwd(), "state")).trim();
 const STATE_FILE = path.join(STATE_DIR, "official_bridge_state.json");
+const LOG_FILE = String(process.env.OCLAW_WEIXIN_LOG_FILE || "").trim();
 const POLL_TIMEOUT_MS = 35_000;
 const DEFAULT_CDN_BASE_URL = "https://novac2c.cdn.weixin.qq.com/c2c";
 
@@ -65,7 +66,21 @@ class HttpStatusError extends Error {
 }
 
 function log(msg: string): void {
-  process.stdout.write(`${new Date().toISOString()} [official-weixin] ${msg}\n`);
+  const line = `${new Date().toISOString()} [official-weixin] ${msg}\n`;
+  // When started via Start-Process -RedirectStandardOutput, Node may block-buffer stdout;
+  // append directly so operators see poll/inbound lines in weixin_sidecar.log immediately.
+  if (LOG_FILE) {
+    try {
+      fs.appendFileSync(LOG_FILE, line, "utf8");
+    } catch {
+      // ignore
+    }
+  }
+  try {
+    process.stdout.write(line);
+  } catch {
+    // ignore
+  }
 }
 
 function ensureDir(dir: string): void {
@@ -86,6 +101,18 @@ function writeJsonFile(p: string, obj: unknown): void {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${label} timeout after ${ms}ms`)), ms);
+  });
+  try {
+    return await Promise.race([promise, timeout]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
 
 function resolvePluginRoot(): string {
@@ -167,10 +194,12 @@ function resolveHeaders(token: string): Record<string, string> {
 
 async function postNativeReply(token: string, body: Json): Promise<Json> {
   const url = `${LOCAL_BASE_URL.replace(/\/+$/, "")}/weixin/native/reply`;
+  const timeoutMs = Number(process.env.OCLAW_WEIXIN_NATIVE_REPLY_TIMEOUT_MS || "100000") || 100000;
   const res = await fetch(url, {
     method: "POST",
     headers: resolveHeaders(token),
     body: JSON.stringify(body),
+    signal: AbortSignal.timeout(timeoutMs),
   });
   const text = await res.text();
   if (!res.ok) {
@@ -330,9 +359,19 @@ async function handleInboundMessage(
 ): Promise<string> {
   const fromUser = String(params.full.from_user_id || "").trim();
   const toUser = String(params.full.to_user_id || "").trim();
-  if (!fromUser) return params.localCursor;
-  if (toUser && toUser === fromUser) return params.localCursor;
-  if (Number(params.full.message_type || 1) !== 1) return params.localCursor;
+  if (!fromUser) {
+    log(`skip inbound: missing from_user_id`);
+    return params.localCursor;
+  }
+  if (toUser && toUser === fromUser) {
+    log(`skip inbound: self-message from=${fromUser}`);
+    return params.localCursor;
+  }
+  if (Number(params.full.message_type || 1) !== 1) {
+    log(`skip inbound: message_type=${String(params.full.message_type ?? "")} from=${fromUser}`);
+    return params.localCursor;
+  }
+  log(`inbound from=${fromUser} to=${toUser || "-"}`);
 
   const contextToken = String(params.full.context_token || "").trim();
   if (contextToken) {
@@ -341,17 +380,33 @@ async function handleInboundMessage(
   }
 
   const mediaItem = pickDownloadableMedia(params.full);
-  const mediaOpts = mediaItem
-    ? await modules.downloadMediaFromItem(mediaItem, {
-        cdnBaseUrl: DEFAULT_CDN_BASE_URL,
-        saveMedia: saveMediaBuffer,
-        log: (msg: string) => log(`media ${msg}`),
-        errLog: (msg: string) => log(`media-error ${msg}`),
-        label: "inbound",
-      })
-    : {};
+  let mediaOpts: Json = {};
+  if (mediaItem) {
+    log("media download start");
+    try {
+      mediaOpts = await withTimeout(
+        modules.downloadMediaFromItem(mediaItem, {
+          cdnBaseUrl: DEFAULT_CDN_BASE_URL,
+          saveMedia: saveMediaBuffer,
+          log: (msg: string) => log(`media ${msg}`),
+          errLog: (msg: string) => log(`media-error ${msg}`),
+          label: "inbound",
+        }),
+        Number(process.env.OCLAW_WEIXIN_MEDIA_TIMEOUT_MS || "90000") || 90000,
+        "media download",
+      );
+      log("media download done");
+    } catch (err) {
+      log(`media download failed err=${String(err)}`);
+      mediaOpts = {};
+    }
+  }
   const ctx = modules.weixinMessageToMsgContext(params.full, params.accountId, mediaOpts);
+  const bodyText = String((ctx as Json).Body || "").trim();
+  const attachCount = buildAttachmentsFromMedia(mediaOpts).length;
+  log(`native call bodyLen=${bodyText.length} attachments=${attachCount}`);
   let replies: Json[] = [];
+  const tNative0 = Date.now();
   try {
     const native = await postNativeReply(params.token, {
       channel: "wechat",
@@ -366,6 +421,11 @@ async function handleInboundMessage(
       },
     });
     replies = Array.isArray(native.replies) ? (native.replies as Json[]) : [];
+    const firstText = replies.length ? String((replies[0] as Json).text || "").trim() : "";
+    log(`native done ms=${Date.now() - tNative0} replies=${replies.length} firstTextLen=${firstText.length}`);
+    if (!replies.length) {
+      log("native returned 0 replies (empty inbound, gateway suppress, or LLM produced no text)");
+    }
   } catch (err) {
     log(`native reply failed; no fallback enabled err=${String(err)}`);
     await safeSendNativeFailureNotice(modules, {
@@ -447,6 +507,13 @@ async function main(): Promise<void> {
         timeoutMs: POLL_TIMEOUT_MS + 5000,
       });
       const msgs = Array.isArray(out.msgs) ? (out.msgs as Json[]) : [];
+      const ret = Number(out.ret ?? 0);
+      const errcode = out.errcode;
+      if (ret !== 0 || errcode != null) {
+        log(`poll ret=${ret} errcode=${String(errcode ?? "")} errmsg=${String(out.errmsg ?? "")}`);
+      } else if (msgs.length > 0) {
+        log(`poll batch=${msgs.length}`);
+      }
       const nextCloudCursor = String(out.get_updates_buf || cloudCursor || "").trim();
       if (nextCloudCursor) {
         cloudCursor = nextCloudCursor;

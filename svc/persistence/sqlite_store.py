@@ -1384,6 +1384,32 @@ class SqliteStore:
             tenant_id=tenant_id, user_id=user_id
         )
 
+    def list_sessions_for_administrator_username(
+        self,
+        *,
+        username: str,
+        limit: int | None = None,
+        offset: int = 0,
+    ) -> list[ChatSession]:
+        return self._chat_sessions_repo().list_chat_sessions_for_administrator_username(
+            username=username,
+            limit=limit,
+            offset=int(offset),
+        )
+
+    def get_sessions_list_meta_for_administrator_username(self, *, username: str) -> SessionsListMeta:
+        return self._chat_sessions_repo().sessions_list_meta_for_administrator_username(
+            username=username
+        )
+
+    def get_session_for_administrator_username(
+        self, *, session_id: str, username: str
+    ) -> Optional[ChatSession]:
+        return self._chat_sessions_repo().fetch_chat_session_for_administrator_username(
+            session_id=session_id,
+            username=username,
+        )
+
     def list_sessions_for_tenant(
         self,
         *,
@@ -1813,9 +1839,17 @@ class SqliteStore:
         return int(total_row_c or 0), users, totals
 
     def delete_session_in_tenant(self, *, session_id: str, tenant_id: str) -> bool:
-        """Delete session if it belongs to tenant (used by administrator account)."""
+        """Delete session if it belongs to tenant."""
         return self._chat_sessions_repo().try_delete_chat_session_for_tenant(
             session_id=session_id, tenant_id=tenant_id
+        )
+
+    def delete_session_for_administrator_username(
+        self, *, session_id: str, username: str
+    ) -> bool:
+        """Delete session owned by any ``app_user`` row with this login name (cross-tenant)."""
+        return self._chat_sessions_repo().try_delete_chat_session_for_administrator_username(
+            session_id=session_id, username=username
         )
 
     def delete_session(self, session_id: str) -> None:
