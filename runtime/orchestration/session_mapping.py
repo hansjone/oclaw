@@ -20,9 +20,9 @@ def get_or_create_session_for_wecom(
     external_chat_id: str,
     is_group: bool,
 ) -> SessionMapResult:
-    """Group: session per chat_id; DM: session per user_id.
+    """Group chats share one session per external_chat_id (sentinel user key).
 
-    We store mapping under (tenant, channel, external_chat_id, external_user_id) to keep it simple.
+    Direct chats use one session per external_user_id. Identity binding always uses the real sender id.
     """
     scope = "group" if bool(is_group) else "dm"
     # For DM, external_chat_id is often contact id; we still keep it as provided.

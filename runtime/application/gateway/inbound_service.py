@@ -315,6 +315,18 @@ def _build_channel_session_title(*, channel: str, account_name: str, external_us
     return f"{ch}|{body}"
 
 
+def _session_title_user_label(*, is_group: bool, external_user_id: str, group_name: str, external_chat_id: str) -> str:
+    if not is_group:
+        return str(external_user_id or "").strip() or "unknown"
+    name = str(group_name or "").strip()
+    if name:
+        return name
+    chat = str(external_chat_id or "").strip()
+    if chat and "@" in chat:
+        return chat.split("@", 1)[0] or "group"
+    return "group"
+
+
 def _parse_generic_inbound(channel_name: str, payload: dict[str, Any]) -> InboundMessage:
     meta = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
     user_id = str(payload.get("user_id") or payload.get("external_user_id") or "").strip()
@@ -655,6 +667,19 @@ def process_inbound_payload(payload: dict[str, Any]) -> dict[str, Any]:
     if not account_id:
         raise ValueError(f"missing {channel_name} account_id")
 
+    account = store.find_user_by_channel_account(channel=inbound.channel, account_id=account_id) or {}
+    from runtime.orchestration.group_ingest import (
+        build_group_sender_context,
+        resolve_group_policy,
+        session_user_key,
+        should_process_group_inbound,
+    )
+
+    group_policy = resolve_group_policy(account=account)
+    bot_jid = None
+    if isinstance(inbound.metadata, dict):
+        bot_jid = str(inbound.metadata.get("bot_jid") or "").strip() or None
+
     text = inbound.text.strip()
     preface = ""
     channel_session_id = ""
@@ -673,6 +698,15 @@ def process_inbound_payload(payload: dict[str, Any]) -> dict[str, Any]:
         )
         reply = ("绑定成功。\n\n" + _menu_text()) if info else "绑定失败：无效或已使用的绑定码。"
     else:
+        if inbound.is_group and not should_process_group_inbound(
+            is_group=inbound.is_group,
+            text=text,
+            mentions=list(inbound.mentions or []),
+            bot_jid=bot_jid,
+            require_mention=group_policy.require_mention,
+            triggers=list(group_policy.triggers),
+        ):
+            return {"ok": True, "replies": []}
         reply = ""
         reply_attachments: list[dict[str, Any]] = []
         ident = store.resolve_user_by_channel_identity_v2(
@@ -714,19 +748,28 @@ def process_inbound_payload(payload: dict[str, Any]) -> dict[str, Any]:
             tenant_id = str(ident.get("tenant_id") or "")
             user_id = str(ident.get("user_id") or "")
             role = str(ident.get("role") or "member")
-            account = store.find_user_by_channel_account(channel=inbound.channel, account_id=account_id) or {}
             account_name = str(account.get("name") or "").strip() or account_id
             group_name = _extract_group_name(inbound)
+            session_external_user_id = session_user_key(
+                is_group=inbound.is_group,
+                external_user_id=inbound.external_user_id,
+            )
+            title_user_label = _session_title_user_label(
+                is_group=inbound.is_group,
+                external_user_id=inbound.external_user_id,
+                group_name=group_name,
+                external_chat_id=inbound.external_chat_id,
+            )
             session_id = store.get_or_create_channel_session_v2(
                 tenant_id=tenant_id,
                 channel=inbound.channel,
                 account_id=account_id,
-                external_user_id=inbound.external_user_id,
+                external_user_id=session_external_user_id,
                 external_chat_id=inbound.external_chat_id,
                 session_title=_build_channel_session_title(
                     channel=inbound.channel,
                     account_name=account_name,
-                    external_user_id=inbound.external_user_id,
+                    external_user_id=title_user_label,
                     is_group=inbound.is_group,
                     group_name=group_name,
                 ),
@@ -770,6 +813,12 @@ def process_inbound_payload(payload: dict[str, Any]) -> dict[str, Any]:
                         reply = cmd_reply
                     elif not reply:
                         user_text = (inbound.text or "").strip()
+                        if inbound.is_group:
+                            sender_ctx = build_group_sender_context(
+                                metadata=inbound.metadata if isinstance(inbound.metadata, dict) else {},
+                                external_user_id=inbound.external_user_id,
+                            )
+                            user_text = f"{sender_ctx}\n{user_text}" if user_text else sender_ctx
                         gw_attachments = _channel_attachments_for_gateway(
                             list(inbound.attachments or [])
                         )
@@ -806,6 +855,10 @@ def process_inbound_payload(payload: dict[str, Any]) -> dict[str, Any]:
                                         "account_id": account_id,
                                         "interaction_mode": interaction_mode,
                                         "selected_specialist": selected_specialist,
+                                        "is_group": inbound.is_group,
+                                        "external_user_id": inbound.external_user_id,
+                                        "external_chat_id": inbound.external_chat_id,
+                                        "group_sender_id": inbound.external_user_id,
                                     },
                                 )
                                 manager = _build_admin_gateway_executor(

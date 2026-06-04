@@ -30,6 +30,11 @@ const PROXY_URL = (
   process.env.http_proxy ||
   ""
 ).trim();
+const GROUP_REQUIRE_MENTION = String(process.env.AIA_WHATSAPP_GROUP_REQUIRE_MENTION ?? "1").trim() !== "0";
+const GROUP_TRIGGERS = String(process.env.AIA_WHATSAPP_GROUP_TRIGGERS || "/oclaw,|oclaw")
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
 
 function log(msg: string): void {
   process.stdout.write(`${new Date().toISOString()} [baileys-whatsapp] ${msg}\n`);
@@ -57,22 +62,68 @@ function isStatusOrBroadcastJid(jid: string): boolean {
   return low === "status@broadcast" || low.endsWith("@broadcast");
 }
 
+function extractMentions(m: proto.IMessage | null | undefined): string[] {
+  if (!m) return [];
+  const ctx =
+    m.extendedTextMessage?.contextInfo ||
+    m.imageMessage?.contextInfo ||
+    m.videoMessage?.contextInfo ||
+    m.documentMessage?.contextInfo ||
+    null;
+  const raw = ctx?.mentionedJid;
+  if (!Array.isArray(raw)) return [];
+  return raw.map((j) => jidNormalizedUser(String(j || "").trim())).filter(Boolean);
+}
+
+function shouldProcessGroupMessage(params: {
+  isGroup: boolean;
+  text: string;
+  mentions: string[];
+  botJid: string;
+}): boolean {
+  if (!params.isGroup) return true;
+  const bot = jidNormalizedUser(params.botJid || "");
+  if (bot) {
+    const botUser = bot.split("@")[0] || "";
+    for (const m of params.mentions || []) {
+      const norm = jidNormalizedUser(String(m || "").trim());
+      if (!norm) continue;
+      if (norm === bot) return true;
+      if (botUser && norm.split("@")[0] === botUser) return true;
+    }
+  }
+  const body = String(params.text || "");
+  for (const t of GROUP_TRIGGERS) {
+    if (t && body.includes(t)) return true;
+  }
+  return !GROUP_REQUIRE_MENTION;
+}
+
 function buildInboundPayload(params: {
   chatId: string;
   userId: string;
   text: string;
   raw: unknown;
+  isGroup: boolean;
+  mentions: string[];
+  groupName?: string;
+  botJid?: string;
 }): Json {
+  const metadata: Json = {
+    source: "whatsapp_baileys",
+    raw: params.raw,
+  };
+  if (params.groupName) metadata.group_name = params.groupName;
+  if (params.botJid) metadata.bot_jid = params.botJid;
   return {
     channel: "whatsapp",
     account_id: ACCOUNT_ID,
     user_id: params.userId,
     chat_id: params.chatId,
     text: params.text,
-    metadata: {
-      source: "whatsapp_baileys",
-      raw: params.raw,
-    },
+    is_group: params.isGroup,
+    mentions: params.mentions,
+    metadata,
   };
 }
 
@@ -234,6 +285,26 @@ async function main(): Promise<void> {
   let reconnectAttempt = 0;
   let sock: ReturnType<typeof makeWASocket> | null = null;
   const wsAgent = PROXY_URL ? new HttpsProxyAgent(PROXY_URL) : undefined;
+  const groupNameCache = new Map<string, { name: string; ts: number }>();
+  const GROUP_NAME_TTL_MS = 10 * 60 * 1000;
+
+  const resolveGroupName = async (chatId: string): Promise<string> => {
+    const key = String(chatId || "").trim();
+    if (!key) return "";
+    const cached = groupNameCache.get(key);
+    const now = Date.now();
+    if (cached && now - cached.ts < GROUP_NAME_TTL_MS) return cached.name;
+    const s = sock;
+    if (!s) return cached?.name || "";
+    try {
+      const meta = await s.groupMetadata(key);
+      const name = String(meta?.subject || "").trim();
+      groupNameCache.set(key, { name, ts: now });
+      return name;
+    } catch {
+      return cached?.name || "";
+    }
+  };
 
   const connectOnce = async () => {
     sock = makeWASocket({
@@ -300,6 +371,22 @@ async function main(): Promise<void> {
           const from = isGroup ? String(key.participant || "").trim() : remoteJid;
           const userId = from ? jidNormalizedUser(from) : jidNormalizedUser(remoteJid);
           const chatId = jidNormalizedUser(remoteJid);
+          const mentions = extractMentions(msg.message);
+          const botJid = sock?.user?.id ? jidNormalizedUser(sock.user.id) : "";
+
+          if (
+            !shouldProcessGroupMessage({
+              isGroup,
+              text,
+              mentions,
+              botJid,
+            })
+          ) {
+            if (VERBOSE) log(`skip group message chat=${chatId} user=${userId} (no mention/trigger)`);
+            continue;
+          }
+
+          const groupName = isGroup ? await resolveGroupName(chatId) : "";
 
           const raw = {
             id,
@@ -309,7 +396,16 @@ async function main(): Promise<void> {
             messageTimestamp: (msg as any).messageTimestamp || null,
           };
 
-          const inbound = buildInboundPayload({ chatId, userId, text, raw });
+          const inbound = buildInboundPayload({
+            chatId,
+            userId,
+            text,
+            raw,
+            isGroup,
+            mentions,
+            groupName: groupName || undefined,
+            botJid: botJid || undefined,
+          });
           if (VERBOSE) log(`inbound posting chat=${chatId} user=${userId} textLen=${text.length}`);
           const out = await postInbound(inbound);
           const replies = Array.isArray(out.replies) ? (out.replies as Json[]) : [];
