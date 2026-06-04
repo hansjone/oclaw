@@ -6,6 +6,7 @@ import dns from "node:dns/promises";
 import makeWASocket, {
   Browsers,
   DisconnectReason,
+  areJidsSameUser,
   fetchLatestBaileysVersion,
   jidNormalizedUser,
   proto,
@@ -129,6 +130,53 @@ function extractQuoteContext(m: proto.IMessage | null | undefined): { participan
   };
 }
 
+function resolveSenderJid(key: proto.IMessageKey): string {
+  const participant = String(key.participant || "").trim();
+  const participantAlt = String((key as any).participantAlt || "").trim();
+  if (participantAlt && participant.toLowerCase().endsWith("@lid")) {
+    return jidNormalizedUser(participantAlt);
+  }
+  if (participant) return jidNormalizedUser(participant);
+  return "";
+}
+
+function messageMentionsBot(
+  sock: ReturnType<typeof makeWASocket> | null,
+  mentions: string[],
+  botJid: string,
+): boolean {
+  const bot = String(botJid || "").trim();
+  if (!bot || !mentions.length) return false;
+  const lidMapping = (sock as any)?.signalRepository?.lidMapping;
+  for (const m of mentions) {
+    const mention = String(m || "").trim();
+    if (!mention) continue;
+    try {
+      if (areJidsSameUser(mention, bot)) return true;
+    } catch {
+      // ignore
+    }
+    if (jidsSameUser(mention, bot)) return true;
+    if (lidMapping && typeof lidMapping.getPNForLID === "function" && mention.toLowerCase().endsWith("@lid")) {
+      try {
+        const pn = lidMapping.getPNForLID(mention);
+        if (pn && (areJidsSameUser(String(pn), bot) || jidsSameUser(String(pn), bot))) return true;
+      } catch {
+        // ignore
+      }
+    }
+    if (lidMapping && typeof lidMapping.getLIDForPN === "function" && bot.includes("@s.whatsapp")) {
+      try {
+        const lid = lidMapping.getLIDForPN(bot);
+        if (lid && (areJidsSameUser(mention, String(lid)) || jidsSameUser(mention, String(lid)))) return true;
+      } catch {
+        // ignore
+      }
+    }
+  }
+  return false;
+}
+
 function isStatusOrBroadcastJid(jid: string): boolean {
   const low = String(jid || "").toLowerCase();
   return low === "status@broadcast" || low.endsWith("@broadcast");
@@ -143,13 +191,16 @@ function buildInboundPayload(params: {
   mentions: string[];
   groupName?: string;
   botJid?: string;
+  mentionsBot?: boolean;
 }): Json {
   const metadata: Json = {
     source: "whatsapp_baileys",
     raw: params.raw,
+    mentions_bot: params.mentionsBot === true,
   };
   if (params.groupName) metadata.group_name = params.groupName;
   if (params.botJid) metadata.bot_jid = params.botJid;
+  if (params.mentions.length) metadata.mentioned_jids = params.mentions;
   return {
     channel: "whatsapp",
     account_id: ACCOUNT_ID,
@@ -493,26 +544,37 @@ async function main(): Promise<void> {
           if (!text) continue;
 
           const isGroup = remoteJid.endsWith("@g.us");
-          const from = isGroup ? String(key.participant || "").trim() : remoteJid;
-          const userId = from ? jidNormalizedUser(from) : jidNormalizedUser(remoteJid);
+          const participantRaw = String(key.participant || "").trim();
+          const participantAlt = String((key as any).participantAlt || "").trim();
+          const userId = isGroup
+            ? resolveSenderJid(key) || jidNormalizedUser(remoteJid)
+            : jidNormalizedUser(remoteJid);
           const chatId = jidNormalizedUser(remoteJid);
           const mentions = extractMentionsFromUpsert(msg);
           const quote = extractQuoteContext(msg.message);
           const botJidRaw = sock?.user?.id ? String(sock.user.id).trim() : "";
           const botJid = botJidRaw ? jidNormalizedUser(botJidRaw) : "";
-          const isReplyToBot = Boolean(botJidRaw && quote.participant && jidsSameUser(botJidRaw, quote.participant));
+          const mentionsBot = messageMentionsBot(sock, mentions, botJidRaw);
+          const isReplyToBot = Boolean(
+            botJidRaw &&
+              quote.participant &&
+              (messageMentionsBot(sock, [quote.participant], botJidRaw) || jidsSameUser(botJidRaw, quote.participant)),
+          );
 
           const groupName = isGroup ? await resolveGroupName(chatId) : "";
 
           const raw = {
             id,
             remoteJid,
-            participant: key.participant || null,
+            participant: participantRaw || null,
+            participantAlt: participantAlt || null,
             pushName: (msg as any).pushName || null,
             messageTimestamp: (msg as any).messageTimestamp || null,
             quotedParticipant: quote.participant || null,
             quotedStanzaId: quote.stanzaId || null,
             isReplyToBot,
+            mentionsBot,
+            mentionedJids: mentions,
           };
 
           const inbound = buildInboundPayload({
@@ -524,17 +586,18 @@ async function main(): Promise<void> {
             mentions,
             groupName: groupName || undefined,
             botJid: botJidRaw || botJid || undefined,
+            mentionsBot,
           });
           if (VERBOSE || isGroup) {
             log(
-              `inbound group=${isGroup} chat=${chatId} user=${userId} mentions=${mentions.length} replyToBot=${isReplyToBot} textLen=${text.length}`,
+              `inbound group=${isGroup} chat=${chatId} user=${userId} mentions=${mentions.length} mentionsBot=${mentionsBot} replyToBot=${isReplyToBot} textLen=${text.length} mention0=${mentions[0] || ""}`,
             );
           } else if (VERBOSE) {
             log(`inbound posting chat=${chatId} user=${userId} textLen=${text.length}`);
           }
           const out = await postInbound(inbound);
           const replies = Array.isArray(out.replies) ? (out.replies as Json[]) : [];
-          if (VERBOSE) log(`inbound ok replies=${replies.length}`);
+          if (isGroup || VERBOSE) log(`inbound ok chat=${chatId} replies=${replies.length}`);
           for (const r of replies) {
             const outText = String((r as any).text || "").trim();
             if (!shouldSendOutboundText(outText) && !(Array.isArray((r as any).attachments) && (r as any).attachments.length)) {

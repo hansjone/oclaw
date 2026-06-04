@@ -672,6 +672,7 @@ def process_inbound_payload(payload: dict[str, Any]) -> dict[str, Any]:
     account = store.find_user_by_channel_account(channel=inbound.channel, account_id=account_id) or {}
     from runtime.orchestration.group_ingest import (
         build_group_sender_context,
+        metadata_mentions_bot,
         resolve_group_policy,
         session_user_key,
         should_process_group_inbound,
@@ -712,10 +713,11 @@ def process_inbound_payload(payload: dict[str, Any]) -> dict[str, Any]:
             import logging
 
             logging.getLogger(__name__).info(
-                "whatsapp group inbound skipped chat=%s user=%s mentions=%s require_mention=%s text=%r",
+                "whatsapp group inbound skipped chat=%s user=%s mentions=%s mentions_bot=%s require_mention=%s text=%r",
                 inbound.external_chat_id,
                 inbound.external_user_id,
                 list(inbound.mentions or []),
+                metadata_mentions_bot(inbound.metadata if isinstance(inbound.metadata, dict) else {}),
                 group_policy.require_mention,
                 text[:120],
             )

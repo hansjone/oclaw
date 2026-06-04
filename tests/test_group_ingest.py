@@ -82,6 +82,20 @@ def test_should_accept_group_mention_with_lid_phone_match() -> None:
     )
 
 
+def test_should_accept_group_when_sidecar_reports_mentions_bot() -> None:
+    assert (
+        should_process_group_inbound(
+            is_group=True,
+            text="hi",
+            mentions=["unknown-lid@lid"],
+            bot_jid="999@s.whatsapp.net",
+            require_mention=True,
+            metadata={"mentions_bot": True, "raw": {"mentionsBot": True}},
+        )
+        is True
+    )
+
+
 def test_should_accept_group_reply_to_bot() -> None:
     assert (
         should_process_group_inbound(

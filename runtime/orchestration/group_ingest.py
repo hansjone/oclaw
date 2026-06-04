@@ -51,6 +51,16 @@ def _metadata_raw(metadata: dict[str, Any] | None) -> dict[str, Any]:
     return raw if isinstance(raw, dict) else {}
 
 
+def metadata_mentions_bot(metadata: dict[str, Any] | None) -> bool:
+    """Sidecar resolves LID @-mentions via Baileys; gateway trusts that signal."""
+    if not isinstance(metadata, dict):
+        return False
+    if metadata.get("mentions_bot") is True or metadata.get("mentionsBot") is True:
+        return True
+    raw = _metadata_raw(metadata)
+    return raw.get("mentionsBot") is True or raw.get("mentions_bot") is True
+
+
 def text_mentions_bot(*, text: str, bot_jid: str | None) -> bool:
     """Fallback when WhatsApp omits mentionedJid but user visibly @-mentions the bot."""
     bot = str(bot_jid or "").strip()
@@ -184,6 +194,8 @@ def should_process_group_inbound(
 ) -> bool:
     if not is_group:
         return True
+    if metadata_mentions_bot(metadata):
+        return True
     if is_reply_to_bot(metadata=metadata, bot_jid=bot_jid):
         return True
     mention_set = normalize_jids(list(mentions or []))
@@ -252,6 +264,7 @@ __all__ = [
     "GroupPolicyConfig",
     "build_group_sender_context",
     "build_whatsapp_group_reply_metadata",
+    "metadata_mentions_bot",
     "normalize_jid",
     "normalize_jids",
     "infer_is_group_from_chat_id",
