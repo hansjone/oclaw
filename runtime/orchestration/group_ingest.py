@@ -51,6 +51,21 @@ def _metadata_raw(metadata: dict[str, Any] | None) -> dict[str, Any]:
     return raw if isinstance(raw, dict) else {}
 
 
+def text_mentions_bot(*, text: str, bot_jid: str | None) -> bool:
+    """Fallback when WhatsApp omits mentionedJid but user visibly @-mentions the bot."""
+    bot = str(bot_jid or "").strip()
+    if not bot:
+        return False
+    phone = jid_phone(bot)
+    if len(phone) < 6:
+        return False
+    body = str(text or "")
+    if "@" not in body:
+        return False
+    digits_in_text = re.sub(r"\D", "", body)
+    return phone in digits_in_text
+
+
 def is_reply_to_bot(*, metadata: dict[str, Any] | None, bot_jid: str | None) -> bool:
     raw = _metadata_raw(metadata)
     if raw.get("isReplyToBot") is True or raw.get("is_reply_to_bot") is True:
@@ -185,6 +200,8 @@ def should_process_group_inbound(
         for m in list(mentions or []):
             if jids_same_user(str(m or ""), bot):
                 return True
+    if text_mentions_bot(text=text, bot_jid=bot_jid):
+        return True
     trigger_list = [str(t) for t in (triggers or []) if str(t)]
     body = str(text or "")
     if trigger_list and any(t in body for t in trigger_list):
@@ -244,4 +261,5 @@ __all__ = [
     "session_user_key",
     "should_process_group_inbound",
     "should_send_channel_reply_text",
+    "text_mentions_bot",
 ]

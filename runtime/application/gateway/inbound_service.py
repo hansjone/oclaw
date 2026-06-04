@@ -709,6 +709,16 @@ def process_inbound_payload(payload: dict[str, Any]) -> dict[str, Any]:
             triggers=list(group_policy.triggers),
             metadata=inbound.metadata if isinstance(inbound.metadata, dict) else {},
         ):
+            import logging
+
+            logging.getLogger(__name__).info(
+                "whatsapp group inbound skipped chat=%s user=%s mentions=%s require_mention=%s text=%r",
+                inbound.external_chat_id,
+                inbound.external_user_id,
+                list(inbound.mentions or []),
+                group_policy.require_mention,
+                text[:120],
+            )
             return {"ok": True, "replies": []}
         reply = ""
         reply_attachments: list[dict[str, Any]] = []

@@ -35,6 +35,16 @@ if (-not (Test-Path (Join-Path $sidecarRoot "baileys_runner.ts"))) {
   throw "whatsapp sidecar not installed. Run whatsapp_install.ps1 first."
 }
 
+$bridgeSrc = Join-Path $oclawRoot "runtime\\operations\\whatsapp_bridge"
+if (Test-Path $bridgeSrc) {
+  foreach ($name in @("baileys_runner.ts", "auth.ts", "qr.ts")) {
+    $srcPath = Join-Path $bridgeSrc $name
+    if (Test-Path $srcPath) {
+      Copy-Item -Path $srcPath -Destination (Join-Path $sidecarRoot $name) -Force
+    }
+  }
+}
+
 $healthUrl = ($GatewayBaseUrl.TrimEnd("/") + "/health")
 for ($i = 0; $i -lt $GatewayWaitSeconds; $i++) {
   try {

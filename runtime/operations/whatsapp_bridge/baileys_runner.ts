@@ -30,12 +30,6 @@ const PROXY_URL = (
   process.env.http_proxy ||
   ""
 ).trim();
-const GROUP_REQUIRE_MENTION = String(process.env.AIA_WHATSAPP_GROUP_REQUIRE_MENTION ?? "1").trim() !== "0";
-const GROUP_TRIGGERS = String(process.env.AIA_WHATSAPP_GROUP_TRIGGERS || "/oclaw,|oclaw")
-  .split(",")
-  .map((s) => s.trim())
-  .filter(Boolean);
-
 function log(msg: string): void {
   process.stdout.write(`${new Date().toISOString()} [baileys-whatsapp] ${msg}\n`);
 }
@@ -74,7 +68,10 @@ function unwrapMessage(m: proto.IMessage | null | undefined): proto.IMessage | n
 function messageContextInfo(m: proto.IMessage | null | undefined): proto.IContextInfo | null | undefined {
   const u = unwrapMessage(m);
   if (!u) return null;
+  const top = (u as proto.IMessage & { messageContextInfo?: proto.IMessageContextInfo }).messageContextInfo;
+  const fromTop = top?.mentionedJid?.length ? top : null;
   return (
+    (fromTop as unknown as proto.IContextInfo) ||
     u.extendedTextMessage?.contextInfo ||
     u.imageMessage?.contextInfo ||
     u.videoMessage?.contextInfo ||
@@ -84,6 +81,23 @@ function messageContextInfo(m: proto.IMessage | null | undefined): proto.IContex
     u.templateButtonReplyMessage?.contextInfo ||
     null
   );
+}
+
+function extractMentionsFromUpsert(msg: proto.IWebMessageInfo): string[] {
+  const fromBody = extractMentions(msg.message);
+  const outer = (msg as proto.IWebMessageInfo & { messageContextInfo?: { mentionedJid?: string[] } })
+    .messageContextInfo?.mentionedJid;
+  const outerList = Array.isArray(outer) ? outer.map((j) => String(j || "").trim()).filter(Boolean) : [];
+  const merged = [...fromBody, ...outerList];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const j of merged) {
+    const key = jidPhone(j) || j;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(j);
+  }
+  return out;
 }
 
 function jidPhone(jid: string): string {
@@ -113,32 +127,6 @@ function extractQuoteContext(m: proto.IMessage | null | undefined): { participan
     participant: String(ctx?.participant || "").trim(),
     stanzaId: String(ctx?.stanzaId || "").trim(),
   };
-}
-
-function shouldProcessGroupMessage(params: {
-  isGroup: boolean;
-  text: string;
-  mentions: string[];
-  botJid: string;
-  quotedParticipant?: string;
-}): boolean {
-  if (!params.isGroup) return true;
-  const bot = String(params.botJid || "").trim();
-  if (bot && params.quotedParticipant && jidsSameUser(bot, params.quotedParticipant)) {
-    return true;
-  }
-  if (bot) {
-    for (const m of params.mentions || []) {
-      const raw = String(m || "").trim();
-      if (!raw) continue;
-      if (jidsSameUser(raw, bot)) return true;
-    }
-  }
-  const body = String(params.text || "");
-  for (const t of GROUP_TRIGGERS) {
-    if (t && body.includes(t)) return true;
-  }
-  return !GROUP_REQUIRE_MENTION;
 }
 
 function isStatusOrBroadcastJid(jid: string): boolean {
@@ -508,24 +496,11 @@ async function main(): Promise<void> {
           const from = isGroup ? String(key.participant || "").trim() : remoteJid;
           const userId = from ? jidNormalizedUser(from) : jidNormalizedUser(remoteJid);
           const chatId = jidNormalizedUser(remoteJid);
-          const mentions = extractMentions(msg.message);
+          const mentions = extractMentionsFromUpsert(msg);
           const quote = extractQuoteContext(msg.message);
           const botJidRaw = sock?.user?.id ? String(sock.user.id).trim() : "";
           const botJid = botJidRaw ? jidNormalizedUser(botJidRaw) : "";
           const isReplyToBot = Boolean(botJidRaw && quote.participant && jidsSameUser(botJidRaw, quote.participant));
-
-          if (
-            !shouldProcessGroupMessage({
-              isGroup,
-              text,
-              mentions,
-              botJid: botJidRaw,
-              quotedParticipant: quote.participant,
-            })
-          ) {
-            if (VERBOSE) log(`skip group message chat=${chatId} user=${userId} (no mention/trigger)`);
-            continue;
-          }
 
           const groupName = isGroup ? await resolveGroupName(chatId) : "";
 
@@ -548,9 +523,15 @@ async function main(): Promise<void> {
             isGroup,
             mentions,
             groupName: groupName || undefined,
-            botJid: botJid || undefined,
+            botJid: botJidRaw || botJid || undefined,
           });
-          if (VERBOSE) log(`inbound posting chat=${chatId} user=${userId} textLen=${text.length}`);
+          if (VERBOSE || isGroup) {
+            log(
+              `inbound group=${isGroup} chat=${chatId} user=${userId} mentions=${mentions.length} replyToBot=${isReplyToBot} textLen=${text.length}`,
+            );
+          } else if (VERBOSE) {
+            log(`inbound posting chat=${chatId} user=${userId} textLen=${text.length}`);
+          }
           const out = await postInbound(inbound);
           const replies = Array.isArray(out.replies) ? (out.replies as Json[]) : [];
           if (VERBOSE) log(`inbound ok replies=${replies.length}`);

@@ -12,6 +12,7 @@ from runtime.orchestration.group_ingest import (
     resolve_group_policy,
     session_user_key,
     should_process_group_inbound,
+    text_mentions_bot,
 )
 from interfaces.channels.base import InboundMessage
 from runtime.application.gateway.inbound_service import _parse_generic_inbound, process_inbound_payload
@@ -93,6 +94,11 @@ def test_should_accept_group_reply_to_bot() -> None:
         )
         is True
     )
+
+
+def test_text_mentions_bot_phone_fallback() -> None:
+    assert text_mentions_bot(text="@1234567890 hello", bot_jid="1234567890@s.whatsapp.net") is True
+    assert text_mentions_bot(text="hello", bot_jid="1234567890@s.whatsapp.net") is False
 
 
 def test_should_accept_group_trigger_without_mention() -> None:
