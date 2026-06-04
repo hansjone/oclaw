@@ -5,12 +5,16 @@ import pytest
 from runtime.orchestration.group_ingest import (
     GROUP_SESSION_USER_SENTINEL,
     build_group_sender_context,
+    build_whatsapp_group_reply_metadata,
+    infer_is_group_from_chat_id,
+    is_nonsend_channel_reply_text,
     normalize_jid,
     resolve_group_policy,
     session_user_key,
     should_process_group_inbound,
 )
-from runtime.application.gateway.inbound_service import process_inbound_payload
+from interfaces.channels.base import InboundMessage
+from runtime.application.gateway.inbound_service import _parse_generic_inbound, process_inbound_payload
 from svc.persistence.db.engine import clear_assistant_engine_cache
 from svc.persistence.sqlite_store import SqliteStore
 
@@ -98,6 +102,85 @@ def test_resolve_group_policy_from_account_config() -> None:
     assert policy.triggers == ("!ask",)
 
 
+def test_infer_is_group_from_chat_id() -> None:
+    assert infer_is_group_from_chat_id("120363012345678@g.us") is True
+    assert infer_is_group_from_chat_id("111@s.whatsapp.net") is False
+
+
+def test_parse_generic_inbound_infers_whatsapp_group() -> None:
+    inbound = _parse_generic_inbound(
+        "whatsapp",
+        {
+            "user_id": "111@s.whatsapp.net",
+            "chat_id": "120363012345678@g.us",
+            "text": "hello",
+        },
+    )
+    assert inbound.is_group is True
+
+
+def test_is_nonsend_channel_reply_text() -> None:
+    assert is_nonsend_channel_reply_text("") is True
+    assert is_nonsend_channel_reply_text("(silent)") is True
+    assert is_nonsend_channel_reply_text("（silent）") is True
+    assert is_nonsend_channel_reply_text("NO_REPLY") is True
+    assert is_nonsend_channel_reply_text("你好") is False
+
+
+def test_inbound_group_without_is_group_flag_is_still_silent(
+    monkeypatch: pytest.MonkeyPatch, fresh_sqlite_store: SqliteStore
+) -> None:
+    store = fresh_sqlite_store
+    _setup_whatsapp_identity(store)
+    monkeypatch.setattr("svc.persistence.assistant_store.get_assistant_store", lambda: store)
+
+    out = process_inbound_payload(
+        {
+            "channel": "whatsapp",
+            "account_id": "wa-default",
+            "user_id": "111@s.whatsapp.net",
+            "chat_id": "120363012345678@g.us",
+            "text": "Test alarm",
+            "metadata": {"bot_jid": "999@s.whatsapp.net", "source": "test"},
+        }
+    )
+    assert out.get("replies") == []
+
+
+def test_inbound_suppresses_silent_llm_reply(
+    monkeypatch: pytest.MonkeyPatch, fresh_sqlite_store: SqliteStore
+) -> None:
+    store = fresh_sqlite_store
+    _setup_whatsapp_identity(store)
+    monkeypatch.setattr("svc.persistence.assistant_store.get_assistant_store", lambda: store)
+
+    class _Turn:
+        turn_uuid = "turn-s"
+        reply_text = "(silent)"
+
+    class _Gw:
+        def __init__(self, *, store: object) -> None:
+            _ = store
+
+        def handle_turn(self, **kwargs: object) -> _Turn:
+            return _Turn()
+
+    monkeypatch.setattr("runtime.gateway.OclawGateway", _Gw)
+
+    out = process_inbound_payload(
+        {
+            "channel": "whatsapp",
+            "account_id": "wa-default",
+            "user_id": "111@s.whatsapp.net",
+            "chat_id": "111@s.whatsapp.net",
+            "text": "ping",
+            "is_group": False,
+            "metadata": {"bot_jid": "999@s.whatsapp.net"},
+        }
+    )
+    assert out.get("replies") == []
+
+
 def test_build_group_sender_context() -> None:
     ctx = build_group_sender_context(
         metadata={"raw": {"pushName": "Alice"}},
@@ -105,6 +188,28 @@ def test_build_group_sender_context() -> None:
     )
     assert "Alice" in ctx
     assert "111@s.whatsapp.net" in ctx
+
+
+def test_build_whatsapp_group_reply_metadata() -> None:
+    inbound = InboundMessage(
+        channel="whatsapp",
+        external_user_id="111:12@s.whatsapp.net",
+        external_chat_id="120363012345678@g.us",
+        text="明天几点？",
+        is_group=True,
+        metadata={
+            "raw": {
+                "id": "MSG123",
+                "participant": "111:12@s.whatsapp.net",
+                "pushName": "Alice",
+            }
+        },
+    )
+    meta = build_whatsapp_group_reply_metadata(inbound=inbound)
+    assert meta["quote_stanza_id"] == "MSG123"
+    assert meta["mention_jids"] == ["111@s.whatsapp.net"]
+    assert meta["quote_text"] == "明天几点？"
+    assert meta["quote_participant"] == "111@s.whatsapp.net"
 
 
 def test_shared_group_session_for_multiple_senders(fresh_sqlite_store: SqliteStore) -> None:
@@ -285,3 +390,47 @@ def test_inbound_group_mention_uses_shared_session_and_sender_prefix(
     assert sid == session_ids[0]
 
     _ = tenant_id, user_id
+
+
+def test_inbound_group_reply_includes_quote_and_mention_metadata(
+    monkeypatch: pytest.MonkeyPatch, fresh_sqlite_store: SqliteStore
+) -> None:
+    store = fresh_sqlite_store
+    _setup_whatsapp_identity(store)
+    monkeypatch.setattr("svc.persistence.assistant_store.get_assistant_store", lambda: store)
+
+    class _Turn:
+        turn_uuid = "turn-g"
+        reply_text = "下午三点"
+
+    class _Gw:
+        def __init__(self, *, store: object) -> None:
+            _ = store
+
+        def handle_turn(self, **kwargs: object) -> _Turn:
+            return _Turn()
+
+    monkeypatch.setattr("runtime.gateway.OclawGateway", _Gw)
+
+    out = process_inbound_payload(
+        {
+            "channel": "whatsapp",
+            "account_id": "wa-default",
+            "user_id": "111@s.whatsapp.net",
+            "chat_id": "120363012345678@g.us",
+            "text": "@bot 明天几点？",
+            "is_group": True,
+            "mentions": ["999@s.whatsapp.net"],
+            "metadata": {
+                "bot_jid": "999@s.whatsapp.net",
+                "raw": {"id": "ABC123", "participant": "111@s.whatsapp.net", "pushName": "Alice"},
+            },
+        }
+    )
+    replies = out.get("replies") if isinstance(out.get("replies"), list) else []
+    assert replies
+    meta = replies[0].get("metadata") if isinstance(replies[0], dict) else {}
+    assert isinstance(meta, dict)
+    assert meta.get("quote_stanza_id") == "ABC123"
+    assert meta.get("mention_jids") == ["111@s.whatsapp.net"]
+    assert meta.get("quote_text") == "@bot 明天几点？"

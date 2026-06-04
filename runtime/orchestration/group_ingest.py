@@ -1,10 +1,20 @@
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass
 from typing import Any
 
 GROUP_SESSION_USER_SENTINEL = "__group__"
+_NONSEND_REPLY_TEXTS = frozenset(
+    {
+        "(silent)",
+        "[silent]",
+        "no_reply",
+        "no reply",
+        "静默",
+    }
+)
 
 
 def normalize_jid(jid: str) -> str:
@@ -29,6 +39,31 @@ def normalize_jids(jids: list[str]) -> set[str]:
 
 def session_user_key(*, is_group: bool, external_user_id: str) -> str:
     return GROUP_SESSION_USER_SENTINEL if is_group else str(external_user_id or "").strip()
+
+
+def infer_is_group_from_chat_id(chat_id: str) -> bool:
+    c = str(chat_id or "").strip().lower()
+    return c.endswith("@g.us")
+
+
+def resolve_is_group(*, payload_is_group: bool, chat_id: str) -> bool:
+    if payload_is_group:
+        return True
+    return infer_is_group_from_chat_id(chat_id)
+
+
+def is_nonsend_channel_reply_text(text: str) -> bool:
+    t = str(text or "").strip()
+    if not t:
+        return True
+    normalized = t.lower().replace("（", "(").replace("）", ")")
+    if normalized in _NONSEND_REPLY_TEXTS:
+        return True
+    return bool(re.fullmatch(r"no_reply", normalized, flags=re.IGNORECASE))
+
+
+def should_send_channel_reply_text(text: str) -> bool:
+    return not is_nonsend_channel_reply_text(text)
 
 
 @dataclass(frozen=True)
@@ -123,13 +158,45 @@ def build_group_sender_context(*, metadata: dict[str, Any] | None, external_user
     return f"[群成员: {label}]"
 
 
+def build_whatsapp_group_reply_metadata(
+    *,
+    inbound: Any,
+) -> dict[str, Any]:
+    """Outbound hints for WhatsApp sidecar: @ sender + quote original message."""
+    meta = inbound.metadata if isinstance(getattr(inbound, "metadata", None), dict) else {}
+    raw = meta.get("raw") if isinstance(meta.get("raw"), dict) else {}
+    sender_jid = normalize_jid(str(getattr(inbound, "external_user_id", "") or ""))
+    chat_id = str(getattr(inbound, "external_chat_id", "") or "").strip()
+    stanza_id = str(raw.get("id") or meta.get("message_id") or "").strip()
+    participant = normalize_jid(str(raw.get("participant") or sender_jid or ""))
+    quote_text = str(getattr(inbound, "text", "") or "").strip()
+    push_name = str(raw.get("pushName") or meta.get("push_name") or "").strip()
+    out: dict[str, Any] = {
+        "is_group": True,
+        "reply_to_user_id": sender_jid,
+        "mention_jids": [sender_jid] if sender_jid else [],
+        "quote_remote_jid": chat_id,
+        "quote_stanza_id": stanza_id,
+        "quote_participant": participant,
+        "quote_text": quote_text,
+    }
+    if push_name:
+        out["quote_push_name"] = push_name
+    return out
+
+
 __all__ = [
     "GROUP_SESSION_USER_SENTINEL",
     "GroupPolicyConfig",
     "build_group_sender_context",
+    "build_whatsapp_group_reply_metadata",
     "normalize_jid",
     "normalize_jids",
+    "infer_is_group_from_chat_id",
+    "is_nonsend_channel_reply_text",
+    "resolve_is_group",
     "resolve_group_policy",
     "session_user_key",
     "should_process_group_inbound",
+    "should_send_channel_reply_text",
 ]

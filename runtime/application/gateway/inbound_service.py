@@ -336,7 +336,9 @@ def _parse_generic_inbound(channel_name: str, payload: dict[str, Any]) -> Inboun
         raise ValueError("missing user_id")
     if not chat_id:
         chat_id = user_id
-    is_group = bool(payload.get("is_group"))
+    from runtime.orchestration.group_ingest import resolve_is_group
+
+    is_group = resolve_is_group(payload_is_group=bool(payload.get("is_group")), chat_id=chat_id)
     mentions = payload.get("mentions") if isinstance(payload.get("mentions"), list) else []
     attachments = payload.get("attachments") if isinstance(payload.get("attachments"), list) else []
     return InboundMessage(
@@ -906,6 +908,11 @@ def process_inbound_payload(payload: dict[str, Any]) -> dict[str, Any]:
     elif _should_suppress_channel_reply(channel=inbound.channel, text=reply):
         return {"ok": True, "replies": []}
 
+    from runtime.orchestration.group_ingest import is_nonsend_channel_reply_text
+
+    if is_nonsend_channel_reply_text(reply):
+        return {"ok": True, "replies": []}
+
     if channel_session_id and reply:
         _persist_channel_assistant_if_turn_missing(
             store=store,
@@ -920,13 +927,18 @@ def process_inbound_payload(payload: dict[str, Any]) -> dict[str, Any]:
         if not reply_attachments:
             # If assistant didn't persist attachments, fall back to recent tool-produced media.
             reply_attachments = _collect_recent_tool_attachments(store=store, session_id=str(session_id))
+        reply_metadata: dict[str, Any] = {}
+        if str(inbound.channel or "").strip().lower() == "whatsapp" and inbound.is_group:
+            from runtime.orchestration.group_ingest import build_whatsapp_group_reply_metadata
+
+            reply_metadata = build_whatsapp_group_reply_metadata(inbound=inbound)
         replies = [
             {
                 "channel": inbound.channel,
                 "chat_id": inbound.external_chat_id,
                 "text": reply,
                 "attachments": list(reply_attachments or []),
-                "metadata": {},
+                "metadata": reply_metadata,
             }
         ]
     # For wechat/weixin sidecar delivery, add a local media_path when reply attachments refer to attachment_id.

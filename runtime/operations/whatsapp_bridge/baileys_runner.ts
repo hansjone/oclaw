@@ -146,6 +146,86 @@ function decodeBase64Payload(raw: string): { mime: string; data: Buffer } | null
   }
 }
 
+function readReplyMetadata(reply: Json): Json {
+  const meta = (reply as any).metadata;
+  return meta && typeof meta === "object" ? (meta as Json) : {};
+}
+
+function readMentionJids(meta: Json): string[] {
+  const raw = (meta as any).mention_jids ?? (meta as any).mentionJids;
+  if (!Array.isArray(raw)) {
+    const single = String((meta as any).reply_to_user_id || (meta as any).replyToUserId || "").trim();
+    return single ? [jidNormalizedUser(single)] : [];
+  }
+  return raw.map((j) => jidNormalizedUser(String(j || "").trim())).filter(Boolean);
+}
+
+function buildMentionPrefix(mentionJids: string[]): string {
+  const tags = mentionJids
+    .map((j) => {
+      const user = String(j || "").split("@")[0]?.trim();
+      return user ? `@${user}` : "";
+    })
+    .filter(Boolean);
+  return tags.length ? `${tags.join(" ")} ` : "";
+}
+
+function buildQuotedMessage(params: {
+  chatId: string;
+  stanzaId: string;
+  participant: string;
+  quoteText: string;
+}): proto.IWebMessageInfo | undefined {
+  const stanzaId = String(params.stanzaId || "").trim();
+  const chatId = String(params.chatId || "").trim();
+  if (!stanzaId || !chatId) return undefined;
+  const participant = jidNormalizedUser(String(params.participant || "").trim());
+  const quoteText = String(params.quoteText || "").trim() || "...";
+  return {
+    key: {
+      remoteJid: chatId,
+      fromMe: false,
+      id: stanzaId,
+      ...(participant ? { participant } : {}),
+    },
+    message: {
+      conversation: quoteText,
+    },
+  } as proto.IWebMessageInfo;
+}
+
+function buildTextSendOptions(params: {
+  deliverTo: string;
+  text: string;
+  reply: Json;
+}): { content: { text: string; mentions?: string[] }; quoted?: proto.IWebMessageInfo } {
+  const meta = readReplyMetadata(params.reply);
+  const mentionJids = readMentionJids(meta);
+  const body = String(params.text || "").trim();
+  const prefix = mentionJids.length ? buildMentionPrefix(mentionJids) : "";
+  const content: { text: string; mentions?: string[] } = { text: prefix ? `${prefix}${body}` : body };
+  if (mentionJids.length) content.mentions = mentionJids;
+
+  const quoted = buildQuotedMessage({
+    chatId: String((meta as any).quote_remote_jid || (meta as any).quoteRemoteJid || params.deliverTo).trim(),
+    stanzaId: String((meta as any).quote_stanza_id || (meta as any).quoteStanzaId || "").trim(),
+    participant: String((meta as any).quote_participant || (meta as any).quoteParticipant || "").trim(),
+    quoteText: String((meta as any).quote_text || (meta as any).quoteText || "").trim(),
+  });
+
+  return quoted ? { content, quoted } : { content };
+}
+
+function shouldSendOutboundText(text: string): boolean {
+  const t = String(text || "").trim();
+  if (!t) return false;
+  const normalized = t.toLowerCase().replace(/（/g, "(").replace(/）/g, ")");
+  if (normalized === "(silent)" || normalized === "[silent]" || normalized === "no_reply" || normalized === "no reply" || normalized === "静默") {
+    return false;
+  }
+  return true;
+}
+
 async function sendReplyWithAttachments(params: {
   sock: ReturnType<typeof makeWASocket> | null;
   deliverTo: string;
@@ -159,12 +239,13 @@ async function sendReplyWithAttachments(params: {
   const mediaPath = String((reply as any).media_path || (reply as any).mediaPath || "").trim();
   const mediaUrl = String((reply as any).media_url || (reply as any).mediaUrl || "").trim();
   const attachments = Array.isArray((reply as any).attachments) ? ((reply as any).attachments as Json[]) : [];
+  const textOpts = buildTextSendOptions({ deliverTo: params.deliverTo, text: outText, reply });
 
   const sendMediaRef = async (source: string): Promise<boolean> => {
     if (!source) return false;
     const msg: Json = { document: source as any };
-    if (outText) (msg as any).caption = outText;
-    await s.sendMessage(params.deliverTo, msg as any);
+    if (outText) (msg as any).caption = textOpts.content.text;
+    await s.sendMessage(params.deliverTo, msg as any, textOpts.quoted ? { quoted: textOpts.quoted } : undefined);
     return true;
   };
 
@@ -183,13 +264,17 @@ async function sendReplyWithAttachments(params: {
       mimetype: decoded.mime,
       fileName: String((att as any).name || (att as any).filename || "attachment.bin"),
     };
-    if (outText) (msg as any).caption = outText;
-    await s.sendMessage(params.deliverTo, msg as any);
+    if (outText) (msg as any).caption = textOpts.content.text;
+    await s.sendMessage(params.deliverTo, msg as any, textOpts.quoted ? { quoted: textOpts.quoted } : undefined);
     return;
   }
 
   if (outText) {
-    await s.sendMessage(params.deliverTo, { text: outText });
+    await s.sendMessage(
+      params.deliverTo,
+      textOpts.content as any,
+      textOpts.quoted ? { quoted: textOpts.quoted } : undefined,
+    );
   }
 }
 
@@ -412,6 +497,10 @@ async function main(): Promise<void> {
           if (VERBOSE) log(`inbound ok replies=${replies.length}`);
           for (const r of replies) {
             const outText = String((r as any).text || "").trim();
+            if (!shouldSendOutboundText(outText) && !(Array.isArray((r as any).attachments) && (r as any).attachments.length)) {
+              if (VERBOSE) log(`skip outbound reply chat=${chatId} (nonsend text)`);
+              continue;
+            }
             const deliverTo = String((r as any).chat_id || chatId).trim() || chatId;
             await sendReplyWithAttachments({ sock, deliverTo, text: outText, reply: r });
           }
