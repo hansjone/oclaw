@@ -140,35 +140,99 @@ function resolveSenderJid(key: proto.IMessageKey): string {
   return "";
 }
 
-function messageMentionsBot(
+function jidBaseLocal(jid: string): string {
+  const s = String(jid || "").trim().toLowerCase();
+  if (!s) return "";
+  return s.split("@")[0]?.split(":")[0] || "";
+}
+
+function jidsReferSameUser(a: string, b: string): boolean {
+  const aa = String(a || "").trim();
+  const bb = String(b || "").trim();
+  if (!aa || !bb) return false;
+  try {
+    if (areJidsSameUser(aa, bb)) return true;
+  } catch {
+    // ignore
+  }
+  if (jidsSameUser(aa, bb)) return true;
+  const la = jidBaseLocal(aa);
+  const lb = jidBaseLocal(bb);
+  if (la && lb && la === lb) {
+    const digits = la.replace(/\D/g, "");
+    if (digits.length >= 6) return true;
+  }
+  return false;
+}
+
+function collectBotIdentityJids(
   sock: ReturnType<typeof makeWASocket> | null,
-  mentions: string[],
-  botJid: string,
-): boolean {
-  const bot = String(botJid || "").trim();
-  if (!bot || !mentions.length) return false;
+  botPn: string,
+  authCreds?: { me?: { id?: string; lid?: string } | null } | null,
+): string[] {
+  const out = new Set<string>();
+  const pn = String(botPn || "").trim();
+  if (pn) {
+    out.add(pn);
+    out.add(jidNormalizedUser(pn));
+    const base = jidBaseLocal(pn);
+    if (base) out.add(`${base}@s.whatsapp.net`);
+  }
+  const user = (sock as any)?.user;
+  if (user?.id) out.add(String(user.id).trim());
+  if (user?.lid) out.add(String(user.lid).trim());
+  const creds = authCreds || (sock as any)?.authState?.creds;
+  const me = creds?.me;
+  if (me?.id) out.add(String(me.id).trim());
+  if (me?.lid) out.add(String(me.lid).trim());
   const lidMapping = (sock as any)?.signalRepository?.lidMapping;
-  for (const m of mentions) {
-    const mention = String(m || "").trim();
-    if (!mention) continue;
-    try {
-      if (areJidsSameUser(mention, bot)) return true;
-    } catch {
-      // ignore
-    }
-    if (jidsSameUser(mention, bot)) return true;
-    if (lidMapping && typeof lidMapping.getPNForLID === "function" && mention.toLowerCase().endsWith("@lid")) {
+  if (lidMapping && pn) {
+    for (const variant of Array.from(out)) {
+      if (!variant.includes("@s.whatsapp")) continue;
       try {
-        const pn = lidMapping.getPNForLID(mention);
-        if (pn && (areJidsSameUser(String(pn), bot) || jidsSameUser(String(pn), bot))) return true;
+        if (typeof lidMapping.getLIDForPN === "function") {
+          const lid = lidMapping.getLIDForPN(variant);
+          if (lid) out.add(String(lid));
+        }
       } catch {
         // ignore
       }
     }
-    if (lidMapping && typeof lidMapping.getLIDForPN === "function" && bot.includes("@s.whatsapp")) {
+  }
+  return Array.from(out).filter(Boolean);
+}
+
+function pickBotLid(botIds: string[]): string {
+  for (const id of botIds) {
+    if (String(id || "").toLowerCase().includes("@lid")) return String(id);
+  }
+  return "";
+}
+
+function messageMentionsBot(
+  sock: ReturnType<typeof makeWASocket> | null,
+  mentions: string[],
+  botPn: string,
+  botIds?: string[],
+  authCreds?: { me?: { id?: string; lid?: string } | null } | null,
+): boolean {
+  const ids = botIds?.length ? botIds : collectBotIdentityJids(sock, botPn, authCreds);
+  if (!ids.length || !mentions.length) return false;
+  const lidMapping = (sock as any)?.signalRepository?.lidMapping;
+  for (const m of mentions) {
+    const mention = String(m || "").trim();
+    if (!mention) continue;
+    for (const botId of ids) {
+      if (jidsReferSameUser(mention, botId)) return true;
+    }
+    if (lidMapping && typeof lidMapping.getPNForLID === "function" && mention.toLowerCase().endsWith("@lid")) {
       try {
-        const lid = lidMapping.getLIDForPN(bot);
-        if (lid && (areJidsSameUser(mention, String(lid)) || jidsSameUser(mention, String(lid)))) return true;
+        const pn = lidMapping.getPNForLID(mention);
+        if (pn) {
+          for (const botId of ids) {
+            if (jidsReferSameUser(String(pn), botId)) return true;
+          }
+        }
       } catch {
         // ignore
       }
@@ -191,6 +255,7 @@ function buildInboundPayload(params: {
   mentions: string[];
   groupName?: string;
   botJid?: string;
+  botLid?: string;
   mentionsBot?: boolean;
 }): Json {
   const metadata: Json = {
@@ -200,6 +265,7 @@ function buildInboundPayload(params: {
   };
   if (params.groupName) metadata.group_name = params.groupName;
   if (params.botJid) metadata.bot_jid = params.botJid;
+  if (params.botLid) metadata.bot_lid = params.botLid;
   if (params.mentions.length) metadata.mentioned_jids = params.mentions;
   return {
     channel: "whatsapp",
@@ -460,6 +526,7 @@ async function main(): Promise<void> {
 
   let reconnectAttempt = 0;
   let sock: ReturnType<typeof makeWASocket> | null = null;
+  let cachedBotIdentityJids: string[] = [];
   const wsAgent = PROXY_URL ? new HttpsProxyAgent(PROXY_URL) : undefined;
   const groupNameCache = new Map<string, { name: string; ts: number }>();
   const GROUP_NAME_TTL_MS = 10 * 60 * 1000;
@@ -492,7 +559,12 @@ async function main(): Promise<void> {
       generateHighQualityLinkPreview: false,
     });
 
-    sock.ev.on("creds.update", saveCreds);
+    sock.ev.on("creds.update", async () => {
+      await saveCreds();
+      const meId = sock?.user?.id ? String(sock.user.id) : "";
+      const ids = collectBotIdentityJids(sock, meId, state.creds);
+      if (ids.length) cachedBotIdentityJids = ids;
+    });
 
     sock.ev.on("connection.update", async (update) => {
       if (update.qr) {
@@ -502,7 +574,9 @@ async function main(): Promise<void> {
       if (update.connection === "open") {
         reconnectAttempt = 0;
         const me = sock?.user?.id ? jidNormalizedUser(sock.user.id) : "";
-        log(`connected. me=${me || "unknown"} loginOnly=${LOGIN_ONLY}`);
+        const botIds = collectBotIdentityJids(sock, sock?.user?.id ? String(sock.user.id) : "", state.creds);
+        cachedBotIdentityJids = botIds;
+        log(`connected. me=${me || "unknown"} botIds=${botIds.join(",") || "none"} loginOnly=${LOGIN_ONLY}`);
         if (LOGIN_ONLY) {
           log("login-only mode: exiting after successful link.");
           process.exit(0);
@@ -554,11 +628,19 @@ async function main(): Promise<void> {
           const quote = extractQuoteContext(msg.message);
           const botJidRaw = sock?.user?.id ? String(sock.user.id).trim() : "";
           const botJid = botJidRaw ? jidNormalizedUser(botJidRaw) : "";
-          const mentionsBot = messageMentionsBot(sock, mentions, botJidRaw);
+          const botIdentityJids = Array.from(
+            new Set([...cachedBotIdentityJids, ...collectBotIdentityJids(sock, botJidRaw, state.creds)]),
+          );
+          if (botIdentityJids.length > cachedBotIdentityJids.length) {
+            cachedBotIdentityJids = botIdentityJids;
+          }
+          const botLid = pickBotLid(botIdentityJids);
+          const mentionsBot = messageMentionsBot(sock, mentions, botJidRaw, botIdentityJids);
           const isReplyToBot = Boolean(
             botJidRaw &&
               quote.participant &&
-              (messageMentionsBot(sock, [quote.participant], botJidRaw) || jidsSameUser(botJidRaw, quote.participant)),
+              (messageMentionsBot(sock, [quote.participant], botJidRaw, botIdentityJids) ||
+                jidsSameUser(botJidRaw, quote.participant)),
           );
 
           const groupName = isGroup ? await resolveGroupName(chatId) : "";
@@ -575,6 +657,7 @@ async function main(): Promise<void> {
             isReplyToBot,
             mentionsBot,
             mentionedJids: mentions,
+            botLid: botLid || null,
           };
 
           const inbound = buildInboundPayload({
@@ -586,11 +669,12 @@ async function main(): Promise<void> {
             mentions,
             groupName: groupName || undefined,
             botJid: botJidRaw || botJid || undefined,
+            botLid: botLid || undefined,
             mentionsBot,
           });
           if (VERBOSE || isGroup) {
             log(
-              `inbound group=${isGroup} chat=${chatId} user=${userId} mentions=${mentions.length} mentionsBot=${mentionsBot} replyToBot=${isReplyToBot} textLen=${text.length} mention0=${mentions[0] || ""}`,
+              `inbound group=${isGroup} chat=${chatId} user=${userId} mentions=${mentions.length} mentionsBot=${mentionsBot} replyToBot=${isReplyToBot} textLen=${text.length} mention0=${mentions[0] || ""} botLid=${botLid || ""}`,
             );
           } else if (VERBOSE) {
             log(`inbound posting chat=${chatId} user=${userId} textLen=${text.length}`);

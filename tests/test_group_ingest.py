@@ -82,6 +82,26 @@ def test_should_accept_group_mention_with_lid_phone_match() -> None:
     )
 
 
+def test_should_accept_group_mention_with_bot_lid_identity() -> None:
+    assert (
+        should_process_group_inbound(
+            is_group=True,
+            text="@bot hello",
+            mentions=["176944565977182@lid"],
+            bot_jid="6281284654304@s.whatsapp.net",
+            require_mention=True,
+            metadata={"bot_lid": "176944565977182:2@lid"},
+        )
+        is True
+    )
+
+
+def test_jids_same_user_lid_device_suffix() -> None:
+    from runtime.orchestration.group_ingest import jids_same_user
+
+    assert jids_same_user("176944565977182@lid", "176944565977182:2@lid") is True
+
+
 def test_should_accept_group_when_sidecar_reports_mentions_bot() -> None:
     assert (
         should_process_group_inbound(

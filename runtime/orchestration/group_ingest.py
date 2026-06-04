@@ -34,14 +34,50 @@ def jid_phone(jid: str) -> str:
     return re.sub(r"\D", "", head)
 
 
+def jid_base_local(jid: str) -> str:
+    s = str(jid or "").strip().lower()
+    if not s:
+        return ""
+    return s.split("@", 1)[0].split(":", 1)[0]
+
+
 def jids_same_user(a: str, b: str) -> bool:
     na = normalize_jid(a)
     nb = normalize_jid(b)
     if na and nb and na == nb:
         return True
+    la = jid_base_local(a)
+    lb = jid_base_local(b)
+    if la and lb and la == lb:
+        digits = re.sub(r"\D", "", la)
+        if len(digits) >= 6:
+            return True
     pa = jid_phone(a)
     pb = jid_phone(b)
     return len(pa) >= 6 and pa == pb
+
+
+def _bot_identity_jids(*, bot_jid: str | None, metadata: dict[str, Any] | None) -> list[str]:
+    out: list[str] = []
+    seen: set[str] = set()
+    for candidate in [bot_jid]:
+        s = str(candidate or "").strip()
+        if s and s not in seen:
+            seen.add(s)
+            out.append(s)
+    if isinstance(metadata, dict):
+        for key in ("bot_lid", "botLid"):
+            s = str(metadata.get(key) or "").strip()
+            if s and s not in seen:
+                seen.add(s)
+                out.append(s)
+        raw = _metadata_raw(metadata)
+        for key in ("botLid", "bot_lid"):
+            s = str(raw.get(key) or "").strip()
+            if s and s not in seen:
+                seen.add(s)
+                out.append(s)
+    return out
 
 
 def _metadata_raw(metadata: dict[str, Any] | None) -> dict[str, Any]:
@@ -198,6 +234,21 @@ def should_process_group_inbound(
         return True
     if is_reply_to_bot(metadata=metadata, bot_jid=bot_jid):
         return True
+    for identity in _bot_identity_jids(bot_jid=bot_jid, metadata=metadata):
+        bot = normalize_jid(identity)
+        if not bot:
+            continue
+        mention_set = normalize_jids(list(mentions or []))
+        if bot in mention_set:
+            return True
+        if "@" in bot:
+            bot_user = bot.split("@", 1)[0]
+            for m in mention_set:
+                if "@" in m and m.split("@", 1)[0] == bot_user:
+                    return True
+        for m in list(mentions or []):
+            if jids_same_user(str(m or ""), identity):
+                return True
     mention_set = normalize_jids(list(mentions or []))
     bot = normalize_jid(str(bot_jid or ""))
     if bot and bot in mention_set:
