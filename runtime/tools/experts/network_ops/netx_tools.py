@@ -769,7 +769,7 @@ def netx_exec_managed_ne_tool() -> ToolSpec:
         name="netx_exec_managed_ne",
         description=(
             "经 netx 登录「网元管理」中的设备并执行只读 CLI（POST /v1/managed-ne/exec）。"
-            "每条命令须以 show / display / get / ping / traceroute / terminal length / ? 开头；"
+            "每条命令须以 show 或 display 开头（仅只读查询，禁止 ping/get/traceroute 等）；"
             "禁止管道符、分号及改配置类命令；单次最多 5 条；默认读超时 60s。"
             "返回合并输出（含命令回显）；失败时含 error/detail。"
             "先 netx_list_managed_ne 解析 ne_id；若 connect_status 非 pass 可先 netx_get_managed_ne 看 connect_detail。"
