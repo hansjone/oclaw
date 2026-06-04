@@ -68,6 +68,33 @@ def test_should_accept_group_when_bot_mentioned() -> None:
     )
 
 
+def test_should_accept_group_mention_with_lid_phone_match() -> None:
+    assert (
+        should_process_group_inbound(
+            is_group=True,
+            text="@bot hello",
+            mentions=["999@lid"],
+            bot_jid="999@s.whatsapp.net",
+            require_mention=True,
+        )
+        is True
+    )
+
+
+def test_should_accept_group_reply_to_bot() -> None:
+    assert (
+        should_process_group_inbound(
+            is_group=True,
+            text="follow up",
+            mentions=[],
+            bot_jid="999@s.whatsapp.net",
+            require_mention=True,
+            metadata={"raw": {"quotedParticipant": "999:0@s.whatsapp.net", "isReplyToBot": True}},
+        )
+        is True
+    )
+
+
 def test_should_accept_group_trigger_without_mention() -> None:
     assert (
         should_process_group_inbound(
@@ -207,9 +234,9 @@ def test_build_whatsapp_group_reply_metadata() -> None:
     )
     meta = build_whatsapp_group_reply_metadata(inbound=inbound)
     assert meta["quote_stanza_id"] == "MSG123"
-    assert meta["mention_jids"] == ["111@s.whatsapp.net"]
+    assert meta["mention_jids"] == ["111:12@s.whatsapp.net"]
     assert meta["quote_text"] == "明天几点？"
-    assert meta["quote_participant"] == "111@s.whatsapp.net"
+    assert meta["quote_participant"] == "111:12@s.whatsapp.net"
 
 
 def test_shared_group_session_for_multiple_senders(fresh_sqlite_store: SqliteStore) -> None:

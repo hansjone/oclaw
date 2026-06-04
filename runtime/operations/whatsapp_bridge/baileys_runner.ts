@@ -45,34 +45,74 @@ function ensureDir(dir: string): void {
 }
 
 function pickText(m: proto.IMessage | null | undefined): string {
-  if (!m) return "";
-  const c = (m.conversation || "").trim();
+  const u = unwrapMessage(m);
+  if (!u) return "";
+  const c = (u.conversation || "").trim();
   if (c) return c;
-  const ext = (m.extendedTextMessage?.text || "").trim();
+  const ext = (u.extendedTextMessage?.text || "").trim();
   if (ext) return ext;
-  const imgCap = (m.imageMessage?.caption || "").trim();
+  const imgCap = (u.imageMessage?.caption || "").trim();
   if (imgCap) return imgCap;
-  const vidCap = (m.videoMessage?.caption || "").trim();
+  const vidCap = (u.videoMessage?.caption || "").trim();
   if (vidCap) return vidCap;
   return "";
 }
 
-function isStatusOrBroadcastJid(jid: string): boolean {
-  const low = String(jid || "").toLowerCase();
-  return low === "status@broadcast" || low.endsWith("@broadcast");
+function unwrapMessage(m: proto.IMessage | null | undefined): proto.IMessage | null {
+  if (!m) return null;
+  const nested =
+    m.ephemeralMessage?.message ||
+    m.viewOnceMessage?.message ||
+    m.viewOnceMessageV2?.message ||
+    m.documentWithCaptionMessage?.message ||
+    m.editedMessage?.message ||
+    null;
+  if (nested) return unwrapMessage(nested);
+  return m;
+}
+
+function messageContextInfo(m: proto.IMessage | null | undefined): proto.IContextInfo | null | undefined {
+  const u = unwrapMessage(m);
+  if (!u) return null;
+  return (
+    u.extendedTextMessage?.contextInfo ||
+    u.imageMessage?.contextInfo ||
+    u.videoMessage?.contextInfo ||
+    u.documentMessage?.contextInfo ||
+    u.buttonsResponseMessage?.contextInfo ||
+    u.listResponseMessage?.contextInfo ||
+    u.templateButtonReplyMessage?.contextInfo ||
+    null
+  );
+}
+
+function jidPhone(jid: string): string {
+  const head = String(jid || "").split("@")[0]?.split(":")[0] || "";
+  return head.replace(/\D/g, "");
+}
+
+function jidsSameUser(a: string, b: string): boolean {
+  const na = jidNormalizedUser(String(a || "").trim());
+  const nb = jidNormalizedUser(String(b || "").trim());
+  if (na && nb && na === nb) return true;
+  const pa = jidPhone(a);
+  const pb = jidPhone(b);
+  return pa.length >= 6 && pa === pb;
 }
 
 function extractMentions(m: proto.IMessage | null | undefined): string[] {
-  if (!m) return [];
-  const ctx =
-    m.extendedTextMessage?.contextInfo ||
-    m.imageMessage?.contextInfo ||
-    m.videoMessage?.contextInfo ||
-    m.documentMessage?.contextInfo ||
-    null;
+  const ctx = messageContextInfo(m);
   const raw = ctx?.mentionedJid;
   if (!Array.isArray(raw)) return [];
-  return raw.map((j) => jidNormalizedUser(String(j || "").trim())).filter(Boolean);
+  return raw.map((j) => String(j || "").trim()).filter(Boolean);
+}
+
+function extractQuoteContext(m: proto.IMessage | null | undefined): { participant: string; stanzaId: string } {
+  const ctx = messageContextInfo(m);
+  return {
+    participant: String(ctx?.participant || "").trim(),
+    stanzaId: String(ctx?.stanzaId || "").trim(),
+  };
 }
 
 function shouldProcessGroupMessage(params: {
@@ -80,16 +120,18 @@ function shouldProcessGroupMessage(params: {
   text: string;
   mentions: string[];
   botJid: string;
+  quotedParticipant?: string;
 }): boolean {
   if (!params.isGroup) return true;
-  const bot = jidNormalizedUser(params.botJid || "");
+  const bot = String(params.botJid || "").trim();
+  if (bot && params.quotedParticipant && jidsSameUser(bot, params.quotedParticipant)) {
+    return true;
+  }
   if (bot) {
-    const botUser = bot.split("@")[0] || "";
     for (const m of params.mentions || []) {
-      const norm = jidNormalizedUser(String(m || "").trim());
-      if (!norm) continue;
-      if (norm === bot) return true;
-      if (botUser && norm.split("@")[0] === botUser) return true;
+      const raw = String(m || "").trim();
+      if (!raw) continue;
+      if (jidsSameUser(raw, bot)) return true;
     }
   }
   const body = String(params.text || "");
@@ -97,6 +139,11 @@ function shouldProcessGroupMessage(params: {
     if (t && body.includes(t)) return true;
   }
   return !GROUP_REQUIRE_MENTION;
+}
+
+function isStatusOrBroadcastJid(jid: string): boolean {
+  const low = String(jid || "").toLowerCase();
+  return low === "status@broadcast" || low.endsWith("@broadcast");
 }
 
 function buildInboundPayload(params: {
@@ -155,9 +202,9 @@ function readMentionJids(meta: Json): string[] {
   const raw = (meta as any).mention_jids ?? (meta as any).mentionJids;
   if (!Array.isArray(raw)) {
     const single = String((meta as any).reply_to_user_id || (meta as any).replyToUserId || "").trim();
-    return single ? [jidNormalizedUser(single)] : [];
+    return single ? [single] : [];
   }
-  return raw.map((j) => jidNormalizedUser(String(j || "").trim())).filter(Boolean);
+  return raw.map((j) => String(j || "").trim()).filter(Boolean);
 }
 
 function buildMentionPrefix(mentionJids: string[]): string {
@@ -179,7 +226,7 @@ function buildQuotedMessage(params: {
   const stanzaId = String(params.stanzaId || "").trim();
   const chatId = String(params.chatId || "").trim();
   if (!stanzaId || !chatId) return undefined;
-  const participant = jidNormalizedUser(String(params.participant || "").trim());
+  const participant = String(params.participant || "").trim();
   const quoteText = String(params.quoteText || "").trim() || "...";
   return {
     key: {
@@ -270,11 +317,16 @@ async function sendReplyWithAttachments(params: {
   }
 
   if (outText) {
-    await s.sendMessage(
-      params.deliverTo,
-      textOpts.content as any,
-      textOpts.quoted ? { quoted: textOpts.quoted } : undefined,
-    );
+    try {
+      await s.sendMessage(
+        params.deliverTo,
+        textOpts.content as any,
+        textOpts.quoted ? { quoted: textOpts.quoted } : undefined,
+      );
+    } catch (err) {
+      log(`send reply failed (${String(err)}); retry plain text`);
+      await s.sendMessage(params.deliverTo, { text: outText });
+    }
   }
 }
 
@@ -457,14 +509,18 @@ async function main(): Promise<void> {
           const userId = from ? jidNormalizedUser(from) : jidNormalizedUser(remoteJid);
           const chatId = jidNormalizedUser(remoteJid);
           const mentions = extractMentions(msg.message);
-          const botJid = sock?.user?.id ? jidNormalizedUser(sock.user.id) : "";
+          const quote = extractQuoteContext(msg.message);
+          const botJidRaw = sock?.user?.id ? String(sock.user.id).trim() : "";
+          const botJid = botJidRaw ? jidNormalizedUser(botJidRaw) : "";
+          const isReplyToBot = Boolean(botJidRaw && quote.participant && jidsSameUser(botJidRaw, quote.participant));
 
           if (
             !shouldProcessGroupMessage({
               isGroup,
               text,
               mentions,
-              botJid,
+              botJid: botJidRaw,
+              quotedParticipant: quote.participant,
             })
           ) {
             if (VERBOSE) log(`skip group message chat=${chatId} user=${userId} (no mention/trigger)`);
@@ -479,6 +535,9 @@ async function main(): Promise<void> {
             participant: key.participant || null,
             pushName: (msg as any).pushName || null,
             messageTimestamp: (msg as any).messageTimestamp || null,
+            quotedParticipant: quote.participant || null,
+            quotedStanzaId: quote.stanzaId || null,
+            isReplyToBot,
           };
 
           const inbound = buildInboundPayload({

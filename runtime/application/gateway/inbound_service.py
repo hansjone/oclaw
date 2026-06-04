@@ -707,6 +707,7 @@ def process_inbound_payload(payload: dict[str, Any]) -> dict[str, Any]:
             bot_jid=bot_jid,
             require_mention=group_policy.require_mention,
             triggers=list(group_policy.triggers),
+            metadata=inbound.metadata if isinstance(inbound.metadata, dict) else {},
         ):
             return {"ok": True, "replies": []}
         reply = ""

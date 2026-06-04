@@ -28,6 +28,44 @@ def normalize_jid(jid: str) -> str:
     return s.split(":")[0]
 
 
+def jid_phone(jid: str) -> str:
+    head = str(jid or "").strip().split("@", 1)[0]
+    head = head.split(":", 1)[0]
+    return re.sub(r"\D", "", head)
+
+
+def jids_same_user(a: str, b: str) -> bool:
+    na = normalize_jid(a)
+    nb = normalize_jid(b)
+    if na and nb and na == nb:
+        return True
+    pa = jid_phone(a)
+    pb = jid_phone(b)
+    return len(pa) >= 6 and pa == pb
+
+
+def _metadata_raw(metadata: dict[str, Any] | None) -> dict[str, Any]:
+    if not isinstance(metadata, dict):
+        return {}
+    raw = metadata.get("raw")
+    return raw if isinstance(raw, dict) else {}
+
+
+def is_reply_to_bot(*, metadata: dict[str, Any] | None, bot_jid: str | None) -> bool:
+    raw = _metadata_raw(metadata)
+    if raw.get("isReplyToBot") is True or raw.get("is_reply_to_bot") is True:
+        return True
+    quoted = ""
+    if isinstance(metadata, dict):
+        quoted = str(metadata.get("quoted_participant") or "").strip()
+    if not quoted:
+        quoted = str(raw.get("quotedParticipant") or raw.get("quoted_participant") or "").strip()
+    bot = str(bot_jid or "").strip()
+    if quoted and bot and jids_same_user(quoted, bot):
+        return True
+    return False
+
+
 def normalize_jids(jids: list[str]) -> set[str]:
     out: set[str] = set()
     for raw in jids or []:
@@ -127,8 +165,11 @@ def should_process_group_inbound(
     bot_jid: str | None,
     require_mention: bool = True,
     triggers: list[str] | tuple[str, ...] | None = None,
+    metadata: dict[str, Any] | None = None,
 ) -> bool:
     if not is_group:
+        return True
+    if is_reply_to_bot(metadata=metadata, bot_jid=bot_jid):
         return True
     mention_set = normalize_jids(list(mentions or []))
     bot = normalize_jid(str(bot_jid or ""))
@@ -139,6 +180,10 @@ def should_process_group_inbound(
         bot_user = bot.split("@", 1)[0]
         for m in mention_set:
             if "@" in m and m.split("@", 1)[0] == bot_user:
+                return True
+    if bot:
+        for m in list(mentions or []):
+            if jids_same_user(str(m or ""), bot):
                 return True
     trigger_list = [str(t) for t in (triggers or []) if str(t)]
     body = str(text or "")
@@ -165,19 +210,19 @@ def build_whatsapp_group_reply_metadata(
     """Outbound hints for WhatsApp sidecar: @ sender + quote original message."""
     meta = inbound.metadata if isinstance(getattr(inbound, "metadata", None), dict) else {}
     raw = meta.get("raw") if isinstance(meta.get("raw"), dict) else {}
-    sender_jid = normalize_jid(str(getattr(inbound, "external_user_id", "") or ""))
+    sender_jid = str(getattr(inbound, "external_user_id", "") or "").strip()
     chat_id = str(getattr(inbound, "external_chat_id", "") or "").strip()
+    participant_raw = str(raw.get("participant") or sender_jid or "").strip()
     stanza_id = str(raw.get("id") or meta.get("message_id") or "").strip()
-    participant = normalize_jid(str(raw.get("participant") or sender_jid or ""))
     quote_text = str(getattr(inbound, "text", "") or "").strip()
     push_name = str(raw.get("pushName") or meta.get("push_name") or "").strip()
     out: dict[str, Any] = {
         "is_group": True,
-        "reply_to_user_id": sender_jid,
-        "mention_jids": [sender_jid] if sender_jid else [],
+        "reply_to_user_id": participant_raw or normalize_jid(sender_jid),
+        "mention_jids": [participant_raw] if participant_raw else ([normalize_jid(sender_jid)] if sender_jid else []),
         "quote_remote_jid": chat_id,
         "quote_stanza_id": stanza_id,
-        "quote_participant": participant,
+        "quote_participant": participant_raw or normalize_jid(str(raw.get("participant") or sender_jid or "")),
         "quote_text": quote_text,
     }
     if push_name:
