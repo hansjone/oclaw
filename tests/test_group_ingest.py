@@ -74,8 +74,8 @@ def test_should_accept_group_mention_with_lid_phone_match() -> None:
         should_process_group_inbound(
             is_group=True,
             text="@bot hello",
-            mentions=["999@lid"],
-            bot_jid="999@s.whatsapp.net",
+            mentions=["6281284654304@lid"],
+            bot_jid="6281284654304@s.whatsapp.net",
             require_mention=True,
         )
         is True
@@ -102,17 +102,89 @@ def test_jids_same_user_lid_device_suffix() -> None:
     assert jids_same_user("176944565977182@lid", "176944565977182:2@lid") is True
 
 
-def test_should_accept_group_when_sidecar_reports_mentions_bot() -> None:
+def test_should_accept_group_when_sidecar_reports_mentions_bot_without_jids() -> None:
     assert (
         should_process_group_inbound(
             is_group=True,
-            text="hi",
-            mentions=["unknown-lid@lid"],
+            text="@bot hi",
+            mentions=[],
             bot_jid="999@s.whatsapp.net",
             require_mention=True,
             metadata={"mentions_bot": True, "raw": {"mentionsBot": True}},
         )
         is True
+    )
+
+
+def test_should_reject_group_when_multiple_others_mentioned_without_bot() -> None:
+    assert (
+        should_process_group_inbound(
+            is_group=True,
+            text="@alice @bob 开会",
+            mentions=[
+                "111111111111@lid",
+                "222222222222@lid",
+            ],
+            bot_jid="6281284654304@s.whatsapp.net",
+            require_mention=True,
+            metadata={"bot_lid": "176944565977182:2@lid"},
+        )
+        is False
+    )
+
+
+def test_should_accept_group_when_bot_among_multiple_mentions() -> None:
+    assert (
+        should_process_group_inbound(
+            is_group=True,
+            text="@alice @bot 帮忙",
+            mentions=[
+                "111111111111@lid",
+                "176944565977182@lid",
+            ],
+            bot_jid="6281284654304@s.whatsapp.net",
+            require_mention=True,
+            metadata={"bot_lid": "176944565977182:2@lid"},
+        )
+        is True
+    )
+
+
+def test_should_reject_group_when_only_other_user_mentioned() -> None:
+    assert (
+        should_process_group_inbound(
+            is_group=True,
+            text="@alice hello",
+            mentions=["333465375410398@lid"],
+            bot_jid="6281284654304@s.whatsapp.net",
+            require_mention=True,
+            metadata={
+                "mentions_bot": True,
+                "bot_lid": "176944565977182:2@lid",
+                "raw": {"mentionsBot": True, "isReplyToBot": True},
+            },
+        )
+        is False
+    )
+
+
+def test_should_reject_group_when_other_mentioned_even_if_reply_to_bot() -> None:
+    assert (
+        should_process_group_inbound(
+            is_group=True,
+            text="@alice follow up",
+            mentions=["333465375410398@lid"],
+            bot_jid="6281284654304@s.whatsapp.net",
+            require_mention=True,
+            metadata={
+                "bot_lid": "176944565977182:2@lid",
+                "raw": {
+                    "quotedParticipant": "6281284654304@s.whatsapp.net",
+                    "isReplyToBot": True,
+                },
+            },
+        )
+        is False
     )
 
 

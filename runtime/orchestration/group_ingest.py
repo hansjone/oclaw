@@ -88,13 +88,32 @@ def _metadata_raw(metadata: dict[str, Any] | None) -> dict[str, Any]:
 
 
 def metadata_mentions_bot(metadata: dict[str, Any] | None) -> bool:
-    """Sidecar resolves LID @-mentions via Baileys; gateway trusts that signal."""
+    """Sidecar hint when WhatsApp omits mentionedJid (display-name @)."""
     if not isinstance(metadata, dict):
         return False
     if metadata.get("mentions_bot") is True or metadata.get("mentionsBot") is True:
         return True
     raw = _metadata_raw(metadata)
     return raw.get("mentionsBot") is True or raw.get("mentions_bot") is True
+
+
+def mentions_include_bot(
+    *,
+    mentions: list[str],
+    bot_jid: str | None,
+    metadata: dict[str, Any] | None = None,
+) -> bool:
+    identities = _bot_identity_jids(bot_jid=bot_jid, metadata=metadata)
+    if not identities:
+        return False
+    for raw in mentions or []:
+        mention = str(raw or "").strip()
+        if not mention:
+            continue
+        for identity in identities:
+            if jids_same_user(mention, identity):
+                return True
+    return False
 
 
 def text_mentions_bot(*, text: str, bot_jid: str | None) -> bool:
@@ -230,44 +249,28 @@ def should_process_group_inbound(
 ) -> bool:
     if not is_group:
         return True
+
+    mentions_list = [str(m).strip() for m in (mentions or []) if str(m).strip()]
+    trigger_list = [str(t) for t in (triggers or []) if str(t)]
+    body = str(text or "")
+    has_trigger = bool(trigger_list and any(t in body for t in trigger_list))
+    bot_mentioned = mentions_include_bot(
+        mentions=mentions_list,
+        bot_jid=bot_jid,
+        metadata=metadata,
+    ) or text_mentions_bot(text=text, bot_jid=bot_jid)
+
+    # Multi-@: reply only when the bot is among mentionedJid; @ others alone stays silent.
+    if mentions_list:
+        if bot_mentioned:
+            return True
+        return has_trigger
+
     if metadata_mentions_bot(metadata):
         return True
     if is_reply_to_bot(metadata=metadata, bot_jid=bot_jid):
         return True
-    for identity in _bot_identity_jids(bot_jid=bot_jid, metadata=metadata):
-        bot = normalize_jid(identity)
-        if not bot:
-            continue
-        mention_set = normalize_jids(list(mentions or []))
-        if bot in mention_set:
-            return True
-        if "@" in bot:
-            bot_user = bot.split("@", 1)[0]
-            for m in mention_set:
-                if "@" in m and m.split("@", 1)[0] == bot_user:
-                    return True
-        for m in list(mentions or []):
-            if jids_same_user(str(m or ""), identity):
-                return True
-    mention_set = normalize_jids(list(mentions or []))
-    bot = normalize_jid(str(bot_jid or ""))
-    if bot and bot in mention_set:
-        return True
-    # Baileys may omit bot from mentionedJid when user uses display-name @; compare user part.
-    if bot and "@" in bot:
-        bot_user = bot.split("@", 1)[0]
-        for m in mention_set:
-            if "@" in m and m.split("@", 1)[0] == bot_user:
-                return True
-    if bot:
-        for m in list(mentions or []):
-            if jids_same_user(str(m or ""), bot):
-                return True
-    if text_mentions_bot(text=text, bot_jid=bot_jid):
-        return True
-    trigger_list = [str(t) for t in (triggers or []) if str(t)]
-    body = str(text or "")
-    if trigger_list and any(t in body for t in trigger_list):
+    if has_trigger:
         return True
     return not require_mention
 
@@ -315,6 +318,7 @@ __all__ = [
     "GroupPolicyConfig",
     "build_group_sender_context",
     "build_whatsapp_group_reply_metadata",
+    "mentions_include_bot",
     "metadata_mentions_bot",
     "normalize_jid",
     "normalize_jids",

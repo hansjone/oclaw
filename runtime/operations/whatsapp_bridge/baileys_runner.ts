@@ -6,7 +6,6 @@ import dns from "node:dns/promises";
 import makeWASocket, {
   Browsers,
   DisconnectReason,
-  areJidsSameUser,
   fetchLatestBaileysVersion,
   jidNormalizedUser,
   proto,
@@ -146,23 +145,27 @@ function jidBaseLocal(jid: string): string {
   return s.split("@")[0]?.split(":")[0] || "";
 }
 
-function jidsReferSameUser(a: string, b: string): boolean {
-  const aa = String(a || "").trim();
-  const bb = String(b || "").trim();
-  if (!aa || !bb) return false;
-  try {
-    if (areJidsSameUser(aa, bb)) return true;
-  } catch {
-    // ignore
+function mentionMatchesBotIdentity(mention: string, botId: string): boolean {
+  const m = String(mention || "").trim();
+  const b = String(botId || "").trim();
+  if (!m || !b) return false;
+  if (jidNormalizedUser(m) === jidNormalizedUser(b)) return true;
+  const mLid = m.toLowerCase().endsWith("@lid");
+  const bLid = b.toLowerCase().endsWith("@lid");
+  if (mLid || bLid) {
+    const ml = jidBaseLocal(m);
+    const bl = jidBaseLocal(b);
+    if (ml && bl && ml === bl && ml.replace(/\D/g, "").length >= 6) return true;
+    return false;
   }
-  if (jidsSameUser(aa, bb)) return true;
-  const la = jidBaseLocal(aa);
-  const lb = jidBaseLocal(bb);
-  if (la && lb && la === lb) {
-    const digits = la.replace(/\D/g, "");
-    if (digits.length >= 6) return true;
-  }
-  return false;
+  const mp = jidPhone(m);
+  const bp = jidPhone(b);
+  return (
+    mp.length >= 6 &&
+    mp === bp &&
+    m.toLowerCase().includes("@s.whatsapp") &&
+    b.toLowerCase().includes("@s.whatsapp")
+  );
 }
 
 function collectBotIdentityJids(
@@ -218,24 +221,11 @@ function messageMentionsBot(
 ): boolean {
   const ids = botIds?.length ? botIds : collectBotIdentityJids(sock, botPn, authCreds);
   if (!ids.length || !mentions.length) return false;
-  const lidMapping = (sock as any)?.signalRepository?.lidMapping;
   for (const m of mentions) {
     const mention = String(m || "").trim();
     if (!mention) continue;
     for (const botId of ids) {
-      if (jidsReferSameUser(mention, botId)) return true;
-    }
-    if (lidMapping && typeof lidMapping.getPNForLID === "function" && mention.toLowerCase().endsWith("@lid")) {
-      try {
-        const pn = lidMapping.getPNForLID(mention);
-        if (pn) {
-          for (const botId of ids) {
-            if (jidsReferSameUser(String(pn), botId)) return true;
-          }
-        }
-      } catch {
-        // ignore
-      }
+      if (mentionMatchesBotIdentity(mention, botId)) return true;
     }
   }
   return false;
@@ -639,8 +629,8 @@ async function main(): Promise<void> {
           const isReplyToBot = Boolean(
             botJidRaw &&
               quote.participant &&
-              (messageMentionsBot(sock, [quote.participant], botJidRaw, botIdentityJids) ||
-                jidsSameUser(botJidRaw, quote.participant)),
+              !mentions.length &&
+              botIdentityJids.some((botId) => mentionMatchesBotIdentity(quote.participant, botId)),
           );
 
           const groupName = isGroup ? await resolveGroupName(chatId) : "";
