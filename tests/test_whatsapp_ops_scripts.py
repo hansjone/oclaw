@@ -46,3 +46,15 @@ def test_whatsapp_runner_supports_reply_attachments_base64() -> None:
     assert "media_base64" in text
     assert "media_path" in text
     assert "media_url" in text
+
+
+def test_whatsapp_runner_supports_inbound_media_download() -> None:
+    text = _read("runtime/operations/whatsapp_bridge/baileys_runner.ts")
+    assert "downloadMediaMessage" in text
+    assert "downloadInboundAttachments" in text
+    assert "local_path" in text
+    assert "payload.attachments" in text
+    assert "documentMessage?.caption" in text
+    assert "buildOutboundMediaMessage" in text
+    assert "video_base64" in text
+    assert "audio_base64" in text

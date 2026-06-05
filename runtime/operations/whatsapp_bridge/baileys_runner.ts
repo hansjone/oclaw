@@ -6,7 +6,10 @@ import dns from "node:dns/promises";
 import makeWASocket, {
   Browsers,
   DisconnectReason,
+  downloadMediaMessage,
+  extensionForMediaMessage,
   fetchLatestBaileysVersion,
+  getContentType,
   jidNormalizedUser,
   proto,
 } from "@whiskeysockets/baileys";
@@ -30,6 +33,9 @@ const PROXY_URL = (
   process.env.http_proxy ||
   ""
 ).trim();
+const MEDIA_MAX_BYTES = Number(process.env.OCLAW_WHATSAPP_MEDIA_MAX_BYTES || String(20 * 1024 * 1024)) || 20 * 1024 * 1024;
+const MEDIA_DOWNLOAD_TIMEOUT_MS = Number(process.env.OCLAW_WHATSAPP_MEDIA_TIMEOUT_MS || "90000") || 90_000;
+
 function log(msg: string): void {
   process.stdout.write(`${new Date().toISOString()} [baileys-whatsapp] ${msg}\n`);
 }
@@ -49,6 +55,8 @@ function pickText(m: proto.IMessage | null | undefined): string {
   if (imgCap) return imgCap;
   const vidCap = (u.videoMessage?.caption || "").trim();
   if (vidCap) return vidCap;
+  const docCap = (u.documentMessage?.caption || "").trim();
+  if (docCap) return docCap;
   return "";
 }
 
@@ -236,6 +244,175 @@ function isStatusOrBroadcastJid(jid: string): boolean {
   return low === "status@broadcast" || low.endsWith("@broadcast");
 }
 
+function inferExtension(contentType: string, originalFilename: string): string {
+  const explicit = path.extname(String(originalFilename || "").trim()).toLowerCase();
+  if (explicit && explicit.length <= 8) return explicit;
+  const low = String(contentType || "").trim().toLowerCase();
+  if (low.includes("jpeg") || low.includes("jpg")) return ".jpg";
+  if (low.includes("png")) return ".png";
+  if (low.includes("gif")) return ".gif";
+  if (low.includes("webp")) return ".webp";
+  if (low.includes("bmp")) return ".bmp";
+  if (low.includes("tiff")) return ".tiff";
+  if (low.includes("mp4")) return ".mp4";
+  if (low.includes("webm")) return ".webm";
+  if (low.includes("quicktime") || low.includes("mov")) return ".mov";
+  if (low.includes("pdf")) return ".pdf";
+  if (low.includes("msword") || low.includes("wordprocessingml")) return ".docx";
+  if (low.includes("spreadsheetml") || low.includes("ms-excel")) return ".xlsx";
+  if (low.includes("presentationml") || low.includes("ms-powerpoint")) return ".pptx";
+  if (low.includes("zip")) return ".zip";
+  if (low.includes("gzip")) return ".gz";
+  if (low.includes("json")) return ".json";
+  if (low.includes("csv")) return ".csv";
+  if (low.includes("plain")) return ".txt";
+  if (low.includes("opus") || low.includes("ogg")) return ".ogg";
+  if (low.includes("mpeg") || low.includes("mp3")) return ".mp3";
+  if (low.includes("wav")) return ".wav";
+  if (low.includes("m4a") || low.includes("mp4a")) return ".m4a";
+  if (low.includes("aac")) return ".aac";
+  return ".bin";
+}
+
+function isVoiceNote(m: proto.IMessage | null | undefined): boolean {
+  const u = unwrapMessage(m);
+  if (!u?.audioMessage) return false;
+  return Boolean(u.audioMessage.ptt);
+}
+
+function mediaMimeFromMessage(m: proto.IMessage | null | undefined): string {
+  const u = unwrapMessage(m);
+  if (!u) return "";
+  const raw = String(
+    u.imageMessage?.mimetype ||
+      u.videoMessage?.mimetype ||
+      u.documentMessage?.mimetype ||
+      u.audioMessage?.mimetype ||
+      u.stickerMessage?.mimetype ||
+      "",
+  ).trim();
+  if (raw) return raw;
+  if (u.audioMessage) return isVoiceNote(m) ? "audio/ogg; codecs=opus" : "audio/mpeg";
+  if (u.imageMessage || u.stickerMessage) return "image/jpeg";
+  if (u.videoMessage) return "video/mp4";
+  return "";
+}
+
+function mediaFileNameFromMessage(m: proto.IMessage | null | undefined): string {
+  const u = unwrapMessage(m);
+  if (!u) return "";
+  const docName = String(u.documentMessage?.fileName || u.documentMessage?.title || "").trim();
+  if (docName) return docName;
+  if (u.audioMessage) return isVoiceNote(m) ? "voice.ogg" : "audio.mp3";
+  if (u.imageMessage) return "image.jpg";
+  if (u.videoMessage) return "video.mp4";
+  if (u.stickerMessage) return "sticker.webp";
+  return "";
+}
+
+function sanitizeFileName(name: string): string {
+  const base = String(name || "").trim().replace(/[^\w.\-()+\u4e00-\u9fff]/g, "_");
+  return base.slice(0, 120) || "attachment.bin";
+}
+
+function buildSavedFileName(params: {
+  msgId: string;
+  mime: string;
+  originalName: string;
+  ext: string;
+}): string {
+  const original = sanitizeFileName(params.originalName);
+  if (original.includes(".")) return `${Date.now()}-${original}`;
+  const ext = params.ext.startsWith(".") ? params.ext : `.${params.ext || "bin"}`;
+  return `${Date.now()}-${params.msgId}${ext}`;
+}
+
+function resolveMediaKind(contentType: string | undefined, mime: string, m?: proto.IMessage | null): string | null {
+  const t = String(contentType || "").trim();
+  const mimeLower = String(mime || "").trim().toLowerCase();
+  if (t === "imageMessage" || t === "stickerMessage") return "image";
+  if (t === "videoMessage") return "video";
+  if (t === "audioMessage") return isVoiceNote(m || null) ? "voice" : "file";
+  if (t === "documentMessage") {
+    if (mimeLower.startsWith("image/")) return "image";
+    if (mimeLower.startsWith("video/")) return "video";
+    if (mimeLower.startsWith("audio/")) return "file";
+    return "file";
+  }
+  return null;
+}
+
+function hasInboundMedia(m: proto.IMessage | null | undefined): boolean {
+  const u = unwrapMessage(m);
+  if (!u) return false;
+  return Boolean(u.imageMessage || u.videoMessage || u.documentMessage || u.audioMessage || u.stickerMessage);
+}
+
+async function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${label} timeout after ${ms}ms`)), ms);
+  });
+  try {
+    return await Promise.race([promise, timeout]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+async function downloadInboundAttachments(params: {
+  sock: ReturnType<typeof makeWASocket>;
+  msg: proto.IWebMessageInfo;
+}): Promise<Json[]> {
+  const inner = unwrapMessage(params.msg.message);
+  if (!inner || !hasInboundMedia(params.msg.message)) return [];
+  const contentType = getContentType(inner);
+  const mime = mediaMimeFromMessage(params.msg.message) || "application/octet-stream";
+  const kind = resolveMediaKind(contentType, mime, params.msg.message);
+  if (!kind) return [];
+
+  const msgId = String(params.msg.key?.id || "media").replace(/[^\w.-]/g, "_").slice(0, 32);
+  const originalName = mediaFileNameFromMessage(params.msg.message);
+  try {
+    if (VERBOSE) log(`media download start id=${msgId} kind=${kind} mime=${mime} name=${originalName || "-"}`);
+    const buffer = await withTimeout(
+      downloadMediaMessage(
+        params.msg,
+        "buffer",
+        {},
+        { reuploadRequest: params.sock.updateMediaMessage },
+      ),
+      MEDIA_DOWNLOAD_TIMEOUT_MS,
+      "whatsapp media download",
+    );
+    if (!buffer?.length) return [];
+    if (MEDIA_MAX_BYTES > 0 && buffer.length > MEDIA_MAX_BYTES) {
+      log(`media skip id=${msgId}: ${buffer.length} bytes exceeds max ${MEDIA_MAX_BYTES}`);
+      return [];
+    }
+    const ext = extensionForMediaMessage(inner) || inferExtension(mime, originalName);
+    const dir = path.join(STATE_DIR, "media", "inbound");
+    ensureDir(dir);
+    const savedName = buildSavedFileName({ msgId, mime, originalName, ext });
+    const filePath = path.join(dir, savedName);
+    await fs.promises.writeFile(filePath, buffer);
+    if (VERBOSE) log(`media download done id=${msgId} bytes=${buffer.length} path=${filePath}`);
+    return [
+      {
+        kind,
+        local_path: filePath,
+        mime,
+        media_type: mime,
+        name: originalName || savedName,
+        filename: originalName || savedName,
+      },
+    ];
+  } catch (err) {
+    log(`media download failed id=${msgId} err=${String(err)}`);
+    return [];
+  }
+}
+
 function buildInboundPayload(params: {
   chatId: string;
   userId: string;
@@ -243,6 +420,7 @@ function buildInboundPayload(params: {
   raw: unknown;
   isGroup: boolean;
   mentions: string[];
+  attachments?: Json[];
   groupName?: string;
   botJid?: string;
   botLid?: string;
@@ -257,7 +435,7 @@ function buildInboundPayload(params: {
   if (params.botJid) metadata.bot_jid = params.botJid;
   if (params.botLid) metadata.bot_lid = params.botLid;
   if (params.mentions.length) metadata.mentioned_jids = params.mentions;
-  return {
+  const payload: Json = {
     channel: "whatsapp",
     account_id: ACCOUNT_ID,
     user_id: params.userId,
@@ -267,6 +445,8 @@ function buildInboundPayload(params: {
     mentions: params.mentions,
     metadata,
   };
+  if (params.attachments?.length) payload.attachments = params.attachments;
+  return payload;
 }
 
 function decodeBase64Payload(raw: string): { mime: string; data: Buffer } | null {
@@ -368,6 +548,63 @@ function shouldSendOutboundText(text: string): boolean {
   return true;
 }
 
+function guessMimeFromPath(filePath: string): string {
+  const ext = path.extname(filePath).toLowerCase();
+  const map: Record<string, string> = {
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".png": "image/png",
+    ".gif": "image/gif",
+    ".webp": "image/webp",
+    ".mp4": "video/mp4",
+    ".mov": "video/quicktime",
+    ".webm": "video/webm",
+    ".mp3": "audio/mpeg",
+    ".ogg": "audio/ogg",
+    ".wav": "audio/wav",
+    ".m4a": "audio/mp4",
+    ".pdf": "application/pdf",
+    ".txt": "text/plain",
+    ".csv": "text/csv",
+    ".json": "application/json",
+    ".doc": "application/msword",
+    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ".xls": "application/vnd.ms-excel",
+    ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    ".ppt": "application/vnd.ms-powerpoint",
+    ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    ".zip": "application/zip",
+  };
+  return map[ext] || "application/octet-stream";
+}
+
+function buildOutboundMediaMessage(params: {
+  data: Buffer;
+  mime: string;
+  fileName: string;
+  caption?: string;
+}): Json {
+  const mime = String(params.mime || "application/octet-stream").trim() || "application/octet-stream";
+  const m = mime.toLowerCase();
+  const caption = String(params.caption || "").trim();
+  const captionOpt = caption ? { caption } : {};
+  if (m.startsWith("image/")) {
+    return { image: params.data as any, mimetype: mime, ...captionOpt };
+  }
+  if (m.startsWith("video/")) {
+    return { video: params.data as any, mimetype: mime, ...captionOpt };
+  }
+  if (m.startsWith("audio/")) {
+    return { audio: params.data as any, mimetype: mime, ...captionOpt };
+  }
+  return {
+    document: params.data as any,
+    mimetype: mime,
+    fileName: sanitizeFileName(params.fileName || "attachment.bin"),
+    ...captionOpt,
+  };
+}
+
 async function sendReplyWithAttachments(params: {
   sock: ReturnType<typeof makeWASocket> | null;
   deliverTo: string;
@@ -382,13 +619,32 @@ async function sendReplyWithAttachments(params: {
   const mediaUrl = String((reply as any).media_url || (reply as any).mediaUrl || "").trim();
   const attachments = Array.isArray((reply as any).attachments) ? ((reply as any).attachments as Json[]) : [];
   const textOpts = buildTextSendOptions({ deliverTo: params.deliverTo, text: outText, reply });
+  const sendOpts = textOpts.quoted ? { quoted: textOpts.quoted } : undefined;
+
+  const sendMediaBuffer = async (data: Buffer, mime: string, fileName: string): Promise<boolean> => {
+    if (!data.length) return false;
+    const msg = buildOutboundMediaMessage({
+      data,
+      mime,
+      fileName,
+      caption: textOpts.content.text,
+    });
+    await s.sendMessage(params.deliverTo, msg as any, sendOpts);
+    return true;
+  };
 
   const sendMediaRef = async (source: string): Promise<boolean> => {
-    if (!source) return false;
-    const msg: Json = { document: source as any };
-    if (outText) (msg as any).caption = textOpts.content.text;
-    await s.sendMessage(params.deliverTo, msg as any, textOpts.quoted ? { quoted: textOpts.quoted } : undefined);
-    return true;
+    const src = String(source || "").trim();
+    if (!src) return false;
+    try {
+      const data = await fs.promises.readFile(src);
+      const mime = guessMimeFromPath(src);
+      const fileName = path.basename(src);
+      return await sendMediaBuffer(data, mime, fileName);
+    } catch (err) {
+      log(`send media file failed path=${src} err=${String(err)}`);
+      return false;
+    }
   };
 
   if (await sendMediaRef(mediaPath || mediaUrl)) return;
@@ -396,19 +652,20 @@ async function sendReplyWithAttachments(params: {
   for (const att of attachments) {
     if (!att || typeof att !== "object") continue;
     const raw = String(
-      (att as any).data_base64 || (att as any).media_base64 || (att as any).image_base64 || (att as any).data || "",
+      (att as any).data_base64 ||
+        (att as any).media_base64 ||
+        (att as any).image_base64 ||
+        (att as any).video_base64 ||
+        (att as any).audio_base64 ||
+        (att as any).data ||
+        "",
     ).trim();
     if (!raw) continue;
     const decoded = decodeBase64Payload(raw);
     if (!decoded) continue;
-    const msg: Json = {
-      document: decoded.data as any,
-      mimetype: decoded.mime,
-      fileName: String((att as any).name || (att as any).filename || "attachment.bin"),
-    };
-    if (outText) (msg as any).caption = textOpts.content.text;
-    await s.sendMessage(params.deliverTo, msg as any, textOpts.quoted ? { quoted: textOpts.quoted } : undefined);
-    return;
+    const fileName = String((att as any).name || (att as any).filename || "attachment.bin");
+    const mime = String((att as any).mime || (att as any).media_type || (att as any).mime_type || decoded.mime).trim() || decoded.mime;
+    if (await sendMediaBuffer(decoded.data, mime, fileName)) return;
   }
 
   if (outText) {
@@ -604,8 +861,12 @@ async function main(): Promise<void> {
           if (dedupe.has(id)) continue;
           dedupe.add(id);
 
+          const s = sock;
+          if (!s) continue;
+
+          const attachments = await downloadInboundAttachments({ sock: s, msg });
           const text = pickText(msg.message);
-          if (!text) continue;
+          if (!text && !attachments.length) continue;
 
           const isGroup = remoteJid.endsWith("@g.us");
           const participantRaw = String(key.participant || "").trim();
@@ -657,6 +918,7 @@ async function main(): Promise<void> {
             raw,
             isGroup,
             mentions,
+            attachments,
             groupName: groupName || undefined,
             botJid: botJidRaw || botJid || undefined,
             botLid: botLid || undefined,
@@ -664,10 +926,10 @@ async function main(): Promise<void> {
           });
           if (VERBOSE || isGroup) {
             log(
-              `inbound group=${isGroup} chat=${chatId} user=${userId} mentions=${mentions.length} mentionsBot=${mentionsBot} replyToBot=${isReplyToBot} textLen=${text.length} mention0=${mentions[0] || ""} botLid=${botLid || ""}`,
+              `inbound group=${isGroup} chat=${chatId} user=${userId} mentions=${mentions.length} mentionsBot=${mentionsBot} replyToBot=${isReplyToBot} textLen=${text.length} attachments=${attachments.length} mention0=${mentions[0] || ""} botLid=${botLid || ""}`,
             );
-          } else if (VERBOSE) {
-            log(`inbound posting chat=${chatId} user=${userId} textLen=${text.length}`);
+          } else if (VERBOSE || attachments.length) {
+            log(`inbound posting chat=${chatId} user=${userId} textLen=${text.length} attachments=${attachments.length}`);
           }
           const out = await postInbound(inbound);
           const replies = Array.isArray(out.replies) ? (out.replies as Json[]) : [];
