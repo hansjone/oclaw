@@ -120,3 +120,56 @@ def test_llm_response_from_completion_promotes_dsml(monkeypatch: pytest.MonkeyPa
     assert resp.tool_calls[0].name == "read_file"
     assert "DSML" not in resp.content
     assert "DSML" not in "".join(seen)
+
+
+def test_chat_stream_handles_terminal_message_chunk_with_null_delta(monkeypatch: pytest.MonkeyPatch) -> None:
+    """mytokenland-style gateways may finish tool streams with delta=None and message populated."""
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    model = OpenAIChatModel(
+        model="deepseek-v4-flash",
+        api_key="sk-test",
+        base_url="https://api.mytokenland.com/v1",
+    )
+
+    delta_tool = SimpleNamespace(
+        content=None,
+        reasoning_content="",
+        tool_calls=[
+            SimpleNamespace(
+                index=0,
+                id="call_function_test_1",
+                function=SimpleNamespace(name="system_time", arguments="{}"),
+            )
+        ],
+    )
+    terminal_message = SimpleNamespace(
+        content="",
+        reasoning_content="thinking about time",
+        tool_calls=[
+            SimpleNamespace(
+                index=0,
+                id="call_function_test_1",
+                function=SimpleNamespace(name="system_time", arguments="{}"),
+            )
+        ],
+    )
+
+    def fake_stream(_norm_msgs, _tools, *, stream: bool):  # noqa: ANN001, ARG001
+        assert stream is True
+        return iter(
+            [
+                SimpleNamespace(choices=[SimpleNamespace(delta=delta_tool)]),
+                SimpleNamespace(
+                    choices=[
+                        SimpleNamespace(delta=None, finish_reason="tool_calls", message=terminal_message)
+                    ]
+                ),
+            ]
+        )
+
+    model._create_chat_completion = fake_stream  # type: ignore[method-assign]
+    resp = model.chat([], [], on_token=lambda _s: None)
+    assert len(resp.tool_calls) == 1
+    assert resp.tool_calls[0].name == "system_time"
+    assert resp.tool_calls[0].arguments == {}
+    assert resp.reasoning_content == "thinking about time"

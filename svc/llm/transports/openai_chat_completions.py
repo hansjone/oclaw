@@ -455,6 +455,101 @@ def _extract_thought_signature_from_tool_delta(tc: Any) -> str | None:
     return None
 
 
+def _stream_tool_call_index(tc: Any, *, fallback: int = 0) -> int:
+    idx = getattr(tc, "index", None)
+    if idx is not None:
+        return int(idx)
+    if isinstance(tc, dict) and tc.get("index") is not None:
+        return int(tc["index"])
+    return int(fallback)
+
+
+def _accumulate_stream_tool_call(tool_acc: dict[int, dict[str, Any]], tc: Any, *, fallback_index: int = 0) -> None:
+    idx = _stream_tool_call_index(tc, fallback=fallback_index)
+    slot = tool_acc.setdefault(idx, {"id": None, "name": None, "arguments": "", "thought_signature": None})
+    tid = getattr(tc, "id", None)
+    if tid is None and isinstance(tc, dict):
+        tid = tc.get("id")
+    if tid:
+        slot["id"] = tid
+    fn = getattr(tc, "function", None)
+    if fn is None and isinstance(tc, dict):
+        fn = tc.get("function")
+    if fn is not None:
+        name = getattr(fn, "name", None)
+        if name is None and isinstance(fn, dict):
+            name = fn.get("name")
+        if name:
+            slot["name"] = name
+        args_raw = getattr(fn, "arguments", None)
+        if args_raw is None and isinstance(fn, dict):
+            args_raw = fn.get("arguments")
+        if args_raw is not None:
+            slot["arguments"] = f"{slot['arguments']}{args_raw}"
+    sig = _extract_thought_signature_from_message_tool_call(tc)
+    if sig is None and fn is not None:
+        sig = _extract_thought_signature_from_tool_delta(fn)
+    if sig is not None:
+        slot["thought_signature"] = sig
+
+
+def _ingest_stream_choice_message(
+    choice: Any,
+    *,
+    tool_acc: dict[int, dict[str, Any]],
+    reasoning_visible_parts: list[str],
+    content_visible_parts: list[str],
+    dsml_filter: DeepSeekTextFilter | None,
+    on_token: Optional[Callable[[str], None]],
+) -> None:
+    """Some OpenAI-compatible gateways emit a terminal chunk with ``delta=None`` and a full ``message``."""
+    msg = getattr(choice, "message", None)
+    if msg is None:
+        return
+
+    def _emit_visible_text(parts: list[str]) -> None:
+        if not on_token:
+            return
+        for part in parts:
+            if part:
+                on_token(part)
+
+    rc = getattr(msg, "reasoning_content", None) or ""
+    if rc:
+        if dsml_filter is not None:
+            parts = dsml_filter.push(str(rc))
+            reasoning_visible_parts.extend(parts)
+            _emit_visible_text(parts)
+        else:
+            reasoning_visible_parts.append(str(rc))
+            if on_token:
+                on_token(str(rc))
+
+    content = getattr(msg, "content", None)
+    if content:
+        if dsml_filter is not None:
+            parts = dsml_filter.push(str(content))
+            content_visible_parts.extend(parts)
+            _emit_visible_text(parts)
+        else:
+            content_visible_parts.append(str(content))
+            if on_token:
+                on_token(str(content))
+
+    tcs = getattr(msg, "tool_calls", None)
+    if tcs:
+        for i, tc in enumerate(tcs):
+            idx = _stream_tool_call_index(tc, fallback=i)
+            existing = tool_acc.get(idx) or {}
+            if existing.get("id") and existing.get("name") and existing.get("arguments"):
+                try:
+                    json.loads(str(existing["arguments"]))
+                    continue
+                except json.JSONDecodeError:
+                    pass
+            _accumulate_stream_tool_call(tool_acc, tc, fallback_index=i)
+
+
 def _should_recover_dsml_tool_calls(
     model: str | None,
     base_url: str | None,
@@ -622,6 +717,8 @@ class OpenAIChatModel(ChatModel):
 
     def _llm_response_from_completion(self, completion: Any, *, on_token: Optional[Callable[[str], None]]) -> LLMResponse:
         msg = completion.choices[0].message
+        if msg is None:
+            return LLMResponse(content="", tool_calls=[], reasoning_content="")
         reasoning_parts = getattr(msg, "reasoning_content", None) or ""
         reasoning_text = str(reasoning_parts).strip() if reasoning_parts else ""
         content = str(msg.content or "")
@@ -718,7 +815,18 @@ class OpenAIChatModel(ChatModel):
             for chunk in stream_obj:
                 if not chunk.choices:
                     continue
-                delta = chunk.choices[0].delta
+                choice = chunk.choices[0]
+                delta = getattr(choice, "delta", None)
+                if delta is None:
+                    _ingest_stream_choice_message(
+                        choice,
+                        tool_acc=tool_acc,
+                        reasoning_visible_parts=reasoning_visible_parts,
+                        content_visible_parts=content_visible_parts,
+                        dsml_filter=dsml_filter,
+                        on_token=on_token,
+                    )
+                    continue
                 rc = getattr(delta, "reasoning_content", None) or ""
                 if rc:
                     if dsml_filter is not None:
@@ -731,22 +839,7 @@ class OpenAIChatModel(ChatModel):
                             on_token(rc)
                 if delta.tool_calls:
                     for tc in delta.tool_calls:
-                        idx = int(tc.index)
-                        slot = tool_acc.setdefault(idx, {"id": None, "name": None, "arguments": "", "thought_signature": None})
-                        if tc.id:
-                            slot["id"] = tc.id
-                        if tc.function:
-                            if tc.function.name:
-                                slot["name"] = tc.function.name
-                            if tc.function.arguments:
-                                slot["arguments"] = f"{slot['arguments']}{tc.function.arguments}"
-                        sig = _extract_thought_signature_from_message_tool_call(tc)
-                        if sig is None:
-                            sig = _extract_thought_signature_from_tool_delta(tc)
-                        if sig is None and tc.function is not None:
-                            sig = _extract_thought_signature_from_tool_delta(tc.function)
-                        if sig is not None:
-                            slot["thought_signature"] = sig
+                        _accumulate_stream_tool_call(tool_acc, tc)
                 if delta.content:
                     if dsml_filter is not None:
                         parts = dsml_filter.push(delta.content)
