@@ -13,8 +13,8 @@ from svc.persistence.assistant_store import reset_assistant_store_singleton
 
 class NetxBridgeTests(unittest.TestCase):
     def setUp(self) -> None:
-        os.environ["OCLAW_NETX_BRIDGE_TOKEN"] = "test-bridge-token"
-        os.environ.pop("OCLAW_OPS_AI_SHARED_TOKEN", None)
+        os.environ["OCLAW_OPS_AI_SHARED_TOKEN"] = "test-bridge-token"
+        os.environ.pop("OCLAW_NETX_BRIDGE_TOKEN", None)
         os.environ["AIA_WHATSAPP_ACCOUNT_ID"] = "wa-default"
         reset_assistant_store_singleton()
         self.client = TestClient(create_app())

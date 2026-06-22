@@ -11,7 +11,7 @@ from svc.persistence.assistant_store import get_assistant_store
 
 
 def _bridge_token_expected() -> str:
-    return str(os.getenv("OCLAW_NETX_BRIDGE_TOKEN") or "").strip()
+    return str(os.getenv("OCLAW_OPS_AI_SHARED_TOKEN") or "").strip()
 
 
 def _verify_bridge_token(token: str) -> bool:
