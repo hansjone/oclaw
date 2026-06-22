@@ -696,6 +696,53 @@ async function postInbound(payload: Json): Promise<Json> {
   return text ? (JSON.parse(text) as Json) : {};
 }
 
+async function pollOutboundQueue(sock: ReturnType<typeof makeWASocket>): Promise<void> {
+  const url = `${LOCAL_BASE_URL.replace(/\/+$/, "")}/whatsapp/outbound/pending?account_id=${encodeURIComponent(ACCOUNT_ID)}`;
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return;
+    const body = (await res.json()) as Json;
+    const items = Array.isArray(body.items) ? (body.items as Json[]) : [];
+    for (const item of items) {
+      if (!item || typeof item !== "object") continue;
+      const id = String((item as any).id || "").trim();
+      const chatId = String((item as any).chat_id || "").trim();
+      const text = String((item as any).text || "").trim();
+      if (!id || !chatId || !text) continue;
+      let ok = true;
+      let err = "";
+      try {
+        await sock.sendMessage(chatId, { text });
+        log(`outbound sent id=${id} chat=${chatId}`);
+      } catch (sendErr) {
+        ok = false;
+        err = String(sendErr);
+        log(`outbound send failed id=${id} chat=${chatId} err=${err.slice(0, 160)}`);
+      }
+      try {
+        await fetch(`${LOCAL_BASE_URL.replace(/\/+$/, "")}/whatsapp/outbound/ack`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id, ok, error: err }),
+        });
+      } catch {
+        // best-effort ack
+      }
+    }
+  } catch (err) {
+    if (VERBOSE) log(`outbound poll error: ${String(err)}`);
+  }
+}
+
+function startOutboundPoller(getSock: () => ReturnType<typeof makeWASocket> | null): void {
+  const intervalMs = Number(process.env.OCLAW_WHATSAPP_OUTBOUND_POLL_MS || "2500") || 2500;
+  setInterval(() => {
+    const s = getSock();
+    if (!s) return;
+    void pollOutboundQueue(s);
+  }, Math.max(1000, intervalMs));
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
@@ -952,6 +999,7 @@ async function main(): Promise<void> {
 
   log(`runner started local=${LOCAL_BASE_URL} stateDir=${STATE_DIR} verbose=${VERBOSE} node=${process.version}`);
   await logNetworkHints();
+  startOutboundPoller(() => sock);
   await connectOnce();
 }
 

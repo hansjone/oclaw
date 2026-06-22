@@ -1301,6 +1301,118 @@ def build_admin_router() -> APIRouter:
         )
         return {"ok": True, "deleted": deleted}
 
+    @router.get("/admin/api/whatsapp/groups")
+    def api_whatsapp_groups(
+        tenant_id: str = Query(default="default"),
+        account_id: str = Query(default=""),
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        store = get_assistant_store()
+        ctx = _resolve_auth(store, authorization)
+        _require_permission(ctx, "admin:read")
+        tid = str(tenant_id or "default").strip()
+        aid = str(account_id or os.getenv("AIA_WHATSAPP_ACCOUNT_ID") or "wa-default").strip()
+        known = store.list_whatsapp_known_groups(tenant_id=tid, account_id=aid)
+        session_groups: list[dict[str, Any]] = []
+        try:
+            with store._connect() as conn:
+                rows = conn.execute(
+                    """
+                    SELECT DISTINCT external_chat_id, session_id
+                    FROM channel_session_v2
+                    WHERE tenant_id = ? AND channel = 'whatsapp' AND account_id = ? AND external_chat_id LIKE '%@g.us'
+                    """,
+                    (tid, aid),
+                ).fetchall()
+            for r in rows:
+                jid = str(r[0] or "").strip()
+                if jid:
+                    session_groups.append({"group_jid": jid, "session_id": str(r[1] or "")})
+        except Exception:
+            session_groups = []
+        merged: dict[str, dict[str, Any]] = {}
+        for g in known:
+            jid = str(g.get("group_jid") or "").strip()
+            if jid:
+                merged[jid] = g
+        for sg in session_groups:
+            jid = str(sg.get("group_jid") or "").strip()
+            if jid and jid not in merged:
+                merged[jid] = {
+                    "tenant_id": tid,
+                    "account_id": aid,
+                    "group_jid": jid,
+                    "group_name": "",
+                    "last_seen_at": "",
+                    "session_id": sg.get("session_id"),
+                }
+        binding = store.get_whatsapp_alert_binding(tenant_id=tid, account_id=aid)
+        return {"ok": True, "items": list(merged.values()), "binding": binding}
+
+    @router.get("/admin/api/whatsapp/alert-binding")
+    def api_whatsapp_alert_binding_get(
+        tenant_id: str = Query(default="default"),
+        account_id: str = Query(default=""),
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        store = get_assistant_store()
+        ctx = _resolve_auth(store, authorization)
+        _require_permission(ctx, "admin:read")
+        tid = str(tenant_id or "default").strip()
+        aid = str(account_id or os.getenv("AIA_WHATSAPP_ACCOUNT_ID") or "wa-default").strip()
+        binding = store.get_whatsapp_alert_binding(tenant_id=tid, account_id=aid)
+        return {"ok": True, "binding": binding}
+
+    @router.post("/admin/api/whatsapp/alert-binding")
+    def api_whatsapp_alert_binding_upsert(
+        payload: dict[str, Any] | None = Body(default=None),
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        payload = payload or {}
+        store = get_assistant_store()
+        ctx = _resolve_auth(store, authorization)
+        _require_permission(ctx, "admin:runtime:write")
+        tid = str(payload.get("tenant_id") or "default").strip()
+        aid = str(payload.get("account_id") or os.getenv("AIA_WHATSAPP_ACCOUNT_ID") or "wa-default").strip()
+        group_jid = str(payload.get("group_jid") or "").strip()
+        if not group_jid:
+            return {"ok": False, "error": "group_jid_required"}
+        binding = store.upsert_whatsapp_alert_binding(
+            tenant_id=tid,
+            account_id=aid,
+            group_jid=group_jid,
+            group_name=str(payload.get("group_name") or "").strip(),
+            enabled=bool(payload.get("enabled", True)),
+        )
+        return {"ok": True, "binding": binding}
+
+    @router.post("/admin/api/whatsapp/alert-binding/test")
+    def api_whatsapp_alert_binding_test(
+        payload: dict[str, Any] | None = Body(default=None),
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        payload = payload or {}
+        store = get_assistant_store()
+        ctx = _resolve_auth(store, authorization)
+        _require_permission(ctx, "admin:runtime:write")
+        tid = str(payload.get("tenant_id") or "default").strip()
+        aid = str(payload.get("account_id") or os.getenv("AIA_WHATSAPP_ACCOUNT_ID") or "wa-default").strip()
+        binding = store.get_whatsapp_alert_binding(tenant_id=tid, account_id=aid)
+        if not binding or not bool(binding.get("enabled")):
+            return {"ok": False, "error": "binding_missing"}
+        group_jid = str(binding.get("group_jid") or "").strip()
+        if not group_jid:
+            return {"ok": False, "error": "group_jid_missing"}
+        msg_id = store.enqueue_channel_outbound_message(
+            channel="whatsapp",
+            chat_id=group_jid,
+            text="[OClaw] WhatsApp 告警群绑定测试消息",
+            tenant_id=tid,
+            account_id=aid,
+            source="admin.test",
+        )
+        return {"ok": True, "outbound_id": msg_id}
+
     @router.get("/admin/api/users")
     def api_users(
         tenant_id: str,

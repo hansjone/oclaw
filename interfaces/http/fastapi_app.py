@@ -20,6 +20,7 @@ from fastapi.staticfiles import StaticFiles
 from runtime.application.gateway import process_inbound_payload_usecase
 from interfaces.gateway.http_adapter import dispatch_gateway_http_method
 from interfaces.ws import ws_gateway_loop
+from interfaces.ws.netx_bridge import netx_bridge_loop
 from interfaces.ws.common import MAX_PAYLOAD_BYTES
 from interfaces.admin.routes import admin_static_dir, build_admin_router
 from runtime.agents.agent_scope import list_agent_ids, resolve_agent_workspace_dir, resolve_default_agent_id
@@ -278,6 +279,29 @@ def create_app() -> FastAPI:
         payload["channel"] = str(channel or "").strip().lower()
         return await asyncio.to_thread(process_inbound_payload_usecase, payload)
 
+    @app.get("/whatsapp/outbound/pending")
+    def whatsapp_outbound_pending(account_id: str = "", limit: int = 20) -> dict[str, Any]:
+        from svc.persistence.assistant_store import get_assistant_store
+
+        store = get_assistant_store()
+        aid = str(account_id or os.getenv("AIA_WHATSAPP_ACCOUNT_ID") or "wa-default").strip()
+        items = store.list_pending_channel_outbound_messages(channel="whatsapp", account_id=aid, limit=limit)
+        return {"ok": True, "items": items}
+
+    @app.post("/whatsapp/outbound/ack")
+    def whatsapp_outbound_ack(payload: dict[str, Any]) -> dict[str, Any]:
+        from svc.persistence.assistant_store import get_assistant_store
+
+        body = payload if isinstance(payload, dict) else {}
+        msg_id = str(body.get("id") or "").strip()
+        if not msg_id:
+            return {"ok": False, "error": "missing id"}
+        ok = bool(body.get("ok", True))
+        err = str(body.get("error") or "").strip()
+        store = get_assistant_store()
+        changed = store.ack_channel_outbound_message(message_id=msg_id, ok=ok, error=err)
+        return {"ok": changed}
+
     @app.post("/wecom/inbound")
     async def wecom_inbound(payload: dict[str, Any]) -> dict[str, Any]:
         payload = payload if isinstance(payload, dict) else {}
@@ -294,6 +318,10 @@ def create_app() -> FastAPI:
     @app.websocket("/ws")
     async def ws_endpoint(ws: WebSocket) -> None:
         await ws_gateway_loop(ws)
+
+    @app.websocket("/ws/netx-bridge")
+    async def netx_bridge_endpoint(ws: WebSocket) -> None:
+        await netx_bridge_loop(ws)
 
     return app
 

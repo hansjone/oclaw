@@ -1472,7 +1472,7 @@ function markPrewarmReminder(reason) {
 }
 
 async function renderStack() {
-  const [st, anomaliesResp, scanResp, prewarmStatusResp, prewarmPromptsResp, channelSpecResp, weixinDispatchResp, whatsappDispatchResp] = await Promise.all([
+  const [st, anomaliesResp, scanResp, prewarmStatusResp, prewarmPromptsResp, channelSpecResp, weixinDispatchResp, whatsappDispatchResp, whatsappGroupsResp] = await Promise.all([
     apiGet("/admin/api/stack/status"),
     apiGet("/admin/api/runtime/anomalies"),
     apiGet("/admin/api/runtime/scan-artifacts"),
@@ -1481,6 +1481,7 @@ async function renderStack() {
     apiGet("/admin/api/chat/settings/specialist-flags"),
     apiGet("/admin/api/chat/settings/channel-dispatch/weixin"),
     apiGet("/admin/api/chat/settings/channel-dispatch/whatsapp"),
+    apiGet("/admin/api/whatsapp/groups?tenant_id=default"),
   ]);
   const requiredServices = ["gateway", "channel:wecom"];
   const runningNames = new Set(
@@ -1582,6 +1583,68 @@ async function renderStack() {
   };
   const weixinDispatchCard = createChannelDispatchCard("weixin", "Weixin dispatch", weixinDispatchResp || {});
   const whatsappDispatchCard = createChannelDispatchCard("whatsapp", "WhatsApp dispatch", whatsappDispatchResp || {});
+  const waGroups = Array.isArray(whatsappGroupsResp && whatsappGroupsResp.items) ? whatsappGroupsResp.items : [];
+  const waBinding = (whatsappGroupsResp && whatsappGroupsResp.binding) || {};
+  const waGroupSel = el(
+    "select",
+    { class: "input" },
+    [
+      el("option", { value: "", text: currentLang === "zh" ? "选择群…" : "Select group…" }),
+      ...waGroups.map((g) => {
+        const jid = String((g && g.group_jid) || "").trim();
+        const name = String((g && g.group_name) || "").trim();
+        const label = name ? `${name} (${jid})` : jid;
+        return el("option", {
+          value: jid,
+          text: label || jid,
+          selected: jid && jid === String(waBinding.group_jid || "") ? "selected" : undefined,
+        });
+      }),
+    ],
+  );
+  const waBindingStatus = el("div", {
+    class: "muted",
+    text: waBinding.group_jid
+      ? `binding=${waBinding.group_jid} enabled=${Boolean(waBinding.enabled)}`
+      : (currentLang === "zh" ? "尚未绑定告警群" : "No alert group bound"),
+  });
+  const whatsappAlertBindingCard = el("div", { class: "card" }, [
+    el("div", { class: "card__title", text: currentLang === "zh" ? "WhatsApp 告警群绑定" : "WhatsApp alert group" }),
+    el("div", { class: "muted", text: currentLang === "zh" ? "NetX 关键告警将推送到此群；与 Chat 会话删除无关。" : "NetX key alerts go to this group; independent of chat sessions." }),
+    el("div", { class: "row" }, [waGroupSel]),
+    el("div", { class: "row" }, [
+      el("button", {
+        class: "btn btn--primary",
+        text: currentLang === "zh" ? "保存绑定" : "Save binding",
+        onclick: async () => {
+          const group_jid = String(waGroupSel.value || "").trim();
+          if (!group_jid) return;
+          const picked = waGroups.find((g) => String((g && g.group_jid) || "").trim() === group_jid) || {};
+          const resp = await apiPost("/admin/api/whatsapp/alert-binding", {
+            tenant_id: "default",
+            group_jid,
+            group_name: String((picked && picked.group_name) || ""),
+            enabled: true,
+          });
+          const b = (resp && resp.binding) || {};
+          waBindingStatus.textContent = b.group_jid
+            ? `binding=${b.group_jid} enabled=${Boolean(b.enabled)}`
+            : (currentLang === "zh" ? "绑定失败" : "Bind failed");
+        },
+      }),
+      el("button", {
+        class: "btn",
+        text: currentLang === "zh" ? "测试推送" : "Test push",
+        onclick: async () => {
+          const resp = await apiPost("/admin/api/whatsapp/alert-binding/test", { tenant_id: "default" });
+          waBindingStatus.textContent = resp && resp.ok
+            ? `test ok outbound_id=${String(resp.outbound_id || "")}`
+            : `test failed: ${String((resp && resp.error) || "unknown")}`;
+        },
+      }),
+    ]),
+    waBindingStatus,
+  ]);
   const cleanupStatus = el("div", { class: "muted", text: "" });
   const btnCleanup = el("button", { class: "btn btn--danger", text: t("stack.cleanup"), onclick: async () => {
     const resp = await apiPost("/admin/api/runtime/cleanup", {});
@@ -1773,6 +1836,7 @@ async function renderStack() {
     ]),
     weixinDispatchCard,
     whatsappDispatchCard,
+    whatsappAlertBindingCard,
     el("div", { class: "card" }, [
       el("div", { class: "card__title", text: currentLang === "zh" ? "提示词/工具预热" : "Prompt/Tool Prewarm" }),
       el("div", { class: "muted", text: prewarmSummary }),

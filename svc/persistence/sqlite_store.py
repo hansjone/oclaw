@@ -634,6 +634,51 @@ class SqliteStore:
                 conn.execute("ALTER TABLE user_channel_account ADD COLUMN name TEXT NOT NULL DEFAULT ''")
             conn.execute(
                 """
+                CREATE TABLE IF NOT EXISTS whatsapp_known_group (
+                    tenant_id TEXT NOT NULL,
+                    account_id TEXT NOT NULL,
+                    group_jid TEXT NOT NULL,
+                    group_name TEXT NOT NULL DEFAULT '',
+                    last_seen_at TEXT NOT NULL,
+                    PRIMARY KEY (tenant_id, account_id, group_jid)
+                );
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS whatsapp_alert_binding (
+                    tenant_id TEXT NOT NULL,
+                    account_id TEXT NOT NULL,
+                    group_jid TEXT NOT NULL,
+                    group_name TEXT NOT NULL DEFAULT '',
+                    enabled INTEGER NOT NULL DEFAULT 1,
+                    updated_at TEXT NOT NULL,
+                    PRIMARY KEY (tenant_id, account_id)
+                );
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS channel_outbound_message (
+                    id TEXT PRIMARY KEY,
+                    tenant_id TEXT NOT NULL DEFAULT '',
+                    channel TEXT NOT NULL,
+                    account_id TEXT NOT NULL DEFAULT '',
+                    chat_id TEXT NOT NULL,
+                    text TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'pending',
+                    source TEXT NOT NULL DEFAULT '',
+                    created_at TEXT NOT NULL,
+                    sent_at TEXT,
+                    error TEXT NOT NULL DEFAULT ''
+                );
+                """
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_channel_outbound_pending ON channel_outbound_message(channel, account_id, status, created_at)"
+            )
+            conn.execute(
+                """
                 CREATE TABLE IF NOT EXISTS todo_item (
                     id TEXT PRIMARY KEY,
                     tenant_id TEXT NOT NULL,
@@ -1176,6 +1221,51 @@ class SqliteStore:
     def _init_db_postgresql(self) -> None:
         """PostgreSQL: tables from Alembic migration; run seeds and housekeeping."""
         with self._connect() as conn:
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS whatsapp_known_group (
+                    tenant_id TEXT NOT NULL,
+                    account_id TEXT NOT NULL,
+                    group_jid TEXT NOT NULL,
+                    group_name TEXT NOT NULL DEFAULT '',
+                    last_seen_at TEXT NOT NULL,
+                    PRIMARY KEY (tenant_id, account_id, group_jid)
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS whatsapp_alert_binding (
+                    tenant_id TEXT NOT NULL,
+                    account_id TEXT NOT NULL,
+                    group_jid TEXT NOT NULL,
+                    group_name TEXT NOT NULL DEFAULT '',
+                    enabled INTEGER NOT NULL DEFAULT 1,
+                    updated_at TEXT NOT NULL,
+                    PRIMARY KEY (tenant_id, account_id)
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS channel_outbound_message (
+                    id TEXT PRIMARY KEY,
+                    tenant_id TEXT NOT NULL DEFAULT '',
+                    channel TEXT NOT NULL,
+                    account_id TEXT NOT NULL DEFAULT '',
+                    chat_id TEXT NOT NULL,
+                    text TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'pending',
+                    source TEXT NOT NULL DEFAULT '',
+                    created_at TEXT NOT NULL,
+                    sent_at TEXT,
+                    error TEXT NOT NULL DEFAULT ''
+                )
+                """
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_channel_outbound_pending ON channel_outbound_message(channel, account_id, status, created_at)"
+            )
             self._seed_builtin_llm_profiles(conn)
             self._seed_default_permissions(conn)
             conn.execute(
@@ -5198,5 +5288,192 @@ class SqliteStore:
                 WHERE tenant_id = ? AND id = ?
                 """,
                 (str(assignee_user_id), ts, str(tenant_id), str(todo_id)),
+            )
+        return bool(cur.rowcount and cur.rowcount > 0)
+
+    def upsert_whatsapp_known_group(
+        self,
+        *,
+        tenant_id: str,
+        account_id: str,
+        group_jid: str,
+        group_name: str = "",
+    ) -> None:
+        ts = utc_now_iso()
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO whatsapp_known_group (tenant_id, account_id, group_jid, group_name, last_seen_at)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(tenant_id, account_id, group_jid) DO UPDATE SET
+                    group_name = CASE WHEN excluded.group_name != '' THEN excluded.group_name ELSE whatsapp_known_group.group_name END,
+                    last_seen_at = excluded.last_seen_at
+                """,
+                (str(tenant_id), str(account_id), str(group_jid), str(group_name or ""), ts),
+            )
+
+    def list_whatsapp_known_groups(
+        self,
+        *,
+        tenant_id: str | None = None,
+        account_id: str | None = None,
+    ) -> list[dict[str, Any]]:
+        clauses: list[str] = []
+        params: list[Any] = []
+        if tenant_id:
+            clauses.append("tenant_id = ?")
+            params.append(str(tenant_id))
+        if account_id:
+            clauses.append("account_id = ?")
+            params.append(str(account_id))
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        with self._connect() as conn:
+            rows = conn.execute(
+                f"""
+                SELECT tenant_id, account_id, group_jid, group_name, last_seen_at
+                FROM whatsapp_known_group
+                {where}
+                ORDER BY last_seen_at DESC
+                """,
+                tuple(params),
+            ).fetchall()
+        return [
+            {
+                "tenant_id": str(r[0] or ""),
+                "account_id": str(r[1] or ""),
+                "group_jid": str(r[2] or ""),
+                "group_name": str(r[3] or ""),
+                "last_seen_at": str(r[4] or ""),
+            }
+            for r in rows
+        ]
+
+    def get_whatsapp_alert_binding(
+        self,
+        *,
+        tenant_id: str,
+        account_id: str,
+    ) -> dict[str, Any] | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT tenant_id, account_id, group_jid, group_name, enabled, updated_at
+                FROM whatsapp_alert_binding
+                WHERE tenant_id = ? AND account_id = ?
+                """,
+                (str(tenant_id), str(account_id)),
+            ).fetchone()
+        if row is None:
+            return None
+        return {
+            "tenant_id": str(row[0] or ""),
+            "account_id": str(row[1] or ""),
+            "group_jid": str(row[2] or ""),
+            "group_name": str(row[3] or ""),
+            "enabled": bool(int(row[4] or 0)),
+            "updated_at": str(row[5] or ""),
+        }
+
+    def upsert_whatsapp_alert_binding(
+        self,
+        *,
+        tenant_id: str,
+        account_id: str,
+        group_jid: str,
+        group_name: str = "",
+        enabled: bool = True,
+    ) -> dict[str, Any]:
+        ts = utc_now_iso()
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO whatsapp_alert_binding (tenant_id, account_id, group_jid, group_name, enabled, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(tenant_id, account_id) DO UPDATE SET
+                    group_jid = excluded.group_jid,
+                    group_name = excluded.group_name,
+                    enabled = excluded.enabled,
+                    updated_at = excluded.updated_at
+                """,
+                (str(tenant_id), str(account_id), str(group_jid), str(group_name or ""), 1 if enabled else 0, ts),
+            )
+        out = self.get_whatsapp_alert_binding(tenant_id=tenant_id, account_id=account_id)
+        return out or {}
+
+    def enqueue_channel_outbound_message(
+        self,
+        *,
+        channel: str,
+        chat_id: str,
+        text: str,
+        tenant_id: str = "",
+        account_id: str = "",
+        source: str = "",
+    ) -> str:
+        import uuid
+
+        msg_id = uuid.uuid4().hex
+        ts = utc_now_iso()
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO channel_outbound_message
+                    (id, tenant_id, channel, account_id, chat_id, text, status, source, created_at, error)
+                VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, '')
+                """,
+                (msg_id, str(tenant_id), str(channel), str(account_id), str(chat_id), str(text), str(source), ts),
+            )
+        return msg_id
+
+    def list_pending_channel_outbound_messages(
+        self,
+        *,
+        channel: str,
+        account_id: str,
+        limit: int = 20,
+    ) -> list[dict[str, Any]]:
+        lim = max(1, min(int(limit), 100))
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT id, tenant_id, channel, account_id, chat_id, text, source, created_at
+                FROM channel_outbound_message
+                WHERE channel = ? AND account_id = ? AND status = 'pending'
+                ORDER BY created_at ASC
+                LIMIT ?
+                """,
+                (str(channel), str(account_id), lim),
+            ).fetchall()
+        return [
+            {
+                "id": str(r[0] or ""),
+                "tenant_id": str(r[1] or ""),
+                "channel": str(r[2] or ""),
+                "account_id": str(r[3] or ""),
+                "chat_id": str(r[4] or ""),
+                "text": str(r[5] or ""),
+                "source": str(r[6] or ""),
+                "created_at": str(r[7] or ""),
+            }
+            for r in rows
+        ]
+
+    def ack_channel_outbound_message(
+        self,
+        *,
+        message_id: str,
+        ok: bool,
+        error: str = "",
+    ) -> bool:
+        ts = utc_now_iso()
+        status = "sent" if ok else "failed"
+        with self._connect() as conn:
+            cur = conn.execute(
+                """
+                UPDATE channel_outbound_message
+                SET status = ?, sent_at = ?, error = ?
+                WHERE id = ? AND status = 'pending'
+                """,
+                (status, ts, str(error or ""), str(message_id)),
             )
         return bool(cur.rowcount and cur.rowcount > 0)

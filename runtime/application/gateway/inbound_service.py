@@ -669,6 +669,21 @@ def process_inbound_payload(payload: dict[str, Any]) -> dict[str, Any]:
     if not account_id:
         raise ValueError(f"missing {channel_name} account_id")
 
+    if str(inbound.channel or "").strip().lower() == "whatsapp" and inbound.is_group:
+        import os
+
+        from runtime.extensions.whatsapp.api import is_whatsapp_group_jid
+
+        chat_id = str(inbound.external_chat_id or "").strip()
+        if is_whatsapp_group_jid(chat_id):
+            meta = inbound.metadata if isinstance(inbound.metadata, dict) else {}
+            store.upsert_whatsapp_known_group(
+                tenant_id=str(os.getenv("OCLAW_DEFAULT_TENANT_ID") or "default"),
+                account_id=account_id,
+                group_jid=chat_id,
+                group_name=str(meta.get("group_name") or "").strip(),
+            )
+
     account = store.find_user_by_channel_account(channel=inbound.channel, account_id=account_id) or {}
     from runtime.orchestration.group_ingest import (
         build_group_sender_context,
