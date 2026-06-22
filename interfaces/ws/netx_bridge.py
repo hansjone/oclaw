@@ -34,7 +34,7 @@ def _default_tenant_id() -> str:
 
 def _format_alarm_text(payload: dict[str, Any]) -> str:
     action = str(payload.get("action") or "").strip().lower()
-    label = str(payload.get("rule_label") or payload.get("native_probable_cause") or "关键告警").strip()
+    label = str(payload.get("rule_label") or payload.get("native_probable_cause") or "Key alarm").strip()
     ne = payload.get("ne") if isinstance(payload.get("ne"), dict) else {}
     host = str(ne.get("host_name") or payload.get("host_name") or "").strip()
     ip = str(ne.get("ip_address") or "").strip()
@@ -42,14 +42,18 @@ def _format_alarm_text(payload: dict[str, Any]) -> str:
     device = host or ne_name or str(payload.get("ne_id") or "").strip()
     if ip:
         device = f"{device} ({ip})" if device else ip
-    action_label = {"inserted": "新增", "updated": "更新", "deleted": "清除"}.get(action, action or "告警")
+    action_label = {
+        "inserted": "Alarm Raised",
+        "updated": "Alarm Updated",
+        "deleted": "Alarm Cleared",
+    }.get(action, action or "Alarm")
     lines = [
-        f"[NetX {action_label}] {label}",
-        f"设备: {device or '-'}",
-        f"对象: {str(payload.get('object_name') or '-').strip()}",
-        f"级别: {str(payload.get('perceived_severity') or '-').strip()}",
-        f"原因: {str(payload.get('native_probable_cause') or '-').strip()}",
-        f"时间: {str(payload.get('time_created') or '-').strip()}",
+        f"[UME {action_label}] {label}",
+        f"Device: {device or '-'}",
+        f"Object: {str(payload.get('object_name') or '-').strip()}",
+        f"Severity: {str(payload.get('perceived_severity') or '-').strip()}",
+        f"Cause: {str(payload.get('native_probable_cause') or '-').strip()}",
+        f"Time: {str(payload.get('time_created') or '-').strip()}",
         f"notificationId: {str(payload.get('notification_id') or '-').strip()}",
     ]
     return "\n".join(lines)

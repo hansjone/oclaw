@@ -8,6 +8,7 @@ from unittest.mock import patch
 from fastapi.testclient import TestClient
 
 from interfaces.http.fastapi_app import create_app
+from interfaces.ws.netx_bridge import _format_alarm_text
 from svc.persistence.assistant_store import reset_assistant_store_singleton
 
 
@@ -21,6 +22,25 @@ class NetxBridgeTests(unittest.TestCase):
 
     def tearDown(self) -> None:
         reset_assistant_store_singleton()
+
+    def test_format_alarm_text_english(self) -> None:
+        text = _format_alarm_text(
+            {
+                "action": "inserted",
+                "rule_label": "Fan",
+                "object_name": "ME{abc},FAN={/module=0}",
+                "perceived_severity": "major",
+                "native_probable_cause": "Fan The fan speed level is abnormally high",
+                "time_created": "2026-06-22T19:29:41.086+07:00",
+                "notification_id": "1680996323029",
+                "ne": {"host_name": "LPG-BKM-AN1-ZM3SP", "ip_address": "114.0.24.178"},
+            }
+        )
+        self.assertIn("[UME Alarm Raised] Fan", text)
+        self.assertIn("Device: LPG-BKM-AN1-ZM3SP (114.0.24.178)", text)
+        self.assertIn("Severity: major", text)
+        self.assertNotIn("设备", text)
+        self.assertNotIn("NetX", text)
 
     def test_netx_bridge_auth_and_alarm_ack(self) -> None:
         with self.client.websocket_connect("/ws/netx-bridge") as ws:
