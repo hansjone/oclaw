@@ -221,6 +221,22 @@ def test_should_accept_group_trigger_without_mention() -> None:
     )
 
 
+def test_enrich_quoted_ume_alarm_when_mentioned() -> None:
+    from runtime.orchestration.group_ingest import (
+        enrich_alert_group_question,
+        extract_quoted_ume_alert_text,
+    )
+
+    meta = {"raw": {"quotedText": "[UME Alarm Raised]\nDevice: NE1", "mentionsBot": True}}
+    assert extract_quoted_ume_alert_text(metadata=meta).startswith("[UME")
+    enriched = enrich_alert_group_question(
+        user_text="what happened?",
+        quoted_alert="[UME Alarm Raised]\nDevice: NE1",
+    )
+    assert "[Quoted UME alarm]" in enriched
+    assert "what happened?" in enriched
+
+
 def test_session_user_key_group_sentinel() -> None:
     assert session_user_key(is_group=True, external_user_id="111@s.whatsapp.net") == GROUP_SESSION_USER_SENTINEL
     assert session_user_key(is_group=False, external_user_id="111@s.whatsapp.net") == "111@s.whatsapp.net"

@@ -146,6 +146,24 @@ def is_reply_to_bot(*, metadata: dict[str, Any] | None, bot_jid: str | None) -> 
     return False
 
 
+def extract_quoted_ume_alert_text(*, metadata: dict[str, Any] | None) -> str:
+    raw = _metadata_raw(metadata)
+    quoted_text = str(raw.get("quotedText") or raw.get("quoted_text") or "").strip()
+    if quoted_text and (quoted_text.startswith("[UME") or "[UME Alarm" in quoted_text[:120]):
+        return quoted_text
+    return ""
+
+
+def enrich_alert_group_question(*, user_text: str, quoted_alert: str) -> str:
+    body = str(user_text or "").strip()
+    quote = str(quoted_alert or "").strip()
+    if not quote:
+        return body
+    if not body:
+        return f"[Quoted UME alarm]\n{quote}"
+    return f"[Quoted UME alarm]\n{quote}\n\n[User question]\n{body}"
+
+
 def normalize_jids(jids: list[str]) -> set[str]:
     out: set[str] = set()
     for raw in jids or []:
@@ -318,6 +336,8 @@ __all__ = [
     "GroupPolicyConfig",
     "build_group_sender_context",
     "build_whatsapp_group_reply_metadata",
+    "enrich_alert_group_question",
+    "extract_quoted_ume_alert_text",
     "mentions_include_bot",
     "metadata_mentions_bot",
     "normalize_jid",

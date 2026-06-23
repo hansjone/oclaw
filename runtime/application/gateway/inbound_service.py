@@ -687,10 +687,14 @@ def process_inbound_payload(payload: dict[str, Any]) -> dict[str, Any]:
     account = store.find_user_by_channel_account(channel=inbound.channel, account_id=account_id) or {}
     from runtime.orchestration.group_ingest import (
         build_group_sender_context,
+        enrich_alert_group_question,
+        extract_quoted_ume_alert_text,
+        mentions_include_bot,
         metadata_mentions_bot,
         resolve_group_policy,
         session_user_key,
         should_process_group_inbound,
+        text_mentions_bot,
     )
 
     group_policy = resolve_group_policy(account=account)
@@ -844,8 +848,21 @@ def process_inbound_payload(payload: dict[str, Any]) -> dict[str, Any]:
                     elif not reply:
                         user_text = (inbound.text or "").strip()
                         if inbound.is_group:
+                            meta_for_group = inbound.metadata if isinstance(inbound.metadata, dict) else {}
+                            bot_reached = metadata_mentions_bot(meta_for_group) or mentions_include_bot(
+                                mentions=list(inbound.mentions or []),
+                                bot_jid=bot_jid,
+                                metadata=meta_for_group,
+                            ) or text_mentions_bot(text=user_text, bot_jid=bot_jid)
+                            if bot_reached:
+                                quoted_alert = extract_quoted_ume_alert_text(metadata=meta_for_group)
+                                if quoted_alert:
+                                    user_text = enrich_alert_group_question(
+                                        user_text=user_text,
+                                        quoted_alert=quoted_alert,
+                                    )
                             sender_ctx = build_group_sender_context(
-                                metadata=inbound.metadata if isinstance(inbound.metadata, dict) else {},
+                                metadata=meta_for_group,
                                 external_user_id=inbound.external_user_id,
                             )
                             user_text = f"{sender_ctx}\n{user_text}" if user_text else sender_ctx

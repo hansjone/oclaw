@@ -76,11 +76,14 @@ function unwrapMessage(m: proto.IMessage | null | undefined): proto.IMessage | n
 function messageContextInfo(m: proto.IMessage | null | undefined): proto.IContextInfo | null | undefined {
   const u = unwrapMessage(m);
   if (!u) return null;
+  const extCtx = u.extendedTextMessage?.contextInfo;
+  // Reply+@ messages usually carry quote + mentions on extendedTextMessage.contextInfo.
+  if (extCtx && (extCtx.quotedMessage || extCtx.stanzaId)) return extCtx;
   const top = (u as proto.IMessage & { messageContextInfo?: proto.IMessageContextInfo }).messageContextInfo;
   const fromTop = top?.mentionedJid?.length ? top : null;
   return (
     (fromTop as unknown as proto.IContextInfo) ||
-    u.extendedTextMessage?.contextInfo ||
+    extCtx ||
     u.imageMessage?.contextInfo ||
     u.videoMessage?.contextInfo ||
     u.documentMessage?.contextInfo ||
@@ -129,11 +132,23 @@ function extractMentions(m: proto.IMessage | null | undefined): string[] {
   return raw.map((j) => String(j || "").trim()).filter(Boolean);
 }
 
-function extractQuoteContext(m: proto.IMessage | null | undefined): { participant: string; stanzaId: string } {
+function pickQuotedText(m: proto.IMessage | null | undefined): string {
+  const ctx = messageContextInfo(m);
+  const qm = ctx?.quotedMessage;
+  if (!qm) return "";
+  return pickText(qm);
+}
+
+function extractQuoteContext(m: proto.IMessage | null | undefined): {
+  participant: string;
+  stanzaId: string;
+  quotedText: string;
+} {
   const ctx = messageContextInfo(m);
   return {
     participant: String(ctx?.participant || "").trim(),
     stanzaId: String(ctx?.stanzaId || "").trim(),
+    quotedText: pickQuotedText(m),
   };
 }
 
@@ -937,7 +952,6 @@ async function main(): Promise<void> {
           const isReplyToBot = Boolean(
             botJidRaw &&
               quote.participant &&
-              !mentions.length &&
               botIdentityJids.some((botId) => mentionMatchesBotIdentity(quote.participant, botId)),
           );
 
@@ -952,6 +966,7 @@ async function main(): Promise<void> {
             messageTimestamp: (msg as any).messageTimestamp || null,
             quotedParticipant: quote.participant || null,
             quotedStanzaId: quote.stanzaId || null,
+            quotedText: quote.quotedText || null,
             isReplyToBot,
             mentionsBot,
             mentionedJids: mentions,
