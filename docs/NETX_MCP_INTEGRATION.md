@@ -89,7 +89,7 @@ pip install -e D:/project/chatgpt/netx/packages/netx-mcp
 
 Then run **Health** → **Sync Tools**.
 
-### Expected MCP tools (12)
+### Expected MCP tools (13)
 
 | MCP tool | oclaw namespaced | Legacy builtin (if enabled) |
 |----------|------------------|----------------------------|
@@ -105,6 +105,9 @@ Then run **Health** → **Sync Tools**.
 | `listManagedNe` | `mcp__netx__listManagedNe` | `netx_list_managed_ne` |
 | `getManagedNe` | `mcp__netx__getManagedNe` | `netx_get_managed_ne` |
 | `execManagedNe` | `mcp__netx__execManagedNe` | `netx_exec_managed_ne` |
+| `listCliTargets` | `mcp__netx__listCliTargets` | — |
+
+`execManagedNe` accepts **`ne_id`** (managed NE) **or** `ume_ne_id` (UME inventory NE). For UME lazy exec, configure CLI profile at netx UI **UME → CLI 连接** (`/ume` tab) before running show commands.
 
 **不暴露**（已废弃 Excel 导入批次链路）：`netx_query_alarms`、`netx_list_import_batches`、`netx_sql_query`（带 `batch_id`）等。
 
