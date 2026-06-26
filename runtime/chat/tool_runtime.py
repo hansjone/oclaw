@@ -493,7 +493,21 @@ class ToolExecutor:
             msg = f"Unregistered tool: {tc.name}" if ctx.lang.startswith("en") else f"未注册的工具: {tc.name}"
             return {"ok": False, "error_code": "tool_not_registered", "error": msg}, int((time.perf_counter() - t0) * 1000)
 
-        ok, v_err = validate_tool_arguments(tool.parameters, tc.arguments)
+        from runtime.tools.context_inject import enrich_tool_arguments
+        from runtime.tools.tool_validation import filter_arguments_to_schema
+
+        raw_args = tc.arguments if isinstance(tc.arguments, dict) else {}
+        tool_args = enrich_tool_arguments(
+            store=ctx.store,
+            session_id=ctx.session_id,
+            tool_name=str(tc.name or ""),
+            arguments=raw_args,
+            path_policy_tenant_id=ctx.path_policy_tenant_id,
+            path_policy_user_id=ctx.path_policy_user_id,
+        )
+        tool_args = filter_arguments_to_schema(tool.parameters, tool_args)
+
+        ok, v_err = validate_tool_arguments(tool.parameters, tool_args)
         if not ok:
             msg = f"Invalid arguments: {v_err}" if ctx.lang.startswith("en") else f"参数不合法: {v_err}"
             return {"ok": False, "error_code": "tool_invalid_arguments", "error": msg}, int((time.perf_counter() - t0) * 1000)
@@ -530,7 +544,7 @@ class ToolExecutor:
 
                         netx_lang_token = NETX_TOOL_LANG.set(str(ctx.lang or "zh"))
                     try:
-                        return tool.handler(tc.arguments)
+                        return tool.handler(tool_args)
                     finally:
                         if netx_lang_token is not None:
                             from runtime.tools.experts.network_ops.netx_tools import NETX_TOOL_LANG

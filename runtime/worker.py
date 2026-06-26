@@ -238,6 +238,7 @@ def _worker_loop(*, store: Any, worker_id: str, poll_interval_s: float) -> None:
             tenant_id = str(payload.get("tenant_id") or "")
             user_id = str(payload.get("user_id") or "")
             viewer_username = str(payload.get("viewer_username") or "")
+            is_scheduled_turn = str(task.task_type or "") == "scheduled_turn"
             model_profile_id = str(payload.get("model_profile_id") or "") or None
             interaction_mode = normalize_interaction_mode(
                 str(payload.get("interaction_mode") or metadata.get("interaction_mode") or "")
@@ -284,6 +285,10 @@ def _worker_loop(*, store: Any, worker_id: str, poll_interval_s: float) -> None:
                     system_prompt = ""
             if not system_prompt:
                 system_prompt = str(getattr(executor, "system_prompt", "") or "")
+            if is_scheduled_turn:
+                from runtime.scheduler.turn_text import scheduled_turn_system_suffix
+
+                system_prompt = str(system_prompt or "") + scheduled_turn_system_suffix(lang=lang)
 
             max_messages = int(store.get_setting("AIA_TURN_MAX_CONTEXT_MESSAGES") or 80)
             max_tool_rounds = int(store.get_setting("AIA_TURN_MAX_TOOL_ROUNDS") or 100)
@@ -299,18 +304,19 @@ def _worker_loop(*, store: Any, worker_id: str, poll_interval_s: float) -> None:
                 attachments=list(attachments or []),
                 metadata=dict(metadata or {}),
             )
-            _maybe_rename_from_first_user_message(
-                store=store,
-                session_id=session_id,
-                user_text=user_text,
-                attachments=list(attachments or []),
-            )
-            _maybe_generate_title_on_third_round(store=store, msg=msg, model=getattr(executor, "model", None))
+            if not is_scheduled_turn:
+                _maybe_rename_from_first_user_message(
+                    store=store,
+                    session_id=session_id,
+                    user_text=user_text,
+                    attachments=list(attachments or []),
+                )
+                _maybe_generate_title_on_third_round(store=store, msg=msg, model=getattr(executor, "model", None))
             run_out = run_agent_core(
                 store=store,
                 data=AgentCoreRunInput(
                     msg=msg,
-                    persisted_user_text=str(user_text or ""),
+                    persisted_user_text="" if is_scheduled_turn else str(user_text or ""),
                     lang=lang,
                     system_prompt=system_prompt,
                     model=executor.model,
@@ -327,10 +333,12 @@ def _worker_loop(*, store: Any, worker_id: str, poll_interval_s: float) -> None:
                     oclaw_worker_id=worker_id,
                     skill_binding_role=skill_binding_role,
                     wire_policy_role=wire_policy_role,
+                    persist_user_message=not is_scheduled_turn,
                 ),
             )
             base_result = {
                 "run_id": str(run_out.run_id or ""),
+                "turn_uuid": str(run_out.outcome.turn_uuid or ""),
                 "reply_text": run_out.outcome.final_text,
                 "tool_trace_count": len(run_out.outcome.tool_traces),
                 "relay_pointer_count": int(payload.get("relay_pointer_count") or 0),
@@ -343,6 +351,15 @@ def _worker_loop(*, store: Any, worker_id: str, poll_interval_s: float) -> None:
                         child_run_id=acp_child_run_id,
                         relay_envelope=relay_share_envelope,
                     )
+                )
+            if str(task.task_type or "") == "scheduled_turn":
+                from runtime.scheduler.worker_turn import finalize_scheduled_turn_success
+
+                finalize_scheduled_turn_success(
+                    store=store,
+                    task=task,
+                    payload=payload,
+                    base_result=base_result,
                 )
             store.oclaw_task_finish(task_id=task.id, result=base_result)
             if trace_id:
@@ -369,6 +386,10 @@ def _worker_loop(*, store: Any, worker_id: str, poll_interval_s: float) -> None:
                     payload=trace_payload,
                 )
         except Exception as exc:
+            if str(getattr(task, "task_type", "") or "") == "scheduled_turn":
+                from runtime.scheduler.worker_turn import finalize_scheduled_turn_failure
+
+                finalize_scheduled_turn_failure(store=store, payload=payload, error=str(exc))
             store.oclaw_task_fail(task_id=task.id, error=str(exc), result={"ok": False})
             try:
                 if trace_id:

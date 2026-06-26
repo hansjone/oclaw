@@ -408,6 +408,58 @@ function _normalizeEventType(v) {
   return String(v || "").trim().toLowerCase();
 }
 
+function _isAssistantBodyEventType(eventType) {
+  const et = _normalizeEventType(eventType);
+  return !et || et === "assistant_text" || et === "assistant" || et === "scheduled_reminder";
+}
+
+function _parseEventPayload(raw) {
+  let ep = raw;
+  if (typeof ep === "string" && String(ep).trim()) {
+    try {
+      ep = JSON.parse(ep);
+    } catch (_) {
+      ep = null;
+    }
+  }
+  return ep && typeof ep === "object" && !Array.isArray(ep) ? ep : null;
+}
+
+function _isScheduledProactiveMessage(m) {
+  const eventType = _normalizeEventType(m && m.event_type);
+  if (eventType === "scheduled_reminder") return true;
+  const ep = _parseEventPayload(m && m.event_payload);
+  if (ep && ep.scheduled_proactive) return true;
+  const rc = String((ep && ep.reasoning_content) || "").trim();
+  if (!rc) return false;
+  if (!/定时主动提醒|定时任务模式|scheduled reminder|proactive reminder/i.test(rc)) return false;
+  return eventType === "assistant_text" || eventType === "assistant" || !eventType;
+}
+
+function _messageTurnUuid(m) {
+  return String((m && m.turn_uuid) || "").trim();
+}
+
+function _pushScheduledAssistantRow(rows, m, content, eventType) {
+  const body = String(content || "").trim();
+  const attsParsed = parseAttachments(m && m.attachments);
+  if (!body && !attsParsed.length) return;
+  const piece = {
+    kind: "assistant_text",
+    text: content,
+    assistantEventType: eventType || "assistant_text",
+  };
+  if (attsParsed.length) piece.attachments = attsParsed;
+  rows.push({
+    role: "assistant",
+    content: body,
+    timestamp: (m && m.timestamp) != null ? m.timestamp : "",
+    attachments: m && m.attachments ? m.attachments : null,
+    _items: [piece],
+    _message_ids: m && m.id != null ? [m.id] : [],
+  });
+}
+
 function _collapsedBlockNode(title, text) {
   const raw = String(text || "");
   const clipped = raw.length > REASONING_BLOCK_MAX_CHARS ? raw.slice(0, REASONING_BLOCK_MAX_CHARS) : raw;
@@ -610,6 +662,15 @@ function _buildRenderRows(msgs) {
       continue;
     }
     if (role === "assistant" || role === "tool" || role === "function") {
+      const turnUuid = _messageTurnUuid(m);
+      if (agg && turnUuid && agg._turn_uuid && turnUuid !== agg._turn_uuid) {
+        flush();
+      }
+      if (role === "assistant" && _isScheduledProactiveMessage(m)) {
+        flush();
+        _pushScheduledAssistantRow(rows, m, content, eventType);
+        continue;
+      }
       if (!agg) {
         agg = {
           role: "assistant",
@@ -618,20 +679,16 @@ function _buildRenderRows(msgs) {
           attachments: null,
           _items: [],
           _message_ids: [],
+          _turn_uuid: turnUuid,
         };
+      } else if (turnUuid && !agg._turn_uuid) {
+        agg._turn_uuid = turnUuid;
       }
       if (m && m.id != null) agg._message_ids.push(m.id);
       if (role === "assistant") {
         // thinking_mode_enabled: reasoning lives in event_payload.reasoning_content (no separate reasoning rows).
-        let ep = m && m.event_payload;
-        if (typeof ep === "string" && String(ep).trim()) {
-          try {
-            ep = JSON.parse(ep);
-          } catch (_) {
-            ep = null;
-          }
-        }
-        if (ep && typeof ep === "object" && !Array.isArray(ep)) {
+        const ep = _parseEventPayload(m && m.event_payload);
+        if (ep) {
           const rc = String(ep.reasoning_content || "").trim();
           if (rc) {
             agg._items.push({ kind: "reasoning", text: rc });
@@ -649,7 +706,7 @@ function _buildRenderRows(msgs) {
             if (attsParsed.length) piece.attachments = attsParsed;
             agg._items.push(piece);
           }
-        } else if (eventType === "assistant_text" || eventType === "assistant" || !eventType) {
+        } else if (_isAssistantBodyEventType(eventType)) {
           const hasText = !!String(content || "").trim();
           const attsParsed = parseAttachments(m && m.attachments);
           if (hasText || attsParsed.length) {
@@ -4308,7 +4365,7 @@ async function renderChatUi() {
     ).trim();
     const hasBodyText = out.some((row) => {
       const et = _normalizeEventType(row.event_type);
-      return et === "assistant_text" || et === "tool_call";
+      return _isAssistantBodyEventType(et) || et === "tool_call";
     });
     if (textFallback && !hasBodyText) {
       out.push({ ...base, content: textFallback, event_type: fallbackEventType });
@@ -4327,7 +4384,7 @@ async function renderChatUi() {
     if (out.length) {
       const _isBodyRow = (row) => {
         const et = _normalizeEventType(row && row.event_type);
-        return et === "assistant_text" || et === "tool_call";
+        return _isAssistantBodyEventType(et) || et === "tool_call";
       };
       let attachIdx = out.length - 1;
       for (let i = out.length - 1; i >= 0; i -= 1) {
@@ -4408,7 +4465,7 @@ async function renderChatUi() {
         // Recovery should only accept visible assistant body, not intermediate
         // reasoning/tool-call events; otherwise we may terminate on a partial line.
         const et = String((m && m.event_type) || "").trim().toLowerCase();
-        if (et && et !== "assistant_text" && et !== "assistant") continue;
+        if (et && !_isAssistantBodyEventType(et)) continue;
         if (!String((m && m.content) || "").trim()) continue;
         {
           last = m;

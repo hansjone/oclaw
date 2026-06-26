@@ -161,8 +161,18 @@ def run_attempt(*, store: Any, data: AttemptRunnerInput) -> AttemptRunnerOutput:
             on_tool_ui=data.on_tool_ui,
             should_stop=data.should_stop,
             workspace_owner_session_id=_workspace_owner_session_id_from_msg(data.msg),
-            path_policy_tenant_id=str(data.msg.metadata.get("tenant_id") or "") if isinstance(data.msg.metadata, dict) else None,
-            path_policy_user_id=str(data.msg.metadata.get("user_id") or "") if isinstance(data.msg.metadata, dict) else None,
+            path_policy_tenant_id=str(data.msg.tenant_id or "")
+            or (
+                str(data.msg.metadata.get("tenant_id") or "")
+                if isinstance(data.msg.metadata, dict)
+                else ""
+            ),
+            path_policy_user_id=str(data.msg.user_id or "")
+            or (
+                str(data.msg.metadata.get("user_id") or "")
+                if isinstance(data.msg.metadata, dict)
+                else ""
+            ),
             workspace_dir=data.workspace_dir,
             memory_context=data.memory_context,
             persist_user_message=bool(data.persist_user_message),

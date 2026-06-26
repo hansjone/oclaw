@@ -20,6 +20,7 @@ from sqlalchemy.exc import IntegrityError
 
 from svc.persistence.pg_adapter import PgConnShim, connect_postgres
 from svc.persistence.pg_compat import scrub_nul_bytes_from_jsonable, scrub_nul_bytes_from_text
+from svc.persistence.scheduled_job_store import ScheduledJobStoreMixin
 
 if sys.platform == "win32":
     import ctypes
@@ -297,7 +298,7 @@ def _decode_secret(secret_text: str) -> str:
     raise _CryptoError("未知的密钥编码格式")
 
 
-class SqliteStore:
+class SqliteStore(ScheduledJobStoreMixin):
     @staticmethod
     def _cap_json_for_log(obj: Any, *, max_chars: int, keep_keys: tuple[str, ...] = ("ok", "error_code", "error")) -> Any:
         cap = max(2000, int(max_chars or 0))
@@ -677,6 +678,7 @@ class SqliteStore:
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_channel_outbound_pending ON channel_outbound_message(channel, account_id, status, created_at)"
             )
+            self.ensure_scheduled_job_tables(conn)
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS todo_item (
@@ -1266,6 +1268,7 @@ class SqliteStore:
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_channel_outbound_pending ON channel_outbound_message(channel, account_id, status, created_at)"
             )
+            self.ensure_scheduled_job_tables(conn)
             self._seed_builtin_llm_profiles(conn)
             self._seed_default_permissions(conn)
             conn.execute(
@@ -4713,6 +4716,186 @@ class SqliteStore:
             for r in rows
         ]
 
+    @staticmethod
+    def _channel_context_token_key(
+        *,
+        tenant_id: str,
+        channel: str,
+        account_id: str,
+        external_chat_id: str,
+    ) -> str:
+        return (
+            f"channel_ctx_token:{str(tenant_id or '').strip()}:"
+            f"{str(channel or '').strip().lower()}:"
+            f"{str(account_id or '').strip()}:"
+            f"{str(external_chat_id or '').strip()}"
+        )
+
+    def set_channel_context_token(
+        self,
+        *,
+        tenant_id: str,
+        channel: str,
+        account_id: str,
+        external_chat_id: str,
+        context_token: str,
+    ) -> None:
+        tok = str(context_token or "").strip()
+        chat_id = str(external_chat_id or "").strip()
+        if not tok or not chat_id:
+            return
+        self.set_setting(
+            self._channel_context_token_key(
+                tenant_id=tenant_id,
+                channel=channel,
+                account_id=account_id,
+                external_chat_id=chat_id,
+            ),
+            tok,
+        )
+
+    def get_channel_context_token(
+        self,
+        *,
+        tenant_id: str,
+        channel: str,
+        account_id: str,
+        external_chat_id: str,
+    ) -> str:
+        chat_id = str(external_chat_id or "").strip()
+        if not chat_id:
+            return ""
+        return str(
+            self.get_setting(
+                self._channel_context_token_key(
+                    tenant_id=tenant_id,
+                    channel=channel,
+                    account_id=account_id,
+                    external_chat_id=chat_id,
+                )
+            )
+            or ""
+        ).strip()
+
+    def get_channel_context_token_fuzzy(
+        self,
+        *,
+        tenant_id: str,
+        channel: str,
+        account_id: str,
+        external_chat_id: str,
+    ) -> str:
+        chat_id = str(external_chat_id or "").strip()
+        if not chat_id:
+            return ""
+        channels = []
+        for ch in (channel, "wechat", "weixin"):
+            c = str(ch or "").strip().lower()
+            if c and c not in channels:
+                channels.append(c)
+        account_ids: list[str] = []
+        for aid in (account_id, ""):
+            a = str(aid or "").strip()
+            if a not in account_ids:
+                account_ids.append(a)
+        for ch in channels:
+            for aid in account_ids:
+                tok = self.get_channel_context_token(
+                    tenant_id=tenant_id,
+                    channel=ch,
+                    account_id=aid,
+                    external_chat_id=chat_id,
+                )
+                if tok:
+                    return tok
+        return ""
+
+    def lookup_channel_session_by_chat_v2(
+        self,
+        *,
+        tenant_id: str,
+        channel: str,
+        external_chat_id: str,
+    ) -> dict[str, Any] | None:
+        chat_id = str(external_chat_id or "").strip()
+        tid = str(tenant_id or "").strip()
+        if not chat_id or not tid:
+            return None
+        channels = []
+        for ch in (channel, "wechat", "weixin"):
+            c = str(ch or "").strip().lower()
+            if c and c not in channels:
+                channels.append(c)
+        with self._connect() as conn:
+            for ch in channels:
+                row = conn.execute(
+                    """
+                    SELECT tenant_id, channel, account_id, external_chat_id, external_user_id, session_id
+                    FROM channel_session_v2
+                    WHERE tenant_id = ? AND channel = ? AND external_chat_id = ?
+                    ORDER BY created_at DESC
+                    LIMIT 1
+                    """,
+                    (tid, ch, chat_id),
+                ).fetchone()
+                if row:
+                    return {
+                        "tenant_id": str(row["tenant_id"] or ""),
+                        "channel": str(row["channel"] or ""),
+                        "account_id": str(row["account_id"] or ""),
+                        "external_chat_id": str(row["external_chat_id"] or ""),
+                        "external_user_id": str(row["external_user_id"] or ""),
+                        "session_id": str(row["session_id"] or ""),
+                    }
+        return None
+
+    def lookup_channel_session_by_session_id(
+        self,
+        *,
+        tenant_id: str,
+        session_id: str,
+    ) -> dict[str, Any] | None:
+        sid = str(session_id or "").strip()
+        tid = str(tenant_id or "").strip()
+        if not sid or not tid:
+            return None
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT tenant_id, channel, account_id, external_chat_id, external_user_id
+                FROM channel_session_v2
+                WHERE tenant_id = ? AND session_id = ?
+                LIMIT 1
+                """,
+                (tid, sid),
+            ).fetchone()
+            if row:
+                return {
+                    "tenant_id": str(row["tenant_id"] or ""),
+                    "channel": str(row["channel"] or ""),
+                    "account_id": str(row["account_id"] or ""),
+                    "external_chat_id": str(row["external_chat_id"] or ""),
+                    "external_user_id": str(row["external_user_id"] or ""),
+                }
+            row = conn.execute(
+                """
+                SELECT tenant_id, channel, external_chat_id, external_user_id
+                FROM channel_session
+                WHERE tenant_id = ? AND session_id = ?
+                LIMIT 1
+                """,
+                (tid, sid),
+            ).fetchone()
+        if not row:
+            return None
+        return {
+            "tenant_id": str(row["tenant_id"] or ""),
+            "channel": str(row["channel"] or ""),
+            "account_id": "",
+            "external_chat_id": str(row["external_chat_id"] or ""),
+            "external_user_id": str(row["external_user_id"] or ""),
+        }
+
     def get_or_create_channel_session(
         self,
         *,
@@ -5446,17 +5629,67 @@ class SqliteStore:
             ).fetchall()
         return [
             {
-                "id": str(r[0] or ""),
-                "tenant_id": str(r[1] or ""),
-                "channel": str(r[2] or ""),
-                "account_id": str(r[3] or ""),
-                "chat_id": str(r[4] or ""),
-                "text": str(r[5] or ""),
-                "source": str(r[6] or ""),
-                "created_at": str(r[7] or ""),
+                "id": str(r["id"] or ""),
+                "tenant_id": str(r["tenant_id"] or ""),
+                "channel": str(r["channel"] or ""),
+                "account_id": str(r["account_id"] or ""),
+                "chat_id": str(r["chat_id"] or ""),
+                "text": str(r["text"] or ""),
+                "source": str(r["source"] or ""),
+                "created_at": str(r["created_at"] or ""),
             }
             for r in rows
         ]
+
+    def list_pending_weixin_outbound_messages(
+        self,
+        *,
+        account_id: str,
+        limit: int = 20,
+    ) -> list[dict[str, Any]]:
+        lim = max(1, min(int(limit), 100))
+        aid = str(account_id or "").strip()
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT id, tenant_id, channel, account_id, chat_id, text, source, created_at
+                FROM channel_outbound_message
+                WHERE channel IN ('wechat', 'weixin') AND status = 'pending'
+                  AND (
+                    account_id = ?
+                    OR account_id = '' OR account_id = 'weixin-default'
+                    OR ? = '' OR ? = 'weixin-default'
+                  )
+                ORDER BY created_at ASC
+                LIMIT ?
+                """,
+                (aid, aid, aid, lim),
+            ).fetchall()
+        out: list[dict[str, Any]] = []
+        for r in rows:
+            source = str(r["source"] or "")
+            meta = {}
+            if source.startswith("{"):
+                try:
+                    parsed = json.loads(source)
+                    if isinstance(parsed, dict):
+                        meta = parsed
+                except Exception:
+                    meta = {}
+            out.append(
+                {
+                    "id": str(r["id"] or ""),
+                    "tenant_id": str(r["tenant_id"] or ""),
+                    "channel": str(r["channel"] or ""),
+                    "account_id": str(r["account_id"] or ""),
+                    "chat_id": str(r["chat_id"] or ""),
+                    "text": str(r["text"] or ""),
+                    "source": source,
+                    "context_token": str(meta.get("context_token") or ""),
+                    "created_at": str(r["created_at"] or ""),
+                }
+            )
+        return out
 
     def ack_channel_outbound_message(
         self,

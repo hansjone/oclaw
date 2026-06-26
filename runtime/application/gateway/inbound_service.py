@@ -103,7 +103,7 @@ def _menu_text() -> str:
     )
 
 
-def _handle_productivity_commands(*, text: str, tenant_id: str, user_id: str) -> str | None:
+def _handle_productivity_commands(*, text: str, tenant_id: str, user_id: str, session_id: str = "") -> str | None:
     t = (text or "").strip()
     if not t:
         return None
@@ -175,7 +175,86 @@ def _handle_productivity_commands(*, text: str, tenant_id: str, user_id: str) ->
         lines = [f"- {str(h.get('source') or '')}: {str(h.get('snippet') or '')}" for h in hits[:5] if isinstance(h, dict)]
         return "知识检索结果：\n" + "\n".join(lines)
 
+    if t in ("查定时任务", "定时任务", "schedules", "/schedule list"):
+        rows = store.scheduled_job_list(tenant_id=tenant_id, status=None, limit=10)
+        if not rows:
+            return "当前没有定时任务。"
+        lines = [
+            f"- {r.name} | {r.schedule_kind}:{r.schedule_expr} | {r.status} | id={r.id[:8]}"
+            for r in rows
+        ]
+        return "定时任务：\n" + "\n".join(lines)
+
+    if t.startswith("暂停定时任务 ") or t.startswith("暂停定时 "):
+        prefix = "暂停定时任务 " if t.startswith("暂停定时任务 ") else "暂停定时 "
+        jid = t[len(prefix) :].strip()
+        if not jid:
+            return "请提供任务 id 前缀。示例：暂停定时任务 1234abcd"
+        rows = store.scheduled_job_list(tenant_id=tenant_id, status=None, limit=200)
+        full = next((r.id for r in rows if str(r.id).startswith(jid)), jid)
+        ok = store.scheduled_job_set_status(tenant_id=tenant_id, job_id=full, status="paused")
+        return "已暂停。" if ok else "未找到该定时任务。"
+
+    if t.startswith("删除定时任务 ") or t.startswith("删除定时 "):
+        prefix = "删除定时任务 " if t.startswith("删除定时任务 ") else "删除定时 "
+        jid = t[len(prefix) :].strip()
+        if not jid:
+            return "请提供任务 id 前缀。示例：删除定时任务 1234abcd"
+        rows = store.scheduled_job_list(tenant_id=tenant_id, status=None, limit=200)
+        full = next((r.id for r in rows if str(r.id).startswith(jid)), jid)
+        ok = store.scheduled_job_delete(tenant_id=tenant_id, job_id=full)
+        return "已删除。" if ok else "未找到该定时任务。"
+
+    if t.startswith("记定时 ") or t.startswith("创建定时 "):
+        body = t.split(" ", 1)[1].strip() if " " in t else ""
+        parts = body.split(None, 1)
+        if len(parts) < 2:
+            return "格式：记定时 <时间> <提醒内容>。示例：记定时 5分钟 提醒我休息"
+        when_raw, prompt_text = parts[0].strip(), parts[1].strip()
+        seconds = _parse_schedule_duration_seconds(when_raw)
+        if seconds <= 0:
+            return "无法识别时间。示例：5分钟、1小时、300秒"
+        from runtime.scheduler.cron_service import build_delivery_for_session
+
+        delivery = build_delivery_for_session(
+            store,
+            tenant_id=tenant_id,
+            session_id=str(session_id or "").strip(),
+        )
+        row = store.scheduled_job_create(
+            tenant_id=tenant_id,
+            name=prompt_text[:40] or "定时提醒",
+            prompt_text=prompt_text,
+            schedule_kind="interval",
+            schedule_expr=str(seconds),
+            delivery=delivery,
+            source_session_id=str(session_id or "").strip() or None,
+            created_by_user_id=user_id,
+            source="chat",
+        )
+        return f"已创建定时任务：{row.id[:8]} | {prompt_text} | 每 {seconds} 秒"
+
     return None
+
+
+def _parse_schedule_duration_seconds(raw: str) -> int:
+    import re
+
+    text = str(raw or "").strip().lower()
+    if not text:
+        return 0
+    if text.isdigit():
+        return max(1, int(text))
+    m = re.match(r"^(\d+(?:\.\d+)?)\s*(秒|s|sec|secs|second|seconds|分钟|分|min|mins|小时|时|h|hr|hrs|hour|hours)$", text)
+    if not m:
+        return 0
+    val = float(m.group(1))
+    unit = m.group(2)
+    if unit in {"秒", "s", "sec", "secs", "second", "seconds"}:
+        return max(1, int(val))
+    if unit in {"分钟", "分", "min", "mins"}:
+        return max(1, int(val * 60))
+    return max(1, int(val * 3600))
 
 
 def _role_can_write(role: str, text: str) -> bool:
@@ -810,6 +889,24 @@ def process_inbound_payload(payload: dict[str, Any]) -> dict[str, Any]:
             )
             channel_session_id = str(session_id)
             store.ensure_ui_session_owner(session_id=session_id, tenant_id=tenant_id, user_id=user_id)
+            if str(inbound.channel or "").strip().lower() in {"wechat", "weixin"}:
+                from runtime.scheduler.channel_delivery import (
+                    extract_context_token_from_inbound_metadata,
+                    persist_channel_context_token,
+                )
+
+                ctx_tok = extract_context_token_from_inbound_metadata(
+                    inbound.metadata if isinstance(inbound.metadata, dict) else None
+                )
+                if ctx_tok:
+                    persist_channel_context_token(
+                        store,
+                        tenant_id=tenant_id,
+                        channel=str(inbound.channel or "weixin"),
+                        account_id=account_id,
+                        external_chat_id=str(inbound.external_chat_id or inbound.external_user_id or ""),
+                        context_token=ctx_tok,
+                    )
             scope = "group" if inbound.is_group else "direct"
             pe = PolicyEngine()
             blob = (inbound.text or "").lower()
@@ -842,6 +939,7 @@ def process_inbound_payload(payload: dict[str, Any]) -> dict[str, Any]:
                         text=inbound.text,
                         tenant_id=tenant_id,
                         user_id=user_id,
+                        session_id=str(session_id),
                     )
                     if cmd_reply is not None:
                         reply = cmd_reply

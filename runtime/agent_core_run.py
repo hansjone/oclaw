@@ -48,6 +48,7 @@ class AgentCoreRunInput:
     skill_binding_role: str | None = None
     wire_policy_role: str | None = None
     persisted_user_text: str | None = None
+    persist_user_message: bool = True
 
 
 @dataclass(frozen=True)
@@ -204,7 +205,7 @@ def run_agent_core(*, store: Any, data: AgentCoreRunInput) -> AgentCoreRunOutput
                 max_tool_rounds=data.max_tool_rounds,
                 max_tool_workers=data.max_tool_workers,
                 memory_context=mem_ctx,
-                persist_user_message=(idx == 1),
+                persist_user_message=(idx == 1 and bool(data.persist_user_message)),
                 on_token=data.on_token,
                 on_progress=data.on_progress,
                 on_tool_ui=data.on_tool_ui,

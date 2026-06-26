@@ -70,6 +70,8 @@ def _cron_list_handler(opts: dict[str, Any]) -> None:
                 "enabled": params.get("enabled"),
                 "sortBy": params.get("sortBy"),
                 "sortDir": params.get("sortDir"),
+                "tenantId": params.get("tenantId"),
+                "tenant_id": params.get("tenant_id"),
             }
         ),
     )

@@ -217,6 +217,15 @@ def _run_startup_hooks(app: FastAPI) -> None:
         _log_info(f"[startup-prebuild] scheduler_started interval_s={_prewarm_interval_seconds()}")
     except Exception as exc:
         _log_warn(f"[startup-prebuild] scheduler_start_failed: {exc}")
+    try:
+        from svc.persistence.assistant_store import get_assistant_store
+        from runtime.scheduler.service import ensure_scheduler_started
+
+        store = get_assistant_store()
+        sid = ensure_scheduler_started(store=store)
+        _log_info(f"[scheduled-jobs] scheduler_started thread={sid}")
+    except Exception as exc:
+        _log_warn(f"[scheduled-jobs] scheduler_start_failed: {exc}")
     _relocate_root_scan_artifacts()
     startup_targets = _resolve_startup_workspace_dirs(cfg)
     initialize_hooks_runtime(cfg=cfg, workspace_dir=startup_targets[0][1])
@@ -290,6 +299,31 @@ def create_app() -> FastAPI:
 
     @app.post("/whatsapp/outbound/ack")
     def whatsapp_outbound_ack(payload: dict[str, Any]) -> dict[str, Any]:
+        from svc.persistence.assistant_store import get_assistant_store
+
+        body = payload if isinstance(payload, dict) else {}
+        msg_id = str(body.get("id") or "").strip()
+        if not msg_id:
+            return {"ok": False, "error": "missing id"}
+        ok = bool(body.get("ok", True))
+        err = str(body.get("error") or "").strip()
+        store = get_assistant_store()
+        changed = store.ack_channel_outbound_message(message_id=msg_id, ok=ok, error=err)
+        return {"ok": changed}
+
+    @app.get("/weixin/outbound/pending")
+    def weixin_outbound_pending(account_id: str = "", limit: int = 20) -> dict[str, Any]:
+        from svc.persistence.assistant_store import get_assistant_store
+
+        store = get_assistant_store()
+        lister = getattr(store, "list_pending_weixin_outbound_messages", None)
+        if not callable(lister):
+            return {"ok": True, "items": []}
+        items = lister(account_id=str(account_id or "").strip(), limit=limit)
+        return {"ok": True, "items": items}
+
+    @app.post("/weixin/outbound/ack")
+    def weixin_outbound_ack(payload: dict[str, Any]) -> dict[str, Any]:
         from svc.persistence.assistant_store import get_assistant_store
 
         body = payload if isinstance(payload, dict) else {}

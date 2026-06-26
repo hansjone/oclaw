@@ -5,6 +5,7 @@ const I18N = {
     "nav.models": "模型管理",
     "nav.apiGrants": "API 使用授权",
     "nav.stack": "运行时",
+    "nav.scheduledJobs": "定时任务",
     "nav.users": "用户管理",
     "nav.workspacePaths": "工作区路径",
     "nav.memory": "记忆",
@@ -18,6 +19,41 @@ const I18N = {
     "notice.noLogin": "v2 已启用登录鉴权：请仅在内网访问",
     "action.refresh": "刷新",
     "title.stack": "运行时",
+    "title.scheduledJobs": "定时任务",
+    "scheduledJobs.all": "全部",
+    "scheduledJobs.statusActive": "运行中",
+    "scheduledJobs.statusPaused": "已暂停",
+    "scheduledJobs.loading": "Loading…",
+    "scheduledJobs.count": "{count} 个任务",
+    "scheduledJobs.colName": "名称",
+    "scheduledJobs.colSchedule": "计划",
+    "scheduledJobs.colStatus": "状态",
+    "scheduledJobs.colNextRun": "下次运行",
+    "scheduledJobs.colLastRun": "上次运行",
+    "scheduledJobs.colSpecialist": "专家",
+    "scheduledJobs.colDelivery": "投递",
+    "scheduledJobs.colActions": "操作",
+    "scheduledJobs.menuTitle": "任务操作",
+    "scheduledJobs.viewRuns": "查看运行记录",
+    "scheduledJobs.pause": "暂停",
+    "scheduledJobs.resume": "恢复",
+    "scheduledJobs.runNow": "立即运行",
+    "scheduledJobs.delete": "删除",
+    "scheduledJobs.deleteConfirm": "确定删除该定时任务？",
+    "scheduledJobs.triggered": "已触发",
+    "scheduledJobs.createTitle": "新建任务",
+    "scheduledJobs.create": "创建",
+    "scheduledJobs.edit": "编辑",
+    "scheduledJobs.editTitle": "编辑任务",
+    "scheduledJobs.updated": "已保存",
+    "scheduledJobs.cancel": "取消",
+    "scheduledJobs.runHistory": "运行记录",
+    "scheduledJobs.runHistoryHint": "最近运行（自动刷新）",
+    "scheduledJobs.noRuns": "暂无运行记录",
+    "scheduledJobs.weixinFixed": "微信固定投递：{id}",
+    "scheduledJobs.weixinMissing": "未找到微信绑定（需管理员渠道身份）",
+    "scheduledJobs.deliveryWeixin": "微信",
+    "scheduledJobs.deliveryWhatsapp": "WhatsApp",
     "title.users": "用户管理",
     "title.workspacePaths": "工作区路径（按用户）",
     "title.memory": "记忆",
@@ -447,6 +483,7 @@ const I18N = {
     "nav.models": "Models",
     "nav.apiGrants": "API access",
     "nav.stack": "Runtime",
+    "nav.scheduledJobs": "Scheduled Jobs",
     "nav.users": "Users",
     "nav.workspacePaths": "Workspace paths",
     "nav.memory": "Memory",
@@ -460,6 +497,41 @@ const I18N = {
     "notice.noLogin": "v2 login enabled: internal network only",
     "action.refresh": "Refresh",
     "title.stack": "Runtime",
+    "title.scheduledJobs": "Scheduled Jobs",
+    "scheduledJobs.all": "All",
+    "scheduledJobs.statusActive": "active",
+    "scheduledJobs.statusPaused": "paused",
+    "scheduledJobs.loading": "Loading…",
+    "scheduledJobs.count": "{count} job(s)",
+    "scheduledJobs.colName": "name",
+    "scheduledJobs.colSchedule": "schedule",
+    "scheduledJobs.colStatus": "status",
+    "scheduledJobs.colNextRun": "next_run",
+    "scheduledJobs.colLastRun": "last_run",
+    "scheduledJobs.colSpecialist": "specialist",
+    "scheduledJobs.colDelivery": "delivery",
+    "scheduledJobs.colActions": "actions",
+    "scheduledJobs.menuTitle": "Job actions",
+    "scheduledJobs.viewRuns": "View runs",
+    "scheduledJobs.pause": "Pause",
+    "scheduledJobs.resume": "Resume",
+    "scheduledJobs.runNow": "Run now",
+    "scheduledJobs.delete": "Delete",
+    "scheduledJobs.deleteConfirm": "Delete this scheduled job?",
+    "scheduledJobs.triggered": "Triggered.",
+    "scheduledJobs.createTitle": "Create job",
+    "scheduledJobs.create": "Create",
+    "scheduledJobs.edit": "Edit",
+    "scheduledJobs.editTitle": "Edit job",
+    "scheduledJobs.updated": "Saved.",
+    "scheduledJobs.cancel": "Cancel",
+    "scheduledJobs.runHistory": "Run history",
+    "scheduledJobs.runHistoryHint": "Recent runs (auto refresh)",
+    "scheduledJobs.noRuns": "No runs yet",
+    "scheduledJobs.weixinFixed": "Weixin fixed target: {id}",
+    "scheduledJobs.weixinMissing": "Weixin binding not found (administrator channel identity required)",
+    "scheduledJobs.deliveryWeixin": "WeChat",
+    "scheduledJobs.deliveryWhatsapp": "WhatsApp",
     "title.users": "Users",
     "title.workspacePaths": "Workspace paths (per user)",
     "title.memory": "Memory",
@@ -9221,6 +9293,366 @@ async function renderSkills() {
   ]);
 }
 
+function formatScheduledJobDelivery(job) {
+  const d = (job && job.delivery && typeof job.delivery === "object") ? job.delivery : {};
+  const parts = [];
+  if (d.weixin && d.weixin.enabled) parts.push(t("scheduledJobs.deliveryWeixin"));
+  if (d.whatsapp && d.whatsapp.enabled) parts.push(t("scheduledJobs.deliveryWhatsapp"));
+  return parts.length ? parts.join(" + ") : "—";
+}
+
+function buildScheduledJobDeliveryPayload(job, waChatId) {
+  const existing = (job && job.delivery && typeof job.delivery === "object") ? job.delivery : {};
+  const wa = existing.whatsapp && typeof existing.whatsapp === "object" ? { ...existing.whatsapp } : {};
+  const wx =
+    existing.weixin && typeof existing.weixin === "object"
+      ? { ...existing.weixin }
+      : { enabled: true, fixed: true };
+  const chat = String(waChatId || "").trim();
+  wa.enabled = Boolean(chat);
+  wa.chat_id = chat;
+  wa.target_type = chat.includes("@g.us") ? "group" : "direct";
+  if (wx.enabled === undefined) wx.enabled = true;
+  return { whatsapp: wa, weixin: wx };
+}
+
+async function renderScheduledJobs() {
+  let scheduledJobMenuEl = null;
+  let editingJob = null;
+  const canWrite = hasPermission("admin:runtime:write");
+  const closeScheduledJobMenu = () => {
+    if (scheduledJobMenuEl && scheduledJobMenuEl.parentNode) {
+      scheduledJobMenuEl.remove();
+    }
+    scheduledJobMenuEl = null;
+  };
+
+  const status = el("select", {}, [
+    el("option", { value: "", text: t("scheduledJobs.all") }),
+    el("option", { value: "active", text: t("scheduledJobs.statusActive") }),
+    el("option", { value: "paused", text: t("scheduledJobs.statusPaused") }),
+  ]);
+  const tbody = el("tbody", {});
+  const runsBox = el("pre", { class: "code", style: "max-height:220px;overflow:auto;white-space:pre-wrap;" });
+  const msg = el("div", { class: "muted", text: "" });
+
+  const editModal = el("div", { class: "session-monitor-modal", style: "display:none;" });
+  const editTitle = el("div", { class: "card__title", text: t("scheduledJobs.editTitle") });
+  const editNameInput = el("input", { class: "input", placeholder: "name" });
+  const editKindInput = el("select", {}, [
+    el("option", { value: "cron", text: "cron" }),
+    el("option", { value: "once", text: "once" }),
+    el("option", { value: "interval", text: "interval" }),
+  ]);
+  const editExprInput = el("input", { class: "input", placeholder: "schedule_expr (cron / ISO / seconds)" });
+  const editPromptInput = el("textarea", { class: "input", rows: "4", placeholder: "prompt_text" });
+  const editSpecialistInput = el("input", { class: "input", placeholder: "specialist" });
+  const editWaChatInput = el("input", { class: "input", placeholder: "whatsapp chat_id (optional)" });
+  const editWeixinInfo = el("div", { class: "muted", text: "" });
+  const closeEditModal = () => {
+    editingJob = null;
+    editModal.style.display = "none";
+  };
+  const openEditModal = (job) => {
+    if (!job || !job.id) return;
+    editingJob = job;
+    editTitle.textContent = `${t("scheduledJobs.editTitle")}: ${String(job.name || job.id)}`;
+    editNameInput.value = String(job.name || "");
+    editKindInput.value = String(job.schedule_kind || "cron");
+    editExprInput.value = String(job.schedule_expr || "");
+    editPromptInput.value = String(job.prompt_text || "");
+    editSpecialistInput.value = String(job.specialist || "generalist");
+    const wa = job.delivery && job.delivery.whatsapp ? job.delivery.whatsapp : {};
+    editWaChatInput.value = String(wa.chat_id || "");
+    const wx = job.delivery && job.delivery.weixin ? job.delivery.weixin : {};
+    editWeixinInfo.textContent = wx.external_user_id
+      ? tf("scheduledJobs.weixinFixed", { id: String(wx.external_user_id) })
+      : weixinInfo.textContent || t("scheduledJobs.weixinMissing");
+    editModal.style.display = "flex";
+    setTimeout(() => editNameInput.focus(), 0);
+  };
+  editModal.addEventListener("click", (e) => {
+    if (e.target === editModal) closeEditModal();
+  });
+  const editSaveBtn = el("button", {
+    class: "btn btn--primary",
+    text: t("action.save"),
+    onclick: async () => {
+      if (!editingJob || !editingJob.id) return;
+      const name = String(editNameInput.value || "").trim();
+      const promptText = String(editPromptInput.value || "").trim();
+      const scheduleExpr = String(editExprInput.value || "").trim();
+      if (!name || !promptText || !scheduleExpr) {
+        msg.textContent = "name, prompt_text, schedule_expr are required";
+        return;
+      }
+      try {
+        await apiRequest("PATCH", `/admin/api/scheduled-jobs/${encodeURIComponent(String(editingJob.id))}`, {
+          name,
+          schedule_kind: editKindInput.value,
+          schedule_expr: scheduleExpr,
+          prompt_text: promptText,
+          specialist: String(editSpecialistInput.value || "generalist").trim() || "generalist",
+          delivery: buildScheduledJobDeliveryPayload(editingJob, editWaChatInput.value),
+        });
+        closeEditModal();
+        msg.textContent = t("scheduledJobs.updated");
+        await loadJobs();
+      } catch (e) {
+        msg.textContent = String(e && e.message ? e.message : e);
+      }
+    },
+  });
+  const editModalCard = el("div", { class: "card session-monitor-modal__card", style: "width:min(640px,96vw);" }, [
+    editTitle,
+    editWeixinInfo,
+    editNameInput,
+    el("div", { class: "row", style: "gap:8px;" }, [editKindInput, editExprInput]),
+    editPromptInput,
+    editSpecialistInput,
+    editWaChatInput,
+    el("div", { class: "row", style: "gap:8px;justify-content:flex-end;margin-top:10px;" }, [
+      el("button", { class: "btn", text: t("scheduledJobs.cancel"), onclick: closeEditModal }),
+      editSaveBtn,
+    ]),
+  ]);
+  editModal.appendChild(editModalCard);
+
+  async function loadLatestRuns(items) {
+    const jobs = Array.isArray(items) ? items : [];
+    if (!jobs.length) {
+      runsBox.textContent = t("scheduledJobs.noRuns");
+      return;
+    }
+    const withLast = jobs.filter((j) => String(j.last_run_at || "").trim());
+    const target = withLast.length ? withLast[0] : jobs[0];
+    if (!target || !target.id) {
+      runsBox.textContent = t("scheduledJobs.noRuns");
+      return;
+    }
+    const runs = await apiGet(`/admin/api/scheduled-jobs/${encodeURIComponent(String(target.id))}/runs?limit=10`);
+    const runItems = runs.items || [];
+    runsBox.textContent = runItems.length
+      ? JSON.stringify(runItems, null, 2)
+      : t("scheduledJobs.noRuns");
+  }
+
+  async function loadJobs() {
+    closeScheduledJobMenu();
+    msg.textContent = t("scheduledJobs.loading");
+    const st = String(status.value || "").trim();
+    const q = st ? `?status=${encodeURIComponent(st)}` : "";
+    const resp = await apiGet(`/admin/api/scheduled-jobs${q}`);
+    tbody.replaceChildren();
+    for (const job of resp.items || []) {
+      const jobId = String(job.id || "");
+      const btnMore = el("button", {
+        class: "chat-sess-more",
+        text: "⋯",
+        title: t("scheduledJobs.menuTitle"),
+        onclick: (ev) => {
+          ev.stopPropagation();
+          closeScheduledJobMenu();
+          const menu = el("div", { class: "chat-sess-menu-pop", style: "position:fixed;z-index:250;" }, [
+            el("button", {
+              class: "chat-sess-menu-item",
+              text: t("scheduledJobs.viewRuns"),
+              onclick: async () => {
+                closeScheduledJobMenu();
+                const runs = await apiGet(`/admin/api/scheduled-jobs/${encodeURIComponent(jobId)}/runs`);
+                runsBox.textContent = JSON.stringify(runs.items || [], null, 2);
+              },
+            }),
+            ...(canWrite
+              ? [
+                  el("button", {
+                    class: "chat-sess-menu-item",
+                    text: t("scheduledJobs.edit"),
+                    onclick: () => {
+                      closeScheduledJobMenu();
+                      openEditModal(job);
+                    },
+                  }),
+                ]
+              : []),
+            el("button", {
+              class: "chat-sess-menu-item",
+              text: job.status === "active" ? t("scheduledJobs.pause") : t("scheduledJobs.resume"),
+              onclick: async () => {
+                closeScheduledJobMenu();
+                const path =
+                  job.status === "active"
+                    ? `/admin/api/scheduled-jobs/${encodeURIComponent(jobId)}/pause`
+                    : `/admin/api/scheduled-jobs/${encodeURIComponent(jobId)}/resume`;
+                await apiPost(path, {});
+                await loadJobs();
+              },
+            }),
+            el("button", {
+              class: "chat-sess-menu-item",
+              text: t("scheduledJobs.runNow"),
+              onclick: async () => {
+                closeScheduledJobMenu();
+                await apiPost(`/admin/api/scheduled-jobs/${encodeURIComponent(jobId)}/run-now`, {});
+                msg.textContent = t("scheduledJobs.triggered");
+              },
+            }),
+            ...(canWrite
+              ? [
+                  el("button", {
+                    class: "chat-sess-menu-item",
+                    text: t("scheduledJobs.delete"),
+                    onclick: async () => {
+                      closeScheduledJobMenu();
+                      if (!window.confirm(t("scheduledJobs.deleteConfirm"))) return;
+                      await fetch(resolveAdminApiUrl(`/admin/api/scheduled-jobs/${encodeURIComponent(jobId)}`), {
+                        method: "DELETE",
+                        headers: { authorization: `Bearer ${getStoredAuthToken()}`, accept: "application/json" },
+                      });
+                      await loadJobs();
+                    },
+                  }),
+                ]
+              : []),
+          ]);
+          const rect = ev.currentTarget.getBoundingClientRect();
+          document.body.appendChild(menu);
+          const mrect = menu.getBoundingClientRect();
+          const pad = 8;
+          let left = rect.left - 120;
+          let top = rect.bottom + 4;
+          if (top + mrect.height > window.innerHeight - pad) {
+            top = rect.top - 4 - mrect.height;
+          }
+          left = Math.max(pad, Math.min(left, window.innerWidth - pad - mrect.width));
+          top = Math.max(pad, Math.min(top, window.innerHeight - pad - mrect.height));
+          menu.style.left = `${left}px`;
+          menu.style.top = `${top}px`;
+          scheduledJobMenuEl = menu;
+          const close = (e) => {
+            if (!menu.contains(e.target)) {
+              closeScheduledJobMenu();
+              document.removeEventListener("click", close);
+            }
+          };
+          setTimeout(() => document.addEventListener("click", close), 0);
+        },
+      });
+      const lastRun = job.last_run_at
+        ? `${formatSystemLocalDateTime(String(job.last_run_at))}${job.last_run_status ? ` (${job.last_run_status})` : ""}`
+        : "—";
+      const tr = el("tr", {}, [
+        tdCell(job.name || "", 24),
+        tdCell(`${job.schedule_kind}:${job.schedule_expr}`, 28),
+        tdCell(job.status || "", 10),
+        tdCell(job.next_run_at || "—", 20),
+        tdCell(lastRun, 24),
+        tdCell(job.specialist || "", 14),
+        tdCell(formatScheduledJobDelivery(job), 12),
+        el("td", { class: "table__cell--actions" }, [
+          el("div", { class: "table__cell-actions" }, [btnMore]),
+        ]),
+      ]);
+      tbody.appendChild(tr);
+    }
+    msg.textContent = tf("scheduledJobs.count", { count: String((resp.items || []).length) });
+    await loadLatestRuns(resp.items || []);
+  }
+
+  const nameInput = el("input", { class: "input", placeholder: "name" });
+  const kindInput = el("select", {}, [
+    el("option", { value: "cron", text: "cron" }),
+    el("option", { value: "once", text: "once" }),
+    el("option", { value: "interval", text: "interval" }),
+  ]);
+  const exprInput = el("input", { class: "input", placeholder: "schedule_expr (cron / ISO / seconds)" });
+  const promptInput = el("textarea", { class: "input", rows: "3", placeholder: "prompt_text" });
+  const specialistInput = el("input", { class: "input", placeholder: "specialist", value: "generalist" });
+  const waChatInput = el("input", { class: "input", placeholder: "whatsapp chat_id (optional)" });
+  const weixinInfo = el("div", { class: "muted", text: "" });
+
+  async function loadMeta() {
+    const meta = await apiGet("/admin/api/scheduled-jobs/meta/targets");
+    const wx = meta.weixin_binding || {};
+    weixinInfo.textContent = wx.external_user_id
+      ? tf("scheduledJobs.weixinFixed", { id: String(wx.external_user_id) })
+      : t("scheduledJobs.weixinMissing");
+  }
+
+  await loadMeta();
+  await loadJobs();
+
+  const createCardChildren = [
+    el("div", { class: "card__title", text: t("scheduledJobs.createTitle") }),
+    weixinInfo,
+    nameInput,
+    el("div", { class: "row", style: "gap:8px;" }, [kindInput, exprInput]),
+    promptInput,
+    specialistInput,
+    waChatInput,
+    el("button", {
+      class: "btn btn--primary",
+      text: t("scheduledJobs.create"),
+      onclick: async () => {
+        await apiPost("/admin/api/scheduled-jobs", {
+          name: nameInput.value,
+          schedule_kind: kindInput.value,
+          schedule_expr: exprInput.value,
+          prompt_text: promptInput.value,
+          specialist: specialistInput.value,
+          whatsapp_chat_id: waChatInput.value,
+          delivery: buildScheduledJobDeliveryPayload(null, waChatInput.value),
+        });
+        await loadJobs();
+      },
+    }),
+  ];
+
+  return el("div", {}, [
+    editModal,
+    el("div", { class: "card" }, [
+      el("div", { class: "card__title", text: t("title.scheduledJobs") }),
+      el("div", { class: "row", style: "gap:8px;align-items:center;" }, [
+        status,
+        el("button", { class: "btn", text: t("action.refresh"), onclick: () => loadJobs() }),
+        msg,
+      ]),
+      el("div", { class: "table-wrap" }, [
+        el("table", { class: "table table--compact" }, [
+          el("colgroup", {}, [
+            el("col", { style: "width:16%" }),
+            el("col", { style: "width:18%" }),
+            el("col", { style: "width:8%" }),
+            el("col", { style: "width:14%" }),
+            el("col", { style: "width:14%" }),
+            el("col", { style: "width:10%" }),
+            el("col", { style: "width:10%" }),
+            el("col", { style: "width:10%" }),
+          ]),
+          el("thead", {}, [
+            el("tr", {}, [
+              el("th", { text: t("scheduledJobs.colName") }),
+              el("th", { text: t("scheduledJobs.colSchedule") }),
+              el("th", { text: t("scheduledJobs.colStatus") }),
+              el("th", { text: t("scheduledJobs.colNextRun") }),
+              el("th", { text: t("scheduledJobs.colLastRun") }),
+              el("th", { text: t("scheduledJobs.colSpecialist") }),
+              el("th", { text: t("scheduledJobs.colDelivery") }),
+              el("th", { text: t("scheduledJobs.colActions") }),
+            ]),
+          ]),
+          tbody,
+        ]),
+      ]),
+    ]),
+    ...(canWrite ? [el("div", { class: "card" }, createCardChildren)] : []),
+    el("div", { class: "card" }, [
+      el("div", { class: "card__title", text: `${t("scheduledJobs.runHistory")} · ${t("scheduledJobs.runHistoryHint")}` }),
+      runsBox,
+    ]),
+  ]);
+}
+
 async function router() {
   const route = getRoute();
   const page = route.page;
@@ -9243,6 +9675,7 @@ async function router() {
   document.querySelectorAll(".nav__item").forEach((a) => {
     const p = String(a.dataset.page || "");
     if (p === "stack" && !hasPermission("admin:runtime:write")) a.style.display = "none";
+    else if (p === "scheduled-jobs" && !hasPermission("admin:read")) a.style.display = "none";
     else if (p === "users" && !hasPermission("admin:user:read")) a.style.display = "none";
     else if (p === "session-monitor" && !isAdministratorUsername()) a.style.display = "none";
     else if (p === "admin-audit" && !hasPermission("admin:user:write")) a.style.display = "none";
@@ -9270,6 +9703,9 @@ async function router() {
       ]),
     );
     view = await renderStack();
+  }
+  else if (page === "scheduled-jobs") {
+    view = hasPermission("admin:read") ? await renderScheduledJobs() : forbiddenCard();
   }
   else if (page === "users") {
     view = hasPermission("admin:user:read") ? await renderUserManagement() : forbiddenCard();

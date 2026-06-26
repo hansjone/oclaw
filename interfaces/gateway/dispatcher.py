@@ -4,6 +4,7 @@ from interfaces.gateway.server_methods.agent import agent_handlers
 from interfaces.gateway.server_methods.chat import chat_handlers
 from interfaces.gateway.server_methods.commands import commands_handlers
 from interfaces.gateway.server_methods.connect import connect_handlers
+from interfaces.gateway.server_methods.cron import cron_handlers
 from interfaces.gateway.server_methods.sessions import sessions_handlers
 from interfaces.gateway.server_methods.skills import skills_handlers
 from interfaces.gateway.server_methods.shared_types import GatewayRequestHandlers
@@ -19,6 +20,7 @@ def build_gateway_method_handlers() -> GatewayRequestHandlers:
         sessions_handlers,
         skills_handlers,
         agent_handlers,
+        cron_handlers,
     ):
         for method, handler in (group or {}).items():
             merged[str(method)] = handler

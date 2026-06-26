@@ -262,12 +262,23 @@ class _IlinkBridge:
                 if eid <= cursor:
                     continue
                 if str(event.get("token") or "") != token:
-                    continue
+                    ev_tok = str(event.get("token") or "")
+                    if ev_tok and ev_tok not in ("default", token):
+                        continue
                 payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
                 if channel and str(payload.get("channel") or "") != channel:
-                    continue
-                if account_id and str(payload.get("account_id") or "") != account_id:
-                    continue
+                    alt = {"wechat", "weixin"}
+                    if not (
+                        channel in alt
+                        and str(payload.get("channel") or "") in alt
+                    ):
+                        continue
+                req_acct = str(account_id or "").strip()
+                pay_acct = str(payload.get("account_id") or "").strip()
+                if req_acct and pay_acct and pay_acct != req_acct:
+                    legacy = {"", "weixin-default"}
+                    if pay_acct not in legacy and req_acct not in legacy:
+                        continue
                 next_cursor = max(next_cursor, eid)
                 item = dict(payload)
                 item["id"] = str(eid)
@@ -318,6 +329,23 @@ async def _process_inbound_and_enqueue(
             return str(top_ctx).strip()
 
         return ""
+
+    ctx_token = _extract_context_token(payload)
+    try:
+        from runtime.scheduler.channel_delivery import persist_channel_context_token
+        from svc.persistence.assistant_store import get_assistant_store
+
+        store = get_assistant_store()
+        persist_channel_context_token(
+            store,
+            tenant_id=str(payload.get("tenant_id") or ""),
+            channel=channel,
+            account_id=account_id,
+            external_chat_id=str(chat_id or user_id or ""),
+            context_token=ctx_token,
+        )
+    except Exception:
+        pass
 
     try:
         out = await asyncio.wait_for(asyncio.to_thread(_process_inbound_payload_usecase, payload), timeout=60.0)
@@ -534,5 +562,32 @@ async def whatsapp_native_reply(
     }
 
 
-__all__ = ["router"]
+def enqueue_weixin_outbound_reply(
+    *,
+    channel: str,
+    account_id: str,
+    chat_id: str,
+    text: str,
+    context_token: str = "",
+    token: str = "",
+) -> str:
+    """Enqueue a proactive Weixin/WeChat outbound message for the sidecar poll loop."""
+    tok = str(
+        token or os.getenv("AIA_WEIXIN_ILINK_TOKEN") or os.getenv("AIA_ILINK_TOKEN") or "default"
+    ).strip()
+    ch = str(channel or "wechat").strip().lower()
+    if ch == "weixin":
+        ch = "wechat"
+    _BRIDGE.enqueue_reply(
+        token=tok,
+        channel=ch,
+        account_id=str(account_id or "").strip(),
+        chat_id=str(chat_id or "").strip(),
+        text=str(text or ""),
+        context_token=str(context_token or "").strip(),
+    )
+    return str(_BRIDGE._seq)
+
+
+__all__ = ["router", "enqueue_weixin_outbound_reply"]
 

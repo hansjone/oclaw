@@ -690,6 +690,14 @@ def _build_model_context(
             )
     except Exception:
         pass
+    if str(user_text or "").strip() and str(active_turn_uuid or "").strip():
+        has_turn_user = any(
+            str(getattr(m, "role", "") or "") == "user"
+            and str(getattr(m, "turn_uuid", "") or "") == str(active_turn_uuid)
+            for m in (rows or [])
+        )
+        if not has_turn_user:
+            llm_messages.append({"role": "user", "content": str(user_text).strip()})
     return llm_messages
 
 

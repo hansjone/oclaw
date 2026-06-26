@@ -5,6 +5,7 @@ from typing import Any
 from runtime.skill_installer import install_skill_from_registry_archive
 from runtime.tools.skills.clawhub_client import get_skill_detail as clawhub_get_skill_detail
 from runtime.tools.skills.clawhub_client import search_skills as clawhub_search_skills
+from runtime.scheduler.cron_service import CronService
 
 
 def build_common_gateway_context(*, store: Any) -> dict[str, Any]:
@@ -80,6 +81,7 @@ def build_common_gateway_context(*, store: Any) -> dict[str, Any]:
 
     return {
         "store": store,
+        "cron": CronService(store=store),
         "search_clawhub_skills": _search_clawhub_skills,
         "fetch_clawhub_skill_detail": _fetch_clawhub_skill_detail,
         "install_skill_from_clawhub": _install_skill_from_clawhub,

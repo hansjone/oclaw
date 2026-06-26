@@ -10,6 +10,17 @@ except Exception:  # pragma: no cover
     validators = None
 
 
+def filter_arguments_to_schema(parameters: dict[str, Any], arguments: dict[str, Any]) -> dict[str, Any]:
+    """Drop keys not declared in tool schema when additionalProperties is false."""
+    if not isinstance(arguments, dict):
+        return {}
+    schema = parameters or {}
+    props = schema.get("properties") if isinstance(schema.get("properties"), dict) else {}
+    if schema.get("additionalProperties") is False and props:
+        return {k: v for k, v in arguments.items() if k in props}
+    return dict(arguments)
+
+
 def validate_tool_arguments(parameters: dict[str, Any], arguments: dict[str, Any]) -> tuple[bool, str | None]:
     """校验模型给出的 arguments 是否符合工具的 JSON Schema（OpenAI function parameters）。"""
     if not isinstance(arguments, dict):
@@ -33,5 +44,5 @@ def validate_tool_arguments(parameters: dict[str, Any], arguments: dict[str, Any
     return True, None
 
 
-__all__ = ["validate_tool_arguments"]
+__all__ = ["filter_arguments_to_schema", "validate_tool_arguments"]
 

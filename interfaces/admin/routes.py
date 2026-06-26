@@ -1986,6 +1986,194 @@ def build_admin_router() -> APIRouter:
             },
         }
 
+    @router.get("/admin/api/scheduled-jobs/meta/targets")
+    def api_scheduled_jobs_meta_targets(
+        tenant_id: str = Query(default=""),
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        from runtime.scheduler.session_resolver import resolve_weixin_binding
+
+        store = get_assistant_store()
+        ctx = _resolve_auth(store, authorization)
+        _require_permission(ctx, "admin:read")
+        tid = str(tenant_id or ctx.get("tenant_id") or "default").strip()
+        _require_tenant_scope(ctx, tid)
+        aid = str(os.getenv("AIA_WHATSAPP_ACCOUNT_ID") or "wa-default").strip()
+        known = store.list_whatsapp_known_groups(tenant_id=tid, account_id=aid)
+        weixin = resolve_weixin_binding(store, tenant_id=tid)
+        return {"ok": True, "whatsapp_groups": known, "weixin_binding": weixin, "whatsapp_account_id": aid}
+
+    @router.get("/admin/api/scheduled-jobs")
+    def api_scheduled_jobs_list(
+        status: str | None = Query(default=None),
+        limit: int = Query(default=100),
+        offset: int = Query(default=0),
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        store = get_assistant_store()
+        ctx = _resolve_auth(store, authorization)
+        _require_permission(ctx, "admin:read")
+        tenant_id = str(ctx.get("tenant_id") or "")
+        rows = store.scheduled_job_list(
+            tenant_id=tenant_id,
+            status=str(status or "").strip() or None,
+            limit=max(1, min(int(limit or 100), 300)),
+            offset=max(0, int(offset or 0)),
+        )
+        return {"ok": True, "items": [store.scheduled_job_to_dict(r) for r in rows]}
+
+    @router.get("/admin/api/scheduled-jobs/{job_id}")
+    def api_scheduled_jobs_get(
+        job_id: str,
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        store = get_assistant_store()
+        ctx = _resolve_auth(store, authorization)
+        _require_permission(ctx, "admin:read")
+        tenant_id = str(ctx.get("tenant_id") or "")
+        row = store.scheduled_job_get(job_id=str(job_id), tenant_id=tenant_id)
+        return {"ok": True, "job": None if not row else store.scheduled_job_to_dict(row)}
+
+    @router.post("/admin/api/scheduled-jobs")
+    def api_scheduled_jobs_create(
+        payload: dict[str, Any],
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        from runtime.scheduler.cron_service import build_default_delivery
+        from runtime.scheduler.expressions import normalize_schedule_kind
+
+        store = get_assistant_store()
+        ctx = _resolve_auth(store, authorization)
+        _require_permission(ctx, "admin:runtime:write")
+        tenant_id = str(ctx.get("tenant_id") or "")
+        name = str(payload.get("name") or "").strip()
+        prompt_text = str(payload.get("prompt_text") or "").strip()
+        schedule_kind = normalize_schedule_kind(payload.get("schedule_kind") or "cron")
+        schedule_expr = str(payload.get("schedule_expr") or "").strip()
+        if not name or not prompt_text or not schedule_expr:
+            return {"ok": False, "error": "name, prompt_text, schedule_expr are required"}
+        delivery = payload.get("delivery") if isinstance(payload.get("delivery"), dict) else None
+        if delivery is None:
+            wa_chat = str((payload.get("whatsapp") or {}).get("chat_id") if isinstance(payload.get("whatsapp"), dict) else payload.get("whatsapp_chat_id") or "")
+            delivery = build_default_delivery(store=store, tenant_id=tenant_id, whatsapp_chat_id=wa_chat)
+        row = store.scheduled_job_create(
+            tenant_id=tenant_id,
+            name=name,
+            prompt_text=prompt_text,
+            schedule_kind=schedule_kind,
+            schedule_expr=schedule_expr,
+            timezone_name=str(payload.get("timezone") or "Asia/Shanghai"),
+            description=str(payload.get("description") or ""),
+            interaction_mode=normalize_interaction_mode(payload.get("interaction_mode") or "expert"),
+            specialist=normalize_requested_specialist(payload.get("specialist") or "generalist"),
+            lang=str(payload.get("lang") or "zh"),
+            delivery=delivery,
+            source_session_id=str(payload.get("source_session_id") or "").strip() or None,
+            created_by_user_id=str(ctx.get("user_id") or ""),
+            source="admin",
+        )
+        store.add_admin_audit_log(
+            actor_tenant_id=tenant_id,
+            actor_user_id=str(ctx.get("user_id") or ""),
+            action="scheduled_job_create",
+            target_type="scheduled_job",
+            target_id=row.id,
+            status="ok",
+        )
+        return {"ok": True, "job": store.scheduled_job_to_dict(row)}
+
+    @router.patch("/admin/api/scheduled-jobs/{job_id}")
+    def api_scheduled_jobs_patch(
+        job_id: str,
+        payload: dict[str, Any],
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        store = get_assistant_store()
+        ctx = _resolve_auth(store, authorization)
+        _require_permission(ctx, "admin:runtime:write")
+        tenant_id = str(ctx.get("tenant_id") or "")
+        row = store.scheduled_job_update(tenant_id=tenant_id, job_id=str(job_id), patch=dict(payload or {}))
+        if not row:
+            return {"ok": False, "error": "job_not_found"}
+        store.add_admin_audit_log(
+            actor_tenant_id=tenant_id,
+            actor_user_id=str(ctx.get("user_id") or ""),
+            action="scheduled_job_update",
+            target_type="scheduled_job",
+            target_id=str(job_id),
+            status="ok",
+        )
+        return {"ok": True, "job": store.scheduled_job_to_dict(row)}
+
+    @router.post("/admin/api/scheduled-jobs/{job_id}/pause")
+    def api_scheduled_jobs_pause(
+        job_id: str,
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        store = get_assistant_store()
+        ctx = _resolve_auth(store, authorization)
+        _require_permission(ctx, "admin:runtime:write")
+        tenant_id = str(ctx.get("tenant_id") or "")
+        ok = store.scheduled_job_set_status(tenant_id=tenant_id, job_id=str(job_id), status="paused")
+        return {"ok": bool(ok)}
+
+    @router.post("/admin/api/scheduled-jobs/{job_id}/resume")
+    def api_scheduled_jobs_resume(
+        job_id: str,
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        store = get_assistant_store()
+        ctx = _resolve_auth(store, authorization)
+        _require_permission(ctx, "admin:runtime:write")
+        tenant_id = str(ctx.get("tenant_id") or "")
+        ok = store.scheduled_job_set_status(tenant_id=tenant_id, job_id=str(job_id), status="active")
+        return {"ok": bool(ok)}
+
+    @router.delete("/admin/api/scheduled-jobs/{job_id}")
+    def api_scheduled_jobs_delete(
+        job_id: str,
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        store = get_assistant_store()
+        ctx = _resolve_auth(store, authorization)
+        _require_permission(ctx, "admin:runtime:write")
+        tenant_id = str(ctx.get("tenant_id") or "")
+        ok = store.scheduled_job_delete(tenant_id=tenant_id, job_id=str(job_id))
+        return {"ok": bool(ok)}
+
+    @router.post("/admin/api/scheduled-jobs/{job_id}/run-now")
+    def api_scheduled_jobs_run_now(
+        job_id: str,
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        from runtime.scheduler.service import run_scheduled_job_now
+
+        store = get_assistant_store()
+        ctx = _resolve_auth(store, authorization)
+        _require_permission(ctx, "admin:runtime:write")
+        tenant_id = str(ctx.get("tenant_id") or "")
+        out = run_scheduled_job_now(store, tenant_id=tenant_id, job_id=str(job_id))
+        return out
+
+    @router.get("/admin/api/scheduled-jobs/{job_id}/runs")
+    def api_scheduled_jobs_runs(
+        job_id: str,
+        limit: int = Query(default=50),
+        offset: int = Query(default=0),
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        store = get_assistant_store()
+        ctx = _resolve_auth(store, authorization)
+        _require_permission(ctx, "admin:read")
+        tenant_id = str(ctx.get("tenant_id") or "")
+        rows = store.scheduled_job_run_list(
+            job_id=str(job_id),
+            tenant_id=tenant_id,
+            limit=max(1, min(int(limit or 50), 200)),
+            offset=max(0, int(offset or 0)),
+        )
+        return {"ok": True, "items": [store.scheduled_job_run_to_dict(r) for r in rows]}
+
     @router.get("/admin/api/replay/turn")
     def api_replay_turn(
         session_id: str,

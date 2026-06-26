@@ -192,6 +192,154 @@ function resolveHeaders(token: string): Record<string, string> {
   };
 }
 
+async function postLocalJson(token: string, route: string, body: Json, timeoutMs = 8000): Promise<Json> {
+  const url = `${LOCAL_BASE_URL.replace(/\/+$/, "")}/${route.replace(/^\/+/, "")}`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: resolveHeaders(token),
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(timeoutMs),
+  });
+  const text = await res.text();
+  if (!res.ok) {
+    throw new HttpStatusError(res.status, `${route} ${res.status}: ${text.slice(0, 300)}`);
+  }
+  return text ? (JSON.parse(text) as Json) : {};
+}
+
+async function getLocalJson(token: string, route: string, timeoutMs = 8000): Promise<Json> {
+  const url = `${LOCAL_BASE_URL.replace(/\/+$/, "")}/${route.replace(/^\/+/, "")}`;
+  const res = await fetch(url, {
+    method: "GET",
+    headers: resolveHeaders(token),
+    signal: AbortSignal.timeout(timeoutMs),
+  });
+  const text = await res.text();
+  if (!res.ok) {
+    throw new HttpStatusError(res.status, `${route} ${res.status}: ${text.slice(0, 300)}`);
+  }
+  return text ? (JSON.parse(text) as Json) : {};
+}
+
+async function flushWeixinDbOutbound(args: {
+  modules: OfficialModules;
+  token: string;
+  accountId: string;
+  cloudBaseUrl: string;
+  userContextTokens: TokenMap;
+}): Promise<void> {
+  const q = encodeURIComponent(args.accountId);
+  const out = await getLocalJson(args.token, `weixin/outbound/pending?account_id=${q}&limit=20`, 8000);
+  const items = Array.isArray(out.items) ? (out.items as Json[]) : [];
+  for (const item of items) {
+    const toUser = String(item.chat_id || "").trim();
+    const text = String(item.text || "").trim();
+    const msgId = String(item.id || "").trim();
+    if (!toUser || !text || !msgId) continue;
+    const contextToken = String(
+      (item.context_token as string) ||
+        args.modules.getContextToken(args.accountId, toUser) ||
+        args.userContextTokens[toUser] ||
+        "",
+    ).trim();
+    if (!contextToken) {
+      log(`db proactive reply missing context_token; keep pending. id=${msgId} to=${toUser}`);
+      continue;
+    }
+    try {
+      await args.modules.sendMessageWeixin({
+        to: toUser,
+        text,
+        opts: {
+          baseUrl: args.cloudBaseUrl,
+          token: args.token,
+          contextToken,
+        },
+      });
+      await postLocalJson(args.token, "weixin/outbound/ack", { id: msgId, ok: true }, 8000);
+      log(`db proactive reply sent: id=${msgId} to=${toUser} textLen=${text.length}`);
+    } catch (err) {
+      try {
+        await postLocalJson(
+          args.token,
+          "weixin/outbound/ack",
+          { id: msgId, ok: false, error: String(err) },
+          8000,
+        );
+      } catch (_) {
+        // ignore ack failure
+      }
+      log(`db proactive reply failed: id=${msgId} to=${toUser} err=${String(err)}`);
+    }
+  }
+}
+
+async function flushLocalProactiveReplies(args: {
+  modules: OfficialModules;
+  token: string;
+  accountId: string;
+  cloudBaseUrl: string;
+  localCursor: string;
+  userContextTokens: TokenMap;
+}): Promise<string> {
+  let cursor = args.localCursor;
+  for (let i = 0; i < 3; i += 1) {
+    const out = await postLocalJson(
+      args.token,
+      "ilink/bot/getupdates",
+      {
+        channel: "wechat",
+        account_id: args.accountId,
+        get_updates_buf: cursor,
+        longpolling_timeout_ms: 1000,
+        limit: 20,
+      },
+      8000,
+    );
+    const msgs = Array.isArray(out.msgs) ? (out.msgs as Json[]) : [];
+    const next = String(out.get_updates_buf || cursor || "").trim();
+    const batchCursor = cursor;
+    const nextCursor = next || cursor;
+    if (!msgs.length) {
+      break;
+    }
+    let allSucceeded = true;
+    for (const r of msgs) {
+      const toUser = String(r.chat_id || "").trim();
+      const text = String(r.text || "").trim();
+      if (!toUser || !text) continue;
+      const contextToken = String(
+        (r.context_token as string) ||
+          args.modules.getContextToken(args.accountId, toUser) ||
+          args.userContextTokens[toUser] ||
+          "",
+      ).trim();
+      if (!contextToken) {
+        allSucceeded = false;
+        log(`proactive reply missing context_token; keep cursor. to=${toUser} textLen=${text.length}`);
+        continue;
+      }
+      try {
+        await args.modules.sendMessageWeixin({
+          to: toUser,
+          text,
+          opts: {
+            baseUrl: args.cloudBaseUrl,
+            token: args.token,
+            contextToken,
+          },
+        });
+        log(`proactive reply sent: to=${toUser} textLen=${text.length}`);
+      } catch (err) {
+        log(`proactive reply failed: to=${toUser} err=${String(err)}`);
+        allSucceeded = false;
+      }
+    }
+    cursor = allSucceeded ? nextCursor : batchCursor;
+  }
+  return cursor;
+}
+
 async function postNativeReply(token: string, body: Json): Promise<Json> {
   const url = `${LOCAL_BASE_URL.replace(/\/+$/, "")}/weixin/native/reply`;
   const timeoutMs = Number(process.env.OCLAW_WEIXIN_NATIVE_REPLY_TIMEOUT_MS || "100000") || 100000;
@@ -490,6 +638,7 @@ async function main(): Promise<void> {
   ensureDir(STATE_DIR);
   const state = (readJsonFile<Json>(STATE_FILE) || {}) as Json;
   let cloudCursor = String(state.cloud_cursor || "").trim();
+  let localCursor = String(state.local_cursor || "").trim();
   const userContextTokens: TokenMap =
     state.user_context_tokens && typeof state.user_context_tokens === "object"
       ? (state.user_context_tokens as TokenMap)
@@ -500,6 +649,25 @@ async function main(): Promise<void> {
   log(`official runner started account=${accountId} cloud=${cloudBaseUrl} local=${LOCAL_BASE_URL}`);
   while (true) {
     try {
+      try {
+        await flushWeixinDbOutbound({
+          modules,
+          token,
+          accountId,
+          cloudBaseUrl,
+          userContextTokens,
+        });
+      } catch (err) {
+        log(`db proactive flush error: ${String(err)}`);
+      }
+      localCursor = await flushLocalProactiveReplies({
+        modules,
+        token,
+        accountId,
+        cloudBaseUrl,
+        localCursor,
+        userContextTokens,
+      });
       const out = await modules.getUpdates({
         baseUrl: cloudBaseUrl,
         token,
@@ -530,6 +698,7 @@ async function main(): Promise<void> {
       }
       writeJsonFile(STATE_FILE, {
         cloud_cursor: cloudCursor,
+        local_cursor: localCursor,
         user_context_tokens: userContextTokens,
         updated_at: new Date().toISOString(),
       });
