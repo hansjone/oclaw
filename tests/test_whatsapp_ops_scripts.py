@@ -48,6 +48,12 @@ def test_whatsapp_runner_supports_reply_attachments_base64() -> None:
     assert "media_url" in text
 
 
+def test_whatsapp_runner_resolves_dm_remote_jid_alt() -> None:
+    text = _read("runtime/operations/whatsapp_bridge/baileys_runner.ts")
+    assert "resolveDmUserJid" in text
+    assert "remoteJidAlt" in text
+
+
 def test_whatsapp_runner_supports_inbound_media_download() -> None:
     text = _read("runtime/operations/whatsapp_bridge/baileys_runner.ts")
     assert "downloadMediaMessage" in text
@@ -58,3 +64,9 @@ def test_whatsapp_runner_supports_inbound_media_download() -> None:
     assert "buildOutboundMediaMessage" in text
     assert "video_base64" in text
     assert "audio_base64" in text
+
+
+def test_whatsapp_runner_outbound_ack_passes_stanza_id() -> None:
+    text = _read("runtime/operations/whatsapp_bridge/baileys_runner.ts")
+    assert "stanza_id" in text
+    assert "sent as any)?.key?.id" in text

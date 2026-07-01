@@ -58,7 +58,7 @@ def _resolve_channel_dispatch(store: Any, *, channel: str, account: dict[str, An
         _get_channel_dispatch_setting(store, _CHANNEL_DISPATCH_SPECIALIST_KEY_PREFIX, ch) or "generalist"
     )
     lang = _normalize_channel_dispatch_lang(
-        _get_channel_dispatch_setting(store, _CHANNEL_DISPATCH_LANG_KEY_PREFIX, ch) or "auto"
+        _get_channel_dispatch_setting(store, _CHANNEL_DISPATCH_LANG_KEY_PREFIX, ch) or ("en" if ch == "whatsapp" else "auto")
     )
     cfg = (account or {}).get("config")
     if isinstance(cfg, dict):
@@ -820,6 +820,17 @@ def process_inbound_payload(payload: dict[str, Any]) -> dict[str, Any]:
                 text[:120],
             )
             return {"ok": True, "replies": []}
+        if str(inbound.channel or "").strip().lower() == "whatsapp":
+            from runtime.application.gateway.whatsapp_inbound_access import handle_whatsapp_access
+
+            access_out = handle_whatsapp_access(
+                store,
+                inbound=inbound,
+                account_id=account_id,
+                text=text,
+            )
+            if access_out is not None:
+                return access_out
         reply = ""
         reply_attachments: list[dict[str, Any]] = []
         ident = store.resolve_user_by_channel_identity_v2(
@@ -829,7 +840,7 @@ def process_inbound_payload(payload: dict[str, Any]) -> dict[str, Any]:
         )
         if not ident:
             owner = _ensure_administrator_owner(store)
-            if owner:
+            if owner and str(inbound.channel or "").strip().lower() != "whatsapp":
                 store.upsert_user_channel_account(
                     tenant_id=str(owner.get("tenant_id") or ""),
                     user_id=str(owner.get("user_id") or ""),

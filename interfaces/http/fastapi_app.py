@@ -307,8 +307,14 @@ def create_app() -> FastAPI:
             return {"ok": False, "error": "missing id"}
         ok = bool(body.get("ok", True))
         err = str(body.get("error") or "").strip()
+        stanza_id = str(body.get("stanza_id") or "").strip()
         store = get_assistant_store()
-        changed = store.ack_channel_outbound_message(message_id=msg_id, ok=ok, error=err)
+        changed = store.ack_channel_outbound_message(
+            message_id=msg_id,
+            ok=ok,
+            error=err,
+            stanza_id=stanza_id,
+        )
         return {"ok": changed}
 
     @app.get("/weixin/outbound/pending")

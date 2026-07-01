@@ -162,6 +162,36 @@ function resolveSenderJid(key: proto.IMessageKey): string {
   return "";
 }
 
+function resolvePnFromLid(sock: ReturnType<typeof makeWASocket> | null, lidJid: string): string {
+  const lid = String(lidJid || "").trim();
+  if (!lid || !sock) return "";
+  const lidMapping = (sock as any)?.signalRepository?.lidMapping;
+  if (!lidMapping || typeof lidMapping.getPNForLID !== "function") return "";
+  try {
+    const pn = lidMapping.getPNForLID(lid);
+    return pn ? jidNormalizedUser(String(pn)) : "";
+  } catch {
+    return "";
+  }
+}
+
+function resolveDmUserJid(key: proto.IMessageKey, sock: ReturnType<typeof makeWASocket> | null): string {
+  const remoteJid = jidNormalizedUser(String(key.remoteJid || ""));
+  const remoteJidAlt = String((key as any).remoteJidAlt || "").trim();
+  if (remoteJidAlt) {
+    const alt = jidNormalizedUser(remoteJidAlt);
+    if (remoteJid.toLowerCase().endsWith("@lid") && alt.toLowerCase().includes("@s.whatsapp")) {
+      return alt;
+    }
+    if (alt.toLowerCase().includes("@s.whatsapp")) return alt;
+  }
+  if (remoteJid.toLowerCase().endsWith("@lid")) {
+    const pn = resolvePnFromLid(sock, remoteJid);
+    if (pn) return pn;
+  }
+  return remoteJid;
+}
+
 function jidBaseLocal(jid: string): string {
   const s = String(jid || "").trim().toLowerCase();
   if (!s) return "";
@@ -727,21 +757,31 @@ async function pollOutboundQueue(sock: ReturnType<typeof makeWASocket>): Promise
       let ok = true;
       let err = "";
       try {
-        await sock.sendMessage(chatId, { text });
-        log(`outbound sent id=${id} chat=${chatId}`);
+        const sent = await sock.sendMessage(chatId, { text });
+        const stanzaId = String((sent as any)?.key?.id || "").trim();
+        log(`outbound sent id=${id} chat=${chatId} stanza=${stanzaId || "?"}`);
+        try {
+          await fetch(`${LOCAL_BASE_URL.replace(/\/+$/, "")}/whatsapp/outbound/ack`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ id, ok, error: err, stanza_id: stanzaId }),
+          });
+        } catch {
+          // best-effort ack
+        }
       } catch (sendErr) {
         ok = false;
         err = String(sendErr);
         log(`outbound send failed id=${id} chat=${chatId} err=${err.slice(0, 160)}`);
-      }
-      try {
-        await fetch(`${LOCAL_BASE_URL.replace(/\/+$/, "")}/whatsapp/outbound/ack`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ id, ok, error: err }),
-        });
-      } catch {
-        // best-effort ack
+        try {
+          await fetch(`${LOCAL_BASE_URL.replace(/\/+$/, "")}/whatsapp/outbound/ack`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ id, ok, error: err }),
+          });
+        } catch {
+          // best-effort ack
+        }
       }
     }
   } catch (err) {
@@ -933,10 +973,12 @@ async function main(): Promise<void> {
           const isGroup = remoteJid.endsWith("@g.us");
           const participantRaw = String(key.participant || "").trim();
           const participantAlt = String((key as any).participantAlt || "").trim();
+          const remoteJidAlt = String((key as any).remoteJidAlt || "").trim();
+          const remoteJidNorm = jidNormalizedUser(remoteJid);
           const userId = isGroup
-            ? resolveSenderJid(key) || jidNormalizedUser(remoteJid)
-            : jidNormalizedUser(remoteJid);
-          const chatId = jidNormalizedUser(remoteJid);
+            ? resolveSenderJid(key) || remoteJidNorm
+            : resolveDmUserJid(key, sock);
+          const chatId = remoteJidNorm;
           const mentions = extractMentionsFromUpsert(msg);
           const quote = extractQuoteContext(msg.message);
           const botJidRaw = sock?.user?.id ? String(sock.user.id).trim() : "";
@@ -960,6 +1002,7 @@ async function main(): Promise<void> {
           const raw = {
             id,
             remoteJid,
+            remoteJidAlt: remoteJidAlt || null,
             participant: participantRaw || null,
             participantAlt: participantAlt || null,
             pushName: (msg as any).pushName || null,

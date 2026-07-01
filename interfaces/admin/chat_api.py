@@ -1587,6 +1587,7 @@ def include_chat_routes(router: APIRouter, *, resolve_auth: Callable[[SqliteStor
         ctx = resolve_auth(store, authorization)
         _require_administrator_chat_viewer(ctx)
         ch = _normalize_channel_dispatch_channel(channel)
+        default_lang = "en" if ch == "whatsapp" else "auto"
         interaction_mode = normalize_interaction_mode(
             store.get_setting(_channel_dispatch_interaction_key(ch)) or "expert"
         )
@@ -1594,7 +1595,7 @@ def include_chat_routes(router: APIRouter, *, resolve_auth: Callable[[SqliteStor
             store.get_setting(_channel_dispatch_specialist_key(ch)) or "generalist"
         )
         lang = _normalize_channel_dispatch_lang(
-            store.get_setting(_channel_dispatch_lang_key(ch)) or "auto"
+            store.get_setting(_channel_dispatch_lang_key(ch)) or default_lang
         )
         specialist = _apply_specialist_flags(store, specialist)
         return {

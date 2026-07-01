@@ -660,6 +660,72 @@ class SqliteStore(ScheduledJobStoreMixin):
             )
             conn.execute(
                 """
+                CREATE TABLE IF NOT EXISTS whatsapp_access_config (
+                    tenant_id TEXT NOT NULL,
+                    account_id TEXT NOT NULL,
+                    access_mode TEXT NOT NULL DEFAULT 'blacklist',
+                    lang TEXT NOT NULL DEFAULT 'en',
+                    updated_at TEXT NOT NULL,
+                    PRIMARY KEY (tenant_id, account_id)
+                );
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS whatsapp_contact (
+                    tenant_id TEXT NOT NULL,
+                    account_id TEXT NOT NULL,
+                    external_user_id TEXT NOT NULL,
+                    push_name TEXT NOT NULL DEFAULT '',
+                    phone TEXT NOT NULL DEFAULT '',
+                    list_type TEXT,
+                    notes TEXT NOT NULL DEFAULT '',
+                    first_seen_at TEXT NOT NULL,
+                    last_seen_at TEXT NOT NULL,
+                    PRIMARY KEY (tenant_id, account_id, external_user_id)
+                );
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS whatsapp_access_pending (
+                    id TEXT PRIMARY KEY,
+                    tenant_id TEXT NOT NULL,
+                    account_id TEXT NOT NULL,
+                    external_user_id TEXT NOT NULL,
+                    push_name TEXT NOT NULL DEFAULT '',
+                    phone TEXT NOT NULL DEFAULT '',
+                    request_text TEXT NOT NULL DEFAULT '',
+                    status TEXT NOT NULL DEFAULT 'pending',
+                    created_at TEXT NOT NULL,
+                    resolved_at TEXT,
+                    resolved_by TEXT NOT NULL DEFAULT ''
+                );
+                """
+            )
+            self._ensure_whatsapp_access_pending_phone_column(conn)
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_whatsapp_access_pending_status ON whatsapp_access_pending(tenant_id, account_id, status, created_at)"
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS whatsapp_access_pending_notify (
+                    tenant_id TEXT NOT NULL,
+                    account_id TEXT NOT NULL,
+                    admin_chat_id TEXT NOT NULL,
+                    notify_stanza_id TEXT NOT NULL,
+                    pending_id TEXT NOT NULL,
+                    notify_text TEXT NOT NULL DEFAULT '',
+                    created_at TEXT NOT NULL,
+                    PRIMARY KEY (tenant_id, account_id, admin_chat_id, notify_stanza_id)
+                );
+                """
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_whatsapp_pending_notify_pending ON whatsapp_access_pending_notify(pending_id)"
+            )
+            conn.execute(
+                """
                 CREATE TABLE IF NOT EXISTS channel_outbound_message (
                     id TEXT PRIMARY KEY,
                     tenant_id TEXT NOT NULL DEFAULT '',
@@ -1247,6 +1313,72 @@ class SqliteStore(ScheduledJobStoreMixin):
                     PRIMARY KEY (tenant_id, account_id)
                 )
                 """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS whatsapp_access_config (
+                    tenant_id TEXT NOT NULL,
+                    account_id TEXT NOT NULL,
+                    access_mode TEXT NOT NULL DEFAULT 'blacklist',
+                    lang TEXT NOT NULL DEFAULT 'en',
+                    updated_at TEXT NOT NULL,
+                    PRIMARY KEY (tenant_id, account_id)
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS whatsapp_contact (
+                    tenant_id TEXT NOT NULL,
+                    account_id TEXT NOT NULL,
+                    external_user_id TEXT NOT NULL,
+                    push_name TEXT NOT NULL DEFAULT '',
+                    phone TEXT NOT NULL DEFAULT '',
+                    list_type TEXT,
+                    notes TEXT NOT NULL DEFAULT '',
+                    first_seen_at TEXT NOT NULL,
+                    last_seen_at TEXT NOT NULL,
+                    PRIMARY KEY (tenant_id, account_id, external_user_id)
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS whatsapp_access_pending (
+                    id TEXT PRIMARY KEY,
+                    tenant_id TEXT NOT NULL,
+                    account_id TEXT NOT NULL,
+                    external_user_id TEXT NOT NULL,
+                    push_name TEXT NOT NULL DEFAULT '',
+                    phone TEXT NOT NULL DEFAULT '',
+                    request_text TEXT NOT NULL DEFAULT '',
+                    status TEXT NOT NULL DEFAULT 'pending',
+                    created_at TEXT NOT NULL,
+                    resolved_at TEXT,
+                    resolved_by TEXT NOT NULL DEFAULT ''
+                )
+                """
+            )
+            self._ensure_whatsapp_access_pending_phone_column(conn)
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_whatsapp_access_pending_status ON whatsapp_access_pending(tenant_id, account_id, status, created_at)"
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS whatsapp_access_pending_notify (
+                    tenant_id TEXT NOT NULL,
+                    account_id TEXT NOT NULL,
+                    admin_chat_id TEXT NOT NULL,
+                    notify_stanza_id TEXT NOT NULL,
+                    pending_id TEXT NOT NULL,
+                    notify_text TEXT NOT NULL DEFAULT '',
+                    created_at TEXT NOT NULL,
+                    PRIMARY KEY (tenant_id, account_id, admin_chat_id, notify_stanza_id)
+                );
+                """
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_whatsapp_pending_notify_pending ON whatsapp_access_pending_notify(pending_id)"
             )
             conn.execute(
                 """
@@ -5583,6 +5715,621 @@ class SqliteStore(ScheduledJobStoreMixin):
         out = self.get_whatsapp_alert_binding(tenant_id=tenant_id, account_id=account_id)
         return out or {}
 
+    def get_whatsapp_access_config(
+        self,
+        *,
+        tenant_id: str,
+        account_id: str,
+    ) -> dict[str, Any] | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT tenant_id, account_id, access_mode, lang, updated_at
+                FROM whatsapp_access_config
+                WHERE tenant_id = ? AND account_id = ?
+                """,
+                (str(tenant_id), str(account_id)),
+            ).fetchone()
+        if not row:
+            return None
+        return {
+            "tenant_id": str(row["tenant_id"] or ""),
+            "account_id": str(row["account_id"] or ""),
+            "access_mode": str(row["access_mode"] or "blacklist"),
+            "lang": str(row["lang"] or "en"),
+            "updated_at": str(row["updated_at"] or ""),
+        }
+
+    def upsert_whatsapp_access_config(
+        self,
+        *,
+        tenant_id: str,
+        account_id: str,
+        access_mode: str,
+        lang: str = "en",
+    ) -> dict[str, Any]:
+        ts = utc_now_iso()
+        mode = str(access_mode or "blacklist").strip().lower()
+        if mode not in {"blacklist", "whitelist"}:
+            mode = "blacklist"
+        lang_val = str(lang or "en").strip().lower() or "en"
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO whatsapp_access_config (tenant_id, account_id, access_mode, lang, updated_at)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(tenant_id, account_id) DO UPDATE SET
+                    access_mode = excluded.access_mode,
+                    lang = excluded.lang,
+                    updated_at = excluded.updated_at
+                """,
+                (str(tenant_id), str(account_id), mode, lang_val, ts),
+            )
+        return self.get_whatsapp_access_config(tenant_id=tenant_id, account_id=account_id) or {}
+
+    def upsert_whatsapp_contact(
+        self,
+        *,
+        tenant_id: str,
+        account_id: str,
+        external_user_id: str,
+        push_name: str = "",
+        phone: str = "",
+        list_type: str | None = None,
+        notes: str = "",
+    ) -> dict[str, Any]:
+        ts = utc_now_iso()
+        lt = str(list_type).strip().lower() if list_type is not None else None
+        if lt is not None and lt not in {"admin", "whitelist", "blacklist"}:
+            lt = None
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO whatsapp_contact
+                    (tenant_id, account_id, external_user_id, push_name, phone, list_type, notes, first_seen_at, last_seen_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(tenant_id, account_id, external_user_id) DO UPDATE SET
+                    push_name = CASE WHEN excluded.push_name != '' THEN excluded.push_name ELSE whatsapp_contact.push_name END,
+                    phone = CASE WHEN excluded.phone != '' THEN excluded.phone ELSE whatsapp_contact.phone END,
+                    list_type = COALESCE(excluded.list_type, whatsapp_contact.list_type),
+                    notes = CASE WHEN excluded.notes != '' THEN excluded.notes ELSE whatsapp_contact.notes END,
+                    last_seen_at = excluded.last_seen_at
+                """,
+                (
+                    str(tenant_id),
+                    str(account_id),
+                    str(external_user_id),
+                    str(push_name or ""),
+                    str(phone or ""),
+                    lt,
+                    str(notes or ""),
+                    ts,
+                    ts,
+                ),
+            )
+        return self.get_whatsapp_contact(
+            tenant_id=tenant_id,
+            account_id=account_id,
+            external_user_id=external_user_id,
+        ) or {}
+
+    def get_whatsapp_contact(
+        self,
+        *,
+        tenant_id: str,
+        account_id: str,
+        external_user_id: str,
+    ) -> dict[str, Any] | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT tenant_id, account_id, external_user_id, push_name, phone, list_type, notes, first_seen_at, last_seen_at
+                FROM whatsapp_contact
+                WHERE tenant_id = ? AND account_id = ? AND external_user_id = ?
+                """,
+                (str(tenant_id), str(account_id), str(external_user_id)),
+            ).fetchone()
+        if not row:
+            return None
+        return {
+            "tenant_id": str(row["tenant_id"] or ""),
+            "account_id": str(row["account_id"] or ""),
+            "external_user_id": str(row["external_user_id"] or ""),
+            "push_name": str(row["push_name"] or ""),
+            "phone": str(row["phone"] or ""),
+            "list_type": str(row["list_type"] or "") or None,
+            "notes": str(row["notes"] or ""),
+            "first_seen_at": str(row["first_seen_at"] or ""),
+            "last_seen_at": str(row["last_seen_at"] or ""),
+        }
+
+    def list_whatsapp_contacts(
+        self,
+        *,
+        tenant_id: str,
+        account_id: str,
+        list_type: str | None = None,
+        limit: int = 200,
+    ) -> list[dict[str, Any]]:
+        lim = max(1, min(int(limit), 500))
+        clauses = ["tenant_id = ?", "account_id = ?"]
+        params: list[Any] = [str(tenant_id), str(account_id)]
+        if list_type:
+            clauses.append("list_type = ?")
+            params.append(str(list_type))
+        where = " AND ".join(clauses)
+        with self._connect() as conn:
+            rows = conn.execute(
+                f"""
+                SELECT tenant_id, account_id, external_user_id, push_name, phone, list_type, notes, first_seen_at, last_seen_at
+                FROM whatsapp_contact
+                WHERE {where}
+                ORDER BY last_seen_at DESC
+                LIMIT ?
+                """,
+                (*params, lim),
+            ).fetchall()
+        return [
+            {
+                "tenant_id": str(r["tenant_id"] or ""),
+                "account_id": str(r["account_id"] or ""),
+                "external_user_id": str(r["external_user_id"] or ""),
+                "push_name": str(r["push_name"] or ""),
+                "phone": str(r["phone"] or ""),
+                "list_type": str(r["list_type"] or "") or None,
+                "notes": str(r["notes"] or ""),
+                "first_seen_at": str(r["first_seen_at"] or ""),
+                "last_seen_at": str(r["last_seen_at"] or ""),
+            }
+            for r in rows
+        ]
+
+    def delete_whatsapp_contact(
+        self,
+        *,
+        tenant_id: str,
+        account_id: str,
+        external_user_id: str,
+    ) -> bool:
+        with self._connect() as conn:
+            cur = conn.execute(
+                """
+                DELETE FROM whatsapp_contact
+                WHERE tenant_id = ? AND account_id = ? AND external_user_id = ?
+                """,
+                (str(tenant_id), str(account_id), str(external_user_id)),
+            )
+        return bool(cur.rowcount and cur.rowcount > 0)
+
+    def delete_whatsapp_contact_aliases(
+        self,
+        *,
+        tenant_id: str,
+        account_id: str,
+        external_user_id: str,
+        extra_tenant_ids: list[str] | None = None,
+    ) -> int:
+        from runtime.extensions.whatsapp.access_control import (
+            contact_phone_key,
+            normalize_whatsapp_phone,
+            phone_from_jid,
+            whatsapp_users_match,
+        )
+
+        tenant_ids: list[str] = []
+        for tid in [str(tenant_id), *(extra_tenant_ids or [])]:
+            val = str(tid or "").strip()
+            if val and val not in tenant_ids:
+                tenant_ids.append(val)
+
+        try:
+            phone_val = normalize_whatsapp_phone(external_user_id)
+        except Exception:
+            phone_val = phone_from_jid(external_user_id)
+
+        contacts: list[dict[str, Any]] = []
+        for tid in tenant_ids:
+            contacts.extend(self.list_whatsapp_contacts(tenant_id=tid, account_id=account_id, limit=500))
+
+        targets: set[str] = set()
+        for row in contacts:
+            cj = str(row.get("external_user_id") or "").strip()
+            if not cj:
+                continue
+            if whatsapp_users_match(cj, external_user_id):
+                targets.add(cj)
+            elif phone_val and contact_phone_key(row) == phone_val:
+                targets.add(cj)
+
+        deleted_count = 0
+        with self._connect() as conn:
+            for tid in tenant_ids:
+                for jid in targets:
+                    if not jid:
+                        continue
+                    cur = conn.execute(
+                        """
+                        DELETE FROM whatsapp_contact
+                        WHERE tenant_id = ? AND account_id = ? AND external_user_id = ?
+                        """,
+                        (str(tid), str(account_id), str(jid)),
+                    )
+                    if cur.rowcount:
+                        deleted_count += int(cur.rowcount)
+        return deleted_count
+
+    def _ensure_whatsapp_access_pending_phone_column(self, conn: Any) -> None:
+        if self._use_pg:
+            conn.execute(
+                "ALTER TABLE whatsapp_access_pending ADD COLUMN IF NOT EXISTS phone TEXT NOT NULL DEFAULT ''"
+            )
+            return
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(whatsapp_access_pending)").fetchall()}
+        if "phone" not in cols:
+            conn.execute("ALTER TABLE whatsapp_access_pending ADD COLUMN phone TEXT NOT NULL DEFAULT ''")
+
+    def create_whatsapp_access_pending(
+        self,
+        *,
+        tenant_id: str,
+        account_id: str,
+        external_user_id: str,
+        push_name: str = "",
+        phone: str = "",
+        request_text: str = "",
+    ) -> str | None:
+        import uuid
+
+        from runtime.extensions.whatsapp.access_control import contact_phone_key, whatsapp_users_match
+
+        pending = self.list_whatsapp_access_pending(
+            tenant_id=tenant_id,
+            account_id=account_id,
+            status="pending",
+            limit=200,
+        )
+        phone_val = str(phone or "").strip()
+        for row in pending:
+            if whatsapp_users_match(str(row.get("external_user_id") or ""), external_user_id):
+                return str(row.get("id") or "")
+            if phone_val and contact_phone_key(row) == phone_val:
+                return str(row.get("id") or "")
+        pending_id = uuid.uuid4().hex
+        ts = utc_now_iso()
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO whatsapp_access_pending
+                    (id, tenant_id, account_id, external_user_id, push_name, phone, request_text, status, created_at, resolved_at, resolved_by)
+                VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, NULL, '')
+                """,
+                (
+                    pending_id,
+                    str(tenant_id),
+                    str(account_id),
+                    str(external_user_id),
+                    str(push_name or ""),
+                    str(phone or ""),
+                    str(request_text or ""),
+                    ts,
+                ),
+            )
+        return pending_id
+
+    def get_whatsapp_access_pending_by_id(self, *, pending_id: str) -> dict[str, Any] | None:
+        pid = str(pending_id or "").strip()
+        if not pid:
+            return None
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT id, tenant_id, account_id, external_user_id, push_name, phone, request_text, status, created_at, resolved_at, resolved_by
+                FROM whatsapp_access_pending
+                WHERE id = ?
+                """,
+                (pid,),
+            ).fetchone()
+        if not row:
+            return None
+        from runtime.extensions.whatsapp.access_control import phone_from_jid
+
+        return {
+            "id": str(row["id"] or ""),
+            "tenant_id": str(row["tenant_id"] or ""),
+            "account_id": str(row["account_id"] or ""),
+            "external_user_id": str(row["external_user_id"] or ""),
+            "push_name": str(row["push_name"] or ""),
+            "phone": str(row["phone"] or "") or phone_from_jid(str(row["external_user_id"] or "")),
+            "request_text": str(row["request_text"] or ""),
+            "status": str(row["status"] or ""),
+            "created_at": str(row["created_at"] or ""),
+            "resolved_at": str(row["resolved_at"] or "") or None,
+            "resolved_by": str(row["resolved_by"] or ""),
+        }
+
+    def upsert_whatsapp_pending_notify(
+        self,
+        *,
+        tenant_id: str,
+        account_id: str,
+        admin_chat_id: str,
+        notify_stanza_id: str,
+        pending_id: str,
+        notify_text: str = "",
+    ) -> None:
+        ts = utc_now_iso()
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO whatsapp_access_pending_notify
+                    (tenant_id, account_id, admin_chat_id, notify_stanza_id, pending_id, notify_text, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(tenant_id, account_id, admin_chat_id, notify_stanza_id) DO UPDATE SET
+                    pending_id = excluded.pending_id,
+                    notify_text = CASE WHEN excluded.notify_text != '' THEN excluded.notify_text ELSE whatsapp_access_pending_notify.notify_text END,
+                    created_at = excluded.created_at
+                """,
+                (
+                    str(tenant_id),
+                    str(account_id),
+                    str(admin_chat_id),
+                    str(notify_stanza_id),
+                    str(pending_id),
+                    str(notify_text or ""),
+                    ts,
+                ),
+            )
+
+    def find_whatsapp_pending_by_notify_stanza(
+        self,
+        *,
+        tenant_id: str,
+        account_id: str,
+        admin_chat_id: str,
+        notify_stanza_id: str,
+    ) -> str | None:
+        stanza = str(notify_stanza_id or "").strip()
+        chat = str(admin_chat_id or "").strip()
+        if not stanza or not chat:
+            return None
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT pending_id
+                FROM whatsapp_access_pending_notify
+                WHERE tenant_id = ? AND account_id = ? AND admin_chat_id = ? AND notify_stanza_id = ?
+                """,
+                (str(tenant_id), str(account_id), chat, stanza),
+            ).fetchone()
+        return str(row["pending_id"] or "").strip() if row else None
+
+    def delete_whatsapp_pending_notify_for_pending(self, *, pending_id: str) -> int:
+        pid = str(pending_id or "").strip()
+        if not pid:
+            return 0
+        with self._connect() as conn:
+            cur = conn.execute(
+                "DELETE FROM whatsapp_access_pending_notify WHERE pending_id = ?",
+                (pid,),
+            )
+        return int(cur.rowcount or 0)
+
+    def list_whatsapp_access_pending(
+        self,
+        *,
+        tenant_id: str,
+        account_id: str,
+        status: str = "pending",
+        limit: int = 50,
+    ) -> list[dict[str, Any]]:
+        lim = max(1, min(int(limit), 200))
+        from runtime.extensions.whatsapp.access_control import phone_from_jid
+
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT id, tenant_id, account_id, external_user_id, push_name, phone, request_text, status, created_at, resolved_at, resolved_by
+                FROM whatsapp_access_pending
+                WHERE tenant_id = ? AND account_id = ? AND status = ?
+                ORDER BY created_at ASC
+                LIMIT ?
+                """,
+                (str(tenant_id), str(account_id), str(status), lim),
+            ).fetchall()
+        return [
+            {
+                "id": str(r["id"] or ""),
+                "tenant_id": str(r["tenant_id"] or ""),
+                "account_id": str(r["account_id"] or ""),
+                "external_user_id": str(r["external_user_id"] or ""),
+                "push_name": str(r["push_name"] or ""),
+                "phone": str(r["phone"] or "") or phone_from_jid(str(r["external_user_id"] or "")),
+                "request_text": str(r["request_text"] or ""),
+                "status": str(r["status"] or ""),
+                "created_at": str(r["created_at"] or ""),
+                "resolved_at": str(r["resolved_at"] or "") or None,
+                "resolved_by": str(r["resolved_by"] or ""),
+            }
+            for r in rows
+        ]
+
+    def resolve_whatsapp_access_pending(
+        self,
+        *,
+        pending_id: str,
+        status: str,
+        resolved_by: str = "",
+        from_statuses: tuple[str, ...] = ("pending",),
+    ) -> bool:
+        ts = utc_now_iso()
+        st = str(status or "").strip().lower()
+        if st not in {"approved", "denied", "dismissed"}:
+            return False
+        allowed = tuple(str(x or "").strip().lower() for x in from_statuses if str(x or "").strip())
+        if not allowed:
+            allowed = ("pending",)
+        placeholders = ", ".join("?" for _ in allowed)
+        with self._connect() as conn:
+            cur = conn.execute(
+                f"""
+                UPDATE whatsapp_access_pending
+                SET status = ?, resolved_at = ?, resolved_by = ?
+                WHERE id = ? AND status IN ({placeholders})
+                """,
+                (st, ts, str(resolved_by or ""), str(pending_id), *allowed),
+            )
+        return bool(cur.rowcount and cur.rowcount > 0)
+
+    def delete_whatsapp_access_pending(
+        self, *, pending_id: str, statuses: tuple[str, ...] = ("pending",)
+    ) -> bool:
+        allowed = tuple(str(x or "").strip().lower() for x in statuses if str(x or "").strip())
+        if not allowed:
+            allowed = ("pending",)
+        placeholders = ", ".join("?" for _ in allowed)
+        with self._connect() as conn:
+            cur = conn.execute(
+                f"DELETE FROM whatsapp_access_pending WHERE id = ? AND status IN ({placeholders})",
+                (str(pending_id), *allowed),
+            )
+        return bool(cur.rowcount and cur.rowcount > 0)
+
+    def find_whatsapp_contact_for_sender(
+        self,
+        *,
+        tenant_id: str,
+        account_id: str,
+        external_user_id: str,
+        participant_alt: str = "",
+        remote_jid_alt: str = "",
+    ) -> dict[str, Any] | None:
+        from runtime.extensions.whatsapp.access_control import (
+            contact_phone_key,
+            resolve_sender_phone,
+            whatsapp_users_match,
+        )
+
+        sender_phone = resolve_sender_phone(external_user_id, participant_alt, remote_jid_alt)
+        contacts = self.list_whatsapp_contacts(tenant_id=tenant_id, account_id=account_id, limit=500)
+        classified = [row for row in contacts if str(row.get("list_type") or "").strip()]
+
+        if sender_phone:
+            for row in classified:
+                if contact_phone_key(row) == sender_phone:
+                    return row
+
+        for row in classified:
+            cj = str(row.get("external_user_id") or "")
+            if whatsapp_users_match(cj, external_user_id) or (
+                participant_alt and whatsapp_users_match(cj, participant_alt)
+            ):
+                return row
+        return None
+
+    def apply_whatsapp_contact_access(
+        self,
+        *,
+        tenant_id: str,
+        account_id: str,
+        external_user_id: str,
+        list_type: str,
+        push_name: str = "",
+        phone: str = "",
+        participant_alt: str = "",
+        notes: str = "",
+    ) -> dict[str, Any]:
+        from runtime.extensions.whatsapp.access_control import (
+            contact_phone_key,
+            normalize_whatsapp_phone,
+        )
+        from runtime.extensions.whatsapp.api import normalize_whatsapp_target
+
+        phone_val = ""
+        if str(phone or "").strip():
+            phone_val = normalize_whatsapp_phone(phone)
+        elif str(external_user_id or "").strip():
+            phone_val = normalize_whatsapp_phone(external_user_id)
+        else:
+            return {}
+        canonical = normalize_whatsapp_target(phone_val)
+        primary = self.upsert_whatsapp_contact(
+            tenant_id=tenant_id,
+            account_id=account_id,
+            external_user_id=canonical,
+            push_name=push_name,
+            phone=phone_val,
+            list_type=list_type,
+            notes=notes,
+        )
+        ts = utc_now_iso()
+        with self._connect() as conn:
+            for row in self.list_whatsapp_contacts(tenant_id=tenant_id, account_id=account_id, limit=500):
+                cj = str(row.get("external_user_id") or "")
+                if cj == canonical:
+                    continue
+                if contact_phone_key(row) == phone_val:
+                    conn.execute(
+                        """
+                        UPDATE whatsapp_contact
+                        SET list_type = ?, phone = ?, last_seen_at = ?
+                        WHERE tenant_id = ? AND account_id = ? AND external_user_id = ?
+                        """,
+                        (str(list_type), phone_val, ts, str(tenant_id), str(account_id), cj),
+                    )
+        return primary or {}
+
+    def resolve_whatsapp_pending_for_sender(
+        self,
+        *,
+        tenant_id: str,
+        account_id: str,
+        external_user_id: str,
+        participant_alt: str = "",
+        remote_jid_alt: str = "",
+        resolved_by: str = "",
+        status: str = "approved",
+        extra_tenant_ids: list[str] | None = None,
+    ) -> int:
+        from runtime.extensions.whatsapp.access_control import (
+            contact_phone_key,
+            resolve_sender_phone,
+            whatsapp_users_match,
+        )
+
+        tenant_ids: list[str] = []
+        for tid in [str(tenant_id), *(extra_tenant_ids or [])]:
+            val = str(tid or "").strip()
+            if val and val not in tenant_ids:
+                tenant_ids.append(val)
+
+        sender_phone = resolve_sender_phone(external_user_id, participant_alt, remote_jid_alt)
+        resolved = 0
+        seen_ids: set[str] = set()
+        for tid in tenant_ids:
+            pending = self.list_whatsapp_access_pending(
+                tenant_id=tid,
+                account_id=account_id,
+                status="pending",
+                limit=200,
+            )
+            for item in pending:
+                pending_id = str(item.get("id") or "")
+                if not pending_id or pending_id in seen_ids:
+                    continue
+                pending_jid = str(item.get("external_user_id") or "")
+                pending_phone = contact_phone_key(item)
+                if (sender_phone and pending_phone == sender_phone) or whatsapp_users_match(
+                    pending_jid, external_user_id
+                ) or (participant_alt and whatsapp_users_match(pending_jid, participant_alt)):
+                    if self.resolve_whatsapp_access_pending(
+                        pending_id=pending_id,
+                        status=status,
+                        resolved_by=resolved_by,
+                    ):
+                        seen_ids.add(pending_id)
+                        resolved += 1
+        return resolved
+
     def enqueue_channel_outbound_message(
         self,
         *,
@@ -5697,16 +6444,52 @@ class SqliteStore(ScheduledJobStoreMixin):
         message_id: str,
         ok: bool,
         error: str = "",
+        stanza_id: str = "",
     ) -> bool:
         ts = utc_now_iso()
         status = "sent" if ok else "failed"
+        mid = str(message_id or "").strip()
+        if not mid:
+            return False
         with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT tenant_id, account_id, chat_id, text, source
+                FROM channel_outbound_message
+                WHERE id = ? AND status = 'pending'
+                """,
+                (mid,),
+            ).fetchone()
+            if not row:
+                return False
             cur = conn.execute(
                 """
                 UPDATE channel_outbound_message
                 SET status = ?, sent_at = ?, error = ?
                 WHERE id = ? AND status = 'pending'
                 """,
-                (status, ts, str(error or ""), str(message_id)),
+                (status, ts, str(error or ""), mid),
             )
-        return bool(cur.rowcount and cur.rowcount > 0)
+            changed = bool(cur.rowcount and cur.rowcount > 0)
+        if changed and ok and str(stanza_id or "").strip():
+            source_raw = str(row["source"] or "").strip()
+            meta: dict[str, Any] = {}
+            if source_raw.startswith("{"):
+                try:
+                    parsed = json.loads(source_raw)
+                    if isinstance(parsed, dict):
+                        meta = parsed
+                except Exception:
+                    meta = {}
+            if str(meta.get("kind") or "") == "whatsapp_access_pending":
+                pending_id = str(meta.get("pending_id") or "").strip()
+                if pending_id:
+                    self.upsert_whatsapp_pending_notify(
+                        tenant_id=str(row["tenant_id"] or ""),
+                        account_id=str(row["account_id"] or ""),
+                        admin_chat_id=str(row["chat_id"] or ""),
+                        notify_stanza_id=str(stanza_id or "").strip(),
+                        pending_id=pending_id,
+                        notify_text=str(row["text"] or ""),
+                    )
+        return changed

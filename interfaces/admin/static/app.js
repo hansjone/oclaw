@@ -1166,6 +1166,30 @@ async function apiGet(path) {
   return await res.json();
 }
 
+async function apiGetOptional(path) {
+  try {
+    return await apiGet(path);
+  } catch (err) {
+    console.warn(`apiGetOptional failed path=${String(path || "")} err=${String(err)}`);
+    return null;
+  }
+}
+
+async function apiGetNoHang(path) {
+  const url = resolveAdminApiUrl(path);
+  const token = getStoredAuthToken();
+  const headers = { "accept": "application/json" };
+  if (token) headers["authorization"] = `Bearer ${token}`;
+  const res = await fetch(url, { headers });
+  if (res.status === 401) {
+    scheduleReauthAfter401(url);
+    // Returning null avoids Promise.all / await from hanging forever.
+    return null;
+  }
+  if (!res.ok) throw new Error(`GET ${url} ${res.status}`);
+  return await res.json();
+}
+
 async function apiPost(path, body) {
   const url = resolveAdminApiUrl(path);
   const token = getStoredAuthToken();
@@ -1544,17 +1568,36 @@ function markPrewarmReminder(reason) {
 }
 
 async function renderStack() {
-  const [st, anomaliesResp, scanResp, prewarmStatusResp, prewarmPromptsResp, channelSpecResp, weixinDispatchResp, whatsappDispatchResp, whatsappGroupsResp] = await Promise.all([
-    apiGet("/admin/api/stack/status"),
-    apiGet("/admin/api/runtime/anomalies"),
-    apiGet("/admin/api/runtime/scan-artifacts"),
-    apiGet("/admin/api/runtime/prewarm/status"),
-    apiGet("/admin/api/runtime/prewarm/prompts?role=manager"),
-    apiGet("/admin/api/chat/settings/specialist-flags"),
-    apiGet("/admin/api/chat/settings/channel-dispatch/weixin"),
-    apiGet("/admin/api/chat/settings/channel-dispatch/whatsapp"),
-    apiGet("/admin/api/whatsapp/groups?tenant_id=default"),
+  const results = await Promise.allSettled([
+    apiGetNoHang("/admin/api/stack/status"),
+    apiGetNoHang("/admin/api/runtime/anomalies"),
+    apiGetNoHang("/admin/api/runtime/scan-artifacts"),
+    apiGetNoHang("/admin/api/runtime/prewarm/status"),
+    apiGetNoHang("/admin/api/runtime/prewarm/prompts?role=manager"),
+    apiGetNoHang("/admin/api/chat/settings/specialist-flags"),
+    apiGetNoHang("/admin/api/chat/settings/channel-dispatch/weixin"),
+    apiGetNoHang("/admin/api/chat/settings/channel-dispatch/whatsapp"),
+    apiGetNoHang("/admin/api/whatsapp/groups?tenant_id=default"),
+    apiGetNoHang("/admin/api/whatsapp/access?tenant_id=default"),
   ]);
+  const st = results[0].status === "fulfilled" ? results[0].value : null;
+  const anomaliesResp = results[1].status === "fulfilled" ? results[1].value : null;
+  const scanResp = results[2].status === "fulfilled" ? results[2].value : null;
+  const prewarmStatusResp = results[3].status === "fulfilled" ? results[3].value : null;
+  const prewarmPromptsResp = results[4].status === "fulfilled" ? results[4].value : null;
+  const channelSpecResp = results[5].status === "fulfilled" ? results[5].value : null;
+  const weixinDispatchResp = results[6].status === "fulfilled" ? results[6].value : null;
+  const whatsappDispatchResp = results[7].status === "fulfilled" ? results[7].value : null;
+  const whatsappGroupsResp = results[8].status === "fulfilled" ? results[8].value : null;
+  const whatsappAccessResp = results[9].status === "fulfilled" ? results[9].value : null;
+
+  // If auth failed (401), show a gentle message instead of an infinite spinner.
+  if (!st) {
+    return el("div", { class: "card" }, [
+      el("div", { class: "card__title", text: t("title.stack") || "Stack" }),
+      el("div", { class: "muted", text: currentLang === "zh" ? "未登录或会话已过期，请重新登录。" : "Not logged in or session expired. Please log in again." }),
+    ]);
+  }
   const requiredServices = ["gateway", "channel:wecom"];
   const runningNames = new Set(
     (Array.isArray(st.items) ? st.items : [])
@@ -1680,6 +1723,353 @@ async function renderStack() {
       ? `binding=${waBinding.group_jid} enabled=${Boolean(waBinding.enabled)}`
       : (currentLang === "zh" ? "尚未绑定告警群" : "No alert group bound"),
   });
+  const waAccessCfg = (whatsappAccessResp && whatsappAccessResp.config) || {};
+  const waContacts = Array.isArray(whatsappAccessResp && whatsappAccessResp.contacts) ? whatsappAccessResp.contacts : [];
+  const waPending = Array.isArray(whatsappAccessResp && whatsappAccessResp.pending) ? whatsappAccessResp.pending : [];
+  const waDenied = Array.isArray(whatsappAccessResp && whatsappAccessResp.denied) ? whatsappAccessResp.denied : [];
+  const waPhoneDisplay = (row) => {
+    const phone = String((row && row.phone) || "").trim();
+    if (phone) return phone;
+    const jid = String((row && row.external_user_id) || "").trim();
+    const base = jid.split("@")[0] || "";
+    const digits = base.replace(/\D/g, "");
+    return digits || base || "-";
+  };
+  const waAccessModeSel = el("select", { class: "input" }, [
+    el("option", {
+      value: "blacklist",
+      text: currentLang === "zh" ? "黑名单模式（默认拒绝，白名单放行）" : "Blacklist mode (deny by default)",
+      selected: String(waAccessCfg.access_mode || "blacklist") === "blacklist" ? "selected" : undefined,
+    }),
+    el("option", {
+      value: "whitelist",
+      text: currentLang === "zh" ? "白名单模式（默认放行，黑名单拒绝）" : "Whitelist mode (allow by default)",
+      selected: String(waAccessCfg.access_mode || "") === "whitelist" ? "selected" : undefined,
+    }),
+  ]);
+  const waAccessLangSel = el("select", { class: "input" }, [
+    el("option", { value: "en", text: "English", selected: String(waAccessCfg.lang || "en") === "en" ? "selected" : undefined }),
+    el("option", { value: "zh", text: currentLang === "zh" ? "中文" : "Chinese", selected: String(waAccessCfg.lang || "") === "zh" ? "selected" : undefined }),
+  ]);
+  const waCounts = { admin: 0, whitelist: 0, blacklist: 0 };
+  waContacts.forEach((c) => {
+    const lt = String((c && c.list_type) || "").trim().toLowerCase();
+    if (lt === "admin") waCounts.admin += 1;
+    else if (lt === "whitelist") waCounts.whitelist += 1;
+    else if (lt === "blacklist") waCounts.blacklist += 1;
+  });
+  const waAccessStatus = el("div", {
+    class: "muted",
+    text: `mode=${String(waAccessCfg.access_mode || "blacklist")} lang=${String(waAccessCfg.lang || "en")} admin=${waCounts.admin} whitelist=${waCounts.whitelist} blacklist=${waCounts.blacklist} pending=${waPending.length} denied=${waDenied.length}`,
+  });
+  const waContactFilterSel = el("select", { class: "input" }, [
+    el("option", { value: "all", text: currentLang === "zh" ? "全部" : "All" }),
+    el("option", { value: "admin", text: currentLang === "zh" ? "管理员" : "Admin" }),
+    el("option", { value: "whitelist", text: currentLang === "zh" ? "白名单" : "Whitelist" }),
+    el("option", { value: "blacklist", text: currentLang === "zh" ? "黑名单" : "Blacklist" }),
+  ]);
+  const waContactsTbody = el("tbody", {});
+  const waContactPhone = (row) => {
+    const phone = String((row && row.phone) || "").trim();
+    if (phone) return phone;
+    return waPhoneDisplay(row);
+  };
+  const waSaveContact = async (phone, pushName, listType) => {
+    const phoneVal = String(phone || "").trim();
+    const list_type = String(listType || "").trim().toLowerCase();
+    if (!phoneVal) return;
+    if (!list_type) {
+      window.alert(currentLang === "zh" ? "请选择类型" : "Please select a type");
+      return;
+    }
+    try {
+      const resp = await apiPost("/admin/api/whatsapp/access/contacts", {
+        phone: phoneVal,
+        push_name: String(pushName || "").trim(),
+        list_type,
+      });
+      if (!resp || resp.ok === false) {
+        window.alert(String((resp && resp.error) || (currentLang === "zh" ? "修改失败" : "Update failed")));
+        return;
+      }
+      router();
+    } catch (err) {
+      window.alert(String(err));
+    }
+  };
+  const renderWaContactRows = (filterValue) => {
+    const filter = String(filterValue || "all").trim().toLowerCase() || "all";
+    const rows = waContacts
+      .filter((c) => {
+        const lt = String((c && c.list_type) || "").trim().toLowerCase();
+        if (filter === "all") return true;
+        return lt === filter;
+      })
+      .map((c) => {
+        const name = String((c && c.push_name) || "");
+        const lt = String((c && c.list_type) || "").trim().toLowerCase();
+        const phone = waContactPhone(c);
+        const typeSel = el("select", { class: "input" }, [
+          el("option", { value: "admin", text: currentLang === "zh" ? "管理员" : "Admin" }),
+          el("option", { value: "whitelist", text: currentLang === "zh" ? "白名单" : "Whitelist" }),
+          el("option", { value: "blacklist", text: currentLang === "zh" ? "黑名单" : "Blacklist" }),
+        ]);
+        typeSel.value = lt || "whitelist";
+        const actionBtns = [
+          el("button", {
+            class: "btn",
+            text: currentLang === "zh" ? "修改" : "Update",
+            onclick: async () => {
+              await waSaveContact(phone, name, String(typeSel.value || "").trim());
+            },
+          }),
+        ];
+        if (lt === "blacklist") {
+          actionBtns.push(el("span", { text: " " }));
+          actionBtns.push(el("button", {
+            class: "btn btn--primary",
+            text: currentLang === "zh" ? "加白名单" : "Whitelist",
+            onclick: async () => {
+              await waSaveContact(phone, name, "whitelist");
+            },
+          }));
+        }
+        actionBtns.push(el("span", { text: " " }));
+        actionBtns.push(el("button", {
+          class: "btn btn--danger",
+          text: currentLang === "zh" ? "删除" : "Remove",
+          onclick: async () => {
+            try {
+              const resp = await apiDeleteJson(
+                `/admin/api/whatsapp/access/contacts?phone=${encodeURIComponent(phone)}`,
+              );
+              if (resp && resp.deleted === false) {
+                window.alert(currentLang === "zh" ? "未找到可删除的联系人" : "Contact not found");
+                return;
+              }
+              router();
+            } catch (err) {
+              window.alert(String(err));
+            }
+          },
+        }));
+        return el("tr", {}, [
+          el("td", { "data-copy-disabled": "1" }, [typeSel]),
+          el("td", { text: name || "-" }),
+          el("td", { text: phone || "-" }),
+          el("td", { "data-copy-disabled": "1" }, actionBtns),
+        ]);
+      });
+    waContactsTbody.replaceChildren(
+      ...(rows.length
+        ? rows
+        : [el("tr", {}, [el("td", { colspan: "4", text: currentLang === "zh" ? "暂无联系人" : "No contacts" })])]),
+    );
+  };
+  waContactFilterSel.addEventListener("change", () => {
+    renderWaContactRows(String(waContactFilterSel.value || "all"));
+  });
+  renderWaContactRows("all");
+  const waContactPhoneInput = el("input", { class: "input", placeholder: currentLang === "zh" ? "电话，如 +8615601877957" : "Phone, e.g. +8615601877957" });
+  const waContactNameInput = el("input", { class: "input", placeholder: currentLang === "zh" ? "显示名（可选）" : "Display name (optional)" });
+  const waContactTypeSel = el("select", { class: "input" }, [
+    el("option", { value: "admin", text: currentLang === "zh" ? "管理员" : "Admin" }),
+    el("option", { value: "whitelist", text: currentLang === "zh" ? "白名单" : "Whitelist" }),
+    el("option", { value: "blacklist", text: currentLang === "zh" ? "黑名单" : "Blacklist" }),
+  ]);
+  const waPendingPickSel = el(
+    "select",
+    { class: "input" },
+    [
+      el("option", { value: "", text: currentLang === "zh" ? "从待审批选择联系人…" : "Pick from pending requests…" }),
+      ...waPending.map((p, idx) => {
+        const phone = waPhoneDisplay(p);
+        const name = String((p && p.push_name) || "").trim();
+        const label = name ? `${name} (${phone})` : phone;
+        return el("option", { value: String(idx), text: label || phone });
+      }),
+    ],
+  );
+  waPendingPickSel.addEventListener("change", () => {
+    const idx = Number(String(waPendingPickSel.value || "").trim());
+    if (!Number.isFinite(idx) || idx < 0 || idx >= waPending.length) return;
+    const picked = waPending[idx] || {};
+    const phone = waPhoneDisplay(picked);
+    const name = String((picked && picked.push_name) || "").trim();
+    if (phone && phone !== "-") waContactPhoneInput.value = phone;
+    waContactNameInput.value = name || "";
+  });
+  const waResolvePending = async (pendingId, action) => {
+    if (!pendingId) return;
+    try {
+      const resp = await apiPost("/admin/api/whatsapp/access/pending/resolve", {
+        pending_id: pendingId,
+        action,
+      });
+      if (!resp || resp.ok === false) {
+        window.alert(String((resp && resp.error) || (currentLang === "zh" ? "操作失败" : "Request failed")));
+        return;
+      }
+      router();
+    } catch (err) {
+      window.alert(String(err));
+    }
+  };
+  const waDeletePending = async (pendingId) => {
+    if (!pendingId) return;
+    try {
+      const resp = await apiDeleteJson(
+        `/admin/api/whatsapp/access/pending?pending_id=${encodeURIComponent(pendingId)}`,
+      );
+      if (!resp || resp.ok === false) {
+        window.alert(String((resp && resp.error) || (currentLang === "zh" ? "删除失败" : "Delete failed")));
+        return;
+      }
+      router();
+    } catch (err) {
+      window.alert(String(err));
+    }
+  };
+  const waDeniedRows = waDenied.map((p) => {
+    const pendingId = String((p && p.id) || "").trim();
+    const phone = waPhoneDisplay(p);
+    const name = String((p && p.push_name) || "").trim();
+    return el("tr", {}, [
+      el("td", { text: name || "-" }),
+      el("td", { text: phone }),
+      el("td", { text: String((p && p.request_text) || "").slice(0, 80) }),
+      el("td", { text: String((p && p.resolved_at) || p.created_at || "") }),
+      el("td", {}, [
+        el("button", {
+          class: "btn btn--primary",
+          text: currentLang === "zh" ? "加白名单" : "Whitelist",
+          onclick: async () => { await waResolvePending(pendingId, "approve"); },
+        }),
+        el("span", { text: " " }),
+        el("button", {
+          class: "btn btn--danger",
+          text: currentLang === "zh" ? "删除" : "Delete",
+          onclick: async () => { await waDeletePending(pendingId); },
+        }),
+      ]),
+    ]);
+  });
+  const waPendingRows = waPending.map((p) => {
+    const pendingId = String((p && p.id) || "").trim();
+    return el("tr", {}, [
+      el("td", { text: String((p && p.push_name) || "-") }),
+      el("td", { text: waPhoneDisplay(p) }),
+      el("td", { text: String((p && p.external_user_id) || "") }),
+      el("td", { text: String((p && p.request_text) || "").slice(0, 80) }),
+      el("td", { text: String((p && p.created_at) || "") }),
+      el("td", {}, [
+        el("button", {
+          class: "btn btn--primary",
+          text: currentLang === "zh" ? "通过" : "Approve",
+          onclick: async () => { await waResolvePending(pendingId, "approve"); },
+        }),
+        el("span", { text: " " }),
+        el("button", {
+          class: "btn",
+          text: currentLang === "zh" ? "拒绝" : "Deny",
+          onclick: async () => { await waResolvePending(pendingId, "deny"); },
+        }),
+        el("span", { text: " " }),
+        el("button", {
+          class: "btn btn--danger",
+          text: currentLang === "zh" ? "删除" : "Delete",
+          onclick: async () => { await waDeletePending(pendingId); },
+        }),
+      ]),
+    ]);
+  });
+  const whatsappAccessCard = el("div", { class: "card" }, [
+    el("div", { class: "card__title", text: currentLang === "zh" ? "WhatsApp 访问控制" : "WhatsApp access control" }),
+    el("div", { class: "muted", text: currentLang === "zh" ? "默认黑名单模式：未授权用户进入待审批；拒绝后进入黑名单/已拒绝列表，可一键加白名单。" : "Default blacklist mode: unauthorized users go to Pending; denied users go to blacklist/denied list and can be whitelisted." }),
+    el("div", { class: "row" }, [
+      el("label", { text: currentLang === "zh" ? "模式" : "Mode" }),
+      waAccessModeSel,
+      el("label", { text: currentLang === "zh" ? "提示语言" : "Message lang" }),
+      waAccessLangSel,
+      el("button", {
+        class: "btn btn--primary",
+        text: currentLang === "zh" ? "保存配置" : "Save config",
+        onclick: async () => {
+          const resp = await apiPost("/admin/api/whatsapp/access/config", {
+            tenant_id: "default",
+            access_mode: String(waAccessModeSel.value || "blacklist"),
+            lang: String(waAccessLangSel.value || "en"),
+          });
+          const cfg = (resp && resp.config) || {};
+          waAccessStatus.textContent = `mode=${String(cfg.access_mode || "blacklist")} lang=${String(cfg.lang || "en")}`;
+        },
+      }),
+    ]),
+    waAccessStatus,
+    el("div", { class: "row" }, [
+      el("label", { text: currentLang === "zh" ? "筛选" : "Filter" }),
+      waContactFilterSel,
+    ]),
+    el("div", { class: "row" }, [waPendingPickSel]),
+    el("div", { class: "row" }, [waContactPhoneInput, waContactNameInput, waContactTypeSel]),
+    el("div", { class: "row" }, [
+      el("button", {
+        class: "btn",
+        text: currentLang === "zh" ? "添加联系人" : "Add contact",
+        onclick: async () => {
+          const phone = String(waContactPhoneInput.value || "").trim();
+          if (!phone) return;
+          try {
+            const resp = await apiPost("/admin/api/whatsapp/access/contacts", {
+              phone,
+              push_name: String(waContactNameInput.value || "").trim(),
+              list_type: String(waContactTypeSel.value || "whitelist"),
+            });
+            if (!resp || resp.ok === false) {
+              window.alert(String((resp && resp.error) || (currentLang === "zh" ? "添加失败" : "Add failed")));
+              return;
+            }
+            router();
+          } catch (err) {
+            window.alert(String(err));
+          }
+        },
+      }),
+    ]),
+    el("table", { class: "table" }, [
+      el("thead", {}, [el("tr", {}, [
+        el("th", { text: currentLang === "zh" ? "类型" : "Type" }),
+        el("th", { text: currentLang === "zh" ? "名称" : "Name" }),
+        el("th", { text: currentLang === "zh" ? "电话" : "Phone" }),
+        el("th", { text: currentLang === "zh" ? "操作" : "Action" }),
+      ])]),
+      waContactsTbody,
+    ]),
+    el("div", { class: "card__title", text: currentLang === "zh" ? "待审批请求" : "Pending requests" }),
+    el("table", { class: "table" }, [
+      el("thead", {}, [el("tr", {}, [
+        el("th", { text: currentLang === "zh" ? "名称" : "Name" }),
+        el("th", { text: currentLang === "zh" ? "电话" : "Phone" }),
+        el("th", { text: "JID" }),
+        el("th", { text: currentLang === "zh" ? "消息" : "Message" }),
+        el("th", { text: currentLang === "zh" ? "时间" : "Time" }),
+        el("th", { text: currentLang === "zh" ? "操作" : "Action" }),
+      ])]),
+      el("tbody", {}, waPendingRows.length ? waPendingRows : [el("tr", {}, [el("td", { colspan: "6", text: currentLang === "zh" ? "无待审批" : "None" })])]),
+    ]),
+    el("div", { class: "card__title", text: currentLang === "zh" ? "已拒绝 / 黑名单记录" : "Denied / blacklist records" }),
+    el("div", { class: "muted", text: currentLang === "zh" ? "点「拒绝」后用户会进入黑名单联系人，并保留在此列表；可一键加白名单恢复访问。" : "Denied users are blacklisted and listed here; use Whitelist to restore access." }),
+    el("table", { class: "table" }, [
+      el("thead", {}, [el("tr", {}, [
+        el("th", { text: currentLang === "zh" ? "名称" : "Name" }),
+        el("th", { text: currentLang === "zh" ? "电话" : "Phone" }),
+        el("th", { text: currentLang === "zh" ? "消息" : "Message" }),
+        el("th", { text: currentLang === "zh" ? "拒绝时间" : "Denied at" }),
+        el("th", { text: currentLang === "zh" ? "操作" : "Action" }),
+      ])]),
+      el("tbody", {}, waDeniedRows.length ? waDeniedRows : [el("tr", {}, [el("td", { colspan: "5", text: currentLang === "zh" ? "无已拒绝记录" : "None" })])]),
+    ]),
+  ]);
   const whatsappAlertBindingCard = el("div", { class: "card" }, [
     el("div", { class: "card__title", text: currentLang === "zh" ? "WhatsApp 告警群绑定" : "WhatsApp alert group" }),
     el("div", { class: "muted", text: currentLang === "zh" ? "NetX 关键告警将推送到此群；与 Chat 会话删除无关。" : "NetX key alerts go to this group; independent of chat sessions." }),
@@ -1908,6 +2298,7 @@ async function renderStack() {
     ]),
     weixinDispatchCard,
     whatsappDispatchCard,
+    whatsappAccessCard,
     whatsappAlertBindingCard,
     el("div", { class: "card" }, [
       el("div", { class: "card__title", text: currentLang === "zh" ? "提示词/工具预热" : "Prompt/Tool Prewarm" }),

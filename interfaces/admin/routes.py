@@ -1413,6 +1413,325 @@ def build_admin_router() -> APIRouter:
         )
         return {"ok": True, "outbound_id": msg_id}
 
+    @router.get("/admin/api/whatsapp/access")
+    def api_whatsapp_access_get(
+        tenant_id: str = Query(default="default"),
+        account_id: str = Query(default=""),
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        from runtime.extensions.whatsapp.tenant import resolve_whatsapp_tenant_id
+
+        store = get_assistant_store()
+        ctx = _resolve_auth(store, authorization)
+        _require_permission(ctx, "admin:read")
+        aid = str(account_id or os.getenv("AIA_WHATSAPP_ACCOUNT_ID") or "wa-default").strip()
+        tid = resolve_whatsapp_tenant_id(store, account_id=aid)
+        legacy_tid = str(tenant_id or "default").strip()
+        # Be defensive: older DBs/gateways may not have the new tables yet.
+        # Do not break the entire Runtime page; return empty defaults instead.
+        try:
+            cfg = store.get_whatsapp_access_config(tenant_id=tid, account_id=aid) or {}
+            if not cfg and legacy_tid and legacy_tid != tid:
+                cfg = store.get_whatsapp_access_config(tenant_id=legacy_tid, account_id=aid) or {}
+        except Exception:
+            cfg = {}
+        contacts_by_phone: dict[str, dict[str, Any]] = {}
+        try:
+            from runtime.extensions.whatsapp.access_control import contact_phone_key
+
+            priority = {"admin": 4, "blacklist": 3, "whitelist": 2}
+
+            def _contact_rank(row: dict[str, Any]) -> int:
+                lt = str(row.get("list_type") or "").strip().lower()
+                return int(priority.get(lt, 0))
+
+            for source_tid in (tid, legacy_tid):
+                if not source_tid:
+                    continue
+                for row in store.list_whatsapp_contacts(tenant_id=source_tid, account_id=aid, limit=500):
+                    phone_key = contact_phone_key(row)
+                    if not phone_key:
+                        continue
+                    prev = contacts_by_phone.get(phone_key)
+                    if not prev or _contact_rank(row) > _contact_rank(prev):
+                        contacts_by_phone[phone_key] = row
+            contacts = list(contacts_by_phone.values())
+            contacts = [
+                row
+                for row in contacts
+                if str(row.get("list_type") or "").strip().lower() in {"admin", "whitelist", "blacklist"}
+            ]
+        except Exception:
+            contacts = []
+        pending_by_id: dict[str, dict[str, Any]] = {}
+        try:
+            for source_tid in (tid, legacy_tid):
+                if not source_tid:
+                    continue
+                for row in store.list_whatsapp_access_pending(
+                    tenant_id=source_tid, account_id=aid, status="pending", limit=50
+                ):
+                    pid = str(row.get("id") or "").strip()
+                    if pid:
+                        pending_by_id[pid] = row
+            pending = list(pending_by_id.values())
+        except Exception:
+            pending = []
+        denied_by_id: dict[str, dict[str, Any]] = {}
+        try:
+            for source_tid in (tid, legacy_tid):
+                if not source_tid:
+                    continue
+                for row in store.list_whatsapp_access_pending(
+                    tenant_id=source_tid, account_id=aid, status="denied", limit=50
+                ):
+                    pid = str(row.get("id") or "").strip()
+                    if pid:
+                        denied_by_id[pid] = row
+            denied = list(denied_by_id.values())
+        except Exception:
+            denied = []
+        return {
+            "ok": True,
+            "config": {
+                "tenant_id": tid,
+                "account_id": aid,
+                "access_mode": str(cfg.get("access_mode") or "blacklist"),
+                "lang": str(cfg.get("lang") or "en"),
+            },
+            "contacts": contacts,
+            "pending": pending,
+            "denied": denied,
+        }
+
+    @router.post("/admin/api/whatsapp/access/config")
+    def api_whatsapp_access_config_upsert(
+        payload: dict[str, Any] | None = Body(default=None),
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        from runtime.extensions.whatsapp.tenant import resolve_whatsapp_tenant_id
+
+        payload = payload or {}
+        store = get_assistant_store()
+        ctx = _resolve_auth(store, authorization)
+        _require_permission(ctx, "admin:runtime:write")
+        aid = str(payload.get("account_id") or os.getenv("AIA_WHATSAPP_ACCOUNT_ID") or "wa-default").strip()
+        tid = resolve_whatsapp_tenant_id(store, account_id=aid)
+        access_mode = str(payload.get("access_mode") or "blacklist").strip().lower()
+        lang = str(payload.get("lang") or "en").strip().lower()
+        cfg = store.upsert_whatsapp_access_config(
+            tenant_id=tid,
+            account_id=aid,
+            access_mode=access_mode,
+            lang=lang,
+        )
+        return {"ok": True, "config": cfg}
+
+    @router.post("/admin/api/whatsapp/access/contacts")
+    def api_whatsapp_access_contact_upsert(
+        payload: dict[str, Any] | None = Body(default=None),
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        from runtime.extensions.whatsapp.access_control import (
+            normalize_whatsapp_phone,
+            resolve_sender_phone,
+        )
+        from runtime.extensions.whatsapp.tenant import resolve_whatsapp_tenant_id
+
+        payload = payload or {}
+        store = get_assistant_store()
+        ctx = _resolve_auth(store, authorization)
+        _require_permission(ctx, "admin:runtime:write")
+        aid = str(payload.get("account_id") or os.getenv("AIA_WHATSAPP_ACCOUNT_ID") or "wa-default").strip()
+        tid = resolve_whatsapp_tenant_id(store, account_id=aid)
+        target_raw = str(payload.get("phone") or payload.get("external_user_id") or "").strip()
+        if not target_raw:
+            return {"ok": False, "error": "phone_required"}
+        try:
+            phone_val = normalize_whatsapp_phone(target_raw)
+        except Exception:
+            return {"ok": False, "error": "invalid_phone"}
+        list_type = str(payload.get("list_type") or "").strip().lower()
+        if list_type not in {"admin", "whitelist", "blacklist"}:
+            return {"ok": False, "error": "invalid_list_type"}
+        contact = store.apply_whatsapp_contact_access(
+            tenant_id=tid,
+            account_id=aid,
+            external_user_id=phone_val,
+            push_name=str(payload.get("push_name") or ""),
+            phone=phone_val,
+            list_type=list_type,
+            notes=str(payload.get("notes") or ""),
+        )
+        resolved_by = str(ctx.get("user_id") or "")
+        pending_status = "approved" if list_type in {"admin", "whitelist"} else "denied"
+        legacy_tid = str(payload.get("tenant_id") or "default").strip()
+        extra_tids = [legacy_tid] if legacy_tid and legacy_tid != tid else []
+        store.resolve_whatsapp_pending_for_sender(
+            tenant_id=tid,
+            account_id=aid,
+            external_user_id=phone_val,
+            resolved_by=resolved_by,
+            status=pending_status,
+            extra_tenant_ids=extra_tids,
+        )
+        return {"ok": True, "contact": contact}
+
+    @router.delete("/admin/api/whatsapp/access/contacts")
+    def api_whatsapp_access_contact_delete(
+        tenant_id: str = Query(default="default"),
+        account_id: str = Query(default=""),
+        phone: str = Query(default=""),
+        external_user_id: str = Query(default=""),
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        from runtime.extensions.whatsapp.access_control import normalize_whatsapp_phone
+        from runtime.extensions.whatsapp.tenant import resolve_whatsapp_tenant_id
+
+        store = get_assistant_store()
+        ctx = _resolve_auth(store, authorization)
+        _require_permission(ctx, "admin:runtime:write")
+        aid = str(account_id or os.getenv("AIA_WHATSAPP_ACCOUNT_ID") or "wa-default").strip()
+        tid = resolve_whatsapp_tenant_id(store, account_id=aid)
+        key = str(phone or external_user_id or "").strip()
+        if not key:
+            return {"ok": False, "error": "phone_required"}
+        try:
+            phone_val = normalize_whatsapp_phone(key)
+        except Exception:
+            return {"ok": False, "error": "invalid_phone"}
+        legacy_tid = str(tenant_id or "default").strip()
+        extra_tids = [legacy_tid] if legacy_tid and legacy_tid != tid else []
+        deleted_count = store.delete_whatsapp_contact_aliases(
+            tenant_id=tid,
+            account_id=aid,
+            external_user_id=phone_val,
+            extra_tenant_ids=extra_tids,
+        )
+        return {"ok": True, "deleted": deleted_count > 0, "deleted_count": deleted_count}
+
+    @router.post("/admin/api/whatsapp/access/pending/resolve")
+    def api_whatsapp_access_pending_resolve(
+        payload: dict[str, Any] | None = Body(default=None),
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        from runtime.extensions.whatsapp.access_control import resolve_sender_phone
+        from runtime.extensions.whatsapp.tenant import resolve_whatsapp_tenant_id
+
+        body = payload or {}
+        store = get_assistant_store()
+        ctx = _resolve_auth(store, authorization)
+        _require_permission(ctx, "admin:runtime:write")
+        aid = str(body.get("account_id") or os.getenv("AIA_WHATSAPP_ACCOUNT_ID") or "wa-default").strip()
+        tid = resolve_whatsapp_tenant_id(store, account_id=aid)
+        legacy_tid = str(body.get("tenant_id") or "default").strip()
+        extra_tids = [legacy_tid] if legacy_tid and legacy_tid != tid else []
+        pending_id = str(body.get("pending_id") or "").strip()
+        action = str(body.get("action") or "").strip().lower()
+        if not pending_id:
+            return {"ok": False, "error": "pending_id_required"}
+        if action not in {"approve", "deny", "dismiss"}:
+            return {"ok": False, "error": "invalid_action"}
+
+        items: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for source_tid in (tid, *extra_tids):
+            for status in ("pending", "denied"):
+                for row in store.list_whatsapp_access_pending(
+                    tenant_id=source_tid, account_id=aid, status=status, limit=200
+                ):
+                    pid = str(row.get("id") or "")
+                    if pid and pid not in seen:
+                        seen.add(pid)
+                        items.append(row)
+
+        row = next((x for x in items if str(x.get("id") or "") == pending_id), None)
+        if not row:
+            return {"ok": False, "error": "pending_not_found"}
+
+        external_user_id = str(row.get("external_user_id") or "").strip()
+        push_name = str(row.get("push_name") or "").strip()
+        resolved_by = str(ctx.get("user_id") or "")
+
+        if action == "dismiss":
+            deleted = store.delete_whatsapp_access_pending(pending_id=pending_id)
+            return {"ok": deleted, "action": "dismiss", "deleted": deleted}
+
+        if action == "approve":
+            phone_val = str(row.get("phone") or "").strip() or resolve_sender_phone(external_user_id)
+            if not phone_val:
+                return {"ok": False, "error": "invalid_phone"}
+            store.apply_whatsapp_contact_access(
+                tenant_id=tid,
+                account_id=aid,
+                external_user_id=phone_val,
+                push_name=push_name,
+                phone=phone_val,
+                list_type="whitelist",
+            )
+            changed = store.resolve_whatsapp_access_pending(
+                pending_id=pending_id,
+                status="approved",
+                resolved_by=resolved_by,
+                from_statuses=("pending", "denied"),
+            )
+            store.resolve_whatsapp_pending_for_sender(
+                tenant_id=tid,
+                account_id=aid,
+                external_user_id=phone_val,
+                resolved_by=resolved_by,
+                status="approved",
+                extra_tenant_ids=extra_tids,
+            )
+            return {
+                "ok": bool(changed),
+                "action": "approve",
+                "phone": phone_val,
+            }
+
+        phone_val = str(row.get("phone") or "").strip() or resolve_sender_phone(external_user_id)
+        if phone_val:
+            store.apply_whatsapp_contact_access(
+                tenant_id=tid,
+                account_id=aid,
+                external_user_id=phone_val,
+                push_name=push_name,
+                phone=phone_val,
+                list_type="blacklist",
+            )
+        changed = store.resolve_whatsapp_access_pending(
+            pending_id=pending_id,
+            status="denied",
+            resolved_by=resolved_by,
+            from_statuses=("pending",),
+        )
+        store.resolve_whatsapp_pending_for_sender(
+            tenant_id=tid,
+            account_id=aid,
+            external_user_id=phone_val or external_user_id,
+            resolved_by=resolved_by,
+            status="denied",
+            extra_tenant_ids=extra_tids,
+        )
+        return {"ok": bool(changed), "action": "deny", "phone": phone_val or external_user_id}
+
+    @router.delete("/admin/api/whatsapp/access/pending")
+    def api_whatsapp_access_pending_delete(
+        pending_id: str = Query(default=""),
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        store = get_assistant_store()
+        ctx = _resolve_auth(store, authorization)
+        _require_permission(ctx, "admin:runtime:write")
+        pid = str(pending_id or "").strip()
+        if not pid:
+            return {"ok": False, "error": "pending_id_required"}
+        deleted = store.delete_whatsapp_access_pending(
+            pending_id=pid,
+            statuses=("pending", "denied"),
+        )
+        return {"ok": deleted, "deleted": deleted}
+
     @router.get("/admin/api/users")
     def api_users(
         tenant_id: str,
