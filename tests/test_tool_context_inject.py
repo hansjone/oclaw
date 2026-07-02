@@ -7,6 +7,9 @@ from pathlib import Path
 
 from runtime.tools.context_inject import enrich_tool_arguments
 from runtime.tools.experts.productivity.schedule_tools import schedule_create_tool
+from runtime.chat.tool_runtime import ToolExecutionContext, ToolExecutor
+from runtime.tools.base import ToolRegistry, ToolSpec
+from svc.llm.transports.base import LLMToolCall
 from svc.persistence.assistant_store import reset_assistant_store_singleton
 from svc.persistence.sqlite_store import SqliteStore
 
@@ -87,6 +90,65 @@ class ToolContextInjectTests(unittest.TestCase):
         )
         self.assertNotIn("user_id", filtered)
         self.assertIn("name", filtered)
+
+    def test_schedule_create_inherits_executor_specialist_when_missing(self) -> None:
+        # Tool args from the model commonly omit "specialist". In that case, schedule_create should
+        # receive selected_specialist inherited from executor context (ops/generalist/...).
+        seen: dict[str, object] = {}
+
+        def _capture(args: dict[str, object]) -> dict[str, object]:
+            seen.update(args)
+            return {"ok": True}
+
+        fake_schedule_create = ToolSpec(
+            name="schedule_create",
+            description="capture args",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string"},
+                    "prompt_text": {"type": "string"},
+                    "schedule_kind": {"type": "string"},
+                    "schedule_expr": {"type": "string"},
+                    "selected_specialist": {"type": "string"},
+                },
+                "required": ["name", "prompt_text", "schedule_kind", "schedule_expr"],
+                "additionalProperties": True,
+            },
+            handler=_capture,
+        )
+
+        self.store.add_message(
+            session_id=self.session_id,
+            role="assistant",
+            content="hi",
+            event_type="assistant_text",
+            turn_uuid="t0",
+        )
+        assistant_msg_id = int(self.store.get_messages(session_id=self.session_id, limit=1)[0].id)
+
+        ctx = ToolExecutionContext(
+            store=self.store,
+            tools=ToolRegistry([fake_schedule_create]),
+            session_id=self.session_id,
+            lang="en",
+            specialist="ops",
+            turn_uuid="turn-1",
+        )
+        tc = LLMToolCall(
+            id="tc1",
+            name="schedule_create",
+            arguments={
+                "name": "drink water",
+                "prompt_text": "drink water",
+                "schedule_kind": "interval",
+                "schedule_expr": "300",
+            },
+        )
+
+        tool_msgs, _ = ToolExecutor().execute_tool_uses(ctx=ctx, assistant_msg_id=assistant_msg_id, tool_uses=[tc])
+        self.assertEqual(len(tool_msgs), 1)
+        self.assertEqual(str(seen.get("selected_specialist") or ""), "ops")
 
 
 if __name__ == "__main__":

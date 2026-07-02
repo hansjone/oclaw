@@ -505,6 +505,21 @@ class ToolExecutor:
             path_policy_tenant_id=ctx.path_policy_tenant_id,
             path_policy_user_id=ctx.path_policy_user_id,
         )
+        # Default specialist context: if the model did not explicitly provide a specialist for
+        # schedule tools, inherit from the current executor specialist.
+        #
+        # This makes scheduled jobs created by ops/generalist reflect the creator specialist by default,
+        # which is important for "created-by specialist" semantics and for later scheduled runs.
+        try:
+            tname = str(tc.name or "")
+            if tname == "schedule_create":
+                cur_spec = str(ctx.specialist or "").strip().lower()
+                if cur_spec and not str(tool_args.get("specialist") or "").strip() and not str(
+                    tool_args.get("selected_specialist") or ""
+                ).strip():
+                    tool_args["selected_specialist"] = cur_spec
+        except Exception:
+            pass
         tool_args = filter_arguments_to_schema(tool.parameters, tool_args)
 
         ok, v_err = validate_tool_arguments(tool.parameters, tool_args)
