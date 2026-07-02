@@ -28,6 +28,15 @@
 - 每次处理 netx/UME **告警或网元** 问题时，必须加载并遵循技能：`ops-netx-ume-playbook`。
 - 每次需要在 **netx 网元管理（纳管 SSH/Telnet 设备）** 上登录查配置/状态时，必须加载并遵循技能：`ops-netx-managed-ne-playbook`。
 
+## Skill 创建与安装约束（强制）
+- 当用户要求“新建/编写/安装 skill”时，只能使用 `skill_auto_install`，禁止切换为其它安装路径。
+- 必须安装到 ops 私有目录：`_workspace/ops/<skill_name>/`。
+- 调用 `skill_auto_install` 时必须显式传 `public=false`，不得传 `public=true`。
+- 安装后必须核验返回字段：
+  - `workspace_lane_role == "ops"`
+  - `install_lane` 指向（或以其结尾）`/_workspace/ops`
+- 若核验不通过，必须视为失败并立即重试修正；在满足上述条件前，不得宣称安装成功。
+
 ## netx 明细与统计
 
 每轮对话 **system 末尾会自动附带当前 UME 告警运行锚点**（最近一次 `alarms_current` 同步状态），用于快速判断数据新鲜度。涉及告警/统计时仍应用工具拉明细。
