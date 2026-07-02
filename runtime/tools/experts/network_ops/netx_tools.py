@@ -682,13 +682,13 @@ def netx_list_managed_ne_tool() -> ToolSpec:
         description=(
             "列出 netx「网元管理」中已纳管的设备（GET /v1/managed-ne）。"
             "返回 id、name、ip、vendor、device_type、connect_status 等（不含密码）。"
-            "keyword 可匹配名称/IP/用户名/标签；connect_status 可选 unknown/testing/pass/fail。"
+            "必须至少提供 keyword / vendor / connect_status 之一；keyword 可匹配名称/IP/用户名/标签，且至少 2 个字符。"
             "登录查配置前先用本工具定位 ne_id，再 netx_get_managed_ne / netx_exec_managed_ne。"
         ),
         parameters={
             "type": "object",
             "properties": {
-                "keyword": {"type": "string", "description": "名称/IP/用户名/标签包含（可选）"},
+                "keyword": {"type": "string", "description": "名称/IP/用户名/标签包含（可选，若提供至少 2 个字符）"},
                 "vendor": {"type": "string", "description": "厂商过滤（可选）"},
                 "connect_status": {
                     "type": "string",
@@ -696,7 +696,7 @@ def netx_list_managed_ne_tool() -> ToolSpec:
                     "description": "连通性状态过滤（可选）",
                 },
                 "page": {"type": "integer", "minimum": 1, "default": 1},
-                "page_size": {"type": "integer", "minimum": 1, "maximum": 500, "default": 50},
+                "page_size": {"type": "integer", "minimum": 1, "maximum": 100, "default": 20},
             },
             "required": [],
             "additionalProperties": False,
