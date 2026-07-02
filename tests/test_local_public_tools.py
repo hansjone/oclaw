@@ -20,6 +20,7 @@ from runtime.tools.public.set_env_tool import set_env_tool
 def test_local_public_read_tool_visible_by_default() -> None:
     clear_public_tool_cache()
     names = [t.name for t in default_registry(expert="network_ops+memory", specialist="ops").list()]
+    assert "schedule_create" in names
     assert "read_file" in names
     assert "list_directory" in names
     assert "search_files" in names

@@ -105,6 +105,7 @@ def _menu_text() -> str:
 
 def _handle_productivity_commands(*, text: str, tenant_id: str, user_id: str, session_id: str = "") -> str | None:
     t = (text or "").strip()
+    t_low = t.lower()
     if not t:
         return None
     if t in ("帮助", "菜单", "help", "/help"):
@@ -205,14 +206,27 @@ def _handle_productivity_commands(*, text: str, tenant_id: str, user_id: str, se
         ok = store.scheduled_job_delete(tenant_id=tenant_id, job_id=full)
         return "已删除。" if ok else "未找到该定时任务。"
 
+    schedule_prefix = ""
     if t.startswith("记定时 ") or t.startswith("创建定时 "):
-        body = t.split(" ", 1)[1].strip() if " " in t else ""
+        schedule_prefix = t.split(" ", 1)[0] + " "
+    elif t_low.startswith("schedule "):
+        schedule_prefix = "schedule "
+    elif t_low.startswith("create schedule "):
+        schedule_prefix = "create schedule "
+    elif t_low.startswith("set schedule "):
+        schedule_prefix = "set schedule "
+    if schedule_prefix:
+        body = t[len(schedule_prefix) :].strip()
         parts = body.split(None, 1)
         if len(parts) < 2:
+            if schedule_prefix in {"schedule ", "create schedule ", "set schedule "}:
+                return "Format: schedule <duration> <reminder>. Example: schedule 5min remind me to drink water"
             return "格式：记定时 <时间> <提醒内容>。示例：记定时 5分钟 提醒我休息"
         when_raw, prompt_text = parts[0].strip(), parts[1].strip()
         seconds = _parse_schedule_duration_seconds(when_raw)
         if seconds <= 0:
+            if schedule_prefix in {"schedule ", "create schedule ", "set schedule "}:
+                return "Unrecognized duration. Examples: 5min, 1hour, 300sec"
             return "无法识别时间。示例：5分钟、1小时、300秒"
         from runtime.scheduler.cron_service import build_delivery_for_session
 
@@ -232,6 +246,8 @@ def _handle_productivity_commands(*, text: str, tenant_id: str, user_id: str, se
             created_by_user_id=user_id,
             source="chat",
         )
+        if schedule_prefix in {"schedule ", "create schedule ", "set schedule "}:
+            return f"Scheduled job created: {row.id[:8]} | {prompt_text} | every {seconds} seconds"
         return f"已创建定时任务：{row.id[:8]} | {prompt_text} | 每 {seconds} 秒"
 
     return None
