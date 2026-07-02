@@ -5,6 +5,7 @@ from typing import Any
 
 from runtime.scheduler.cron_service import build_delivery_for_session
 from runtime.scheduler.expressions import normalize_schedule_kind
+from runtime.scheduler.system_timezone import default_system_timezone
 from runtime.scheduler.service import run_scheduled_job_now
 from runtime.types import normalize_interaction_mode, normalize_requested_specialist
 from svc.persistence.assistant_store import get_assistant_store
@@ -72,7 +73,7 @@ def schedule_create_tool() -> ToolSpec:
                 prompt_text=prompt_text,
                 schedule_kind=schedule_kind,
                 schedule_expr=schedule_expr,
-                timezone_name=str(args.get("timezone") or "Asia/Shanghai"),
+                timezone_name=str(args.get("timezone") or default_system_timezone()),
                 description=str(args.get("description") or ""),
                 interaction_mode=interaction_mode,
                 specialist=specialist,
@@ -99,7 +100,7 @@ def schedule_create_tool() -> ToolSpec:
                 "prompt_text": {"type": "string"},
                 "schedule_kind": {"type": "string", "enum": ["cron", "once", "interval"]},
                 "schedule_expr": {"type": "string"},
-                "timezone": {"type": "string", "default": "Asia/Shanghai"},
+                "timezone": {"type": "string", "description": "IANA timezone; defaults to the host system timezone."},
                 "interaction_mode": {"type": "string"},
                 "specialist": {"type": "string"},
                 "selected_specialist": {"type": "string"},

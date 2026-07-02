@@ -4,6 +4,7 @@ import json
 from typing import Any
 
 from runtime.scheduler.expressions import compute_next_run_at, normalize_schedule_kind
+from runtime.scheduler.system_timezone import default_system_timezone
 from runtime.scheduler.service import run_scheduled_job_now
 from runtime.scheduler.session_resolver import parse_delivery_json, resolve_weixin_binding
 
@@ -49,7 +50,7 @@ class CronService:
             prompt_text=prompt,
             schedule_kind=schedule_kind,
             schedule_expr=schedule,
-            timezone_name=str(p.get("timezone") or "Asia/Shanghai"),
+            timezone_name=str(p.get("timezone") or default_system_timezone()),
             description=str(p.get("description") or ""),
             interaction_mode=str(p.get("interaction_mode") or "expert"),
             specialist=str(p.get("specialist") or "generalist"),

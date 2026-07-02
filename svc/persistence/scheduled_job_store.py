@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from runtime.scheduler.expressions import compute_next_run_at, normalize_schedule_kind
+from runtime.scheduler.system_timezone import default_system_timezone
 
 SCHEDULED_JOB_DDL = """
 CREATE TABLE IF NOT EXISTS scheduled_job (
@@ -121,7 +122,7 @@ def _row_to_job(row: Any) -> ScheduledJob:
         status=str(row["status"] or ""),
         schedule_kind=str(row["schedule_kind"] or ""),
         schedule_expr=str(row["schedule_expr"] or ""),
-        timezone=str(row["timezone"] or "Asia/Shanghai"),
+        timezone=str(row["timezone"] or default_system_timezone()),
         prompt_text=str(row["prompt_text"] or ""),
         interaction_mode=str(row["interaction_mode"] or "expert"),
         specialist=str(row["specialist"] or "generalist"),
@@ -180,7 +181,7 @@ class ScheduledJobStoreMixin:
         prompt_text: str,
         schedule_kind: str,
         schedule_expr: str,
-        timezone_name: str = "Asia/Shanghai",
+        timezone_name: str | None = None,
         description: str = "",
         interaction_mode: str = "expert",
         specialist: str = "generalist",
@@ -194,7 +195,7 @@ class ScheduledJobStoreMixin:
         jid = str(uuid.uuid4())
         ts = utc_now_iso()
         kind = normalize_schedule_kind(schedule_kind)
-        tz = str(timezone_name or "Asia/Shanghai").strip() or "Asia/Shanghai"
+        tz = str(timezone_name or default_system_timezone()).strip() or default_system_timezone()
         next_run = compute_next_run_at(
             schedule_kind=kind,
             schedule_expr=str(schedule_expr or "").strip(),

@@ -2360,6 +2360,7 @@ def build_admin_router() -> APIRouter:
     ) -> dict[str, Any]:
         from runtime.scheduler.cron_service import build_default_delivery
         from runtime.scheduler.expressions import normalize_schedule_kind
+        from runtime.scheduler.system_timezone import default_system_timezone
 
         store = get_assistant_store()
         ctx = _resolve_auth(store, authorization)
@@ -2381,7 +2382,7 @@ def build_admin_router() -> APIRouter:
             prompt_text=prompt_text,
             schedule_kind=schedule_kind,
             schedule_expr=schedule_expr,
-            timezone_name=str(payload.get("timezone") or "Asia/Shanghai"),
+            timezone_name=str(payload.get("timezone") or default_system_timezone()),
             description=str(payload.get("description") or ""),
             interaction_mode=normalize_interaction_mode(payload.get("interaction_mode") or "expert"),
             specialist=normalize_requested_specialist(payload.get("specialist") or "generalist"),

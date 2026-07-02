@@ -4,6 +4,8 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from runtime.scheduler.system_timezone import default_system_timezone
+
 try:
     from croniter import croniter
 except ImportError:  # pragma: no cover - guarded in requirements
@@ -33,7 +35,7 @@ def compute_next_run_at(
     *,
     schedule_kind: str,
     schedule_expr: str,
-    timezone_name: str = "Asia/Shanghai",
+    timezone_name: str | None = None,
     from_dt: datetime | None = None,
 ) -> str | None:
     kind = normalize_schedule_kind(schedule_kind)
@@ -63,9 +65,9 @@ def compute_next_run_at(
     if croniter is None:
         raise RuntimeError("croniter is required for cron schedules")
     try:
-        tz = ZoneInfo(str(timezone_name or "Asia/Shanghai"))
+        tz = ZoneInfo(str(timezone_name or default_system_timezone()))
     except Exception:
-        tz = ZoneInfo("Asia/Shanghai")
+        tz = ZoneInfo(default_system_timezone())
     local_base = base.astimezone(tz)
     itr = croniter(expr, local_base)
     nxt_local = itr.get_next(datetime)
