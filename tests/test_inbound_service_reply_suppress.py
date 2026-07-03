@@ -174,6 +174,20 @@ def test_collect_recent_tool_attachments_ignores_media_from_prior_turn() -> None
     assert out == []
 
 
+def test_collect_recent_tool_attachments_ignores_text_ref_from_lookup_tools() -> None:
+    rows = [
+        _Row(role="user", content="analyze file", attachments=None),
+        _Row(
+            role="tool",
+            content="{}",
+            attachments='[{"type":"text_ref","attachment_id":"user-upload","name":"Site_List.txt","mime":"text/plain"}]',
+        ),
+        _Row(role="assistant", content="15,687 rows", attachments=None),
+    ]
+    out = _collect_recent_tool_attachments(store=_FakeStore(rows), session_id="s1")
+    assert out == []
+
+
 def test_maybe_add_media_path_for_wechat_reply_sets_media_path(monkeypatch) -> None:
     # Avoid touching disk: stub AttachmentAssetStore.get_local_path.
     from pathlib import Path

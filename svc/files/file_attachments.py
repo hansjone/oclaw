@@ -373,6 +373,47 @@ def process_zip(zip_data: bytes, *, _depth: int = 0) -> list[dict[str, Any]]:
     )
 
 
+def expand_attachment_ref(
+    att: dict[str, Any],
+    *,
+    data: bytes | None = None,
+    name: str | None = None,
+) -> list[dict[str, Any]]:
+    """Expand ``binary_ref`` (or raw bytes) into parsed attachment dicts for the agent."""
+    if not isinstance(att, dict):
+        return []
+    t = str(att.get("type") or "").strip().lower()
+    if t and t not in {"binary_ref"}:
+        return [att]
+    aid = str(att.get("attachment_id") or att.get("attachmentId") or "").strip().lower()
+    meta = None
+    if data is None and aid:
+        blob, meta = AttachmentAssetStore().load_bytes(aid)
+        if not blob:
+            return [att] if t == "binary_ref" else []
+        data = blob
+        name = name or str(getattr(meta, "name", "") or "file")
+    if data is None:
+        return [att] if t == "binary_ref" else []
+    fname = str(name or att.get("name") or getattr(meta, "name", "") or "file")
+    got = process_file_data(fname, data)
+    if got:
+        return got
+    if aid:
+        if meta is None:
+            meta = AttachmentAssetStore().get_meta(aid)
+        return [
+            {
+                "type": "binary_ref",
+                "attachment_id": aid,
+                "name": fname,
+                "mime": str(att.get("mime") or getattr(meta, "mime", "") or "application/octet-stream"),
+                "bytes": att.get("bytes") if att.get("bytes") is not None else getattr(meta, "bytes", None),
+            }
+        ]
+    return []
+
+
 def process_file_data(name: str, data: bytes, *, _zip_depth: int = 0) -> list[dict[str, Any]]:
     ext = name.split(".")[-1].lower() if "." in name else ""
     attachments: list[dict[str, Any]] = []
@@ -773,4 +814,4 @@ def process_file_data(name: str, data: bytes, *, _zip_depth: int = 0) -> list[di
     return attachments
 
 
-__all__ = ["process_zip", "process_file_data", "clear_attachment_limits_cache"]
+__all__ = ["process_zip", "process_file_data", "expand_attachment_ref", "clear_attachment_limits_cache"]

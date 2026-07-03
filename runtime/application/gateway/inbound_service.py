@@ -473,6 +473,7 @@ def _channel_attachments_for_gateway(raw: list[dict[str, Any]]) -> list[dict[str
     from pathlib import Path
 
     from svc.files.attachment_assets import AttachmentAssetStore
+    from svc.files.file_attachments import expand_attachment_ref, process_file_data
 
     out: list[dict[str, Any]] = []
     ast = AttachmentAssetStore()
@@ -481,8 +482,7 @@ def _channel_attachments_for_gateway(raw: list[dict[str, Any]]) -> list[dict[str
             continue
         aid = str(a.get("attachment_id") or a.get("attachmentId") or "").strip().lower()
         if aid:
-            t = str(a.get("type") or "").strip().lower() or "binary_ref"
-            out.append({"type": t, "attachment_id": aid})
+            out.extend(expand_attachment_ref(a))
             continue
         lp = str(a.get("local_path") or a.get("media_path") or "").strip()
         if not lp:
@@ -495,7 +495,15 @@ def _channel_attachments_for_gateway(raw: list[dict[str, Any]]) -> list[dict[str
         if not mime:
             mime = "application/octet-stream"
         try:
-            meta = ast.save_bytes(p.read_bytes(), filename=p.name, mime=mime)
+            data = p.read_bytes()
+        except Exception:
+            continue
+        got = process_file_data(p.name, data)
+        if got:
+            out.extend(got)
+            continue
+        try:
+            meta = ast.save_bytes(data, filename=p.name, mime=mime)
         except Exception:
             continue
         if kind == "image" or mime.startswith("image/"):
@@ -503,7 +511,7 @@ def _channel_attachments_for_gateway(raw: list[dict[str, Any]]) -> list[dict[str
         elif kind == "video" or mime.startswith("video/"):
             out.append({"type": "video_ref", "attachment_id": meta.attachment_id})
         else:
-            out.append({"type": "binary_ref", "attachment_id": meta.attachment_id})
+            out.append({"type": "binary_ref", "attachment_id": meta.attachment_id, "name": meta.name, "mime": meta.mime})
     return out
 
 
@@ -548,10 +556,16 @@ def _rows_since_last_user_message(rows: list[Any]) -> list[Any]:
     return list(rows[last_user_idx + 1 :])
 
 
+_CHANNEL_DELIVERABLE_ATTACHMENT_TYPES = frozenset(
+    {"image_ref", "video_ref", "image", "input_image", "image_url"}
+)
+
+
 def _collect_recent_tool_attachments(*, store: Any, session_id: str) -> list[dict[str, Any]]:
     """Fallback for channel delivery: reuse tool media produced during the current user turn only.
 
     Avoids re-sending images from earlier conversation turns when the latest assistant row has no attachments.
+    Only visual outbound media is eligible — not text_ref/binary_ref from read/query tools.
     """
     sid = str(session_id or "").strip()
     if not sid:
@@ -569,15 +583,16 @@ def _collect_recent_tool_attachments(*, store: Any, session_id: str) -> list[dic
         if not atts:
             continue
         ok = False
+        deliverable: list[dict[str, Any]] = []
         for a in atts:
             if not isinstance(a, dict):
                 continue
             t = str(a.get("type") or "").strip().lower()
-            if t in {"image_ref", "video_ref", "binary_ref", "text_ref", "image", "input_image", "image_url"}:
+            if t in _CHANNEL_DELIVERABLE_ATTACHMENT_TYPES:
                 ok = True
-                break
+                deliverable.append(a)
         if ok:
-            return atts
+            return deliverable
     return []
 
 

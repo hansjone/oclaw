@@ -17,7 +17,8 @@ from svc.llm.chat_models import _normalize_image_b64_payload, gemini_openai_comp
 from runtime.chat.media_redact import redact_embedded_image_blobs
 from runtime.chat.tool_runtime import tool_llm_message_max_chars, truncate_tool_result_for_llm_messages
 from runtime.prompt_templates import render_prompt
-from svc.files.attachment_assets import attachment_id_to_data_url
+from svc.files.attachment_assets import attachment_id_to_data_url, AttachmentAssetStore
+from svc.files.file_attachments import expand_attachment_ref
 from runtime.relay_pointer import parse_pointer_uri
 
 logger = logging.getLogger(__name__)
@@ -316,11 +317,24 @@ def build_llm_messages(
                 except Exception:
                     attachments = []
 
+            expand_user_image_for_model = bool(i == last_user_msg_idx)
+            if expand_user_image_for_model:
+                expanded_atts: list[dict[str, Any]] = []
+                for att in attachments or []:
+                    if not isinstance(att, dict):
+                        continue
+                    if str(att.get("type") or "").strip().lower() == "binary_ref":
+                        subs = expand_attachment_ref(att)
+                        if subs and any(str(s.get("type") or "") != "binary_ref" for s in subs):
+                            expanded_atts.extend(subs)
+                            continue
+                    expanded_atts.append(att)
+                attachments = expanded_atts
+
             for att in attachments or []:
                 if not isinstance(att, dict):
                     continue
                 att_type = att.get("type")
-                expand_user_image_for_model = bool(i == last_user_msg_idx)
                 if att_type in ("image", "input_image"):
                     if expand_user_image_for_model:
                         b64 = _normalize_image_b64_payload(att.get("image_base64") or att.get("data"))
@@ -458,6 +472,29 @@ def build_llm_messages(
                     if sz:
                         meta_line += f"\n- bytes: {sz}"
                     meta_line += "\n- tools: query_video_attachment"
+                    content_list.append({"type": "text", "text": meta_line})
+                elif att_type == "binary_ref":
+                    aid = str(att.get("attachment_id") or "").strip()
+                    name = str(att.get("name") or "file")
+                    mime = str(att.get("mime") or "application/octet-stream")
+                    sz = att.get("bytes")
+                    if aid and (name == "file" or not mime or mime == "application/octet-stream"):
+                        try:
+                            meta = AttachmentAssetStore().get_meta(aid)
+                            if meta:
+                                if name == "file":
+                                    name = str(meta.name or name)
+                                if not mime or mime == "application/octet-stream":
+                                    mime = str(meta.mime or mime)
+                                if sz is None:
+                                    sz = meta.bytes
+                        except Exception:
+                            pass
+                    meta_line = f"[BinaryAttachment]\n- name: {name}\n- mime: {mime}\n- attachment_id: {aid}"
+                    if sz:
+                        meta_line += f"\n- bytes: {sz}"
+                    meta_line += "\n- tools: attachment_local_url"
+                    meta_line += "\n- note: user uploaded a file; resolve or analyze it via attachment_id."
                     content_list.append({"type": "text", "text": meta_line})
                 elif att_type == "relay_pointer":
                     p_uri = str(att.get("pointer_uri") or "").strip()
