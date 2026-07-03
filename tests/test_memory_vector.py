@@ -71,6 +71,21 @@ class MemoryVectorTests(unittest.TestCase):
         )
         self.assertEqual(hits, [])
 
+    def test_group_whatsapp_memory_write_disabled_by_default(self) -> None:
+        res = maybe_write_turn_memory(
+            self.store,
+            tenant_id="t1",
+            user_id="u1",
+            session_id="s1",
+            user_text="记住我喜欢喝黑咖啡，不加糖。",
+            assistant_text="好的，我记住了你的偏好。",
+            channel="whatsapp",
+            metadata={"is_group": True},
+        )
+        self.assertTrue(res.get("ok"))
+        self.assertEqual(int(res.get("written") or 0), 0)
+        self.assertEqual(str(res.get("reason") or ""), "group_whatsapp_disabled")
+
 
 if __name__ == "__main__":
     unittest.main()

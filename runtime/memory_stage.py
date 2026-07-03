@@ -135,6 +135,8 @@ def after_turn_memory(
     user_text: str,
     assistant_text: str,
     turn_uuid: str = "",
+    channel: str = "",
+    metadata: dict[str, Any] | None = None,
 ) -> None:
     ingest_after_turn(
         store=store,
@@ -156,6 +158,8 @@ def after_turn_memory(
                 session_id=str(session_id or ""),
                 user_text=str(user_text or ""),
                 assistant_text=str(assistant_text or ""),
+                channel=str(channel or ""),
+                metadata=metadata if isinstance(metadata, dict) else {},
             )
     except Exception:
         pass

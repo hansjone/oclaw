@@ -4,13 +4,18 @@ import pytest
 
 from runtime.orchestration.group_ingest import (
     GROUP_SESSION_USER_SENTINEL,
+    build_group_focus_instruction,
+    build_group_quoted_context_block,
     build_group_sender_context,
     build_whatsapp_group_reply_metadata,
+    extract_group_quoted_message,
     infer_is_group_from_chat_id,
     is_nonsend_channel_reply_text,
     normalize_jid,
+    normalize_group_session_scope,
     resolve_group_policy,
     session_user_key,
+    should_inject_quoted_context,
     should_process_group_inbound,
     text_mentions_bot,
 )
@@ -237,9 +242,17 @@ def test_enrich_quoted_ume_alarm_when_mentioned() -> None:
     assert "what happened?" in enriched
 
 
-def test_session_user_key_group_sentinel() -> None:
-    assert session_user_key(is_group=True, external_user_id="111@s.whatsapp.net") == GROUP_SESSION_USER_SENTINEL
+def test_session_user_key_group_scope() -> None:
+    assert session_user_key(is_group=True, external_user_id="111@s.whatsapp.net") == "111@s.whatsapp.net"
+    assert session_user_key(is_group=True, external_user_id="111@s.whatsapp.net", session_scope="chat") == GROUP_SESSION_USER_SENTINEL
     assert session_user_key(is_group=False, external_user_id="111@s.whatsapp.net") == "111@s.whatsapp.net"
+
+
+def test_normalize_group_session_scope() -> None:
+    assert normalize_group_session_scope("chat") == "chat"
+    assert normalize_group_session_scope("shared") == "chat"
+    assert normalize_group_session_scope("user_in_chat") == "user_in_chat"
+    assert normalize_group_session_scope("") == "user_in_chat"
 
 
 def test_resolve_group_policy_from_account_config() -> None:
@@ -249,12 +262,14 @@ def test_resolve_group_policy_from_account_config() -> None:
                 "group_policy": {
                     "require_mention": False,
                     "triggers": ["!ask"],
+                    "session_scope": "chat",
                 }
             }
         }
     )
     assert policy.require_mention is False
     assert policy.triggers == ("!ask",)
+    assert policy.session_scope == "chat"
 
 
 def test_infer_is_group_from_chat_id() -> None:
@@ -345,6 +360,47 @@ def test_build_group_sender_context() -> None:
     assert "111@s.whatsapp.net" in ctx
 
 
+def test_build_group_focus_instruction() -> None:
+    zh = build_group_focus_instruction()
+    en = build_group_focus_instruction(lang="en")
+    assert "群聊规则" in zh
+    assert "current sender" in en
+
+
+def test_extract_group_quoted_message_and_build_context_block() -> None:
+    meta = {
+        "raw": {
+            "quotedText": "服务器刚刚 502 了",
+            "quotedParticipant": "111@s.whatsapp.net",
+            "quotedPushName": "Alice",
+            "quotedStanzaId": "Q1",
+        }
+    }
+    info = extract_group_quoted_message(metadata=meta)
+    assert info["quoted_text"] == "服务器刚刚 502 了"
+    assert info["quoted_push_name"] == "Alice"
+    block = build_group_quoted_context_block(metadata=meta)
+    assert "[被引用消息]" in block
+    assert "Alice" in block
+
+
+def test_should_inject_quoted_context_dedupes_recent_message() -> None:
+    from svc.persistence.sqlite_store import ChatMessage
+
+    recent = [
+        ChatMessage(
+            id=1,
+            session_id="s1",
+            role="assistant",
+            content="服务器刚刚 502 了",
+            tool_calls=None,
+            timestamp="",
+        )
+    ]
+    assert should_inject_quoted_context(quoted_text="服务器刚刚 502 了", recent_messages=recent) is False
+    assert should_inject_quoted_context(quoted_text="另一条内容", recent_messages=recent) is True
+
+
 def test_build_whatsapp_group_reply_metadata() -> None:
     inbound = InboundMessage(
         channel="whatsapp",
@@ -367,7 +423,7 @@ def test_build_whatsapp_group_reply_metadata() -> None:
     assert meta["quote_participant"] == "111:12@s.whatsapp.net"
 
 
-def test_shared_group_session_for_multiple_senders(fresh_sqlite_store: SqliteStore) -> None:
+def test_default_group_session_is_per_user(fresh_sqlite_store: SqliteStore) -> None:
     store = fresh_sqlite_store
     tenant = store.create_tenant("WA")
     chat_id = "120363012345678@g.us"
@@ -385,6 +441,37 @@ def test_shared_group_session_for_multiple_senders(fresh_sqlite_store: SqliteSto
         account_id="wa-default",
         external_chat_id=chat_id,
         external_user_id=session_user_key(is_group=True, external_user_id="222@s.whatsapp.net"),
+        session_title="whatsapp|test+Family",
+    )
+    assert sid_a != sid_b
+
+
+def test_shared_group_session_for_multiple_senders_when_scope_chat(fresh_sqlite_store: SqliteStore) -> None:
+    store = fresh_sqlite_store
+    tenant = store.create_tenant("WA")
+    chat_id = "120363012345678@g.us"
+    sid_a = store.get_or_create_channel_session_v2(
+        tenant_id=str(tenant["id"]),
+        channel="whatsapp",
+        account_id="wa-default",
+        external_chat_id=chat_id,
+        external_user_id=session_user_key(
+            is_group=True,
+            external_user_id="111@s.whatsapp.net",
+            session_scope="chat",
+        ),
+        session_title="whatsapp|test+Family",
+    )
+    sid_b = store.get_or_create_channel_session_v2(
+        tenant_id=str(tenant["id"]),
+        channel="whatsapp",
+        account_id="wa-default",
+        external_chat_id=chat_id,
+        external_user_id=session_user_key(
+            is_group=True,
+            external_user_id="222@s.whatsapp.net",
+            session_scope="chat",
+        ),
         session_title="whatsapp|test+Family",
     )
     assert sid_a == sid_b
@@ -411,6 +498,13 @@ def _setup_whatsapp_identity(store: SqliteStore, *, extra_user_ids: list[str] | 
             account_id="wa-default",
             external_user_id=ext_uid,
             user_id=user_id,
+        )
+        store.upsert_whatsapp_contact(
+            tenant_id=tenant_id,
+            account_id="wa-default",
+            external_user_id=ext_uid,
+            phone="".join(ch for ch in ext_uid.split("@", 1)[0] if ch.isdigit()),
+            list_type="whitelist",
         )
     return tenant_id, user_id
 
@@ -475,7 +569,7 @@ def test_inbound_dm_still_processes_without_mention(monkeypatch: pytest.MonkeyPa
     assert "[群成员:" not in captured.get("text", "")
 
 
-def test_inbound_group_mention_uses_shared_session_and_sender_prefix(
+def test_inbound_group_mention_uses_per_user_session_and_sender_prefix(
     monkeypatch: pytest.MonkeyPatch, fresh_sqlite_store: SqliteStore
 ) -> None:
     store = fresh_sqlite_store
@@ -530,9 +624,91 @@ def test_inbound_group_mention_uses_shared_session_and_sender_prefix(
     )
 
     assert len(session_ids) == 2
-    assert session_ids[0] == session_ids[1]
+    assert session_ids[0] != session_ids[1]
     assert "[群成员:" in captured["text"]
+    assert "群聊规则" in captured["text"]
     assert "Bob" in captured["text"]
+
+    sid = store.get_or_create_channel_session_v2(
+        tenant_id=tenant_id,
+        channel="whatsapp",
+        account_id="wa-default",
+        external_chat_id=chat_id,
+        external_user_id="111@s.whatsapp.net",
+        session_title="whatsapp|wa-default+Family",
+    )
+    assert sid == session_ids[0]
+
+    _ = tenant_id, user_id
+
+
+def test_inbound_group_scope_chat_uses_shared_session(
+    monkeypatch: pytest.MonkeyPatch, fresh_sqlite_store: SqliteStore
+) -> None:
+    store = fresh_sqlite_store
+    tenant_id, user_id = _setup_whatsapp_identity(store, extra_user_ids=["222@s.whatsapp.net"])
+    store.upsert_user_channel_account(
+        tenant_id=tenant_id,
+        user_id=user_id,
+        channel="whatsapp",
+        account_id="wa-default",
+        name="wa-default",
+        config={
+            "group_policy": {
+                "require_mention": True,
+                "triggers": ["/oclaw"],
+                "session_scope": "chat",
+            }
+        },
+        is_active=True,
+    )
+    monkeypatch.setattr("svc.persistence.assistant_store.get_assistant_store", lambda: store)
+
+    session_ids: list[str] = []
+
+    class _Turn:
+        turn_uuid = "turn-g"
+        reply_text = "group-ok"
+
+    class _Gw:
+        def __init__(self, *, store: object) -> None:
+            _ = store
+
+        def handle_turn(self, **kwargs: object) -> _Turn:
+            msg = kwargs.get("msg")
+            session_ids.append(str(getattr(msg, "session_id", "") or ""))
+            return _Turn()
+
+    monkeypatch.setattr("runtime.gateway.OclawGateway", _Gw)
+
+    chat_id = "120363012345678@g.us"
+    base = {
+        "channel": "whatsapp",
+        "account_id": "wa-default",
+        "chat_id": chat_id,
+        "is_group": True,
+        "metadata": {"bot_jid": "999@s.whatsapp.net", "source": "test"},
+    }
+    process_inbound_payload(
+        {
+            **base,
+            "user_id": "111@s.whatsapp.net",
+            "text": "@bot hi",
+            "mentions": ["999@s.whatsapp.net"],
+            "metadata": {**base["metadata"], "raw": {"pushName": "Alice"}},
+        }
+    )
+    process_inbound_payload(
+        {
+            **base,
+            "user_id": "222@s.whatsapp.net",
+            "text": "@bot again",
+            "mentions": ["999@s.whatsapp.net"],
+            "metadata": {**base["metadata"], "raw": {"pushName": "Bob"}},
+        }
+    )
+    assert len(session_ids) == 2
+    assert session_ids[0] == session_ids[1]
 
     sid = store.get_or_create_channel_session_v2(
         tenant_id=tenant_id,
@@ -543,7 +719,124 @@ def test_inbound_group_mention_uses_shared_session_and_sender_prefix(
         session_title="whatsapp|wa-default+Family",
     )
     assert sid == session_ids[0]
+    _ = user_id
 
+
+def test_inbound_group_injects_quoted_context_when_not_in_current_session(
+    monkeypatch: pytest.MonkeyPatch, fresh_sqlite_store: SqliteStore
+) -> None:
+    store = fresh_sqlite_store
+    tenant_id, user_id = _setup_whatsapp_identity(store, extra_user_ids=["222@s.whatsapp.net"])
+    monkeypatch.setattr("svc.persistence.assistant_store.get_assistant_store", lambda: store)
+
+    captured: dict[str, str] = {}
+
+    class _Turn:
+        turn_uuid = "turn-q"
+        reply_text = "ok"
+
+    class _Gw:
+        def __init__(self, *, store: object) -> None:
+            _ = store
+
+        def handle_turn(self, **kwargs: object) -> _Turn:
+            msg = kwargs.get("msg")
+            captured["text"] = str(getattr(msg, "text", "") or "")
+            return _Turn()
+
+    monkeypatch.setattr("runtime.gateway.OclawGateway", _Gw)
+
+    out = process_inbound_payload(
+        {
+            "channel": "whatsapp",
+            "account_id": "wa-default",
+            "user_id": "222@s.whatsapp.net",
+            "chat_id": "120363012345678@g.us",
+            "text": "@bot 这是不是和刚才发布有关？",
+            "is_group": True,
+            "mentions": ["999@s.whatsapp.net"],
+            "metadata": {
+                "bot_jid": "999@s.whatsapp.net",
+                "raw": {
+                    "pushName": "Bob",
+                    "quotedText": "看起来像 OSPF 邻居抖动",
+                    "quotedParticipant": "999@s.whatsapp.net",
+                    "quotedPushName": "oclaw",
+                    "quotedStanzaId": "Q2",
+                },
+            },
+        }
+    )
+    assert out.get("ok") is True
+    assert "[被引用消息]" in captured["text"]
+    assert "看起来像 OSPF 邻居抖动" in captured["text"]
+    _ = tenant_id, user_id
+
+
+def test_inbound_group_skips_quoted_context_when_already_in_current_session(
+    monkeypatch: pytest.MonkeyPatch, fresh_sqlite_store: SqliteStore
+) -> None:
+    store = fresh_sqlite_store
+    tenant_id, user_id = _setup_whatsapp_identity(store)
+    monkeypatch.setattr("svc.persistence.assistant_store.get_assistant_store", lambda: store)
+
+    call_no = {"n": 0}
+    captured: dict[str, str] = {}
+
+    class _Turn:
+        turn_uuid = "turn-q2"
+
+        @property
+        def reply_text(self) -> str:
+            return "看起来像 OSPF 邻居抖动" if call_no["n"] == 1 else "继续分析"
+
+    class _Gw:
+        def __init__(self, *, store: object) -> None:
+            _ = store
+
+        def handle_turn(self, **kwargs: object) -> _Turn:
+            call_no["n"] += 1
+            msg = kwargs.get("msg")
+            captured["text"] = str(getattr(msg, "text", "") or "")
+            return _Turn()
+
+    monkeypatch.setattr("runtime.gateway.OclawGateway", _Gw)
+
+    process_inbound_payload(
+        {
+            "channel": "whatsapp",
+            "account_id": "wa-default",
+            "user_id": "111@s.whatsapp.net",
+            "chat_id": "120363012345678@g.us",
+            "text": "@bot 先帮我判断原因",
+            "is_group": True,
+            "mentions": ["999@s.whatsapp.net"],
+            "metadata": {"bot_jid": "999@s.whatsapp.net", "raw": {"pushName": "Alice"}},
+        }
+    )
+    out = process_inbound_payload(
+        {
+            "channel": "whatsapp",
+            "account_id": "wa-default",
+            "user_id": "111@s.whatsapp.net",
+            "chat_id": "120363012345678@g.us",
+            "text": "@bot 那下一步怎么排查？",
+            "is_group": True,
+            "mentions": ["999@s.whatsapp.net"],
+            "metadata": {
+                "bot_jid": "999@s.whatsapp.net",
+                "raw": {
+                    "pushName": "Alice",
+                    "quotedText": "看起来像 OSPF 邻居抖动",
+                    "quotedParticipant": "999@s.whatsapp.net",
+                    "quotedPushName": "oclaw",
+                    "quotedStanzaId": "Q3",
+                },
+            },
+        }
+    )
+    assert out.get("ok") is True
+    assert "[被引用消息]" not in captured["text"]
     _ = tenant_id, user_id
 
 

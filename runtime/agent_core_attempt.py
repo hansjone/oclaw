@@ -191,6 +191,8 @@ def run_attempt(*, store: Any, data: AttemptRunnerInput) -> AttemptRunnerOutput:
                 user_text=str(data.persisted_user_text if data.persisted_user_text is not None else data.msg.text or ""),
                 assistant_text=outcome.final_text,
                 turn_uuid=outcome.turn_uuid,
+                channel=str(data.msg.channel or ""),
+                metadata=data.msg.metadata if isinstance(data.msg.metadata, dict) else {},
             )
             if data.trace_id:
                 try:

@@ -422,6 +422,26 @@ def _session_title_user_label(*, is_group: bool, external_user_id: str, group_na
     return "group"
 
 
+def _group_session_title_user_label(
+    *,
+    is_group: bool,
+    session_scope: str,
+    external_user_id: str,
+    group_name: str,
+    external_chat_id: str,
+) -> str:
+    if not is_group:
+        return str(external_user_id or "").strip() or "unknown"
+    if str(session_scope or "").strip().lower() == "chat":
+        return _session_title_user_label(
+            is_group=is_group,
+            external_user_id=external_user_id,
+            group_name=group_name,
+            external_chat_id=external_chat_id,
+        )
+    return str(external_user_id or "").strip() or "unknown"
+
+
 def _parse_generic_inbound(channel_name: str, payload: dict[str, Any]) -> InboundMessage:
     meta = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
     user_id = str(payload.get("user_id") or payload.get("external_user_id") or "").strip()
@@ -781,13 +801,17 @@ def process_inbound_payload(payload: dict[str, Any]) -> dict[str, Any]:
 
     account = store.find_user_by_channel_account(channel=inbound.channel, account_id=account_id) or {}
     from runtime.orchestration.group_ingest import (
+        build_group_focus_instruction,
+        build_group_quoted_context_block,
         build_group_sender_context,
         enrich_alert_group_question,
+        extract_group_quoted_message,
         extract_quoted_ume_alert_text,
         mentions_include_bot,
         metadata_mentions_bot,
         resolve_group_policy,
         session_user_key,
+        should_inject_quoted_context,
         should_process_group_inbound,
         text_mentions_bot,
     )
@@ -893,9 +917,11 @@ def process_inbound_payload(payload: dict[str, Any]) -> dict[str, Any]:
             session_external_user_id = session_user_key(
                 is_group=inbound.is_group,
                 external_user_id=inbound.external_user_id,
+                session_scope=group_policy.session_scope,
             )
-            title_user_label = _session_title_user_label(
+            title_user_label = _group_session_title_user_label(
                 is_group=inbound.is_group,
+                session_scope=group_policy.session_scope,
                 external_user_id=inbound.external_user_id,
                 group_name=group_name,
                 external_chat_id=inbound.external_chat_id,
@@ -990,7 +1016,20 @@ def process_inbound_payload(payload: dict[str, Any]) -> dict[str, Any]:
                                 metadata=meta_for_group,
                                 external_user_id=inbound.external_user_id,
                             )
-                            user_text = f"{sender_ctx}\n{user_text}" if user_text else sender_ctx
+                            group_rule = build_group_focus_instruction()
+                            quoted_ctx = ""
+                            quoted_info = extract_group_quoted_message(metadata=meta_for_group)
+                            quoted_text = str(quoted_info.get("quoted_text") or "").strip()
+                            if quoted_text:
+                                recent_messages = store.get_messages(str(session_id), limit=6)
+                                if should_inject_quoted_context(
+                                    quoted_text=quoted_text,
+                                    recent_messages=recent_messages,
+                                ):
+                                    quoted_ctx = build_group_quoted_context_block(metadata=meta_for_group)
+                            prefix_parts = [sender_ctx, group_rule, quoted_ctx]
+                            prefix = "\n".join(part for part in prefix_parts if str(part).strip())
+                            user_text = f"{prefix}\n{user_text}" if user_text else prefix
                         gw_attachments = _channel_attachments_for_gateway(
                             list(inbound.attachments or [])
                         )

@@ -192,10 +192,22 @@ def maybe_write_turn_memory(
     session_id: str,
     user_text: str,
     assistant_text: str,
+    channel: str = "",
+    metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     runtime = read_vector_memory_runtime(store)
     if not runtime.writer_enabled:
         return {"ok": True, "written": 0, "reason": "writer_disabled"}
+    md = metadata if isinstance(metadata, dict) else {}
+    is_group = bool(md.get("is_group"))
+    if not is_group:
+        raw = md.get("raw")
+        if isinstance(raw, dict):
+            is_group = bool(raw.get("is_group")) or str(raw.get("remoteJid") or "").strip().lower().endswith("@g.us")
+    if str(channel or "").strip().lower() == "whatsapp" and is_group:
+        allow_group = str(store.get_setting("MEMORY_WRITE_GROUP_WHATSAPP") or "").strip().lower()
+        if allow_group not in {"1", "true", "yes", "on"}:
+            return {"ok": True, "written": 0, "reason": "group_whatsapp_disabled"}
     user_norm = _normalize_memory_text(user_text)
     assistant_norm = _normalize_memory_text(assistant_text)
     if not user_norm or not assistant_norm:

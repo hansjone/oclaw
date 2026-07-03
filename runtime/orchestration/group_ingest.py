@@ -154,6 +154,49 @@ def extract_quoted_ume_alert_text(*, metadata: dict[str, Any] | None) -> str:
     return ""
 
 
+def extract_group_quoted_message(*, metadata: dict[str, Any] | None) -> dict[str, str]:
+    raw = _metadata_raw(metadata)
+    quoted_text = str(raw.get("quotedText") or raw.get("quoted_text") or "").strip()
+    quoted_participant = str(raw.get("quotedParticipant") or raw.get("quoted_participant") or "").strip()
+    push_name = str(raw.get("quotedPushName") or raw.get("quoted_push_name") or "").strip()
+    stanza_id = str(raw.get("quotedStanzaId") or raw.get("quoted_stanza_id") or "").strip()
+    return {
+        "quoted_text": quoted_text,
+        "quoted_participant": quoted_participant,
+        "quoted_push_name": push_name,
+        "quoted_stanza_id": stanza_id,
+    }
+
+
+def _normalize_quoted_compare_text(text: str) -> str:
+    s = re.sub(r"\s+", " ", str(text or "").strip())
+    return s[:280]
+
+
+def should_inject_quoted_context(*, quoted_text: str, recent_messages: list[Any]) -> bool:
+    token = _normalize_quoted_compare_text(quoted_text)
+    if not token:
+        return False
+    for row in recent_messages or []:
+        content = _normalize_quoted_compare_text(getattr(row, "content", "") or "")
+        if not content:
+            continue
+        if token == content or token in content or content in token:
+            return False
+    return True
+
+
+def build_group_quoted_context_block(*, metadata: dict[str, Any] | None) -> str:
+    info = extract_group_quoted_message(metadata=metadata)
+    quoted_text = str(info.get("quoted_text") or "").strip()
+    if not quoted_text:
+        return ""
+    quoted_participant = str(info.get("quoted_participant") or "").strip()
+    quoted_push_name = str(info.get("quoted_push_name") or "").strip()
+    speaker = quoted_push_name or quoted_participant or "unknown"
+    return f"[被引用消息]\n{speaker}: {quoted_text}"
+
+
 def enrich_alert_group_question(*, user_text: str, quoted_alert: str) -> str:
     body = str(user_text or "").strip()
     quote = str(quoted_alert or "").strip()
@@ -173,8 +216,21 @@ def normalize_jids(jids: list[str]) -> set[str]:
     return out
 
 
-def session_user_key(*, is_group: bool, external_user_id: str) -> str:
-    return GROUP_SESSION_USER_SENTINEL if is_group else str(external_user_id or "").strip()
+def normalize_group_session_scope(raw: Any) -> str:
+    scope = str(raw or "").strip().lower()
+    if scope in {"chat", "shared", "shared_chat"}:
+        return "chat"
+    if scope in {"user", "user_in_chat", "per_user", "member"}:
+        return "user_in_chat"
+    return "user_in_chat"
+
+
+def session_user_key(*, is_group: bool, external_user_id: str, session_scope: str = "user_in_chat") -> str:
+    if not is_group:
+        return str(external_user_id or "").strip()
+    if normalize_group_session_scope(session_scope) == "chat":
+        return GROUP_SESSION_USER_SENTINEL
+    return str(external_user_id or "").strip()
 
 
 def infer_is_group_from_chat_id(chat_id: str) -> bool:
@@ -206,7 +262,7 @@ def should_send_channel_reply_text(text: str) -> bool:
 class GroupPolicyConfig:
     require_mention: bool = True
     triggers: tuple[str, ...] = ("/oclaw",)
-    session_scope: str = "chat"
+    session_scope: str = "user_in_chat"
 
 
 def _parse_bool_env(name: str, default: bool) -> bool:
@@ -236,7 +292,7 @@ def _parse_group_policy_dict(raw: Any) -> GroupPolicyConfig | None:
     return GroupPolicyConfig(
         require_mention=bool(require_mention) if require_mention is not None else True,
         triggers=triggers if triggers is not None else ("/oclaw",),
-        session_scope=str(session_scope or "chat").strip() or "chat",
+        session_scope=normalize_group_session_scope(session_scope),
     )
 
 
@@ -252,6 +308,7 @@ def resolve_group_policy(*, account: dict[str, Any] | None = None) -> GroupPolic
     return GroupPolicyConfig(
         require_mention=_parse_bool_env("AIA_WHATSAPP_GROUP_REQUIRE_MENTION", True),
         triggers=_parse_triggers_env("AIA_WHATSAPP_GROUP_TRIGGERS", ("/oclaw", "|oclaw")),
+        session_scope=normalize_group_session_scope(os.environ.get("AIA_WHATSAPP_GROUP_SESSION_SCOPE")),
     )
 
 
@@ -304,6 +361,15 @@ def build_group_sender_context(*, metadata: dict[str, Any] | None, external_user
     return f"[群成员: {label}]"
 
 
+def build_group_focus_instruction(*, lang: str = "zh") -> str:
+    if str(lang or "").strip().lower().startswith("en"):
+        return (
+            "[Group chat rule: answer only the current sender's request. "
+            "Do not assume context from other members unless this message explicitly quotes or references it.]"
+        )
+    return "[群聊规则：只回答当前发言人的问题；除非本条消息明确引用或承接前文，否则不要默认继承其他群成员的上下文。]"
+
+
 def build_whatsapp_group_reply_metadata(
     *,
     inbound: Any,
@@ -335,18 +401,23 @@ __all__ = [
     "GROUP_SESSION_USER_SENTINEL",
     "GroupPolicyConfig",
     "build_group_sender_context",
+    "build_group_focus_instruction",
+    "build_group_quoted_context_block",
     "build_whatsapp_group_reply_metadata",
     "enrich_alert_group_question",
+    "extract_group_quoted_message",
     "extract_quoted_ume_alert_text",
     "mentions_include_bot",
     "metadata_mentions_bot",
     "normalize_jid",
+    "normalize_group_session_scope",
     "normalize_jids",
     "infer_is_group_from_chat_id",
     "is_nonsend_channel_reply_text",
     "resolve_is_group",
     "resolve_group_policy",
     "session_user_key",
+    "should_inject_quoted_context",
     "should_process_group_inbound",
     "should_send_channel_reply_text",
     "text_mentions_bot",

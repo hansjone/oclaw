@@ -39,8 +39,11 @@ def test_after_turn_memory_invokes_maybe_write_turn_memory(tmp_path: Path, monke
         user_id="u1",
         user_text="hello",
         assistant_text="world",
+        channel="whatsapp",
+        metadata={"is_group": True},
     )
     assert len(calls) == 1
     assert calls[0]["tenant_id"] == "t1"
     assert calls[0]["user_id"] == "u1"
+    assert calls[0]["channel"] == "whatsapp"
 
