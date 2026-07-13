@@ -188,6 +188,37 @@ def test_collect_recent_tool_attachments_ignores_text_ref_from_lookup_tools() ->
     assert out == []
 
 
+def test_collect_recent_tool_attachments_includes_deliverable_binary_ref() -> None:
+    rows = [
+        _Row(role="user", content="export", attachments=None),
+        _Row(
+            role="tool",
+            content="{}",
+            attachments='[{"type":"binary_ref","attachment_id":"gen-xlsx","name":"report.xlsx","mime":"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet","deliverable":true}]',
+        ),
+        _Row(role="assistant", content="done", attachments=None),
+    ]
+    out = _collect_recent_tool_attachments(store=_FakeStore(rows), session_id="s1")
+    assert len(out) == 1
+    assert out[0].get("attachment_id") == "gen-xlsx"
+    assert out[0].get("deliverable") is True
+
+
+def test_collect_recent_tool_attachments_includes_deliverable_text_ref() -> None:
+    rows = [
+        _Row(role="user", content="export", attachments=None),
+        _Row(
+            role="tool",
+            content="{}",
+            attachments='[{"type":"text_ref","attachment_id":"gen-txt","name":"out.txt","mime":"text/plain","deliverable":true}]',
+        ),
+        _Row(role="assistant", content="done", attachments=None),
+    ]
+    out = _collect_recent_tool_attachments(store=_FakeStore(rows), session_id="s1")
+    assert len(out) == 1
+    assert out[0].get("attachment_id") == "gen-txt"
+
+
 def test_maybe_add_media_path_for_wechat_reply_sets_media_path(monkeypatch) -> None:
     # Avoid touching disk: stub AttachmentAssetStore.get_local_path.
     from pathlib import Path

@@ -59,20 +59,30 @@ def _attachments_from_tool_result(result: Any) -> list[dict[str, Any]]:
     if not isinstance(result, dict):
         return []
     out: list[dict[str, Any]] = []
+    root_deliverable = result.get("deliverable") is True
+
+    def _with_deliverable(item: dict[str, Any], src: dict[str, Any] | None = None) -> dict[str, Any]:
+        if root_deliverable or (isinstance(src, dict) and src.get("deliverable") is True):
+            item["deliverable"] = True
+        return item
+
     aid = str(result.get("attachment_id") or "").strip()
     root_mime = str(result.get("mime") or "").strip()
     if aid:
         ref_type = _ref_type_for_mime(root_mime)
         out.append(
-            {
-                "type": ref_type,
-                "attachment_id": aid,
-                "name": str(result.get("name") or "generated-image"),
-                "mime": root_mime or "application/octet-stream",
-                "bytes": result.get("bytes"),
-                "width": result.get("width"),
-                "height": result.get("height"),
-            }
+            _with_deliverable(
+                {
+                    "type": ref_type,
+                    "attachment_id": aid,
+                    "name": str(result.get("name") or "generated-image"),
+                    "mime": root_mime or "application/octet-stream",
+                    "bytes": result.get("bytes"),
+                    "width": result.get("width"),
+                    "height": result.get("height"),
+                },
+                result,
+            )
         )
     refs = result.get("attachments")
     if isinstance(refs, list):
@@ -100,15 +110,18 @@ def _attachments_from_tool_result(result: Any) -> list[dict[str, Any]]:
                 if r_typ not in {"image_ref", "video_ref", "text_ref", "binary_ref"}:
                     r_typ = _ref_type_for_mime(r_mime)
                 out.append(
-                    {
-                        "type": r_typ,
-                        "attachment_id": r_aid,
-                        "name": str(r.get("name") or "generated-image"),
-                        "mime": r_mime or "application/octet-stream",
-                        "bytes": r.get("bytes"),
-                        "width": r.get("width"),
-                        "height": r.get("height"),
-                    }
+                    _with_deliverable(
+                        {
+                            "type": r_typ,
+                            "attachment_id": r_aid,
+                            "name": str(r.get("name") or "generated-image"),
+                            "mime": r_mime or "application/octet-stream",
+                            "bytes": r.get("bytes"),
+                            "width": r.get("width"),
+                            "height": r.get("height"),
+                        },
+                        r,
+                    )
                 )
     inner = result.get("result")
     if isinstance(inner, dict):
@@ -122,15 +135,18 @@ def _attachments_from_tool_result(result: Any) -> list[dict[str, Any]]:
                     a_id = str(item.get("attachment_id") or "").strip()
                     if a_id:
                         out.append(
-                            {
-                                "type": typ,
-                                "attachment_id": a_id,
-                                "mime": str(item.get("mime_type") or item.get("mime") or "application/octet-stream"),
-                                "name": str(item.get("name") or "tool-attachment"),
-                                "bytes": item.get("bytes"),
-                                "width": item.get("width"),
-                                "height": item.get("height"),
-                            }
+                            _with_deliverable(
+                                {
+                                    "type": typ,
+                                    "attachment_id": a_id,
+                                    "mime": str(item.get("mime_type") or item.get("mime") or "application/octet-stream"),
+                                    "name": str(item.get("name") or "tool-attachment"),
+                                    "bytes": item.get("bytes"),
+                                    "width": item.get("width"),
+                                    "height": item.get("height"),
+                                },
+                                item,
+                            )
                         )
                 elif typ == "image_url":
                     src = str(item.get("url") or item.get("image_url") or "").strip()

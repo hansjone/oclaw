@@ -370,6 +370,20 @@ def build_group_focus_instruction(*, lang: str = "zh") -> str:
     return "[群聊规则：只回答当前发言人的问题；除非本条消息明确引用或承接前文，否则不要默认继承其他群成员的上下文。]"
 
 
+def build_channel_file_delivery_instruction(*, lang: str = "zh") -> str:
+    if str(lang or "").strip().lower().startswith("en"):
+        return (
+            "[Channel rule: to send a generated file back to the user on WhatsApp/WeChat, "
+            "call save_deliverable_attachment after creating the file. write_file or run_command alone "
+            "does not attach files to the outbound message.]"
+        )
+    return (
+        "[渠道规则：若要把生成的文件发回用户（WhatsApp/微信），"
+        "在 write_file 或 run_command 生成文件后必须调用 save_deliverable_attachment；"
+        "仅 write_file 不会随消息发送附件。]"
+    )
+
+
 def build_whatsapp_group_reply_metadata(
     *,
     inbound: Any,
@@ -400,6 +414,7 @@ def build_whatsapp_group_reply_metadata(
 __all__ = [
     "GROUP_SESSION_USER_SENTINEL",
     "GroupPolicyConfig",
+    "build_channel_file_delivery_instruction",
     "build_group_sender_context",
     "build_group_focus_instruction",
     "build_group_quoted_context_block",

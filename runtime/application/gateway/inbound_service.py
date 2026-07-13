@@ -74,19 +74,29 @@ def _resolve_channel_dispatch(store: Any, *, channel: str, account: dict[str, An
     return interaction_mode, specialist, lang
 
 
-def _build_admin_gateway_executor(store: Any, *, tenant_id: str, specialist: str, session_id: str, lang: str) -> Any:
+def _build_admin_gateway_executor(
+    store: Any,
+    *,
+    tenant_id: str,
+    user_id: str | None = None,
+    viewer_username: str | None = None,
+    specialist: str,
+    session_id: str,
+    lang: str,
+) -> Any:
     from runtime.agents.factory import build_gateway_executor
 
+    uid = str(user_id or "").strip() or None
     return build_gateway_executor(
         store,
         lang=str(lang or "zh"),
         specialist=specialist,
-        viewer_user_id=None,
-        viewer_username="administrator",
+        viewer_user_id=uid,
+        viewer_username=str(viewer_username or "administrator").strip() or "administrator",
         viewer_tenant_id=(tenant_id or None),
         policy_session_id=session_id,
         path_policy_tenant_id=(tenant_id or None),
-        path_policy_user_id=None,
+        path_policy_user_id=uid,
     )
 
 
@@ -559,13 +569,25 @@ def _rows_since_last_user_message(rows: list[Any]) -> list[Any]:
 _CHANNEL_DELIVERABLE_ATTACHMENT_TYPES = frozenset(
     {"image_ref", "video_ref", "image", "input_image", "image_url"}
 )
+_CHANNEL_EXPLICIT_DELIVERABLE_TYPES = frozenset({"binary_ref", "text_ref"})
+
+
+def _is_channel_deliverable_attachment(att: dict[str, Any]) -> bool:
+    if not isinstance(att, dict):
+        return False
+    t = str(att.get("type") or "").strip().lower()
+    if t in _CHANNEL_DELIVERABLE_ATTACHMENT_TYPES:
+        return True
+    if t in _CHANNEL_EXPLICIT_DELIVERABLE_TYPES:
+        return att.get("deliverable") is True
+    return False
 
 
 def _collect_recent_tool_attachments(*, store: Any, session_id: str) -> list[dict[str, Any]]:
     """Fallback for channel delivery: reuse tool media produced during the current user turn only.
 
     Avoids re-sending images from earlier conversation turns when the latest assistant row has no attachments.
-    Only visual outbound media is eligible — not text_ref/binary_ref from read/query tools.
+    Visual media is always eligible; documents need explicit deliverable=true on the attachment ref.
     """
     sid = str(session_id or "").strip()
     if not sid:
@@ -582,16 +604,13 @@ def _collect_recent_tool_attachments(*, store: Any, session_id: str) -> list[dic
         atts = _parse_message_attachments(getattr(row, "attachments", None))
         if not atts:
             continue
-        ok = False
         deliverable: list[dict[str, Any]] = []
         for a in atts:
             if not isinstance(a, dict):
                 continue
-            t = str(a.get("type") or "").strip().lower()
-            if t in _CHANNEL_DELIVERABLE_ATTACHMENT_TYPES:
-                ok = True
+            if _is_channel_deliverable_attachment(a):
                 deliverable.append(a)
-        if ok:
+        if deliverable:
             return deliverable
     return []
 
@@ -1064,6 +1083,11 @@ def process_inbound_payload(payload: dict[str, Any]) -> dict[str, Any]:
                                     if dispatch_lang in {"zh", "en"}
                                     else resolve_runtime_lang(store=store, user_text=user_text)
                                 )
+                                if str(inbound.channel or "").strip().lower() in {"whatsapp", "wechat", "weixin"}:
+                                    from runtime.orchestration.group_ingest import build_channel_file_delivery_instruction
+
+                                    ch_hint = build_channel_file_delivery_instruction(lang=lang)
+                                    user_text = f"{ch_hint}\n{user_text}" if user_text else ch_hint
                                 gw = OclawGateway(store=store)
                                 msg = StandardMessage(
                                     session_id=str(session_id),
@@ -1090,6 +1114,7 @@ def process_inbound_payload(payload: dict[str, Any]) -> dict[str, Any]:
                                 manager = _build_admin_gateway_executor(
                                     store,
                                     tenant_id=tenant_id,
+                                    user_id=user_id,
                                     specialist="generalist",
                                     session_id=str(session_id),
                                     lang=lang,
@@ -1097,6 +1122,7 @@ def process_inbound_payload(payload: dict[str, Any]) -> dict[str, Any]:
                                 specialist_factory = lambda sid: _build_admin_gateway_executor(
                                     store,
                                     tenant_id=tenant_id,
+                                    user_id=user_id,
                                     specialist=sid,
                                     session_id=str(session_id),
                                     lang=lang,
