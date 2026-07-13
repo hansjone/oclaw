@@ -8,11 +8,23 @@ from runtime.orchestration.group_ingest import is_nonsend_channel_reply_text, sh
 from runtime.scheduler.session_resolver import parse_delivery_json
 
 
-def _encode_weixin_outbound_source(*, context_token: str) -> str:
-    return json.dumps(
-        {"kind": "scheduled_job", "context_token": str(context_token or "").strip()},
-        ensure_ascii=False,
-    )
+def _encode_weixin_outbound_source(
+    *,
+    context_token: str,
+    attachments: list[dict[str, Any]] | None = None,
+    media_path: str | None = None,
+) -> str:
+    payload: dict[str, Any] = {
+        "kind": "scheduled_job",
+        "context_token": str(context_token or "").strip(),
+    }
+    atts = [a for a in (attachments or []) if isinstance(a, dict)]
+    if atts:
+        payload["attachments"] = atts
+    mp = str(media_path or "").strip()
+    if mp:
+        payload["media_path"] = mp
+    return json.dumps(payload, ensure_ascii=False)
 
 
 def _decode_weixin_outbound_source(raw: str) -> dict[str, Any]:
@@ -35,6 +47,8 @@ def enqueue_weixin_reply(
     context_token: str = "",
     store: Any = None,
     tenant_id: str = "",
+    attachments: list[dict[str, Any]] | None = None,
+    media_path: str | None = None,
 ) -> dict[str, Any]:
     from runtime.scheduler.weixin_delivery import normalize_weixin_channel
 
@@ -57,7 +71,11 @@ def enqueue_weixin_reply(
                     text=str(text or ""),
                     tenant_id=str(tenant_id or ""),
                     account_id=str(account_id or "").strip(),
-                    source=_encode_weixin_outbound_source(context_token=ctx_tok),
+                    source=_encode_weixin_outbound_source(
+                        context_token=ctx_tok,
+                        attachments=attachments,
+                        media_path=media_path,
+                    ),
                 )
                 or ""
             ).strip()
@@ -84,6 +102,8 @@ def enqueue_weixin_reply(
             chat_id=str(chat_id or "").strip(),
             text=text,
             context_token=ctx_tok,
+            attachments=attachments,
+            media_path=media_path,
         )
         return {
             "ok": True,

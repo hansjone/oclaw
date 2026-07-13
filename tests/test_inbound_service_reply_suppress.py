@@ -151,15 +151,30 @@ def test_collect_reply_attachments_does_not_reuse_stale_images_on_text_only_repl
     assert out == []
 
 
-def test_collect_recent_tool_attachments_falls_back_to_tool_media() -> None:
+def test_collect_recent_tool_attachments_ignores_undeliverable_image_ref() -> None:
     rows = [
         _Row(role="user", content="draw", attachments=None),
         _Row(role="tool", content="{}", attachments='[{"type":"image_ref","attachment_id":"a1"}]'),
         _Row(role="assistant", content="x", attachments=None),
     ]
     out = _collect_recent_tool_attachments(store=_FakeStore(rows), session_id="s1")
+    assert out == []
+
+
+def test_collect_recent_tool_attachments_includes_deliverable_image_ref() -> None:
+    rows = [
+        _Row(role="user", content="draw", attachments=None),
+        _Row(
+            role="tool",
+            content="{}",
+            attachments='[{"type":"image_ref","attachment_id":"a1","mime":"image/png","deliverable":true}]',
+        ),
+        _Row(role="assistant", content="x", attachments=None),
+    ]
+    out = _collect_recent_tool_attachments(store=_FakeStore(rows), session_id="s1")
     assert len(out) == 1
     assert out[0].get("attachment_id") == "a1"
+    assert out[0].get("deliverable") is True
 
 
 def test_collect_recent_tool_attachments_ignores_media_from_prior_turn() -> None:
@@ -279,4 +294,38 @@ def test_maybe_expand_reply_attachments_for_channel_works_for_whatsapp(monkeypat
     out = r.get("attachments")
     assert isinstance(out, list) and len(out) == 1
     assert out[0].get("data_base64") == base64.b64encode(b"wa").decode("ascii")
+
+
+def test_maybe_expand_deliverable_xlsx_for_weixin_channel(monkeypatch) -> None:
+    import base64
+
+    class _Meta:
+        mime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        name = "report.xlsx"
+
+    def _fake_load_bytes(self, attachment_id: str):  # noqa: ANN001
+        assert attachment_id == "x1"
+        return b"xlsx-bytes", _Meta()
+
+    monkeypatch.setattr(
+        "svc.files.attachment_assets.AttachmentAssetStore.load_bytes",
+        _fake_load_bytes,
+    )
+    r = {
+        "channel": "weixin",
+        "attachments": [
+            {
+                "type": "binary_ref",
+                "attachment_id": "x1",
+                "name": "report.xlsx",
+                "mime": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                "deliverable": True,
+            }
+        ],
+    }
+    _maybe_expand_reply_attachments_for_channel(r)
+    out = r.get("attachments")
+    assert isinstance(out, list) and len(out) == 1
+    assert out[0].get("data_base64") == base64.b64encode(b"xlsx-bytes").decode("ascii")
+    assert out[0].get("name") == "report.xlsx"
 

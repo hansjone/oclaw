@@ -18,13 +18,32 @@ def _guess_mime(path: Path, override: str) -> str:
 
 def save_deliverable_attachment_tool() -> ToolSpec:
     def _handler(args: dict[str, Any]) -> dict[str, Any]:
-        raw = str(args.get("path") or "").strip().strip('"').strip("'")
-        if not raw:
-            return {"ok": False, "error": "path_required"}
+        attachment_id = str(args.get("attachment_id") or "").strip().lower()
+        raw_path = str(args.get("path") or "").strip().strip('"').strip("'")
         display_name = str(args.get("name") or "").strip()
         mime_override = str(args.get("mime") or "").strip()
+
+        if attachment_id:
+            store = AttachmentAssetStore()
+            meta = store.get_meta(attachment_id)
+            if meta is None:
+                return {"ok": False, "error": "attachment_not_found", "attachment_id": attachment_id}
+            name = display_name or meta.name
+            return {
+                "ok": True,
+                "attachment_id": meta.attachment_id,
+                "name": name,
+                "mime": mime_override or meta.mime,
+                "bytes": meta.bytes,
+                "width": meta.width,
+                "height": meta.height,
+                "deliverable": True,
+            }
+
+        if not raw_path:
+            return {"ok": False, "error": "path_or_attachment_id_required"}
         try:
-            p = resolve_workspace_path(raw)
+            p = resolve_workspace_path(raw_path)
         except ValueError as exc:
             return {"ok": False, "error": str(exc)}
         if not p.exists() or not p.is_file():
@@ -48,9 +67,11 @@ def save_deliverable_attachment_tool() -> ToolSpec:
     return ToolSpec(
         name="save_deliverable_attachment",
         description=(
-            "Register a workspace file for outbound channel delivery (WhatsApp/WeChat). "
-            "Call this after generating a file with write_file or run_command when the user should receive it as an attachment. "
-            "write_file alone does not send files to messaging channels."
+            "Mark an attachment for outbound channel delivery (WhatsApp/WeChat). "
+            "Required before the user receives any generated file, image, or video in a messaging channel. "
+            "Use path for workspace files (after write_file or run_command), or attachment_id for assets "
+            "already in the attachment store (e.g. after cloudflare_image_generate). "
+            "Generating content alone does not send attachments to the channel."
         ),
         parameters={
             "type": "object",
@@ -59,16 +80,19 @@ def save_deliverable_attachment_tool() -> ToolSpec:
                     "type": "string",
                     "description": "Workspace file path (relative to workspace root or allowed absolute path).",
                 },
+                "attachment_id": {
+                    "type": "string",
+                    "description": "Existing attachment_id from image/video generation tools.",
+                },
                 "name": {
                     "type": "string",
                     "description": "Optional download filename shown to the user.",
                 },
                 "mime": {
                     "type": "string",
-                    "description": "Optional MIME type override (e.g. application/vnd.openxmlformats-officedocument.spreadsheetml.sheet).",
+                    "description": "Optional MIME type override.",
                 },
             },
-            "required": ["path"],
             "additionalProperties": False,
         },
         handler=_handler,

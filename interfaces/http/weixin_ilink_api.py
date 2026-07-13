@@ -222,8 +222,10 @@ class _IlinkBridge:
         chat_id: str,
         text: str,
         context_token: str | None,
+        attachments: list[dict[str, Any]] | None = None,
+        media_path: str | None = None,
     ) -> None:
-        payload = {
+        payload: dict[str, Any] = {
             "channel": channel,
             "account_id": account_id,
             "chat_id": chat_id,
@@ -234,6 +236,12 @@ class _IlinkBridge:
             "context_token": (context_token or "").strip(),
             "ts": _now_ms(),
         }
+        mp = str(media_path or "").strip()
+        if mp:
+            payload["media_path"] = mp
+        atts = [a for a in (attachments or []) if isinstance(a, dict)]
+        if atts:
+            payload["attachments"] = atts
         with self._lock:
             self._seq += 1
             event = {
@@ -381,7 +389,9 @@ async def _process_inbound_and_enqueue(
         ctx_token = _extract_context_token(payload)
         reply_text = str(item.get("text") or "").strip()
         reply_chat_id = str(item.get("chat_id") or chat_id or user_id).strip() or user_id
-        if not reply_text:
+        reply_attachments = item.get("attachments") if isinstance(item.get("attachments"), list) else []
+        reply_media_path = str(item.get("media_path") or item.get("mediaPath") or "").strip()
+        if not reply_text and not reply_attachments and not reply_media_path:
             continue
         _BRIDGE.enqueue_reply(
             token=token,
@@ -390,6 +400,8 @@ async def _process_inbound_and_enqueue(
             chat_id=reply_chat_id,
             text=reply_text,
             context_token=ctx_token,
+            attachments=[a for a in reply_attachments if isinstance(a, dict)],
+            media_path=reply_media_path or None,
         )
 
 
@@ -570,6 +582,8 @@ def enqueue_weixin_outbound_reply(
     text: str,
     context_token: str = "",
     token: str = "",
+    attachments: list[dict[str, Any]] | None = None,
+    media_path: str | None = None,
 ) -> str:
     """Enqueue a proactive Weixin/WeChat outbound message for the sidecar poll loop."""
     tok = str(
@@ -585,6 +599,8 @@ def enqueue_weixin_outbound_reply(
         chat_id=str(chat_id or "").strip(),
         text=str(text or ""),
         context_token=str(context_token or "").strip(),
+        attachments=attachments,
+        media_path=media_path,
     )
     return str(_BRIDGE._seq)
 

@@ -6458,6 +6458,8 @@ class SqliteStore(ScheduledJobStoreMixin):
                     "text": str(r["text"] or ""),
                     "source": source,
                     "context_token": str(meta.get("context_token") or ""),
+                    "attachments": [a for a in (meta.get("attachments") or []) if isinstance(a, dict)],
+                    "media_path": str(meta.get("media_path") or ""),
                     "created_at": str(r["created_at"] or ""),
                 }
             )

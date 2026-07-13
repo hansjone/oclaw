@@ -57,3 +57,14 @@ def test_official_runner_supports_reply_attachments_base64() -> None:
     assert "data_base64" in text
     assert "media_base64" in text
     assert "reply.attachments" in text
+    assert "deliverWeixinReply" in text
+    assert "buildAttachmentsFromMedia" in text
+    assert "attachmentNameFromMediaItem" in text
+
+
+def test_official_runner_proactive_outbound_supports_attachments() -> None:
+    text = _read("runtime/operations/weixin_bridge/official_runner.ts")
+    assert "flushWeixinDbOutbound" in text
+    assert "flushLocalProactiveReplies" in text
+    assert "item.attachments" in text
+    assert "item.media_path" in text

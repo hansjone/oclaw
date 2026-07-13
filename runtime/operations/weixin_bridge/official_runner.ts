@@ -235,7 +235,10 @@ async function flushWeixinDbOutbound(args: {
     const toUser = String(item.chat_id || "").trim();
     const text = String(item.text || "").trim();
     const msgId = String(item.id || "").trim();
-    if (!toUser || !text || !msgId) continue;
+    const mediaPath = String(item.media_path || item.mediaPath || "").trim();
+    const attachments = Array.isArray(item.attachments) ? (item.attachments as Json[]) : [];
+    if (!toUser || !msgId) continue;
+    if (!text && !mediaPath && !attachments.length) continue;
     const contextToken = String(
       (item.context_token as string) ||
         args.modules.getContextToken(args.accountId, toUser) ||
@@ -247,14 +250,20 @@ async function flushWeixinDbOutbound(args: {
       continue;
     }
     try {
-      await args.modules.sendMessageWeixin({
-        to: toUser,
-        text,
-        opts: {
-          baseUrl: args.cloudBaseUrl,
-          token: args.token,
-          contextToken,
+      await deliverWeixinReply(args.modules, {
+        reply: {
+          chat_id: toUser,
+          text,
+          media_path: mediaPath,
+          attachments,
+          context_token: contextToken,
         },
+        defaultTo: toUser,
+        cloudBaseUrl: args.cloudBaseUrl,
+        token: args.token,
+        accountId: args.accountId,
+        defaultContextToken: contextToken,
+        userContextTokens: args.userContextTokens,
       });
       await postLocalJson(args.token, "weixin/outbound/ack", { id: msgId, ok: true }, 8000);
       log(`db proactive reply sent: id=${msgId} to=${toUser} textLen=${text.length}`);
@@ -307,7 +316,10 @@ async function flushLocalProactiveReplies(args: {
     for (const r of msgs) {
       const toUser = String(r.chat_id || "").trim();
       const text = String(r.text || "").trim();
-      if (!toUser || !text) continue;
+      const mediaPath = String(r.media_path || r.mediaPath || "").trim();
+      const attachments = Array.isArray(r.attachments) ? (r.attachments as Json[]) : [];
+      if (!toUser) continue;
+      if (!text && !mediaPath && !attachments.length) continue;
       const contextToken = String(
         (r.context_token as string) ||
           args.modules.getContextToken(args.accountId, toUser) ||
@@ -320,14 +332,20 @@ async function flushLocalProactiveReplies(args: {
         continue;
       }
       try {
-        await args.modules.sendMessageWeixin({
-          to: toUser,
-          text,
-          opts: {
-            baseUrl: args.cloudBaseUrl,
-            token: args.token,
-            contextToken,
+        await deliverWeixinReply(args.modules, {
+          reply: {
+            chat_id: toUser,
+            text,
+            media_path: mediaPath,
+            attachments,
+            context_token: contextToken,
           },
+          defaultTo: toUser,
+          cloudBaseUrl: args.cloudBaseUrl,
+          token: args.token,
+          accountId: args.accountId,
+          defaultContextToken: contextToken,
+          userContextTokens: args.userContextTokens,
         });
         log(`proactive reply sent: to=${toUser} textLen=${text.length}`);
       } catch (err) {
@@ -450,22 +468,115 @@ function pickDownloadableMedia(msg: Json): Json | null {
   return null;
 }
 
-function buildAttachmentsFromMedia(mediaOpts: Json): Json[] {
+function attachmentNameFromMediaItem(item: Json | null, kind: string): string {
+  if (!item || typeof item !== "object") return "";
+  if (kind === "file") {
+    const fileItem = item.file_item;
+    if (fileItem && typeof fileItem === "object") {
+      return String((fileItem as Json).file_name || (fileItem as Json).filename || (fileItem as Json).name || "").trim();
+    }
+  }
+  if (kind === "image") {
+    const imageItem = item.image_item;
+    if (imageItem && typeof imageItem === "object") {
+      return String((imageItem as Json).file_name || (imageItem as Json).filename || "").trim();
+    }
+  }
+  return "";
+}
+
+function buildAttachmentsFromMedia(mediaOpts: Json, mediaItem?: Json | null): Json[] {
   const out: Json[] = [];
   const pushIf = (key: string, mimeKey: string, kind: string): void => {
     const filePath = String(mediaOpts[key] || "").trim();
     if (!filePath) return;
-    out.push({
+    const name = String(
+      mediaOpts.fileOriginalName ||
+        mediaOpts.originalFilename ||
+        mediaOpts.file_name ||
+        attachmentNameFromMediaItem(mediaItem || null, kind) ||
+        "",
+    ).trim();
+    const att: Json = {
       kind,
       local_path: filePath,
       media_type: String(mediaOpts[mimeKey] || "").trim(),
-    });
+    };
+    if (name) {
+      att.name = name;
+      att.filename = name;
+    }
+    out.push(att);
   };
   pushIf("decryptedPicPath", "", "image");
   pushIf("decryptedVideoPath", "", "video");
   pushIf("decryptedFilePath", "fileMediaType", "file");
   pushIf("decryptedVoicePath", "voiceMediaType", "voice");
   return out;
+}
+
+async function deliverWeixinReply(
+  modules: OfficialModules,
+  params: {
+    reply: Json;
+    defaultTo: string;
+    cloudBaseUrl: string;
+    token: string;
+    accountId: string;
+    defaultContextToken?: string;
+    userContextTokens?: TokenMap;
+  },
+): Promise<boolean> {
+  const reply = params.reply;
+  const text = String(reply.text || "").trim();
+  const mediaPath = String(reply.media_path || reply.mediaPath || "").trim();
+  const mediaUrl = String(reply.media_url || reply.mediaUrl || "").trim();
+  const deliverTo = String(reply.chat_id || reply.to || params.defaultTo).trim() || params.defaultTo;
+  const replyContextToken = String(
+    reply.context_token ||
+      modules.getContextToken(params.accountId, deliverTo) ||
+      params.defaultContextToken ||
+      params.userContextTokens?.[deliverTo] ||
+      "",
+  ).trim();
+  const replyAtts = Array.isArray(reply.attachments) ? (reply.attachments as Json[]) : [];
+  let inlineMediaPath = "";
+  for (const att of replyAtts) {
+    if (!att || typeof att !== "object") continue;
+    const decoded = _decodeReplyBase64Attachment(att);
+    if (decoded?.filePath) {
+      inlineMediaPath = decoded.filePath;
+      break;
+    }
+  }
+  if (mediaPath || mediaUrl || inlineMediaPath) {
+    const filePath = mediaPath || mediaUrl || inlineMediaPath;
+    await modules.sendWeixinMediaFile({
+      filePath,
+      to: deliverTo,
+      text,
+      opts: {
+        baseUrl: params.cloudBaseUrl,
+        token: params.token,
+        contextToken: replyContextToken || undefined,
+      },
+      cdnBaseUrl: DEFAULT_CDN_BASE_URL,
+    });
+    log(`reply media sent to=${deliverTo} textLen=${text.length}`);
+    return true;
+  }
+  if (!text) return false;
+  await modules.sendMessageWeixin({
+    to: deliverTo,
+    text,
+    opts: {
+      baseUrl: params.cloudBaseUrl,
+      token: params.token,
+      contextToken: replyContextToken || undefined,
+    },
+  });
+  log(`reply text sent to=${deliverTo} textLen=${text.length}`);
+  return true;
 }
 
 function _decodeReplyBase64Attachment(att: Json): { filePath: string; mime: string } | null {
@@ -551,7 +662,8 @@ async function handleInboundMessage(
   }
   const ctx = modules.weixinMessageToMsgContext(params.full, params.accountId, mediaOpts);
   const bodyText = String((ctx as Json).Body || "").trim();
-  const attachCount = buildAttachmentsFromMedia(mediaOpts).length;
+  const inboundAttachments = buildAttachmentsFromMedia(mediaOpts, mediaItem);
+  const attachCount = inboundAttachments.length;
   log(`native call bodyLen=${bodyText.length} attachments=${attachCount}`);
   let replies: Json[] = [];
   const tNative0 = Date.now();
@@ -560,7 +672,7 @@ async function handleInboundMessage(
       channel: "wechat",
       account_id: params.accountId,
       ctx,
-      attachments: buildAttachmentsFromMedia(mediaOpts),
+      attachments: inboundAttachments,
       metadata: {
         source: "weixin_official_native",
         raw: {
@@ -586,50 +698,15 @@ async function handleInboundMessage(
     return params.localCursor;
   }
   for (const reply of replies) {
-    const text = String(reply.text || "").trim();
-    const mediaPath = String(reply.media_path || reply.mediaPath || "").trim();
-    const mediaUrl = String(reply.media_url || reply.mediaUrl || "").trim();
-    const deliverTo = String(reply.chat_id || reply.to || fromUser).trim() || fromUser;
-    const replyContextToken = String(
-      reply.context_token || modules.getContextToken(params.accountId, deliverTo) || contextToken || "",
-    ).trim();
-    const replyAtts = Array.isArray(reply.attachments) ? (reply.attachments as Json[]) : [];
-    let inlineMediaPath = "";
-    for (const att of replyAtts) {
-      if (!att || typeof att !== "object") continue;
-      const decoded = _decodeReplyBase64Attachment(att);
-      if (decoded?.filePath) {
-        inlineMediaPath = decoded.filePath;
-        break;
-      }
-    }
-    if (mediaPath || mediaUrl || inlineMediaPath) {
-      const filePath = mediaPath || mediaUrl || inlineMediaPath;
-      await modules.sendWeixinMediaFile({
-        filePath,
-        to: deliverTo,
-        text,
-        opts: {
-          baseUrl: params.cloudBaseUrl,
-          token: params.token,
-          contextToken: replyContextToken || undefined,
-        },
-        cdnBaseUrl: DEFAULT_CDN_BASE_URL,
-      });
-      log(`reply media sent to=${deliverTo} textLen=${text.length}`);
-      continue;
-    }
-    if (!text) continue;
-    await modules.sendMessageWeixin({
-      to: deliverTo,
-      text,
-      opts: {
-        baseUrl: params.cloudBaseUrl,
-        token: params.token,
-        contextToken: replyContextToken || undefined,
-      },
+    await deliverWeixinReply(modules, {
+      reply,
+      defaultTo: fromUser,
+      cloudBaseUrl: params.cloudBaseUrl,
+      token: params.token,
+      accountId: params.accountId,
+      defaultContextToken: contextToken || undefined,
+      userContextTokens: params.userContextTokens,
     });
-    log(`reply text sent to=${deliverTo} textLen=${text.length}`);
   }
   return params.localCursor;
 }

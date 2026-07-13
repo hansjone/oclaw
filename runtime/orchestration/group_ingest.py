@@ -373,14 +373,14 @@ def build_group_focus_instruction(*, lang: str = "zh") -> str:
 def build_channel_file_delivery_instruction(*, lang: str = "zh") -> str:
     if str(lang or "").strip().lower().startswith("en"):
         return (
-            "[Channel rule: to send a generated file back to the user on WhatsApp/WeChat, "
-            "call save_deliverable_attachment after creating the file. write_file or run_command alone "
-            "does not attach files to the outbound message.]"
+            "[Channel rule: to send any generated attachment back to the user on WhatsApp/WeChat "
+            "(documents, images, videos), call save_deliverable_attachment with path or attachment_id. "
+            "write_file, run_command, and image generation alone do not attach files to the outbound message.]"
         )
     return (
-        "[渠道规则：若要把生成的文件发回用户（WhatsApp/微信），"
-        "在 write_file 或 run_command 生成文件后必须调用 save_deliverable_attachment；"
-        "仅 write_file 不会随消息发送附件。]"
+        "[渠道规则：若要把生成的附件发回用户（WhatsApp/微信，含文档/图片/视频），"
+        "必须调用 save_deliverable_attachment（path 或 attachment_id）；"
+        "write_file、run_command、生图工具 alone 不会随消息发送附件。]"
     )
 
 

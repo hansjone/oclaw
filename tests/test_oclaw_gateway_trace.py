@@ -925,3 +925,32 @@ def test_tabular_system_hint_uses_configured_preview_and_rows_read(
     assert "5000行" in zh_hint
     assert "first 30 preview rows" in en_hint
     assert "capped at 5000 rows" in en_hint
+
+
+def test_channel_file_delivery_hint_goes_to_system_not_user_message() -> None:
+    from runtime.types import StandardMessage
+
+    zh_hint = OclawGateway._channel_file_delivery_system_hint("zh")
+    assert "save_deliverable_attachment" in zh_hint
+    msg = StandardMessage(
+        session_id="s1",
+        tenant_id="t1",
+        user_id="u1",
+        role="member",
+        channel="weixin",
+        text="hi",
+        attachments=[],
+        metadata={},
+    )
+    assert OclawGateway._is_channel_delivery_channel(msg)
+    msg_admin = StandardMessage(
+        session_id="s1",
+        tenant_id="t1",
+        user_id="u1",
+        role="member",
+        channel="admin",
+        text="hi",
+        attachments=[],
+        metadata={},
+    )
+    assert not OclawGateway._is_channel_delivery_channel(msg_admin)

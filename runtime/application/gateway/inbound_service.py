@@ -566,28 +566,18 @@ def _rows_since_last_user_message(rows: list[Any]) -> list[Any]:
     return list(rows[last_user_idx + 1 :])
 
 
-_CHANNEL_DELIVERABLE_ATTACHMENT_TYPES = frozenset(
-    {"image_ref", "video_ref", "image", "input_image", "image_url"}
-)
-_CHANNEL_EXPLICIT_DELIVERABLE_TYPES = frozenset({"binary_ref", "text_ref"})
-
-
 def _is_channel_deliverable_attachment(att: dict[str, Any]) -> bool:
+    """Channel outbound only sends attachments explicitly marked deliverable=true."""
     if not isinstance(att, dict):
         return False
-    t = str(att.get("type") or "").strip().lower()
-    if t in _CHANNEL_DELIVERABLE_ATTACHMENT_TYPES:
-        return True
-    if t in _CHANNEL_EXPLICIT_DELIVERABLE_TYPES:
-        return att.get("deliverable") is True
-    return False
+    return att.get("deliverable") is True
 
 
 def _collect_recent_tool_attachments(*, store: Any, session_id: str) -> list[dict[str, Any]]:
     """Fallback for channel delivery: reuse tool media produced during the current user turn only.
 
-    Avoids re-sending images from earlier conversation turns when the latest assistant row has no attachments.
-    Visual media is always eligible; documents need explicit deliverable=true on the attachment ref.
+    Avoids re-sending attachments from earlier conversation turns when the latest assistant row has none.
+    All attachment types (image, video, document) require explicit deliverable=true.
     """
     sid = str(session_id or "").strip()
     if not sid:
@@ -1083,11 +1073,6 @@ def process_inbound_payload(payload: dict[str, Any]) -> dict[str, Any]:
                                     if dispatch_lang in {"zh", "en"}
                                     else resolve_runtime_lang(store=store, user_text=user_text)
                                 )
-                                if str(inbound.channel or "").strip().lower() in {"whatsapp", "wechat", "weixin"}:
-                                    from runtime.orchestration.group_ingest import build_channel_file_delivery_instruction
-
-                                    ch_hint = build_channel_file_delivery_instruction(lang=lang)
-                                    user_text = f"{ch_hint}\n{user_text}" if user_text else ch_hint
                                 gw = OclawGateway(store=store)
                                 msg = StandardMessage(
                                     session_id=str(session_id),

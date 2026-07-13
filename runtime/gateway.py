@@ -468,6 +468,17 @@ class OclawGateway:
         return False
 
     @staticmethod
+    def _is_channel_delivery_channel(msg: StandardMessage) -> bool:
+        ch = str(getattr(msg, "channel", "") or "").strip().lower()
+        return ch in {"whatsapp", "wechat", "weixin"}
+
+    @staticmethod
+    def _channel_file_delivery_system_hint(lang: str) -> str:
+        from runtime.orchestration.group_ingest import build_channel_file_delivery_instruction
+
+        return str(build_channel_file_delivery_instruction(lang=lang) or "").strip()
+
+    @staticmethod
     def _tabular_query_system_hint(lang: str) -> str:
         limits = OclawGateway._tabular_limits_from_config()
         preview_rows = int(limits.get("large_table_preview_rows") or _DEFAULT_TABULAR_PREVIEW_ROWS)
@@ -1159,6 +1170,10 @@ class OclawGateway:
             if model is None or tools is None:
                 raise RuntimeError("executor missing model/tools")
             sys_prompt = system_prompt_override or str(getattr(selected_executor, "system_prompt", "") or "")
+            if self._is_channel_delivery_channel(msg):
+                ch_hint = self._channel_file_delivery_system_hint(lang)
+                if ch_hint:
+                    sys_prompt = f"{sys_prompt}\n\n{ch_hint}".strip()
             if self._has_tabular_ref_attachments(msg):
                 sys_prompt = f"{sys_prompt}\n\n{self._tabular_query_system_hint(lang)}".strip()
             if self._has_text_ref_attachments(msg):
