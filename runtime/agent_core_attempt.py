@@ -149,6 +149,7 @@ def run_attempt(*, store: Any, data: AttemptRunnerInput) -> AttemptRunnerOutput:
             tools=data.tools,
             user_text=data.msg.text,
             attachments=data.msg.attachments,
+            inbound_metadata=data.msg.metadata if isinstance(data.msg.metadata, dict) else None,
             trace_id=data.trace_id,
             parent_span_id=data.parent_span_id,
             run_id=data.run_id,

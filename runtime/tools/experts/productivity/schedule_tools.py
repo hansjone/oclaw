@@ -4,6 +4,7 @@ import json
 from typing import Any
 
 from runtime.scheduler.cron_service import build_delivery_for_session
+from runtime.scheduler.whatsapp_mentions import merge_whatsapp_mention_jids, merge_whatsapp_mention_names
 from runtime.scheduler.expressions import normalize_schedule_kind
 from runtime.scheduler.system_timezone import default_system_timezone
 from runtime.scheduler.service import run_scheduled_job_now
@@ -61,6 +62,14 @@ def schedule_create_tool() -> ToolSpec:
                     session_id=str(args.get("session_id") or ""),
                     whatsapp_chat_id=str(args.get("whatsapp_chat_id") or ""),
                 )
+            delivery = merge_whatsapp_mention_jids(
+                delivery,
+                args.get("whatsapp_mention_jids") if args.get("whatsapp_mention_jids") is not None else None,
+            )
+            delivery = merge_whatsapp_mention_names(
+                delivery,
+                args.get("whatsapp_mention_names") if args.get("whatsapp_mention_names") is not None else None,
+            )
             interaction_mode = normalize_interaction_mode(
                 str(args.get("interaction_mode") or "expert")
             )
@@ -89,7 +98,7 @@ def schedule_create_tool() -> ToolSpec:
 
     return ToolSpec(
         name="schedule_create",
-        description="Create a scheduled job (cron, once, or interval). Delivery follows the current chat channel (WhatsApp vs WeChat) unless delivery is set explicitly.",
+        description="Create a scheduled job (cron, once, or interval). Delivery follows the current chat channel (WhatsApp vs WeChat) unless delivery is set explicitly. For WhatsApp group @mentions, set whatsapp_mention_jids with explicit JIDs.",
         parameters={
             "type": "object",
             "properties": {
@@ -106,6 +115,11 @@ def schedule_create_tool() -> ToolSpec:
                 "selected_specialist": {"type": "string"},
                 "lang": {"type": "string"},
                 "whatsapp_chat_id": {"type": "string"},
+                "whatsapp_mention_jids": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "WhatsApp JIDs to @mention on delivery (e.g. 628...@s.whatsapp.net). Stored in delivery.whatsapp.mention_jids.",
+                },
                 "delivery": {"type": "object"},
                 "description": {"type": "string"},
             },

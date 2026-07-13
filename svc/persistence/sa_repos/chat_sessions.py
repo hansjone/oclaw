@@ -7,7 +7,7 @@ from typing import Any, Mapping
 from sqlalchemy import and_, delete, distinct, func, insert, literal, or_, select, update
 from sqlalchemy.engine import Engine
 
-from svc.persistence.db.tables import app_user, chat_message, chat_session, ui_session_owner
+from svc.persistence.db.tables import app_user, channel_session_v2, chat_message, chat_session, ui_session_owner
 from svc.persistence.sqlite_store import ChatSession, SessionsListMeta
 
 
@@ -196,6 +196,108 @@ class ChatSessionsSaRepository:
     def _administrator_username_predicate(self, username: str) -> Any:
         uname = str(username or "").strip().lower()
         return func.lower(app_user.c.username) == uname
+
+    def _administrator_chat_session_ids_subquery(self, *, username: str, tenant_id: str) -> Any:
+        pred = self._administrator_username_predicate(username)
+        tid = str(tenant_id or "").strip()
+        admin_ids = (
+            select(chat_session.c.id.label("sid"))
+            .select_from(
+                chat_session.join(
+                    ui_session_owner,
+                    ui_session_owner.c.session_id == chat_session.c.id,
+                ).join(
+                    app_user,
+                    and_(
+                        app_user.c.id == ui_session_owner.c.user_id,
+                        app_user.c.tenant_id == ui_session_owner.c.tenant_id,
+                    ),
+                )
+            )
+            .where(pred)
+        )
+        channel_ids = (
+            select(channel_session_v2.c.session_id.label("sid"))
+            .where(
+                channel_session_v2.c.tenant_id == tid,
+                channel_session_v2.c.session_id.isnot(None),
+                channel_session_v2.c.session_id != "",
+            )
+        )
+        return admin_ids.union(channel_ids).subquery()
+
+    def list_chat_sessions_for_administrator_chat_view(
+        self,
+        *,
+        username: str,
+        tenant_id: str,
+        limit: int | None,
+        offset: int,
+    ) -> list[ChatSession]:
+        ids = self._administrator_chat_session_ids_subquery(
+            username=username, tenant_id=tenant_id
+        )
+        stmt = (
+            select(
+                chat_session.c.id,
+                chat_session.c.title,
+                chat_session.c.created_at,
+                chat_session.c.last_message_at,
+            )
+            .where(chat_session.c.id.in_(select(ids.c.sid)))
+            .order_by(*_activity_order())
+        )
+        if limit is not None:
+            stmt = stmt.limit(int(limit)).offset(int(offset))
+        with self._engine.connect() as conn:
+            rows = conn.execute(stmt).mappings().all()
+        return [_session_from_row(r) for r in rows]
+
+    def sessions_list_meta_for_administrator_chat_view(
+        self, *, username: str, tenant_id: str
+    ) -> SessionsListMeta:
+        ids = self._administrator_chat_session_ids_subquery(
+            username=username, tenant_id=tenant_id
+        )
+        with self._engine.connect() as conn:
+            row = conn.execute(
+                select(
+                    func.count().label("c"),
+                    func.max(
+                        func.coalesce(chat_session.c.last_message_at, chat_session.c.created_at)
+                    ).label("latest_activity_at"),
+                )
+                .select_from(chat_session)
+                .where(chat_session.c.id.in_(select(ids.c.sid)))
+            ).mappings().first()
+        return SessionsListMeta(
+            session_count=int(row["c"] or 0) if row else 0,
+            latest_activity_at=str(row["latest_activity_at"])
+            if row and row.get("latest_activity_at") is not None
+            else None,
+        )
+
+    def fetch_chat_session_for_administrator_chat_view(
+        self, *, session_id: str, username: str, tenant_id: str
+    ) -> ChatSession | None:
+        sid = str(session_id or "").strip()
+        if not sid:
+            return None
+        ids = self._administrator_chat_session_ids_subquery(
+            username=username, tenant_id=tenant_id
+        )
+        with self._engine.connect() as conn:
+            row = conn.execute(
+                select(
+                    chat_session.c.id,
+                    chat_session.c.title,
+                    chat_session.c.created_at,
+                    chat_session.c.last_message_at,
+                )
+                .where(chat_session.c.id == sid, chat_session.c.id.in_(select(ids.c.sid)))
+                .limit(1)
+            ).mappings().first()
+        return _session_from_row(row) if row else None
 
     def list_chat_sessions_for_administrator_username(
         self,

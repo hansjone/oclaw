@@ -189,8 +189,18 @@ def resolve_scheduled_session(
             external_user_id=external_user_id,
             session_title=f"Scheduled · {job_name}",
         )
-        if user_id:
-            store.ensure_ui_session_owner(session_id=session_id, tenant_id=tenant_id, user_id=user_id)
+        from runtime.application.gateway.channel_session_owner import (
+            assign_channel_session_to_account_owner,
+        )
+
+        assign_channel_session_to_account_owner(
+            store,
+            session_id=session_id,
+            channel="whatsapp",
+            account_id=account_id,
+            tenant_id=tenant_id,
+            fallback_user_id=user_id,
+        )
         return ResolvedSession(
             session_id=session_id,
             tenant_id=tenant_id,
@@ -219,8 +229,18 @@ def resolve_scheduled_session(
             external_user_id=external_user_id,
             session_title=f"Scheduled · {job_name}",
         )
-        if user_id:
-            store.ensure_ui_session_owner(session_id=session_id, tenant_id=tenant_id, user_id=user_id)
+        from runtime.application.gateway.channel_session_owner import (
+            assign_channel_session_to_account_owner,
+        )
+
+        assign_channel_session_to_account_owner(
+            store,
+            session_id=session_id,
+            channel=channel,
+            account_id=account_id,
+            tenant_id=tenant_id,
+            fallback_user_id=user_id,
+        )
         return ResolvedSession(
             session_id=session_id,
             tenant_id=tenant_id,

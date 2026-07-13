@@ -825,14 +825,13 @@ def process_inbound_payload(payload: dict[str, Any]) -> dict[str, Any]:
 
     account = store.find_user_by_channel_account(channel=inbound.channel, account_id=account_id) or {}
     from runtime.orchestration.group_ingest import (
-        build_group_focus_instruction,
         build_group_quoted_context_block,
-        build_group_sender_context,
         enrich_alert_group_question,
         extract_group_quoted_message,
         extract_quoted_ume_alert_text,
         mentions_include_bot,
         metadata_mentions_bot,
+        prepare_group_user_text_for_model,
         resolve_group_policy,
         session_user_key,
         should_inject_quoted_context,
@@ -965,7 +964,18 @@ def process_inbound_payload(payload: dict[str, Any]) -> dict[str, Any]:
                 ),
             )
             channel_session_id = str(session_id)
-            store.ensure_ui_session_owner(session_id=session_id, tenant_id=tenant_id, user_id=user_id)
+            from runtime.application.gateway.channel_session_owner import (
+                assign_channel_session_to_account_owner,
+            )
+
+            assign_channel_session_to_account_owner(
+                store,
+                session_id=session_id,
+                channel=str(inbound.channel or ""),
+                account_id=account_id,
+                tenant_id=tenant_id,
+                fallback_user_id=user_id,
+            )
             if str(inbound.channel or "").strip().lower() in {"wechat", "weixin"}:
                 from runtime.scheduler.channel_delivery import (
                     extract_context_token_from_inbound_metadata,
@@ -1021,26 +1031,90 @@ def process_inbound_payload(payload: dict[str, Any]) -> dict[str, Any]:
                     if cmd_reply is not None:
                         reply = cmd_reply
                     elif not reply:
-                        user_text = (inbound.text or "").strip()
+                        raw_user_text = (inbound.text or "").strip()
+                        user_text = raw_user_text
+                        meta_for_inbound = inbound.metadata if isinstance(inbound.metadata, dict) else {}
+                        mention_jids_for_ctx: list[str] = []
+                        seen_mention_jids: set[str] = set()
+                        for src in (list(inbound.mentions or []), meta_for_inbound.get("mentioned_jids") or []):
+                            if not isinstance(src, list):
+                                continue
+                            for item in src:
+                                jid = str(item or "").strip()
+                                if jid and jid not in seen_mention_jids:
+                                    seen_mention_jids.add(jid)
+                                    mention_jids_for_ctx.append(jid)
+                        bot_jid_for_filter = str(meta_for_inbound.get("bot_jid") or bot_jid or "").strip().lower()
+                        bot_lid_for_filter = str(meta_for_inbound.get("bot_lid") or "").strip().lower()
+                        filtered_mention_jids: list[str] = []
+                        for jid in mention_jids_for_ctx:
+                            low = jid.lower()
+                            if (bot_jid_for_filter and low == bot_jid_for_filter) or (
+                                bot_lid_for_filter and low == bot_lid_for_filter
+                            ):
+                                continue
+                            filtered_mention_jids.append(jid)
+                        mention_names_for_ctx: list[str] = []
+                        if str(inbound.channel or "").strip().lower() == "whatsapp" and filtered_mention_jids:
+                            from runtime.orchestration.group_ingest import _bot_identity_jids, jid_base_local, jid_phone
+                            from runtime.scheduler.whatsapp_mentions import (
+                                _lookup_push_name,
+                                extract_whatsapp_mention_names,
+                            )
+
+                            raw_names = extract_whatsapp_mention_names(raw_user_text)
+                            bot_name_hints = {
+                                str(meta_for_inbound.get("bot_push_name") or "").strip().lower(),
+                                "oliver",
+                            }
+                            for bid in _bot_identity_jids(
+                                bot_jid=bot_jid, metadata=meta_for_inbound
+                            ):
+                                local = jid_base_local(bid)
+                                if local:
+                                    bot_name_hints.add(local.lower())
+                                phone = jid_phone(bid)
+                                if phone:
+                                    bot_name_hints.add(phone)
+                            text_names = [n for n in raw_names if n.lower() not in bot_name_hints and n]
+                            text_name_idx = 0
+                            upsert_contact = getattr(store, "upsert_whatsapp_contact", None)
+                            wa_acct = str(account_id or "").strip() or "wa-default"
+                            for jid in filtered_mention_jids:
+                                push_name = _lookup_push_name(
+                                    store,
+                                    tenant_id=str(tenant_id or ""),
+                                    account_id=wa_acct,
+                                    jid=jid,
+                                )
+                                if not push_name and text_name_idx < len(text_names):
+                                    push_name = text_names[text_name_idx]
+                                    text_name_idx += 1
+                                mention_names_for_ctx.append(str(push_name or "").strip())
+                                if callable(upsert_contact):
+                                    try:
+                                        upsert_contact(
+                                            tenant_id=str(tenant_id or ""),
+                                            account_id=wa_acct,
+                                            external_user_id=jid,
+                                            push_name=str(push_name or "").strip(),
+                                        )
+                                    except Exception:
+                                        pass
                         if inbound.is_group:
-                            meta_for_group = inbound.metadata if isinstance(inbound.metadata, dict) else {}
+                            meta_for_group = meta_for_inbound
                             bot_reached = metadata_mentions_bot(meta_for_group) or mentions_include_bot(
                                 mentions=list(inbound.mentions or []),
                                 bot_jid=bot_jid,
                                 metadata=meta_for_group,
-                            ) or text_mentions_bot(text=user_text, bot_jid=bot_jid)
+                            ) or text_mentions_bot(text=raw_user_text, bot_jid=bot_jid)
                             if bot_reached:
                                 quoted_alert = extract_quoted_ume_alert_text(metadata=meta_for_group)
                                 if quoted_alert:
-                                    user_text = enrich_alert_group_question(
-                                        user_text=user_text,
+                                    raw_user_text = enrich_alert_group_question(
+                                        user_text=raw_user_text,
                                         quoted_alert=quoted_alert,
                                     )
-                            sender_ctx = build_group_sender_context(
-                                metadata=meta_for_group,
-                                external_user_id=inbound.external_user_id,
-                            )
-                            group_rule = build_group_focus_instruction()
                             quoted_ctx = ""
                             quoted_info = extract_group_quoted_message(metadata=meta_for_group)
                             quoted_text = str(quoted_info.get("quoted_text") or "").strip()
@@ -1051,9 +1125,21 @@ def process_inbound_payload(payload: dict[str, Any]) -> dict[str, Any]:
                                     recent_messages=recent_messages,
                                 ):
                                     quoted_ctx = build_group_quoted_context_block(metadata=meta_for_group)
-                            prefix_parts = [sender_ctx, group_rule, quoted_ctx]
-                            prefix = "\n".join(part for part in prefix_parts if str(part).strip())
-                            user_text = f"{prefix}\n{user_text}" if user_text else prefix
+                            wa_acct = str(account_id or "").strip() or "wa-default"
+                            user_text = prepare_group_user_text_for_model(
+                                text=raw_user_text,
+                                metadata=meta_for_group,
+                                mentions=list(inbound.mentions or []),
+                                bot_jid=bot_jid,
+                                session_scope=group_policy.session_scope,
+                                external_user_id=inbound.external_user_id,
+                                filtered_mention_jids=filtered_mention_jids,
+                                mention_names=mention_names_for_ctx,
+                                store=store,
+                                tenant_id=str(tenant_id or ""),
+                                account_id=wa_acct,
+                                quoted_ctx=quoted_ctx,
+                            )
                         gw_attachments = _channel_attachments_for_gateway(
                             list(inbound.attachments or [])
                         )
@@ -1094,6 +1180,11 @@ def process_inbound_payload(payload: dict[str, Any]) -> dict[str, Any]:
                                         "external_user_id": inbound.external_user_id,
                                         "external_chat_id": inbound.external_chat_id,
                                         "group_sender_id": inbound.external_user_id,
+                                        "mentioned_jids": mention_jids_for_ctx,
+                                        "mention_names": mention_names_for_ctx,
+                                        "raw_inbound_text": raw_user_text,
+                                        "bot_jid": str(meta_for_inbound.get("bot_jid") or bot_jid or ""),
+                                        "bot_lid": str(meta_for_inbound.get("bot_lid") or ""),
                                     },
                                 )
                                 manager = _build_admin_gateway_executor(

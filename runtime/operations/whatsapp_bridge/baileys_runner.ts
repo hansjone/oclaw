@@ -527,14 +527,151 @@ function readMentionJids(meta: Json): string[] {
   return raw.map((j) => String(j || "").trim()).filter(Boolean);
 }
 
-function buildMentionPrefix(mentionJids: string[]): string {
-  const tags = mentionJids
-    .map((j) => {
-      const user = String(j || "").split("@")[0]?.trim();
-      return user ? `@${user}` : "";
-    })
-    .filter(Boolean);
-  return tags.length ? `${tags.join(" ")} ` : "";
+function readMentionNames(meta: Json): string[] {
+  const raw = (meta as any).mention_names ?? (meta as any).mentionNames;
+  if (!Array.isArray(raw)) return [];
+  return raw.map((n) => String(n || "").trim()).filter(Boolean);
+}
+
+function escapeRegExp(text: string): string {
+  return String(text || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function mentionTokenForJid(jid: string): string {
+  const local = jidBaseLocal(jid);
+  return local ? `@${local}` : "";
+}
+
+function resolveOutboundMentionJids(
+  sock: ReturnType<typeof makeWASocket> | null,
+  chatId: string,
+  mentionJids: string[],
+): string[] {
+  const isGroup = String(chatId || "").toLowerCase().endsWith("@g.us");
+  const lidMapping = (sock as any)?.signalRepository?.lidMapping;
+  const out: string[] = [];
+  const seen = new Set<string>();
+
+  const push = (jid: string) => {
+    const j = String(jid || "").trim();
+    if (!j) return;
+    const key = jidBaseLocal(j);
+    if (!key || seen.has(key)) return;
+    seen.add(key);
+    out.push(j);
+  };
+
+  for (let raw of mentionJids) {
+    let jid = String(raw || "").trim();
+    if (!jid) continue;
+
+    if (!jid.includes("@") && /^\d+$/.test(jid)) {
+      jid = `${jid}@lid`;
+    }
+
+    const low = jid.toLowerCase();
+    if (low.endsWith("@lid")) {
+      push(jid);
+      continue;
+    }
+
+    if (isGroup && lidMapping && typeof lidMapping.getLIDForPN === "function") {
+      try {
+        const pn = low.includes("@s.whatsapp") ? jidNormalizedUser(jid) : jid;
+        const lid = lidMapping.getLIDForPN(pn);
+        if (lid) {
+          push(String(lid));
+          continue;
+        }
+      } catch {
+        // ignore
+      }
+    }
+
+    push(jid.includes("@") ? jid : jidNormalizedUser(jid));
+  }
+  return out;
+}
+
+function alignMentionTextWithJids(text: string, mentionJids: string[], mentionNames: string[]): string {
+  let body = String(text || "").trim();
+  const tokens = mentionJids.map((j) => mentionTokenForJid(j)).filter(Boolean);
+  if (!tokens.length) return body;
+
+  for (let i = 0; i < mentionJids.length; i++) {
+    const token = tokens[i] || "";
+    if (!token) continue;
+    const name = String(mentionNames[i] || "").trim();
+    if (name) {
+      body = body.replace(new RegExp(`@${escapeRegExp(name)}(?=\\s|$|[，。！？!?,.])`, "gu"), token);
+    }
+  }
+
+  const missing = tokens.filter((token) => !body.includes(token));
+  if (missing.length) {
+    body = body.replace(/^(@\S+\s*)+/, "").trim();
+    body = `${missing.join(" ")} ${body}`.trim();
+  }
+  return body;
+}
+
+function decodeOutboundSource(raw: string): Json {
+  const text = String(raw || "").trim();
+  if (!text) return {};
+  if (text.startsWith("{")) {
+    try {
+      const data = JSON.parse(text);
+      return data && typeof data === "object" ? (data as Json) : {};
+    } catch {
+      return {};
+    }
+  }
+  return { kind: text };
+}
+
+function isOutboundMentionTextReady(meta: Json): boolean {
+  return Boolean((meta as any).mention_text_ready ?? (meta as any).mentionTextReady);
+}
+
+function buildMentionedOutboundText(
+  body: string,
+  meta: Json,
+  sock?: ReturnType<typeof makeWASocket> | null,
+  chatId?: string,
+): { text: string; mentions?: string[] } {
+  const trimmed = String(body || "").trim();
+  if (!trimmed) return { text: trimmed };
+  let mentionJids = readMentionJids(meta);
+  if (!mentionJids.length) return { text: trimmed };
+
+  const chat = String(chatId || "").trim();
+  if (sock && chat) {
+    mentionJids = resolveOutboundMentionJids(sock, chat, mentionJids);
+  }
+
+  const mentionNames = readMentionNames(meta);
+
+  if (isOutboundMentionTextReady(meta)) {
+    const aligned = alignMentionTextWithJids(trimmed, mentionJids, mentionNames);
+    return { text: aligned, mentions: mentionJids };
+  }
+  const cleaned = trimmed
+    .replace(/@\+?\d+(?:\s+\d+)*\s*/g, "")
+    .replace(/@\S+\s*/g, "")
+    .trim();
+  const prefix = mentionJids.map((j) => mentionTokenForJid(j)).filter(Boolean).join(" ");
+  const outText = prefix ? `${prefix} ${cleaned}`.trim() : trimmed;
+  return { text: outText, mentions: mentionJids };
+}
+
+function buildOutboundSendContent(
+  text: string,
+  sourceRaw: string,
+  sock?: ReturnType<typeof makeWASocket> | null,
+  chatId?: string,
+): { text: string; mentions?: string[] } {
+  const meta = decodeOutboundSource(sourceRaw);
+  return buildMentionedOutboundText(text, meta, sock, chatId);
 }
 
 function buildQuotedMessage(params: {
@@ -565,13 +702,10 @@ function buildTextSendOptions(params: {
   deliverTo: string;
   text: string;
   reply: Json;
+  sock?: ReturnType<typeof makeWASocket> | null;
 }): { content: { text: string; mentions?: string[] }; quoted?: proto.IWebMessageInfo } {
   const meta = readReplyMetadata(params.reply);
-  const mentionJids = readMentionJids(meta);
-  const body = String(params.text || "").trim();
-  const prefix = mentionJids.length ? buildMentionPrefix(mentionJids) : "";
-  const content: { text: string; mentions?: string[] } = { text: prefix ? `${prefix}${body}` : body };
-  if (mentionJids.length) content.mentions = mentionJids;
+  const content = buildMentionedOutboundText(params.text, meta, params.sock, params.deliverTo);
 
   const quoted = buildQuotedMessage({
     chatId: String((meta as any).quote_remote_jid || (meta as any).quoteRemoteJid || params.deliverTo).trim(),
@@ -628,25 +762,28 @@ function buildOutboundMediaMessage(params: {
   mime: string;
   fileName: string;
   caption?: string;
+  mentions?: string[];
 }): Json {
   const mime = String(params.mime || "application/octet-stream").trim() || "application/octet-stream";
   const m = mime.toLowerCase();
   const caption = String(params.caption || "").trim();
   const captionOpt = caption ? { caption } : {};
+  const mentionOpt = params.mentions?.length ? { mentions: params.mentions } : {};
   if (m.startsWith("image/")) {
-    return { image: params.data as any, mimetype: mime, ...captionOpt };
+    return { image: params.data as any, mimetype: mime, ...captionOpt, ...mentionOpt };
   }
   if (m.startsWith("video/")) {
-    return { video: params.data as any, mimetype: mime, ...captionOpt };
+    return { video: params.data as any, mimetype: mime, ...captionOpt, ...mentionOpt };
   }
   if (m.startsWith("audio/")) {
-    return { audio: params.data as any, mimetype: mime, ...captionOpt };
+    return { audio: params.data as any, mimetype: mime, ...captionOpt, ...mentionOpt };
   }
   return {
     document: params.data as any,
     mimetype: mime,
     fileName: sanitizeFileName(params.fileName || "attachment.bin"),
     ...captionOpt,
+    ...mentionOpt,
   };
 }
 
@@ -663,7 +800,12 @@ async function sendReplyWithAttachments(params: {
   const mediaPath = String((reply as any).media_path || (reply as any).mediaPath || "").trim();
   const mediaUrl = String((reply as any).media_url || (reply as any).mediaUrl || "").trim();
   const attachments = Array.isArray((reply as any).attachments) ? ((reply as any).attachments as Json[]) : [];
-  const textOpts = buildTextSendOptions({ deliverTo: params.deliverTo, text: outText, reply });
+  const textOpts = buildTextSendOptions({
+    deliverTo: params.deliverTo,
+    text: outText,
+    reply,
+    sock: params.sock,
+  });
   const sendOpts = textOpts.quoted ? { quoted: textOpts.quoted } : undefined;
 
   const sendMediaBuffer = async (data: Buffer, mime: string, fileName: string): Promise<boolean> => {
@@ -673,6 +815,7 @@ async function sendReplyWithAttachments(params: {
       mime,
       fileName,
       caption: textOpts.content.text,
+      mentions: textOpts.content.mentions,
     });
     await s.sendMessage(params.deliverTo, msg as any, sendOpts);
     return true;
@@ -753,13 +896,17 @@ async function pollOutboundQueue(sock: ReturnType<typeof makeWASocket>): Promise
       const id = String((item as any).id || "").trim();
       const chatId = String((item as any).chat_id || "").trim();
       const text = String((item as any).text || "").trim();
+      const source = String((item as any).source || "").trim();
       if (!id || !chatId || !text) continue;
       let ok = true;
       let err = "";
       try {
-        const sent = await sock.sendMessage(chatId, { text });
+        const sendContent = buildOutboundSendContent(text, source, sock, chatId);
+        const sent = await sock.sendMessage(chatId, sendContent);
         const stanzaId = String((sent as any)?.key?.id || "").trim();
-        log(`outbound sent id=${id} chat=${chatId} stanza=${stanzaId || "?"}`);
+        log(
+          `outbound sent id=${id} chat=${chatId} stanza=${stanzaId || "?"} mentions=${(sendContent.mentions || []).length} mention0=${(sendContent.mentions || [])[0] || ""} text=${sendContent.text.slice(0, 80)}`,
+        );
         try {
           await fetch(`${LOCAL_BASE_URL.replace(/\/+$/, "")}/whatsapp/outbound/ack`, {
             method: "POST",

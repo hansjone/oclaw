@@ -1546,6 +1546,14 @@ class SqliteStore(ScheduledJobStoreMixin):
             created_at=utc_now_iso(),
         )
 
+    def set_ui_session_owner(self, *, session_id: str, tenant_id: str, user_id: str) -> None:
+        self._ui_session_owner_repo().upsert_replace(
+            session_id=str(session_id),
+            tenant_id=str(tenant_id),
+            user_id=str(user_id),
+            created_at=utc_now_iso(),
+        )
+
     def get_session(self, session_id: str) -> Optional[ChatSession]:
         return self._chat_sessions_repo().fetch_chat_session_by_id(session_id=session_id)
 
@@ -1627,6 +1635,35 @@ class SqliteStore(ScheduledJobStoreMixin):
     def get_sessions_list_meta_for_administrator_username(self, *, username: str) -> SessionsListMeta:
         return self._chat_sessions_repo().sessions_list_meta_for_administrator_username(
             username=username
+        )
+
+    def list_sessions_for_administrator_chat_view(
+        self,
+        *,
+        username: str,
+        tenant_id: str,
+        limit: int | None = None,
+        offset: int = 0,
+    ) -> list[ChatSession]:
+        return self._chat_sessions_repo().list_chat_sessions_for_administrator_chat_view(
+            username=username,
+            tenant_id=tenant_id,
+            limit=limit,
+            offset=int(offset),
+        )
+
+    def get_sessions_list_meta_for_administrator_chat_view(
+        self, *, username: str, tenant_id: str
+    ) -> SessionsListMeta:
+        return self._chat_sessions_repo().sessions_list_meta_for_administrator_chat_view(
+            username=username, tenant_id=tenant_id
+        )
+
+    def get_session_for_administrator_chat_view(
+        self, *, session_id: str, username: str, tenant_id: str
+    ) -> Optional[ChatSession]:
+        return self._chat_sessions_repo().fetch_chat_session_for_administrator_chat_view(
+            session_id=session_id, username=username, tenant_id=tenant_id
         )
 
     def get_session_for_administrator_username(

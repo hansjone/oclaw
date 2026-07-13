@@ -479,6 +479,7 @@ class ToolExecutionContext:
     session_id: str
     lang: str = "zh"
     user_text: str = ""
+    inbound_metadata: dict[str, Any] | None = None
     specialist: str = ""
     task_kind: str = ""
     policy_engine: Any | None = None
@@ -529,11 +530,59 @@ class ToolExecutor:
         try:
             tname = str(tc.name or "")
             if tname == "schedule_create":
+                md = ctx.inbound_metadata if isinstance(ctx.inbound_metadata, dict) else {}
                 cur_spec = str(ctx.specialist or "").strip().lower()
                 if cur_spec and not str(tool_args.get("specialist") or "").strip() and not str(
                     tool_args.get("selected_specialist") or ""
                 ).strip():
                     tool_args["selected_specialist"] = cur_spec
+                raw_mentions = md.get("mentioned_jids") or md.get("mentionedJids") or md.get("mentions") or []
+                mention_list = raw_mentions if isinstance(raw_mentions, list) else []
+                bot_jid = str(md.get("bot_jid") or "").strip().lower()
+                bot_lid = str(md.get("bot_lid") or "").strip().lower()
+                cleaned: list[str] = []
+                seen: set[str] = set()
+                for m in mention_list:
+                    jid = str(m or "").strip()
+                    if not jid:
+                        continue
+                    low = jid.lower()
+                    if (bot_jid and low == bot_jid) or (bot_lid and low == bot_lid):
+                        continue
+                    if low in seen:
+                        continue
+                    seen.add(low)
+                    cleaned.append(jid)
+                if cleaned:
+                    tool_args["whatsapp_mention_jids"] = cleaned
+                elif tool_args.get("whatsapp_mention_jids") is not None:
+                    from runtime.scheduler.whatsapp_mentions import normalize_whatsapp_mention_jids
+
+                    tool_args["whatsapp_mention_jids"] = normalize_whatsapp_mention_jids(
+                        tool_args.get("whatsapp_mention_jids")
+                    )
+                if tool_args.get("whatsapp_mention_names") is None:
+                    from runtime.scheduler.whatsapp_mentions import extract_whatsapp_mention_names
+
+                    user_text = str(ctx.user_text or "")
+                    names = extract_whatsapp_mention_names(user_text)
+                    bot_names = {
+                        str(x or "").strip().lower()
+                        for x in (
+                            md.get("bot_push_name"),
+                            "oliver",
+                        )
+                        if str(x or "").strip()
+                    }
+                    filtered_names = [n for n in names if n.lower() not in bot_names]
+                    if filtered_names:
+                        tool_args["whatsapp_mention_names"] = filtered_names
+                    elif md.get("mention_names"):
+                        names_md = md.get("mention_names")
+                        if isinstance(names_md, list):
+                            tool_args["whatsapp_mention_names"] = [
+                                str(x or "").strip() for x in names_md if str(x or "").strip()
+                            ]
         except Exception:
             pass
         tool_args = filter_arguments_to_schema(tool.parameters, tool_args)

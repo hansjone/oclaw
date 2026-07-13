@@ -13,10 +13,13 @@ from runtime.orchestration.group_ingest import (
     is_nonsend_channel_reply_text,
     normalize_jid,
     normalize_group_session_scope,
+    normalize_mentioned_users_in_text,
+    prepare_group_user_text_for_model,
     resolve_group_policy,
     session_user_key,
     should_inject_quoted_context,
     should_process_group_inbound,
+    strip_bot_mentions_from_text,
     text_mentions_bot,
 )
 from interfaces.channels.base import InboundMessage
@@ -356,8 +359,56 @@ def test_build_group_sender_context() -> None:
         metadata={"raw": {"pushName": "Alice"}},
         external_user_id="111@s.whatsapp.net",
     )
-    assert "Alice" in ctx
-    assert "111@s.whatsapp.net" in ctx
+    assert ctx == "[发言: Alice]"
+    assert "111@s.whatsapp.net" not in ctx
+
+
+def test_strip_bot_mentions_from_text() -> None:
+    meta = {"bot_lid": "162788605444170@lid", "bot_push_name": "oliver"}
+    out = strip_bot_mentions_from_text(
+        text="@162788605444170 生成小鹿照片",
+        bot_jid="8618142387786@s.whatsapp.net",
+        metadata=meta,
+    )
+    assert out == "生成小鹿照片"
+
+
+def test_normalize_mentioned_users_in_text_uses_nickname() -> None:
+    out = normalize_mentioned_users_in_text(
+        text="每三分钟提醒@200846277140511 喝水",
+        mention_jids=["200846277140511@lid"],
+        mention_names=["吴华"],
+    )
+    assert out == "每三分钟提醒@吴华 喝水"
+
+
+def test_prepare_group_user_text_for_model_user_in_chat() -> None:
+    out = prepare_group_user_text_for_model(
+        text="@162788605444170 每三分钟提醒@200846277140511 喝水",
+        metadata={"bot_lid": "162788605444170@lid", "bot_push_name": "oliver"},
+        mentions=["162788605444170@lid", "200846277140511@lid"],
+        bot_jid="8618142387786@s.whatsapp.net",
+        session_scope="user_in_chat",
+        external_user_id="8618142387786@s.whatsapp.net",
+        filtered_mention_jids=["200846277140511@lid"],
+        mention_names=["吴华"],
+    )
+    assert out == "每三分钟提醒@吴华 喝水"
+    assert "[发言:" not in out
+
+
+def test_prepare_group_user_text_for_model_shared_chat_prefix() -> None:
+    out = prepare_group_user_text_for_model(
+        text="@999 帮忙",
+        metadata={"raw": {"pushName": "Alice"}},
+        mentions=["999@s.whatsapp.net"],
+        bot_jid="999@s.whatsapp.net",
+        session_scope="chat",
+        external_user_id="111@s.whatsapp.net",
+    )
+    assert out.startswith("[发言: Alice]")
+    assert out.endswith("帮忙")
+    assert "@999" not in out
 
 
 def test_build_group_focus_instruction() -> None:
@@ -421,6 +472,7 @@ def test_build_whatsapp_group_reply_metadata() -> None:
     assert meta["mention_jids"] == ["111:12@s.whatsapp.net"]
     assert meta["quote_text"] == "明天几点？"
     assert meta["quote_participant"] == "111:12@s.whatsapp.net"
+    assert meta["mention_names"] == ["Alice"]
 
 
 def test_default_group_session_is_per_user(fresh_sqlite_store: SqliteStore) -> None:
@@ -608,7 +660,7 @@ def test_inbound_group_mention_uses_per_user_session_and_sender_prefix(
         {
             **base,
             "user_id": "111@s.whatsapp.net",
-            "text": "@bot hi",
+            "text": "@999 hi",
             "mentions": ["999@s.whatsapp.net"],
             "metadata": {**base["metadata"], "raw": {"pushName": "Alice"}},
         }
@@ -617,7 +669,7 @@ def test_inbound_group_mention_uses_per_user_session_and_sender_prefix(
         {
             **base,
             "user_id": "222@s.whatsapp.net",
-            "text": "@bot again",
+            "text": "@999 again",
             "mentions": ["999@s.whatsapp.net"],
             "metadata": {**base["metadata"], "raw": {"pushName": "Bob"}},
         }
@@ -625,9 +677,10 @@ def test_inbound_group_mention_uses_per_user_session_and_sender_prefix(
 
     assert len(session_ids) == 2
     assert session_ids[0] != session_ids[1]
-    assert "[群成员:" in captured["text"]
-    assert "群聊规则" in captured["text"]
-    assert "Bob" in captured["text"]
+    assert "[群成员:" not in captured["text"]
+    assert "[发言:" not in captured["text"]
+    assert captured["text"] == "again"
+    assert "群聊规则" not in captured["text"]
 
     sid = store.get_or_create_channel_session_v2(
         tenant_id=tenant_id,
@@ -882,3 +935,112 @@ def test_inbound_group_reply_includes_quote_and_mention_metadata(
     assert meta.get("quote_stanza_id") == "ABC123"
     assert meta.get("mention_jids") == ["111@s.whatsapp.net"]
     assert meta.get("quote_text") == "@bot 明天几点？"
+
+
+def test_inbound_group_schedule_mention_metadata_preserved_after_text_clean(
+    monkeypatch: pytest.MonkeyPatch, fresh_sqlite_store: SqliteStore
+) -> None:
+    store = fresh_sqlite_store
+    tenant_id, _ = _setup_whatsapp_identity(store)
+    store.upsert_whatsapp_contact(
+        tenant_id=tenant_id,
+        account_id="wa-default",
+        external_user_id="200846277140511@lid",
+        push_name="WuHua",
+        list_type="whitelist",
+    )
+    monkeypatch.setattr("svc.persistence.assistant_store.get_assistant_store", lambda: store)
+
+    captured: dict[str, object] = {}
+
+    class _Turn:
+        turn_uuid = "turn-sched"
+        reply_text = "ok"
+
+    class _Gw:
+        def __init__(self, *, store: object) -> None:
+            _ = store
+
+        def handle_turn(self, **kwargs: object) -> _Turn:
+            msg = kwargs.get("msg")
+            captured["text"] = str(getattr(msg, "text", "") or "")
+            captured["metadata"] = getattr(msg, "metadata", None)
+            return _Turn()
+
+    monkeypatch.setattr("runtime.gateway.OclawGateway", _Gw)
+
+    process_inbound_payload(
+        {
+            "channel": "whatsapp",
+            "account_id": "wa-default",
+            "user_id": "111@s.whatsapp.net",
+            "chat_id": "120363012345678@g.us",
+            "text": "@999 remind @200846277140511 water",
+            "is_group": True,
+            "mentions": ["999@s.whatsapp.net", "200846277140511@lid"],
+            "metadata": {
+                "bot_jid": "999@s.whatsapp.net",
+                "bot_lid": "162788605444170@lid",
+                "raw": {"pushName": "Alice"},
+            },
+        }
+    )
+
+    meta = captured.get("metadata") if isinstance(captured.get("metadata"), dict) else {}
+    assert "200846277140511@lid" in list(meta.get("mentioned_jids") or [])
+    assert meta.get("raw_inbound_text")
+    text = str(captured.get("text") or "")
+    assert "200846277140511" not in text
+    assert "@WuHua" in text
+    assert "@999" not in text
+
+
+def test_channel_group_session_visible_in_administrator_chat_list(
+    monkeypatch: pytest.MonkeyPatch, fresh_sqlite_store: SqliteStore
+) -> None:
+    store = fresh_sqlite_store
+    tenant_id, owner_user_id = _setup_whatsapp_identity(store, extra_user_ids=["222@s.whatsapp.net"])
+    monkeypatch.setattr("svc.persistence.assistant_store.get_assistant_store", lambda: store)
+
+    session_ids: list[str] = []
+
+    class _Turn:
+        turn_uuid = "turn-guest"
+        reply_text = "ok"
+
+    class _Gw:
+        def __init__(self, *, store: object) -> None:
+            _ = store
+
+        def handle_turn(self, **kwargs: object) -> _Turn:
+            msg = kwargs.get("msg")
+            session_ids.append(str(getattr(msg, "session_id", "") or ""))
+            return _Turn()
+
+    monkeypatch.setattr("runtime.gateway.OclawGateway", _Gw)
+
+    process_inbound_payload(
+        {
+            "channel": "whatsapp",
+            "account_id": "wa-default",
+            "user_id": "222@s.whatsapp.net",
+            "chat_id": "120363012345678@g.us",
+            "text": "@999 hello from bob",
+            "is_group": True,
+            "mentions": ["999@s.whatsapp.net"],
+            "metadata": {"bot_jid": "999@s.whatsapp.net", "raw": {"pushName": "Bob"}},
+        }
+    )
+
+    assert session_ids
+    owner = store.get_ui_session_owner(session_id=session_ids[0]) or {}
+    assert owner.get("user_id") == owner_user_id
+
+    listed = store.list_sessions_for_administrator_chat_view(
+        username="administrator",
+        tenant_id=tenant_id,
+        limit=20,
+        offset=0,
+    )
+    listed_ids = {s.id for s in listed}
+    assert session_ids[0] in listed_ids

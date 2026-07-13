@@ -6,6 +6,12 @@ from typing import Any
 
 from runtime.orchestration.group_ingest import is_nonsend_channel_reply_text, should_send_channel_reply_text
 from runtime.scheduler.session_resolver import parse_delivery_json
+from runtime.scheduler.whatsapp_mentions import (
+    encode_whatsapp_outbound_source,
+    format_whatsapp_mention_text,
+    infer_whatsapp_mention_jids_from_text,
+    normalize_whatsapp_mention_jids,
+)
 
 
 def _encode_weixin_outbound_source(
@@ -216,15 +222,56 @@ def deliver_scheduled_reply(
         wa.get("account_id") or resolved_account_id or os.getenv("AIA_WHATSAPP_ACCOUNT_ID") or "wa-default"
     ).strip()
     if wa_enabled and chat_id and should_send_channel_reply_text(text):
+        mention_jids = normalize_whatsapp_mention_jids(wa.get("mention_jids"))
+        if not mention_jids:
+            mention_jids = infer_whatsapp_mention_jids_from_text(
+                text,
+                store=store,
+                tenant_id=tenant_id,
+                account_id=account_id,
+            )
+        mention_names = wa.get("mention_names") if isinstance(wa.get("mention_names"), list) else None
+        if mention_names is None and mention_jids:
+            from runtime.scheduler.whatsapp_mentions import _lookup_push_name
+
+            derived_names: list[str] = []
+            for jid in mention_jids:
+                derived_names.append(
+                    _lookup_push_name(
+                        store,
+                        tenant_id=tenant_id,
+                        account_id=account_id,
+                        jid=str(jid or ""),
+                    )
+                )
+            if any(derived_names):
+                mention_names = derived_names
+        out_text = format_whatsapp_mention_text(
+            text,
+            mention_jids,
+            store=store,
+            tenant_id=tenant_id,
+            account_id=account_id,
+            mention_names=mention_names,
+        )
         msg_id = store.enqueue_channel_outbound_message(
             channel="whatsapp",
             chat_id=chat_id,
-            text=text,
+            text=out_text,
             tenant_id=tenant_id,
             account_id=account_id,
-            source="scheduled_job",
+            source=encode_whatsapp_outbound_source(
+                mention_jids=mention_jids,
+                mention_names=mention_names,
+                mention_text_ready=bool(mention_jids),
+            ),
         )
-        results["whatsapp"] = {"ok": True, "message_id": msg_id, "chat_id": chat_id}
+        results["whatsapp"] = {
+            "ok": True,
+            "message_id": msg_id,
+            "chat_id": chat_id,
+            "mention_jids": mention_jids,
+        }
 
     wx = delivery.get("weixin") if isinstance(delivery.get("weixin"), dict) else {}
     wx_enabled = bool(wx.get("enabled", True))

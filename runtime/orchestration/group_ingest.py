@@ -356,9 +356,178 @@ def build_group_sender_context(*, metadata: dict[str, Any] | None, external_user
     push_name = str(raw.get("pushName") or meta.get("push_name") or meta.get("display_name") or "").strip()
     sender = str(external_user_id or "").strip()
     label = push_name or sender or "unknown"
-    if sender and push_name and sender not in push_name:
-        return f"[群成员: {label} ({sender})]"
-    return f"[群成员: {label}]"
+    return f"[发言: {label}]"
+
+
+def _mention_tokens_for_jids(jids: list[str]) -> list[str]:
+    tokens: list[str] = []
+    seen: set[str] = set()
+    for jid in jids or []:
+        local = jid_base_local(jid)
+        if local:
+            tok = f"@{local}"
+            if tok.lower() not in seen:
+                seen.add(tok.lower())
+                tokens.append(tok)
+        phone = jid_phone(jid)
+        if phone and len(phone) >= 6:
+            tok = f"@{phone}"
+            if tok.lower() not in seen:
+                seen.add(tok.lower())
+                tokens.append(tok)
+    return tokens
+
+
+def strip_bot_mentions_from_text(
+    *,
+    text: str,
+    bot_jid: str | None,
+    metadata: dict[str, Any] | None = None,
+) -> str:
+    body = str(text or "")
+    identities = _bot_identity_jids(bot_jid=bot_jid, metadata=metadata)
+    tokens = _mention_tokens_for_jids(identities)
+    extra_names: set[str] = set()
+    if isinstance(metadata, dict):
+        for name in (metadata.get("bot_push_name"), "oliver"):
+            n = str(name or "").strip()
+            if n:
+                extra_names.add(n.lower())
+    for token in sorted(tokens, key=len, reverse=True):
+        body = re.sub(
+            re.escape(token) + r"(?=\s|$|[，。！？!?,.])",
+            "",
+            body,
+            flags=re.IGNORECASE,
+        )
+    for name in sorted(extra_names, key=len, reverse=True):
+        body = re.sub(
+            rf"@{re.escape(name)}(?=\s|$|[，。！？!?,.])",
+            "",
+            body,
+            flags=re.IGNORECASE,
+        )
+    body = re.sub(r"\s{2,}", " ", body).strip()
+    return body
+
+
+def _filter_non_bot_mention_jids(
+    mention_jids: list[str],
+    *,
+    bot_jid: str | None,
+    metadata: dict[str, Any] | None = None,
+) -> list[str]:
+    identities = _bot_identity_jids(bot_jid=bot_jid, metadata=metadata)
+    out: list[str] = []
+    seen: set[str] = set()
+    for raw in mention_jids or []:
+        jid = str(raw or "").strip()
+        if not jid:
+            continue
+        if any(jids_same_user(jid, identity) for identity in identities):
+            continue
+        key = jid_base_local(jid) or jid.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(jid)
+    return out
+
+
+def normalize_mentioned_users_in_text(
+    *,
+    text: str,
+    mention_jids: list[str],
+    mention_names: list[str] | None = None,
+    store: Any = None,
+    tenant_id: str = "",
+    account_id: str = "",
+) -> str:
+    body = str(text or "")
+    names = [str(x or "").strip() for x in (mention_names or [])]
+    for idx, jid in enumerate(mention_jids or []):
+        jid_s = str(jid or "").strip()
+        if not jid_s:
+            continue
+        name = names[idx] if idx < len(names) and names[idx] else ""
+        if not name and store is not None:
+            from runtime.scheduler.whatsapp_mentions import _lookup_push_name
+
+            name = _lookup_push_name(
+                store,
+                tenant_id=str(tenant_id or ""),
+                account_id=str(account_id or ""),
+                jid=jid_s,
+            )
+        if not name:
+            local = jid_base_local(jid_s)
+            if local:
+                body = re.sub(
+                    rf"@{re.escape(local)}(?=\s|$|[，。！？!?,.])",
+                    "",
+                    body,
+                )
+            continue
+        local = jid_base_local(jid_s)
+        if local:
+            body = re.sub(
+                rf"@{re.escape(local)}(?=\s|$|[，。！？!?,.])",
+                f"@{name}",
+                body,
+            )
+        phone = jid_phone(jid_s)
+        if phone and len(phone) >= 6:
+            body = re.sub(
+                rf"@{re.escape(phone)}(?=\s|$|[，。！？!?,.])",
+                f"@{name}",
+                body,
+            )
+    body = re.sub(r"\s{2,}", " ", body).strip()
+    return body
+
+
+def prepare_group_user_text_for_model(
+    *,
+    text: str,
+    metadata: dict[str, Any] | None,
+    mentions: list[str],
+    bot_jid: str | None,
+    session_scope: str,
+    external_user_id: str,
+    filtered_mention_jids: list[str] | None = None,
+    mention_names: list[str] | None = None,
+    store: Any = None,
+    tenant_id: str = "",
+    account_id: str = "",
+    quoted_ctx: str = "",
+) -> str:
+    body = str(text or "").strip()
+    body = strip_bot_mentions_from_text(text=body, bot_jid=bot_jid, metadata=metadata)
+    target_jids = (
+        filtered_mention_jids
+        if filtered_mention_jids is not None
+        else _filter_non_bot_mention_jids(list(mentions or []), bot_jid=bot_jid, metadata=metadata)
+    )
+    body = normalize_mentioned_users_in_text(
+        text=body,
+        mention_jids=target_jids,
+        mention_names=mention_names,
+        store=store,
+        tenant_id=tenant_id,
+        account_id=account_id,
+    )
+    prefix_parts: list[str] = []
+    if normalize_group_session_scope(session_scope) == "chat":
+        prefix_parts.append(
+            build_group_sender_context(metadata=metadata, external_user_id=external_user_id)
+        )
+    quote = str(quoted_ctx or "").strip()
+    if quote:
+        prefix_parts.append(quote)
+    prefix = "\n".join(part for part in prefix_parts if str(part).strip())
+    if prefix and body:
+        return f"{prefix}\n{body}"
+    return prefix or body
 
 
 def build_group_focus_instruction(*, lang: str = "zh") -> str:
@@ -408,6 +577,7 @@ def build_whatsapp_group_reply_metadata(
     }
     if push_name:
         out["quote_push_name"] = push_name
+        out["mention_names"] = [push_name]
     return out
 
 
@@ -424,9 +594,12 @@ __all__ = [
     "extract_quoted_ume_alert_text",
     "mentions_include_bot",
     "metadata_mentions_bot",
+    "normalize_mentioned_users_in_text",
     "normalize_jid",
     "normalize_group_session_scope",
     "normalize_jids",
+    "prepare_group_user_text_for_model",
+    "strip_bot_mentions_from_text",
     "infer_is_group_from_chat_id",
     "is_nonsend_channel_reply_text",
     "resolve_is_group",

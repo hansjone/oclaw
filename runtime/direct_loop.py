@@ -864,6 +864,16 @@ def _dsml_mismatch_user_message(*, lang: str) -> str:
     )
 
 
+def _empty_final_user_message(*, lang: str, had_tools: bool) -> str:
+    if had_tools:
+        if str(lang or "").strip().lower().startswith("zh"):
+            return "工具执行未返回可展示结果，请稍后重试；若持续失败，请更换查询关键词。"
+        return "Tool execution did not produce a user-visible result. Please retry with a narrower query."
+    if str(lang or "").strip().lower().startswith("zh"):
+        return "抱歉，这次没有生成可展示内容，请重试。"
+    return "Sorry, no user-visible content was produced this turn. Please try again."
+
+
 def _promote_dsml_tool_calls(
     *,
     allow: bool,
@@ -1131,6 +1141,7 @@ def _execute_tool_step(
     run_id: str | None = None,
     attempt_no: int | None = None,
     turn_uuid: str | None = None,
+    inbound_metadata: dict[str, Any] | None = None,
 ) -> tuple[int, dict[str, tuple[dict[str, Any], int]]]:
     t0 = time.perf_counter()
     _tool_messages, results_by_id = skill_exec.execute_skill_uses(
@@ -1140,6 +1151,7 @@ def _execute_tool_step(
             session_id=session_id,
             lang=lang,
             user_text=user_text,
+            inbound_metadata=inbound_metadata,
             specialist="oclaw",
             trace_id=trace_id,
             parent_span_id=parent_span_id,
@@ -1390,6 +1402,7 @@ def run_oclaw_direct_loop(
     wire_policy_role: str | None = None,
     prompt_build_context: dict[str, Any] | None = None,
     turn_uuid: str | None = None,
+    inbound_metadata: dict[str, Any] | None = None,
 ) -> TurnRunOutcome:
     """A minimal oclaw-style loop: model -> tool_uses -> execute -> tool_results -> continue."""
     _check_stop(should_stop)
@@ -1599,6 +1612,7 @@ def run_oclaw_direct_loop(
             run_id=run_id,
             attempt_no=attempt_no,
             turn_uuid=turn_uuid,
+            inbound_metadata=inbound_metadata,
         )
 
         for tc in step.llm_tool_calls:
@@ -1661,6 +1675,18 @@ def run_oclaw_direct_loop(
             llm_tool_calls=[],
         )
         final_text = step.assistant_text
+
+    if not str(final_text or "").strip():
+        fallback = _empty_final_user_message(lang=lang, had_tools=bool(tool_traces))
+        store.add_message(
+            session_id=session_id,
+            role="assistant",
+            content=fallback,
+            turn_uuid=turn_uuid,
+            event_type="assistant_text",
+            event_payload={"runtime_fallback": "empty_final_text"},
+        )
+        final_text = fallback
 
     return TurnRunOutcome(
         final_text=str(final_text or ""),

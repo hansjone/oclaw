@@ -386,9 +386,10 @@ def _resolve_chat_session(store: SqliteStore, ctx: dict[str, Any], session_id: s
     user_id = str(ctx.get("user_id") or "")
     sid = str(session_id or "").strip()
     if _is_administrator_chat_viewer(ctx):
-        sess = store.get_session_for_administrator_username(
+        sess = store.get_session_for_administrator_chat_view(
             session_id=sid,
             username=_chat_username(ctx),
+            tenant_id=tenant_id,
         )
         if sess is not None:
             return sess
@@ -891,9 +892,11 @@ def include_chat_routes(router: APIRouter, *, resolve_auth: Callable[[SqliteStor
         user_id = str(ctx.get("user_id") or "")
         if _is_administrator_chat_viewer(ctx):
             uname = _chat_username(ctx)
-            meta = store.get_sessions_list_meta_for_administrator_username(username=uname)
-            rows = store.list_sessions_for_administrator_username(
-                username=uname, limit=limit, offset=offset
+            meta = store.get_sessions_list_meta_for_administrator_chat_view(
+                username=uname, tenant_id=tenant_id
+            )
+            rows = store.list_sessions_for_administrator_chat_view(
+                username=uname, tenant_id=tenant_id, limit=limit, offset=offset
             )
         else:
             meta = store.get_sessions_list_meta_for_user(tenant_id=tenant_id, user_id=user_id)

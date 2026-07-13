@@ -1251,6 +1251,21 @@ class OclawGateway:
                         )
             else:
                 reply = specialist_reply
+            if not str(reply or "").strip():
+                rs = getattr(core_out, "run_state", None)
+                if rs is not None and str(getattr(rs, "status", "") or "") == "failed":
+                    reason = ""
+                    attempts = getattr(rs, "attempts", ()) or ()
+                    if attempts:
+                        reason = str(getattr(attempts[-1], "reason", "") or "")
+                    if not reason:
+                        reason = str(getattr(rs, "last_error_code", "") or "unknown_error")
+                    base = render_prompt(
+                        "fallback/runtime_error.en.md" if str(lang or "").startswith("en") else "fallback/runtime_error.zh.md",
+                        strict=True,
+                    )
+                    detail = str(reason or "").strip().replace("\n", " ")[:400]
+                    reply = f"{base}\n(detail: {detail})" if detail else base
         except Exception as exc:
             base = render_prompt(
                 "fallback/runtime_error.en.md" if str(lang or "").startswith("en") else "fallback/runtime_error.zh.md",

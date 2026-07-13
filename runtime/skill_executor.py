@@ -22,6 +22,7 @@ class SkillExecutionContext:
     session_id: str
     lang: str = "zh"
     user_text: str = ""
+    inbound_metadata: dict[str, Any] | None = None
     specialist: str = "oclaw"
     trace_id: str | None = None
     parent_span_id: str | None = None
@@ -160,6 +161,7 @@ class SkillExecutor:
                 session_id=ctx.session_id,
                 lang=ctx.lang,
                 user_text=ctx.user_text,
+                inbound_metadata=ctx.inbound_metadata,
                 specialist=ctx.specialist,
                 task_kind="turn",
                 policy_engine=None,
