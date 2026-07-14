@@ -1,6 +1,6 @@
 ---
 name: scheduled-workflows
-description: "把复杂/多步工作固化成定时 Workflow Recipe：先 schedule_propose 出草稿给用户确认，再 schedule_create。Recipe 必须自包含——到点执行时没有原对话，LLM 仅凭 recipe 仍能正确完成任务。"
+description: "把复杂/多步工作固化成定时 Workflow Recipe：先 schedule_propose 确认再创建；删除须先预览再确认（群聊他人任务另需 confirm_foreign）。Recipe 必须自包含。"
 ---
 
 # 定时工作流 — Scheduled Workflows
@@ -108,6 +108,23 @@ description: "把复杂/多步工作固化成定时 Workflow Recipe：先 schedu
 |------|------|
 | 喝水/开会提醒 | `schedule_create`，仅短 `prompt_text`（本身已自包含） |
 | 多步流程 /「刚才那件事」 | 套用**任务模板** → `schedule_propose` → 确认 → `schedule_create(recipe=...)` |
+
+## 删除定时任务（必须确认）
+
+多任务 / 群聊多人创建时，**禁止直接删除**。
+
+1. 先 `schedule_list` 或让用户说清目标；`schedule_delete(job_id=…)` **不要**先带 `confirmed=true`。
+2. 把返回的 `preview_markdown` 发给用户（含名称、时间、创建者）。
+3. 用户明确确认「删这个」后，再 `schedule_delete(job_id=完整id, confirmed=true)`。
+4. 若 `foreign_job=true`（他人创建）：还须用户明确同意删他人的，并设 `confirm_foreign=true`。
+5. 前缀匹配到多个任务 → 展示候选，**不要猜**。
+6. 仅想暂时停跑时优先 `schedule_pause`，不要删。
+
+聊天快捷指令：
+
+- `删除定时 <id>` → 只预览，不删
+- `确认删除定时 <id>` → 删除自己的
+- `确认删除他人定时 <完整id>` → 删除他人的（需更明确）
 
 ## 修改已有任务
 

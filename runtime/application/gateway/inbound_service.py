@@ -113,7 +113,15 @@ def _menu_text() -> str:
     )
 
 
-def _handle_productivity_commands(*, text: str, tenant_id: str, user_id: str, session_id: str = "") -> str | None:
+def _handle_productivity_commands(
+    *,
+    text: str,
+    tenant_id: str,
+    user_id: str,
+    session_id: str = "",
+    creator_external_user_id: str = "",
+    creator_push_name: str = "",
+) -> str | None:
     t = (text or "").strip()
     t_low = t.lower()
     if not t:
@@ -206,15 +214,95 @@ def _handle_productivity_commands(*, text: str, tenant_id: str, user_id: str, se
         ok = store.scheduled_job_set_status(tenant_id=tenant_id, job_id=full, status="paused")
         return "已暂停。" if ok else "未找到该定时任务。"
 
+    if t.startswith("确认删除定时任务 ") or t.startswith("确认删除定时 "):
+        prefix = "确认删除定时任务 " if t.startswith("确认删除定时任务 ") else "确认删除定时 "
+        jid = t[len(prefix) :].strip()
+        if not jid:
+            return "请提供任务 id。示例：确认删除定时 1234abcd"
+        from runtime.scheduler.job_delete import (
+            job_delete_preview,
+            job_is_foreign,
+            resolve_scheduled_jobs_by_id,
+        )
+
+        matches = resolve_scheduled_jobs_by_id(store, tenant_id=tenant_id, job_id=jid)
+        if not matches:
+            return "未找到该定时任务。"
+        if len(matches) > 1:
+            lines = [
+                f"- {r.name} | id={r.id[:8]}… | {r.schedule_kind}:{r.schedule_expr}" for r in matches[:8]
+            ]
+            return "匹配到多个任务，请用更完整的 id：\n" + "\n".join(lines)
+        job = matches[0]
+        foreign = job_is_foreign(
+            job,
+            actor_user_id=str(user_id or ""),
+            actor_external_user_id=str(creator_external_user_id or ""),
+        )
+        if foreign:
+            return (
+                f"该任务看起来是其他人创建的（{job.name} / id={job.id[:8]}）。"
+                "如需删除，请明确说「确认删除他人定时 <完整id>」。"
+            )
+        ok = store.scheduled_job_delete(tenant_id=tenant_id, job_id=str(job.id))
+        if not ok:
+            return "未找到该定时任务。"
+        preview = job_delete_preview(job)
+        return f"已删除：{preview.get('name')}（id={str(preview.get('id') or '')[:8]}）"
+
+    if t.startswith("确认删除他人定时任务 ") or t.startswith("确认删除他人定时 "):
+        prefix = "确认删除他人定时任务 " if t.startswith("确认删除他人定时任务 ") else "确认删除他人定时 "
+        jid = t[len(prefix) :].strip()
+        if not jid:
+            return "请提供完整任务 id。示例：确认删除他人定时 1234abcd-...."
+        from runtime.scheduler.job_delete import job_delete_preview, resolve_scheduled_jobs_by_id
+
+        matches = resolve_scheduled_jobs_by_id(store, tenant_id=tenant_id, job_id=jid)
+        if not matches:
+            return "未找到该定时任务。"
+        if len(matches) > 1:
+            return "删除他人任务须使用唯一完整 id，当前前缀匹配到多个任务。"
+        job = matches[0]
+        ok = store.scheduled_job_delete(tenant_id=tenant_id, job_id=str(job.id))
+        if not ok:
+            return "未找到该定时任务。"
+        preview = job_delete_preview(job)
+        return f"已删除他人任务：{preview.get('name')}（id={str(preview.get('id') or '')[:8]}）"
+
     if t.startswith("删除定时任务 ") or t.startswith("删除定时 "):
         prefix = "删除定时任务 " if t.startswith("删除定时任务 ") else "删除定时 "
         jid = t[len(prefix) :].strip()
         if not jid:
-            return "请提供任务 id 前缀。示例：删除定时任务 1234abcd"
-        rows = store.scheduled_job_list(tenant_id=tenant_id, status=None, limit=200)
-        full = next((r.id for r in rows if str(r.id).startswith(jid)), jid)
-        ok = store.scheduled_job_delete(tenant_id=tenant_id, job_id=full)
-        return "已删除。" if ok else "未找到该定时任务。"
+            return "请提供任务 id 前缀。示例：删除定时 1234abcd"
+        from runtime.scheduler.job_delete import (
+            job_delete_preview_markdown,
+            job_delete_preview,
+            job_is_foreign,
+            resolve_scheduled_jobs_by_id,
+        )
+
+        matches = resolve_scheduled_jobs_by_id(store, tenant_id=tenant_id, job_id=jid)
+        if not matches:
+            return "未找到该定时任务。"
+        if len(matches) > 1:
+            lines = [
+                f"- {r.name} | id={r.id[:8]}… | {r.schedule_kind}:{r.schedule_expr}" for r in matches[:8]
+            ]
+            return "匹配到多个任务，请指定更完整的 id：\n" + "\n".join(lines)
+        job = matches[0]
+        foreign = job_is_foreign(
+            job,
+            actor_user_id=str(user_id or ""),
+            actor_external_user_id=str(creator_external_user_id or ""),
+        )
+        preview = job_delete_preview(job)
+        md = job_delete_preview_markdown(preview, foreign=foreign, lang="zh")
+        if foreign:
+            return (
+                md
+                + f"\n\n如确认删除，请发送：确认删除他人定时 {job.id}"
+            )
+        return md + f"\n\n如确认删除，请发送：确认删除定时 {job.id}"
 
     schedule_prefix = ""
     if t.startswith("记定时 ") or t.startswith("创建定时 "):
@@ -243,6 +331,15 @@ def _handle_productivity_commands(*, text: str, tenant_id: str, user_id: str, se
         delivery = build_delivery_for_session(
             store,
             tenant_id=tenant_id,
+            session_id=str(session_id or "").strip(),
+        )
+        from runtime.scheduler.job_delete import merge_delivery_creator
+
+        delivery = merge_delivery_creator(
+            delivery,
+            user_id=str(user_id or ""),
+            external_user_id=str(creator_external_user_id or ""),
+            push_name=str(creator_push_name or ""),
             session_id=str(session_id or "").strip(),
         )
         row = store.scheduled_job_create(
@@ -1027,6 +1124,21 @@ def process_inbound_payload(payload: dict[str, Any]) -> dict[str, Any]:
                         tenant_id=tenant_id,
                         user_id=user_id,
                         session_id=str(session_id),
+                        creator_external_user_id=str(getattr(inbound, "external_user_id", "") or ""),
+                        creator_push_name=str(
+                            (
+                                (inbound.metadata or {}).get("push_name")
+                                if isinstance(inbound.metadata, dict)
+                                else ""
+                            )
+                            or (
+                                ((inbound.metadata or {}).get("raw") or {}).get("pushName")
+                                if isinstance(inbound.metadata, dict)
+                                and isinstance((inbound.metadata or {}).get("raw"), dict)
+                                else ""
+                            )
+                            or ""
+                        ),
                     )
                     if cmd_reply is not None:
                         reply = cmd_reply

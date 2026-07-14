@@ -6,6 +6,13 @@ from typing import Any
 
 from runtime.scheduler.cron_service import build_delivery_for_session
 from runtime.scheduler.expressions import normalize_schedule_kind
+from runtime.scheduler.job_delete import (
+    job_delete_preview,
+    job_delete_preview_markdown,
+    job_is_foreign,
+    merge_delivery_creator,
+    resolve_scheduled_jobs_by_id,
+)
 from runtime.scheduler.recipe import (
     looks_like_complex_schedule_prompt,
     normalize_recipe,
@@ -228,13 +235,20 @@ def schedule_create_tool() -> ToolSpec:
                 delivery,
                 args.get("whatsapp_mention_names") if args.get("whatsapp_mention_names") is not None else None,
             )
+            session_id = str(args.get("session_id") or "").strip() or None
+            delivery = merge_delivery_creator(
+                delivery,
+                user_id=owner_user_id,
+                external_user_id=str(args.get("creator_external_user_id") or "").strip(),
+                push_name=str(args.get("creator_push_name") or "").strip(),
+                session_id=str(session_id or ""),
+            )
             interaction_mode = normalize_interaction_mode(
                 str(args.get("interaction_mode") or "expert")
             )
             specialist = normalize_requested_specialist(
                 str(args.get("specialist") or args.get("selected_specialist") or "generalist")
             )
-            session_id = str(args.get("session_id") or "").strip() or None
             if recipe_has_playbook(recipe):
                 if session_id and not str((recipe.get("source") or {}).get("session_id") or "").strip():
                     recipe["source"]["session_id"] = session_id
@@ -302,6 +316,14 @@ def schedule_create_tool() -> ToolSpec:
                 "whatsapp_mention_names": {
                     "type": "array",
                     "items": {"type": "string"},
+                },
+                "creator_external_user_id": {
+                    "type": "string",
+                    "description": "Auto-filled channel sender id for group ownership checks.",
+                },
+                "creator_push_name": {
+                    "type": "string",
+                    "description": "Auto-filled channel display name of the creator.",
                 },
                 "delivery": {"type": "object"},
                 "description": {"type": "string"},
@@ -483,17 +505,109 @@ def schedule_delete_tool() -> ToolSpec:
             args = _scoped_args(store, "schedule_delete", args)
             tenant_id = _require(str(args.get("tenant_id") or ""), "tenant_id")
             job_id = _require(str(args.get("job_id") or ""), "job_id")
-            ok = store.scheduled_job_delete(tenant_id=tenant_id, job_id=job_id)
-            return {"ok": bool(ok), "job_id": job_id}
+            confirmed = bool(args.get("confirmed"))
+            confirm_foreign = bool(args.get("confirm_foreign"))
+            lang = str(args.get("lang") or "zh")
+            actor_user_id = str(args.get("owner_user_id") or args.get("user_id") or "").strip()
+            actor_external_user_id = str(args.get("actor_external_user_id") or "").strip()
+
+            matches = resolve_scheduled_jobs_by_id(store, tenant_id=tenant_id, job_id=job_id)
+            if not matches:
+                return {"ok": False, "error": "job_not_found", "job_id": job_id}
+            if len(matches) > 1:
+                candidates = [job_delete_preview(j) for j in matches[:10]]
+                return {
+                    "ok": False,
+                    "error": "ambiguous_job",
+                    "candidates": candidates,
+                    "hint": (
+                        "Multiple jobs match this id prefix. Show candidates to the user and "
+                        "retry schedule_delete with the full job id."
+                    ),
+                }
+
+            job = matches[0]
+            preview = job_delete_preview(job)
+            foreign = job_is_foreign(
+                job,
+                actor_user_id=actor_user_id,
+                actor_external_user_id=actor_external_user_id,
+            )
+            preview_md = job_delete_preview_markdown(preview, foreign=foreign, lang=lang)
+
+            if not confirmed:
+                return {
+                    "ok": False,
+                    "error": "confirmation_required",
+                    "needs_confirm": True,
+                    "foreign_job": foreign,
+                    "job_id": preview["id"],
+                    "preview": preview,
+                    "preview_markdown": preview_md,
+                    "next_step": (
+                        "Show preview_markdown to the user. After they explicitly confirm deleting "
+                        "THIS job, call schedule_delete again with the full job_id and confirmed=true"
+                        + (", and confirm_foreign=true if foreign_job" if foreign else "")
+                        + "."
+                    ),
+                }
+
+            if foreign and not confirm_foreign:
+                return {
+                    "ok": False,
+                    "error": "foreign_job_confirmation_required",
+                    "needs_confirm": True,
+                    "foreign_job": True,
+                    "job_id": preview["id"],
+                    "preview": preview,
+                    "preview_markdown": preview_md,
+                    "hint": (
+                        "This job was created by someone else. Only delete after the user clearly "
+                        "agrees, then set confirmed=true and confirm_foreign=true."
+                    ),
+                }
+
+            ok = store.scheduled_job_delete(tenant_id=tenant_id, job_id=str(preview["id"]))
+            if not ok:
+                return {"ok": False, "error": "job_not_found", "job_id": preview["id"]}
+            return {"ok": True, "job_id": preview["id"], "deleted": preview}
         except Exception as e:
             return {"ok": False, "error": f"{type(e).__name__}: {e}"}
 
     return ToolSpec(
         name="schedule_delete",
-        description="Delete (soft) a scheduled job.",
+        description=(
+            "Soft-delete a scheduled job WITH confirmation. "
+            "First call WITHOUT confirmed (or confirmed=false) to get preview_markdown; "
+            "show it to the user. After explicit user confirmation, call again with "
+            "confirmed=true. If foreign_job (created by someone else in a group), also set "
+            "confirm_foreign=true. Never guess when multiple jobs match — resolve ambiguity first. "
+            "Prefer pausing instead of deleting when the user only wants to stop temporary runs."
+        ),
         parameters={
             "type": "object",
-            "properties": {"tenant_id": {"type": "string"}, "job_id": {"type": "string"}},
+            "properties": {
+                "tenant_id": {"type": "string"},
+                "job_id": {
+                    "type": "string",
+                    "description": "Full job id preferred; prefix allowed only when unique.",
+                },
+                "confirmed": {
+                    "type": "boolean",
+                    "description": "Must be true to actually delete after user confirmation.",
+                    "default": False,
+                },
+                "confirm_foreign": {
+                    "type": "boolean",
+                    "description": "Required when deleting a job created by someone else.",
+                    "default": False,
+                },
+                "actor_external_user_id": {
+                    "type": "string",
+                    "description": "Auto-filled channel sender id for ownership checks.",
+                },
+                "lang": {"type": "string"},
+            },
             "required": ["job_id"],
             "additionalProperties": False,
         },
