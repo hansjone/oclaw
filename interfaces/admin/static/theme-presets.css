@@ -149,6 +149,26 @@ body.theme-ds-body[data-admin-theme="light"] {
   --chat-sess-border: rgba(15, 23, 42, 0.1);
   --chat-user-bubble-bg: #10b981;
   --chat-user-bubble-fg: #ffffff;
+  --ds-overlay-bg: rgba(15, 23, 42, 0.35);
+  --ds-menu-hover-bg: rgba(15, 23, 42, 0.06);
+  --ds-menu-sep: rgba(15, 23, 42, 0.1);
+  --ds-pop-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+  --ds-modal-shadow: 0 16px 48px rgba(15, 23, 42, 0.15);
+  --ds-scroll-track-hover: rgba(15, 23, 42, 0.06);
+  --ds-lightbox-bg: rgba(15, 23, 42, 0.45);
+  --ds-lightbox-panel-bg: #ffffff;
+  --ds-lightbox-control-bg: #ffffff;
+  --ds-lightbox-control-fg: #0f172a;
+  --ds-lightbox-control-hover-bg: #e2e8f0;
+  --ds-lightbox-btn-bg: #f1f5f9;
+  --ds-lightbox-btn-hover-bg: #e2e8f0;
+  --ds-toast-bg: #ffffff;
+  --ds-toast-error-bg: rgba(220, 38, 38, 0.95);
+  --ds-toast-fg: #0f172a;
+  --ds-splash-bg: #ffffff;
+  --ds-splash-border: rgba(15, 23, 42, 0.12);
+  --ds-splash-spinner-track: rgba(15, 23, 42, 0.12);
+  --ds-splash-spinner-active: rgba(15, 23, 42, 0.55);
 }
 
 body.theme-ds-body[data-admin-theme="light"] .nav__groupTitle {

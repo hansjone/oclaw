@@ -29,6 +29,27 @@ body.theme-ds-body {
   /* 用户消息气泡（微信式绿底深字） */
   --chat-user-bubble-bg: #42b983;
   --chat-user-bubble-fg: #111111;
+  /* 弹层 / 菜单 / Toast */
+  --ds-overlay-bg: rgba(0, 0, 0, 0.58);
+  --ds-menu-hover-bg: rgba(255, 255, 255, 0.06);
+  --ds-menu-sep: rgba(255, 255, 255, 0.08);
+  --ds-pop-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  --ds-modal-shadow: 0 16px 48px rgba(0, 0, 0, 0.55);
+  --ds-scroll-track-hover: rgba(255, 255, 255, 0.06);
+  --ds-lightbox-bg: rgba(0, 0, 0, 0.78);
+  --ds-lightbox-panel-bg: rgba(2, 6, 23, 0.55);
+  --ds-lightbox-control-bg: rgba(15, 23, 42, 0.85);
+  --ds-lightbox-control-fg: rgba(255, 255, 255, 0.9);
+  --ds-lightbox-control-hover-bg: rgba(30, 41, 59, 0.9);
+  --ds-lightbox-btn-bg: rgba(2, 6, 23, 0.45);
+  --ds-lightbox-btn-hover-bg: rgba(30, 41, 59, 0.75);
+  --ds-toast-bg: rgba(30, 30, 30, 0.92);
+  --ds-toast-error-bg: rgba(160, 40, 40, 0.96);
+  --ds-toast-fg: #ffffff;
+  --ds-splash-bg: rgba(255, 255, 255, 0.04);
+  --ds-splash-border: rgba(255, 255, 255, 0.1);
+  --ds-splash-spinner-track: rgba(255, 255, 255, 0.15);
+  --ds-splash-spinner-active: rgba(255, 255, 255, 0.75);
 }
 
 body.theme-ds-body .layout .sidebar {
@@ -390,7 +411,7 @@ body.theme-ds-body .card {
 .chat-pending-files:hover,
 .table-wrap:hover,
 .session-monitor-modal__card:hover {
-  scrollbar-color: var(--ds-accent-scrollbar) rgba(255, 255, 255, 0.06);
+  scrollbar-color: var(--ds-accent-scrollbar) var(--ds-scroll-track-hover);
 }
 
 .chat-msg__reasoning-pre::-webkit-scrollbar,
@@ -429,7 +450,7 @@ body.theme-ds-body .card {
 .chat-pending-files:hover::-webkit-scrollbar-track,
 .table-wrap:hover::-webkit-scrollbar-track,
 .session-monitor-modal__card:hover::-webkit-scrollbar-track {
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--ds-scroll-track-hover);
 }
 
 .chat-msg__reasoning-pre:hover::-webkit-scrollbar-thumb,
@@ -655,7 +676,7 @@ body.theme-ds-body .card {
   align-items: center;
   justify-content: center;
   padding: 18px;
-  background: rgba(0, 0, 0, 0.78);
+  background: var(--ds-lightbox-bg, rgba(0, 0, 0, 0.78));
   backdrop-filter: blur(2px);
 }
 
@@ -667,8 +688,8 @@ body.theme-ds-body .card {
   align-items: center;
   justify-content: center;
   border-radius: 14px;
-  border: 1px solid rgba(148, 163, 184, 0.28);
-  background: rgba(2, 6, 23, 0.55);
+  border: 1px solid var(--ds-border, rgba(148, 163, 184, 0.28));
+  background: var(--ds-lightbox-panel-bg, rgba(2, 6, 23, 0.55));
   overflow: hidden;
 }
 
@@ -679,16 +700,16 @@ body.theme-ds-body .card {
   width: 36px;
   height: 36px;
   border-radius: 10px;
-  border: 1px solid rgba(148, 163, 184, 0.35);
-  background: rgba(15, 23, 42, 0.85);
-  color: rgba(255, 255, 255, 0.9);
+  border: 1px solid var(--ds-border, rgba(148, 163, 184, 0.35));
+  background: var(--ds-lightbox-control-bg, rgba(15, 23, 42, 0.85));
+  color: var(--ds-lightbox-control-fg, rgba(255, 255, 255, 0.9));
   cursor: pointer;
   font-size: 22px;
   line-height: 32px;
 }
 
 .chat-img-lightbox__close:hover {
-  background: rgba(30, 41, 59, 0.9);
+  background: var(--ds-lightbox-control-hover-bg, rgba(30, 41, 59, 0.9));
 }
 
 .chat-img-lightbox__img {
@@ -742,8 +763,8 @@ body.theme-ds-body .card {
   align-items: center;
   padding: 6px 8px;
   border-radius: 12px;
-  border: 1px solid rgba(148, 163, 184, 0.35);
-  background: rgba(15, 23, 42, 0.85);
+  border: 1px solid var(--ds-border, rgba(148, 163, 184, 0.35));
+  background: var(--ds-lightbox-control-bg, rgba(15, 23, 42, 0.85));
   z-index: 2;
 }
 
@@ -751,16 +772,16 @@ body.theme-ds-body .card {
   width: 40px;
   height: 32px;
   border-radius: 10px;
-  border: 1px solid rgba(148, 163, 184, 0.3);
-  background: rgba(2, 6, 23, 0.45);
-  color: rgba(255, 255, 255, 0.92);
+  border: 1px solid var(--ds-border, rgba(148, 163, 184, 0.3));
+  background: var(--ds-lightbox-btn-bg, rgba(2, 6, 23, 0.45));
+  color: var(--ds-lightbox-control-fg, rgba(255, 255, 255, 0.92));
   cursor: pointer;
   font-size: 16px;
   line-height: 1;
 }
 
 .chat-mermaid-lightbox__btn:hover {
-  background: rgba(30, 41, 59, 0.75);
+  background: var(--ds-lightbox-btn-hover-bg, rgba(30, 41, 59, 0.75));
 }
 
 .chat-img-lightbox__btn--icon {
@@ -776,9 +797,41 @@ body.theme-ds-body .card {
 }
 
 .chat-mermaid-lightbox__zoom {
-  color: rgba(226, 232, 240, 0.9);
+  color: var(--ds-text-muted, rgba(226, 232, 240, 0.9));
   font-size: 12px;
   padding-left: 2px;
+}
+
+.chat-toast-host {
+  position: fixed;
+  right: 14px;
+  bottom: 14px;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 420px;
+  pointer-events: none;
+}
+
+.chat-toast {
+  pointer-events: auto;
+  padding: 10px 12px;
+  border-radius: 10px;
+  color: var(--ds-toast-fg, #fff);
+  box-shadow: var(--ds-pop-shadow, 0 8px 24px rgba(0, 0, 0, 0.35));
+  background: var(--ds-toast-bg, rgba(30, 30, 30, 0.92));
+  border: 1px solid var(--ds-border, transparent);
+  font-size: 12.5px;
+  line-height: 1.35;
+  white-space: pre-wrap;
+  transition: opacity 0.22s ease, transform 0.22s ease;
+}
+
+.chat-toast--error {
+  background: var(--ds-toast-error-bg, rgba(160, 40, 40, 0.96));
+  color: #ffffff;
+  border-color: transparent;
 }
 
 .chat-mermaid-lightbox__svg svg {

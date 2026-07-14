@@ -118,12 +118,13 @@
       }
       .chat-sess-menu-pop {
         z-index: 200;
-        background: var(--ds-panel, #222);
+        background: var(--ds-panel, var(--ds-surface, #222));
         border: 1px solid var(--ds-border, rgba(255, 255, 255, 0.12));
         border-radius: 8px;
         padding: 4px;
         min-width: 11rem;
-        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+        box-shadow: var(--ds-pop-shadow, 0 8px 24px rgba(0, 0, 0, 0.45));
+        color: var(--ds-text, inherit);
       }
       .chat-sess-menu-item {
         display: block;
@@ -138,12 +139,12 @@
         font-size: 13px;
       }
       .chat-sess-menu-item:hover {
-        background: rgba(255, 255, 255, 0.06);
+        background: var(--ds-menu-hover-bg, rgba(255, 255, 255, 0.06));
       }
       .chat-sess-menu-sep {
         height: 1px;
         margin: 4px 6px;
-        background: rgba(255, 255, 255, 0.08);
+        background: var(--ds-menu-sep, rgba(255, 255, 255, 0.08));
       }
       .chat-msg__md {
         line-height: 1.45;
@@ -209,7 +210,7 @@
         position: fixed;
         inset: 0;
         z-index: 300;
-        background: rgba(0, 0, 0, 0.88);
+        background: var(--ds-lightbox-bg, rgba(0, 0, 0, 0.88));
         display: flex;
         align-items: center;
         justify-content: center;
@@ -239,10 +240,10 @@
         right: -8px;
         width: 40px;
         height: 40px;
-        border: none;
+        border: 1px solid var(--ds-border, rgba(255, 255, 255, 0.2));
         border-radius: 999px;
-        background: rgba(255, 255, 255, 0.12);
-        color: #eee;
+        background: var(--ds-lightbox-control-bg, rgba(255, 255, 255, 0.12));
+        color: var(--ds-lightbox-control-fg, #eee);
         font-size: 26px;
         line-height: 1;
         cursor: pointer;
@@ -252,7 +253,7 @@
         justify-content: center;
       }
       .chat-img-lightbox__close:hover {
-        background: rgba(255, 255, 255, 0.22);
+        background: var(--ds-lightbox-control-hover-bg, rgba(255, 255, 255, 0.22));
       }
       .chat-att-chip {
         font-size: 12px;
@@ -495,7 +496,7 @@
         position: fixed;
         inset: 0;
         z-index: 400;
-        background: rgba(0, 0, 0, 0.58);
+        background: var(--ds-overlay-bg, rgba(0, 0, 0, 0.58));
         display: flex;
         align-items: center;
         justify-content: center;
@@ -503,10 +504,10 @@
       }
       .chat-confirm-card {
         width: min(420px, 92vw);
-        background: linear-gradient(180deg, rgba(11, 18, 30, 0.98), rgba(7, 12, 22, 0.98));
-        border: 1px solid rgba(94, 179, 255, 0.35);
+        background: var(--ds-surface, #ffffff);
+        border: 1px solid var(--ds-accent-border, rgba(94, 179, 255, 0.35));
         border-radius: 12px;
-        box-shadow: 0 16px 48px rgba(0, 0, 0, 0.55);
+        box-shadow: var(--ds-modal-shadow, 0 16px 48px rgba(0, 0, 0, 0.55));
         color: var(--ds-text, #e8e8e8);
         padding: 14px;
       }
@@ -529,8 +530,9 @@
         width: min(520px, 92vw);
         padding: 22px 20px;
         border-radius: 14px;
-        border: 1px solid rgba(255, 255, 255, 0.1);
-        background: rgba(255, 255, 255, 0.04);
+        border: 1px solid var(--ds-splash-border, rgba(255, 255, 255, 0.1));
+        background: var(--ds-splash-bg, rgba(255, 255, 255, 0.04));
+        color: var(--ds-text, #e8e8e8);
         line-height: 1.5;
       }
       .chat-boot-splash__title {
@@ -544,8 +546,8 @@
       .chat-boot-splash__spinner {
         width: 18px;
         height: 18px;
-        border: 2px solid rgba(255, 255, 255, 0.15);
-        border-top-color: rgba(255, 255, 255, 0.75);
+        border: 2px solid var(--ds-splash-spinner-track, rgba(255, 255, 255, 0.15));
+        border-top-color: var(--ds-splash-spinner-active, rgba(255, 255, 255, 0.75));
         border-radius: 999px;
         animation: chat-boot-spin 1s linear infinite;
         flex: 0 0 auto;

@@ -12,9 +12,9 @@
       /* First paint before app.js runs: keep admin from showing a blank dark screen. */
       .admin-boot-splash {
         padding: 16px;
-        border: 1px solid rgba(255, 255, 255, 0.1);
+        border: 1px solid var(--ds-splash-border, rgba(255, 255, 255, 0.1));
         border-radius: 14px;
-        background: rgba(255, 255, 255, 0.04);
+        background: var(--ds-splash-bg, rgba(255, 255, 255, 0.04));
         color: var(--ds-text, #e8e8e8);
         line-height: 1.5;
         max-width: 520px;
@@ -29,8 +29,8 @@
       .admin-boot-splash__spinner {
         width: 18px;
         height: 18px;
-        border: 2px solid rgba(255, 255, 255, 0.15);
-        border-top-color: rgba(255, 255, 255, 0.75);
+        border: 2px solid var(--ds-splash-spinner-track, rgba(255, 255, 255, 0.15));
+        border-top-color: var(--ds-splash-spinner-active, rgba(255, 255, 255, 0.75));
         border-radius: 999px;
         animation: admin-boot-spin 1s linear infinite;
         flex: 0 0 auto;

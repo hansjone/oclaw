@@ -808,24 +808,16 @@ function memoryModeShortLabel(memoryMode) {
 function _ensureToastHost() {
   let host = document.querySelector(".chat-toast-host");
   if (host) return host;
-  host = el("div", {
-    class: "chat-toast-host",
-    style:
-      "position:fixed;right:14px;bottom:14px;z-index:9999;display:flex;flex-direction:column;gap:8px;max-width:420px;pointer-events:none;",
-  });
+  host = el("div", { class: "chat-toast-host" });
   document.body.appendChild(host);
   return host;
 }
 
 function showToast(text, { kind = "info", ttlMs = 4200 } = {}) {
   const host = _ensureToastHost();
-  const bg = kind === "error" ? "rgba(160,40,40,0.96)" : "rgba(30,30,30,0.92)";
   const node = el("div", {
-    class: "chat-toast",
+    class: kind === "error" ? "chat-toast chat-toast--error" : "chat-toast",
     text: String(text || ""),
-    style:
-      `pointer-events:auto;padding:10px 12px;border-radius:10px;color:#fff;box-shadow:0 8px 24px rgba(0,0,0,.35);` +
-      `background:${bg};font-size:12.5px;line-height:1.35;white-space:pre-wrap;`,
   });
   host.appendChild(node);
   const kill = () => {
@@ -958,7 +950,7 @@ async function openDispatchLabelsEditor(statusEl) {
   const preview = el("textarea", {
     class: "input",
     style:
-      "width:100%;min-height:220px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;background:#f8fafc;",
+      "width:100%;min-height:220px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;",
     readonly: "readonly",
   });
   const btnSave = el("button", { type: "button", class: "btn btn--primary", text: t("chat.dispatchLabelsSave") });
