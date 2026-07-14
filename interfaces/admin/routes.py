@@ -2376,6 +2376,7 @@ def build_admin_router() -> APIRouter:
         if delivery is None:
             wa_chat = str((payload.get("whatsapp") or {}).get("chat_id") if isinstance(payload.get("whatsapp"), dict) else payload.get("whatsapp_chat_id") or "")
             delivery = build_default_delivery(store=store, tenant_id=tenant_id, whatsapp_chat_id=wa_chat)
+        recipe = payload.get("recipe") if isinstance(payload.get("recipe"), dict) else None
         row = store.scheduled_job_create(
             tenant_id=tenant_id,
             name=name,
@@ -2388,6 +2389,7 @@ def build_admin_router() -> APIRouter:
             specialist=normalize_requested_specialist(payload.get("specialist") or "generalist"),
             lang=str(payload.get("lang") or "zh"),
             delivery=delivery,
+            recipe=recipe,
             source_session_id=str(payload.get("source_session_id") or "").strip() or None,
             created_by_user_id=str(ctx.get("user_id") or ""),
             source="admin",

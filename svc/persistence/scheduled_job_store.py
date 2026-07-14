@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS scheduled_job (
     schedule_expr TEXT NOT NULL,
     timezone TEXT NOT NULL DEFAULT 'Asia/Shanghai',
     prompt_text TEXT NOT NULL,
+    recipe_json TEXT NOT NULL DEFAULT '{}',
     interaction_mode TEXT NOT NULL DEFAULT 'expert',
     specialist TEXT NOT NULL DEFAULT 'generalist',
     lang TEXT NOT NULL DEFAULT 'zh',
@@ -81,6 +82,7 @@ class ScheduledJob:
     schedule_expr: str
     timezone: str
     prompt_text: str
+    recipe_json: str
     interaction_mode: str
     specialist: str
     lang: str
@@ -93,6 +95,18 @@ class ScheduledJob:
     last_run_status: str
     created_at: str
     updated_at: str
+
+
+def _row_field(row: Any, key: str, default: str = "") -> str:
+    try:
+        if hasattr(row, "keys") and key in row.keys():
+            return str(row[key] if row[key] is not None else default)
+    except Exception:
+        pass
+    try:
+        return str(row[key] if row[key] is not None else default)
+    except Exception:
+        return default
 
 
 @dataclass(frozen=True)
@@ -115,27 +129,28 @@ class ScheduledJobRun:
 
 def _row_to_job(row: Any) -> ScheduledJob:
     return ScheduledJob(
-        id=str(row["id"] or ""),
-        tenant_id=str(row["tenant_id"] or ""),
-        name=str(row["name"] or ""),
-        description=str(row["description"] or ""),
-        status=str(row["status"] or ""),
-        schedule_kind=str(row["schedule_kind"] or ""),
-        schedule_expr=str(row["schedule_expr"] or ""),
-        timezone=str(row["timezone"] or default_system_timezone()),
-        prompt_text=str(row["prompt_text"] or ""),
-        interaction_mode=str(row["interaction_mode"] or "expert"),
-        specialist=str(row["specialist"] or "generalist"),
-        lang=str(row["lang"] or "zh"),
-        delivery_json=str(row["delivery_json"] or "{}"),
-        source_session_id=str(row["source_session_id"] or "") or None,
-        created_by_user_id=str(row["created_by_user_id"] or ""),
-        source=str(row["source"] or ""),
-        next_run_at=str(row["next_run_at"] or "") or None,
-        last_run_at=str(row["last_run_at"] or "") or None,
-        last_run_status=str(row["last_run_status"] or ""),
-        created_at=str(row["created_at"] or ""),
-        updated_at=str(row["updated_at"] or ""),
+        id=_row_field(row, "id"),
+        tenant_id=_row_field(row, "tenant_id"),
+        name=_row_field(row, "name"),
+        description=_row_field(row, "description"),
+        status=_row_field(row, "status"),
+        schedule_kind=_row_field(row, "schedule_kind"),
+        schedule_expr=_row_field(row, "schedule_expr"),
+        timezone=_row_field(row, "timezone", default_system_timezone()) or default_system_timezone(),
+        prompt_text=_row_field(row, "prompt_text"),
+        recipe_json=_row_field(row, "recipe_json", "{}") or "{}",
+        interaction_mode=_row_field(row, "interaction_mode", "expert") or "expert",
+        specialist=_row_field(row, "specialist", "generalist") or "generalist",
+        lang=_row_field(row, "lang", "zh") or "zh",
+        delivery_json=_row_field(row, "delivery_json", "{}") or "{}",
+        source_session_id=_row_field(row, "source_session_id") or None,
+        created_by_user_id=_row_field(row, "created_by_user_id"),
+        source=_row_field(row, "source"),
+        next_run_at=_row_field(row, "next_run_at") or None,
+        last_run_at=_row_field(row, "last_run_at") or None,
+        last_run_status=_row_field(row, "last_run_status"),
+        created_at=_row_field(row, "created_at"),
+        updated_at=_row_field(row, "updated_at"),
     )
 
 
@@ -160,7 +175,7 @@ def _row_to_run(row: Any) -> ScheduledJobRun:
 
 _JOB_SELECT = """
 SELECT id, tenant_id, name, description, status, schedule_kind, schedule_expr, timezone,
-       prompt_text, interaction_mode, specialist, lang, delivery_json, source_session_id,
+       prompt_text, recipe_json, interaction_mode, specialist, lang, delivery_json, source_session_id,
        created_by_user_id, source, next_run_at, last_run_at, last_run_status, created_at, updated_at
 FROM scheduled_job
 """
@@ -172,6 +187,19 @@ class ScheduledJobStoreMixin:
         conn.execute(SCHEDULED_JOB_INDEX_DDL)
         conn.execute(SCHEDULED_JOB_RUN_DDL)
         conn.execute(SCHEDULED_JOB_RUN_INDEX_DDL)
+        self._ensure_scheduled_job_recipe_column(conn)
+
+    def _ensure_scheduled_job_recipe_column(self, conn: Any) -> None:
+        if bool(getattr(self, "_use_pg", False)):
+            conn.execute(
+                "ALTER TABLE scheduled_job ADD COLUMN IF NOT EXISTS recipe_json TEXT NOT NULL DEFAULT '{}'"
+            )
+            return
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(scheduled_job)").fetchall()}
+        if "recipe_json" not in cols:
+            conn.execute(
+                "ALTER TABLE scheduled_job ADD COLUMN recipe_json TEXT NOT NULL DEFAULT '{}'"
+            )
 
     def scheduled_job_create(
         self,
@@ -187,6 +215,7 @@ class ScheduledJobStoreMixin:
         specialist: str = "generalist",
         lang: str = "zh",
         delivery: dict[str, Any] | None = None,
+        recipe: dict[str, Any] | None = None,
         source_session_id: str | None = None,
         created_by_user_id: str = "",
         source: str = "admin",
@@ -203,14 +232,15 @@ class ScheduledJobStoreMixin:
             from_dt=None,
         )
         delivery_json = json.dumps(delivery or {}, ensure_ascii=False)
+        recipe_json = json.dumps(recipe or {}, ensure_ascii=False)
         with self._connect() as conn:  # type: ignore[attr-defined]
             conn.execute(
                 """
                 INSERT INTO scheduled_job
                     (id, tenant_id, name, description, status, schedule_kind, schedule_expr, timezone,
-                     prompt_text, interaction_mode, specialist, lang, delivery_json, source_session_id,
+                     prompt_text, recipe_json, interaction_mode, specialist, lang, delivery_json, source_session_id,
                      created_by_user_id, source, next_run_at, last_run_at, last_run_status, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, '', ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, '', ?, ?)
                 """,
                 (
                     jid,
@@ -222,6 +252,7 @@ class ScheduledJobStoreMixin:
                     str(schedule_expr or "").strip(),
                     tz,
                     str(prompt_text or "").strip(),
+                    recipe_json,
                     str(interaction_mode or "expert"),
                     str(specialist or "generalist"),
                     str(lang or "zh"),
@@ -302,6 +333,11 @@ class ScheduledJobStoreMixin:
             delivery_json = json.dumps(p["delivery"], ensure_ascii=False)
         elif "delivery_json" in p:
             delivery_json = str(p.get("delivery_json") or "{}")
+        recipe_json = cur.recipe_json
+        if "recipe" in p and isinstance(p.get("recipe"), dict):
+            recipe_json = json.dumps(p["recipe"], ensure_ascii=False)
+        elif "recipe_json" in p:
+            recipe_json = str(p.get("recipe_json") or "{}")
         source_session_id = cur.source_session_id
         if "source_session_id" in p:
             raw_sid = str(p.get("source_session_id") or "").strip()
@@ -323,7 +359,7 @@ class ScheduledJobStoreMixin:
             conn.execute(
                 """
                 UPDATE scheduled_job SET
-                    name = ?, description = ?, prompt_text = ?, interaction_mode = ?, specialist = ?,
+                    name = ?, description = ?, prompt_text = ?, recipe_json = ?, interaction_mode = ?, specialist = ?,
                     lang = ?, schedule_kind = ?, schedule_expr = ?, timezone = ?, delivery_json = ?,
                     source_session_id = ?, status = ?, next_run_at = ?, updated_at = ?
                 WHERE id = ? AND tenant_id = ?
@@ -332,6 +368,7 @@ class ScheduledJobStoreMixin:
                     name,
                     description,
                     prompt_text,
+                    recipe_json,
                     interaction_mode,
                     specialist,
                     lang,
@@ -576,6 +613,13 @@ class ScheduledJobStoreMixin:
                 delivery = raw
         except Exception:
             delivery = {}
+        recipe: dict[str, Any] = {}
+        try:
+            raw_recipe = json.loads(job.recipe_json or "{}")
+            if isinstance(raw_recipe, dict):
+                recipe = raw_recipe
+        except Exception:
+            recipe = {}
         return {
             "id": job.id,
             "tenant_id": job.tenant_id,
@@ -586,6 +630,7 @@ class ScheduledJobStoreMixin:
             "schedule_expr": job.schedule_expr,
             "timezone": job.timezone,
             "prompt_text": job.prompt_text,
+            "recipe": recipe,
             "interaction_mode": job.interaction_mode,
             "specialist": job.specialist,
             "lang": job.lang,

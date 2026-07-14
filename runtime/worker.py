@@ -286,9 +286,16 @@ def _worker_loop(*, store: Any, worker_id: str, poll_interval_s: float) -> None:
             if not system_prompt:
                 system_prompt = str(getattr(executor, "system_prompt", "") or "")
             if is_scheduled_turn:
+                from runtime.scheduler.recipe import recipe_has_playbook
                 from runtime.scheduler.turn_text import scheduled_turn_system_suffix
 
-                system_prompt = str(system_prompt or "") + scheduled_turn_system_suffix(lang=lang)
+                playbook = bool((metadata or {}).get("scheduled_playbook")) or recipe_has_playbook(
+                    payload.get("recipe") if isinstance(payload.get("recipe"), dict) else None
+                )
+                system_prompt = str(system_prompt or "") + scheduled_turn_system_suffix(
+                    lang=lang,
+                    playbook=playbook,
+                )
 
             max_messages = int(store.get_setting("AIA_TURN_MAX_CONTEXT_MESSAGES") or 80)
             max_tool_rounds = int(store.get_setting("AIA_TURN_MAX_TOOL_ROUNDS") or 100)

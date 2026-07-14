@@ -7,6 +7,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any
 
+from runtime.scheduler.recipe import load_recipe_from_job, recipe_has_playbook
 from runtime.scheduler.session_resolver import resolve_scheduled_session, resolve_scheduled_viewer_username
 from runtime.scheduler.turn_text import build_scheduled_turn_instruction
 from runtime.worker import ensure_worker_started
@@ -76,7 +77,14 @@ def enqueue_scheduled_job_run(
     agent_run_id = uuid.uuid4().hex
     prompt_text = str(getattr(job, "prompt_text", "") or "").strip()
     lang = str(getattr(job, "lang", "") or "zh")
-    user_text = build_scheduled_turn_instruction(prompt_text=prompt_text, mode=mode, lang=lang)
+    recipe = load_recipe_from_job(job)
+    playbook = recipe_has_playbook(recipe)
+    user_text = build_scheduled_turn_instruction(
+        prompt_text=prompt_text,
+        mode=mode,
+        lang=lang,
+        recipe=recipe if playbook else None,
+    )
     viewer_username = resolve_scheduled_viewer_username(
         store,
         tenant_id=tenant_id,
@@ -95,6 +103,7 @@ def enqueue_scheduled_job_run(
         "lang": lang,
         "text": user_text,
         "prompt_text": prompt_text,
+        "recipe": recipe if playbook else {},
         "attachments": [],
         "metadata": {
             "scheduled_job_id": job_id,
@@ -103,6 +112,7 @@ def enqueue_scheduled_job_run(
             "selected_specialist": str(getattr(job, "specialist", "") or "generalist"),
             "scheduled_mode": mode,
             "scheduled_proactive": True,
+            "scheduled_playbook": playbook,
         },
         "interaction_mode": str(getattr(job, "interaction_mode", "") or "expert"),
         "requested_specialist": str(getattr(job, "specialist", "") or "generalist"),

@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+from typing import Any
+
+from runtime.scheduler.recipe import compile_playbook_instruction, recipe_has_playbook
+
 
 def format_scheduled_user_reminder(prompt_text: str) -> str:
     body = str(prompt_text or "").strip()
@@ -10,10 +14,19 @@ def format_scheduled_user_reminder(prompt_text: str) -> str:
     return f"⏰ 提醒：{body}"
 
 
-def build_scheduled_turn_instruction(*, prompt_text: str, mode: str, lang: str) -> str:
-    """Internal LLM instruction for proactive scheduled reminders (not user-facing)."""
-    intent = str(prompt_text or "").strip()
+def build_scheduled_turn_instruction(
+    *,
+    prompt_text: str,
+    mode: str,
+    lang: str,
+    recipe: dict[str, Any] | None = None,
+) -> str:
+    """Internal LLM instruction for proactive scheduled reminders/playbooks (not user-facing)."""
     _ = str(mode or "scheduled").strip()
+    if recipe_has_playbook(recipe):
+        return compile_playbook_instruction(recipe=recipe or {}, lang=lang)
+
+    intent = str(prompt_text or "").strip()
     is_en = str(lang or "").lower().startswith("en")
     if is_en:
         return (
@@ -30,8 +43,21 @@ def build_scheduled_turn_instruction(*, prompt_text: str, mode: str, lang: str) 
     )
 
 
-def scheduled_turn_system_suffix(*, lang: str) -> str:
+def scheduled_turn_system_suffix(*, lang: str, playbook: bool = False) -> str:
     is_en = str(lang or "").lower().startswith("en")
+    if playbook:
+        if is_en:
+            return (
+                "\n\n[Scheduled playbook mode] You are executing a recurring workflow for the user. "
+                "Follow the playbook steps, use tools as needed, and deliver a useful update "
+                "(including save_deliverable_attachment for generated files). "
+                "Do not pretend the user just messaged you."
+            )
+        return (
+            "\n\n【定时工作流模式】你正在执行周期性工作流。"
+            "按 playbook 步骤完成任务，按需调用工具；若生成文件须 save_deliverable_attachment。"
+            "不要假装用户刚刚发了消息，不要只回一句空提醒。"
+        )
     if is_en:
         return (
             "\n\n[Scheduled job mode] You are sending a proactive reminder to the user. "
