@@ -521,7 +521,7 @@ sequenceDiagram
 
 ```text
 [UME Alarm Raised] Fan
-Device: LPG-BKM-AN1-ZM3SP (114.0.24.178)
+Device: ABC (1.1.1.1)
 Object: ME{abc},FAN={/module=0}
 Severity: major
 Cause: Fan The fan speed level is abnormally high
