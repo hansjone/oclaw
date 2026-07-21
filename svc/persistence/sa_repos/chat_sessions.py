@@ -614,6 +614,31 @@ class ChatSessionsSaRepository:
             conn.execute(delete(chat_session).where(chat_session.c.id == sid))
         return True
 
+    def try_delete_chat_session_for_administrator_chat_view(
+        self, *, session_id: str, username: str, tenant_id: str
+    ) -> bool:
+        sid = str(session_id or "").strip()
+        if not sid:
+            return False
+        ids = self._administrator_chat_session_ids_subquery(
+            username=username,
+            tenant_id=tenant_id,
+        )
+        with self._engine.begin() as conn:
+            chk = conn.execute(
+                select(1)
+                .select_from(chat_session)
+                .where(
+                    chat_session.c.id == sid,
+                    chat_session.c.id.in_(select(ids.c.sid)),
+                )
+                .limit(1)
+            ).first()
+            if not chk:
+                return False
+            conn.execute(delete(chat_session).where(chat_session.c.id == sid))
+        return True
+
     def try_delete_chat_session_for_tenant(self, *, session_id: str, tenant_id: str) -> bool:
         sid, tid = str(session_id or "").strip(), str(tenant_id)
         if not sid:

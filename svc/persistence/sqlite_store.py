@@ -1666,6 +1666,15 @@ class SqliteStore(ScheduledJobStoreMixin):
             session_id=session_id, username=username, tenant_id=tenant_id
         )
 
+    def delete_session_for_administrator_chat_view(
+        self, *, session_id: str, username: str, tenant_id: str
+    ) -> bool:
+        return self._chat_sessions_repo().try_delete_chat_session_for_administrator_chat_view(
+            session_id=session_id,
+            username=username,
+            tenant_id=tenant_id,
+        )
+
     def get_session_for_administrator_username(
         self, *, session_id: str, username: str
     ) -> Optional[ChatSession]:

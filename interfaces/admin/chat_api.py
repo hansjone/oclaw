@@ -984,8 +984,10 @@ def include_chat_routes(router: APIRouter, *, resolve_auth: Callable[[SqliteStor
         if not sess:
             raise HTTPException(status_code=404, detail="session_not_found")
         if _is_administrator_chat_viewer(ctx):
-            deleted = store.delete_session_for_administrator_username(
-                session_id=session_id, username=_chat_username(ctx)
+            deleted = store.delete_session_for_administrator_chat_view(
+                session_id=session_id,
+                username=_chat_username(ctx),
+                tenant_id=tenant_id,
             )
         else:
             deleted = store.delete_session_for_user(
@@ -994,8 +996,11 @@ def include_chat_routes(router: APIRouter, *, resolve_auth: Callable[[SqliteStor
         if not deleted:
             raise HTTPException(status_code=404, detail="session_not_found")
         if _is_administrator_chat_viewer(ctx):
-            remaining = store.list_sessions_for_administrator_username(
-                username=_chat_username(ctx), limit=1, offset=0
+            remaining = store.list_sessions_for_administrator_chat_view(
+                username=_chat_username(ctx),
+                tenant_id=tenant_id,
+                limit=1,
+                offset=0,
             )
         else:
             remaining = store.list_sessions_for_user(

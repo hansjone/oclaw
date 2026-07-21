@@ -76,3 +76,52 @@ def test_delete_session_for_administrator_username_cross_tenant(
     assert s.get_session_for_administrator_username(session_id=str(other.id), username="administrator") is None
     meta = s.get_sessions_list_meta_for_administrator_username(username="administrator")
     assert int(meta.session_count or 0) == 1
+
+
+def test_delete_channel_only_session_for_administrator_chat_view(
+    store_two_tenants: SqliteStore,
+) -> None:
+    s = store_two_tenants
+    team = next(
+        x for x in s.list_sessions_for_administrator_username(username="administrator", limit=50)
+        if x.title == "team-sess"
+    )
+    team_owner = s.get_ui_session_owner(session_id=str(team.id))
+    login_tid = str((team_owner or {}).get("tenant_id") or "")
+    assert login_tid
+
+    channel_sid = s.get_or_create_channel_session_v2(
+        tenant_id=login_tid,
+        channel="scheduled_job",
+        account_id="job",
+        external_chat_id="job-123",
+        external_user_id="job-123",
+        session_title="Scheduled · job-123",
+    )
+    assert s.get_ui_session_owner(session_id=channel_sid) is None
+    assert (
+        s.get_session_for_administrator_chat_view(
+            session_id=channel_sid,
+            username="administrator",
+            tenant_id=login_tid,
+        )
+        is not None
+    )
+
+    assert (
+        s.delete_session_for_administrator_chat_view(
+            session_id=channel_sid,
+            username="administrator",
+            tenant_id=login_tid,
+        )
+        is True
+    )
+    assert s.get_session(channel_sid) is None
+    assert (
+        s.get_session_for_administrator_chat_view(
+            session_id=channel_sid,
+            username="administrator",
+            tenant_id=login_tid,
+        )
+        is None
+    )
