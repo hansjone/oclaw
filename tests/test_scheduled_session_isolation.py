@@ -64,8 +64,9 @@ class ScheduledSessionIsolationTests(unittest.TestCase):
     def tearDown(self) -> None:
         self._tmp.cleanup()
 
-    def test_resolve_scheduled_session_uses_fresh_execution_session(self) -> None:
+    def test_resolve_scheduled_session_isolates_from_interactive_and_reuses_per_job(self) -> None:
         job = mock.MagicMock()
+        job.id = "job-water-reminder"
         job.tenant_id = self.tenant_id
         job.source_session_id = self.interactive_session_id
         job.delivery_json = json.dumps(
@@ -81,17 +82,36 @@ class ScheduledSessionIsolationTests(unittest.TestCase):
         )
         job.name = "喝水提醒"
 
-        resolved = resolve_scheduled_session(
+        resolved_first = resolve_scheduled_session(
             self.store,
             job=job,
             created_by_user_id=self.admin_id,
-            run_id="run-abc12345",
         )
-        self.assertNotEqual(resolved.session_id, self.interactive_session_id)
-        self.assertEqual(resolved.source_session_id, self.interactive_session_id)
-        self.assertEqual(resolved.external_chat_id, "120363012345678@g.us")
-        rows = self.store.get_messages(session_id=resolved.session_id, limit=10)
+        resolved_second = resolve_scheduled_session(
+            self.store,
+            job=job,
+            created_by_user_id=self.admin_id,
+        )
+
+        self.assertNotEqual(resolved_first.session_id, self.interactive_session_id)
+        self.assertEqual(resolved_first.session_id, resolved_second.session_id)
+        self.assertEqual(resolved_first.source_session_id, self.interactive_session_id)
+        self.assertEqual(resolved_first.external_chat_id, "120363012345678@g.us")
+        rows = self.store.get_messages(session_id=resolved_first.session_id, limit=10)
         self.assertEqual(len(rows), 0)
+
+        other_job = mock.MagicMock()
+        other_job.id = "job-other"
+        other_job.tenant_id = self.tenant_id
+        other_job.source_session_id = self.interactive_session_id
+        other_job.delivery_json = job.delivery_json
+        other_job.name = "Other task"
+        resolved_other = resolve_scheduled_session(
+            self.store,
+            job=other_job,
+            created_by_user_id=self.admin_id,
+        )
+        self.assertNotEqual(resolved_other.session_id, resolved_first.session_id)
 
 
 class ScheduledMentionCreatorTests(unittest.TestCase):

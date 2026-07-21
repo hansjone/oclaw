@@ -46,7 +46,6 @@ def enqueue_scheduled_job_run(
             store,
             job=job,
             created_by_user_id=str(getattr(job, "created_by_user_id", "") or ""),
-            run_id=str(run.id),
         )
     except Exception as exc:
         store.scheduled_job_run_update(

@@ -51,24 +51,28 @@ def _ensure_administrator_owner(store: Any, *, tenant_id: str) -> dict[str, Any]
     }
 
 
-def _create_scheduled_execution_session(
+def _get_or_create_scheduled_execution_session(
     store: Any,
     *,
     tenant_id: str,
-    user_id: str,
+    job_id: str,
     job_name: str,
-    run_id: str = "",
 ) -> str:
-    rid = str(run_id or "").strip()
+    """One execution session per scheduled job (not per run); visible for ops cleanup."""
     title = f"Scheduled · {job_name}"
-    if rid:
-        title = f"{title} · {rid[:8]}"
+    jid = str(job_id or "").strip()
     tid = str(tenant_id or "").strip()
-    uid = str(user_id or "").strip()
-    if uid and tid:
-        sess = store.create_session_for_user(title=title, tenant_id=tid, user_id=uid)
-    else:
-        sess = store.create_session(title)
+    getter = getattr(store, "get_or_create_channel_session_v2", None)
+    if jid and tid and callable(getter):
+        return getter(
+            tenant_id=tid,
+            channel="scheduled_job",
+            account_id="job",
+            external_chat_id=jid,
+            external_user_id=jid,
+            session_title=title,
+        )
+    sess = store.create_session(title)
     return str(sess.id)
 
 
@@ -255,9 +259,9 @@ def resolve_scheduled_session(
     *,
     job: Any,
     created_by_user_id: str = "",
-    run_id: str = "",
 ) -> ResolvedSession:
     job_name = str(getattr(job, "name", "") or "Scheduled task")
+    job_id = str(getattr(job, "id", "") or "").strip()
     (
         tenant_id,
         user_id,
@@ -272,12 +276,11 @@ def resolve_scheduled_session(
         job=job,
         created_by_user_id=created_by_user_id,
     )
-    execution_session_id = _create_scheduled_execution_session(
+    execution_session_id = _get_or_create_scheduled_execution_session(
         store,
         tenant_id=tenant_id,
-        user_id=user_id,
+        job_id=job_id,
         job_name=job_name,
-        run_id=run_id,
     )
     return ResolvedSession(
         session_id=execution_session_id,

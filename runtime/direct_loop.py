@@ -588,6 +588,14 @@ def _build_model_context(
     active_turn_uuid: str | None = None,
 ) -> list[dict[str, Any]]:
     rows = store.get_messages(session_id=session_id, limit=int(max_messages))
+    pb_ctx = prompt_build_context if isinstance(prompt_build_context, dict) else {}
+    if bool(pb_ctx.get("scheduled_proactive")) and str(active_turn_uuid or "").strip():
+        turn_key = str(active_turn_uuid).strip()
+        rows = [
+            r
+            for r in rows
+            if str(getattr(r, "turn_uuid", "") or "").strip() == turn_key
+        ]
     rows = _guard_tool_results_for_llm_context(
         store=store,
         session_id=session_id,
@@ -621,7 +629,6 @@ def _build_model_context(
     # Hook integration: wiki-auto-inject can prepend retrieval snippets
     # before prompt build when query/topic hints indicate supplemental lookup.
     try:
-        pb_ctx = prompt_build_context if isinstance(prompt_build_context, dict) else {}
         user_text_final = str(user_text or "").strip()
         wiki_query = str(pb_ctx.get("wiki_query") or "").strip()
         hook_ctx = {
