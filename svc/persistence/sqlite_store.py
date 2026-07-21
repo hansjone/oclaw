@@ -6436,19 +6436,35 @@ class SqliteStore(ScheduledJobStoreMixin):
                 """,
                 (str(channel), str(account_id), utc_now_iso(), lim),
             ).fetchall()
-        return [
-            {
+        out: list[dict[str, Any]] = []
+        for r in rows:
+            source = str(r["source"] or "")
+            meta: dict[str, Any] = {}
+            if source.startswith("{"):
+                try:
+                    parsed = json.loads(source)
+                    if isinstance(parsed, dict):
+                        meta = parsed
+                except Exception:
+                    meta = {}
+            item: dict[str, Any] = {
                 "id": str(r["id"] or ""),
                 "tenant_id": str(r["tenant_id"] or ""),
                 "channel": str(r["channel"] or ""),
                 "account_id": str(r["account_id"] or ""),
                 "chat_id": str(r["chat_id"] or ""),
                 "text": str(r["text"] or ""),
-                "source": str(r["source"] or ""),
+                "source": source,
                 "created_at": str(r["created_at"] or ""),
             }
-            for r in rows
-        ]
+            atts = [a for a in (meta.get("attachments") or []) if isinstance(a, dict)]
+            if atts:
+                item["attachments"] = atts
+            mp = str(meta.get("media_path") or "").strip()
+            if mp:
+                item["media_path"] = mp
+            out.append(item)
+        return out
 
     def list_pending_weixin_outbound_messages(
         self,

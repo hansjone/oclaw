@@ -128,6 +128,7 @@ def finalize_scheduled_turn_success(
         resolved_chat_id=str(payload.get("resolved_chat_id") or ""),
         resolved_account_id=str(payload.get("resolved_account_id") or ""),
         session_id=str(payload.get("session_id") or ""),
+        turn_uuid=str(base_result.get("turn_uuid") or payload.get("run_id") or ""),
     )
     if scheduled_run_id:
         store.scheduled_job_run_update(

@@ -4,7 +4,7 @@ import json
 import os
 from typing import Any
 
-from runtime.orchestration.group_ingest import is_nonsend_channel_reply_text, should_send_channel_reply_text
+from runtime.orchestration.group_ingest import is_nonsend_channel_reply_text
 from runtime.scheduler.session_resolver import parse_delivery_json
 from runtime.scheduler.whatsapp_mentions import (
     encode_whatsapp_outbound_source,
@@ -175,6 +175,55 @@ def persist_channel_context_token(
             )
 
 
+def _collect_scheduled_turn_attachments(
+    *,
+    store: Any,
+    session_id: str,
+    turn_uuid: str,
+) -> list[dict[str, Any]]:
+    from runtime.application.gateway.inbound_service import (
+        _is_channel_deliverable_attachment,
+        _parse_message_attachments,
+    )
+
+    sid = str(session_id or "").strip()
+    tu = str(turn_uuid or "").strip()
+    if not sid:
+        return []
+    try:
+        rows = store.get_messages(session_id=sid, limit=120)
+    except Exception:
+        rows = []
+    deliverable: list[dict[str, Any]] = []
+    for row in reversed(list(rows or [])):
+        role = str(getattr(row, "role", "") or "").strip().lower()
+        if role != "tool":
+            continue
+        if tu and str(getattr(row, "turn_uuid", "") or "").strip() != tu:
+            continue
+        for att in _parse_message_attachments(getattr(row, "attachments", None)):
+            if _is_channel_deliverable_attachment(att):
+                deliverable.append(att)
+    return deliverable
+
+
+def _prepare_channel_outbound_attachments(
+    attachments: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], str]:
+    if not attachments:
+        return [], ""
+    reply: dict[str, Any] = {"attachments": list(attachments)}
+    from runtime.application.gateway.inbound_service import (
+        _maybe_add_media_path_for_wechat_reply,
+        _maybe_expand_reply_attachments_for_channel,
+    )
+
+    _maybe_expand_reply_attachments_for_channel(reply)
+    _maybe_add_media_path_for_wechat_reply(reply)
+    out_atts = [a for a in (reply.get("attachments") or []) if isinstance(a, dict)]
+    return out_atts, str(reply.get("media_path") or "").strip()
+
+
 def extract_context_token_from_inbound_metadata(metadata: dict[str, Any] | None) -> str:
     meta = metadata if isinstance(metadata, dict) else {}
     raw = meta.get("raw") if isinstance(meta.get("raw"), dict) else {}
@@ -201,9 +250,20 @@ def deliver_scheduled_reply(
     resolved_chat_id: str = "",
     resolved_account_id: str = "",
     session_id: str = "",
+    turn_uuid: str = "",
 ) -> dict[str, Any]:
     text = str(reply_text or "").strip()
-    if not text or is_nonsend_channel_reply_text(text):
+    if is_nonsend_channel_reply_text(text):
+        text = ""
+    outbound_attachments, media_path = _prepare_channel_outbound_attachments(
+        _collect_scheduled_turn_attachments(
+            store=store,
+            session_id=session_id,
+            turn_uuid=turn_uuid,
+        )
+    )
+    has_attachments = bool(outbound_attachments or media_path)
+    if not text and not has_attachments:
         return {"ok": False, "skipped": True, "reason": "empty_or_silent_reply"}
 
     ch_lower = str(resolved_channel or "").strip().lower()
@@ -221,7 +281,7 @@ def deliver_scheduled_reply(
     account_id = str(
         wa.get("account_id") or resolved_account_id or os.getenv("AIA_WHATSAPP_ACCOUNT_ID") or "wa-default"
     ).strip()
-    if wa_enabled and chat_id and should_send_channel_reply_text(text):
+    if wa_enabled and chat_id and (text or has_attachments):
         mention_jids = normalize_whatsapp_mention_jids(wa.get("mention_jids"))
         if not mention_jids:
             mention_jids = infer_whatsapp_mention_jids_from_text(
@@ -264,6 +324,8 @@ def deliver_scheduled_reply(
                 mention_jids=mention_jids,
                 mention_names=mention_names,
                 mention_text_ready=bool(mention_jids),
+                attachments=outbound_attachments if has_attachments else None,
+                media_path=media_path or None,
             ),
         )
         results["whatsapp"] = {
@@ -271,11 +333,12 @@ def deliver_scheduled_reply(
             "message_id": msg_id,
             "chat_id": chat_id,
             "mention_jids": mention_jids,
+            "attachments": len(outbound_attachments) if has_attachments else 0,
         }
 
     wx = delivery.get("weixin") if isinstance(delivery.get("weixin"), dict) else {}
     wx_enabled = bool(wx.get("enabled", True))
-    if wx_enabled and should_send_channel_reply_text(text):
+    if wx_enabled and (text or has_attachments):
         from runtime.scheduler.weixin_delivery import resolve_weixin_delivery_target
 
         target = resolve_weixin_delivery_target(
@@ -300,6 +363,8 @@ def deliver_scheduled_reply(
                 context_token=context_token,
                 store=store,
                 tenant_id=tenant_id,
+                attachments=outbound_attachments if has_attachments else None,
+                media_path=media_path or None,
             )
         else:
             results["weixin"] = {"ok": False, "error": "weixin_chat_missing"}

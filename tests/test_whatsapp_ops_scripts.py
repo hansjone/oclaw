@@ -39,6 +39,16 @@ def test_start_all_gracefully_skips_missing_channel_sidecars() -> None:
     assert 'Warn "whatsapp sidecar skipped:' in text
 
 
+def test_whatsapp_runner_outbound_poll_uses_reply_attachments() -> None:
+    text = _read("runtime/operations/whatsapp_bridge/baileys_runner.ts")
+    assert "sendReplyWithAttachments" in text
+    assert "hasMedia" in text
+    assert "pollOutboundQueue" in text
+    poll_start = text.index("async function pollOutboundQueue")
+    poll_chunk = text[poll_start : poll_start + 2500]
+    assert "sendReplyWithAttachments" in poll_chunk
+
+
 def test_whatsapp_runner_supports_reply_attachments_base64() -> None:
     text = _read("runtime/operations/whatsapp_bridge/baileys_runner.ts")
     assert "sendReplyWithAttachments" in text

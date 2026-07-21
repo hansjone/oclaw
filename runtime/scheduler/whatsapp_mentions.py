@@ -14,6 +14,8 @@ def encode_whatsapp_outbound_source(
     mention_jids: list[str] | None = None,
     mention_names: list[str] | None = None,
     mention_text_ready: bool = False,
+    attachments: list[dict[str, Any]] | None = None,
+    media_path: str | None = None,
 ) -> str:
     payload: dict[str, Any] = {"kind": str(kind or "scheduled_job")}
     jids = normalize_whatsapp_mention_jids(mention_jids)
@@ -24,6 +26,12 @@ def encode_whatsapp_outbound_source(
         payload["mention_names"] = names
     if mention_text_ready:
         payload["mention_text_ready"] = True
+    atts = [a for a in (attachments or []) if isinstance(a, dict)]
+    if atts:
+        payload["attachments"] = atts
+    mp = str(media_path or "").strip()
+    if mp:
+        payload["media_path"] = mp
     return json.dumps(payload, ensure_ascii=False)
 
 

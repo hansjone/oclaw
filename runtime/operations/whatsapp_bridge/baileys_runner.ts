@@ -897,16 +897,32 @@ async function pollOutboundQueue(sock: ReturnType<typeof makeWASocket>): Promise
       const chatId = String((item as any).chat_id || "").trim();
       const text = String((item as any).text || "").trim();
       const source = String((item as any).source || "").trim();
-      if (!id || !chatId || !text) continue;
+      const attachments = Array.isArray((item as any).attachments) ? ((item as any).attachments as Json[]) : [];
+      const mediaPath = String((item as any).media_path || (item as any).mediaPath || "").trim();
+      const hasMedia = attachments.length > 0 || Boolean(mediaPath);
+      if (!id || !chatId || (!text && !hasMedia)) continue;
       let ok = true;
       let err = "";
       try {
-        const sendContent = buildOutboundSendContent(text, source, sock, chatId);
-        const sent = await sock.sendMessage(chatId, sendContent);
-        const stanzaId = String((sent as any)?.key?.id || "").trim();
-        log(
-          `outbound sent id=${id} chat=${chatId} stanza=${stanzaId || "?"} mentions=${(sendContent.mentions || []).length} mention0=${(sendContent.mentions || [])[0] || ""} text=${sendContent.text.slice(0, 80)}`,
-        );
+        let stanzaId = "";
+        if (hasMedia) {
+          const reply: Json = {
+            attachments,
+            metadata: decodeOutboundSource(source),
+            ...(mediaPath ? { media_path: mediaPath } : {}),
+          };
+          await sendReplyWithAttachments({ sock, deliverTo: chatId, text, reply });
+          log(
+            `outbound sent id=${id} chat=${chatId} attachments=${attachments.length} mediaPath=${mediaPath ? "yes" : "no"} text=${text.slice(0, 80)}`,
+          );
+        } else {
+          const sendContent = buildOutboundSendContent(text, source, sock, chatId);
+          const sent = await sock.sendMessage(chatId, sendContent);
+          stanzaId = String((sent as any)?.key?.id || "").trim();
+          log(
+            `outbound sent id=${id} chat=${chatId} stanza=${stanzaId || "?"} mentions=${(sendContent.mentions || []).length} mention0=${(sendContent.mentions || [])[0] || ""} text=${sendContent.text.slice(0, 80)}`,
+          );
+        }
         try {
           await fetch(`${LOCAL_BASE_URL.replace(/\/+$/, "")}/whatsapp/outbound/ack`, {
             method: "POST",
