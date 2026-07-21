@@ -46,6 +46,7 @@ def enqueue_scheduled_job_run(
             store,
             job=job,
             created_by_user_id=str(getattr(job, "created_by_user_id", "") or ""),
+            run_id=str(run.id),
         )
     except Exception as exc:
         store.scheduled_job_run_update(
@@ -95,6 +96,7 @@ def enqueue_scheduled_job_run(
         "trace_id": trace_id,
         "run_id": agent_run_id,
         "session_id": resolved.session_id,
+        "source_session_id": str(resolved.source_session_id or getattr(job, "source_session_id", "") or ""),
         "tenant_id": tenant_id,
         "user_id": resolved.user_id,
         "viewer_username": viewer_username,

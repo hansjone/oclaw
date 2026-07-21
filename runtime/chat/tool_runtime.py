@@ -552,6 +552,12 @@ class ToolExecutor:
                         tool_args["creator_external_user_id"] = external_uid
                     if push_name and not str(tool_args.get("creator_push_name") or "").strip():
                         tool_args["creator_push_name"] = push_name
+                    bot_jid_raw = str(md.get("bot_jid") or raw_block.get("botJid") or "").strip()
+                    bot_lid_raw = str(md.get("bot_lid") or md.get("botLid") or raw_block.get("botLid") or "").strip()
+                    if bot_jid_raw and not str(tool_args.get("whatsapp_bot_jid") or "").strip():
+                        tool_args["whatsapp_bot_jid"] = bot_jid_raw
+                    if bot_lid_raw and not str(tool_args.get("whatsapp_bot_lid") or "").strip():
+                        tool_args["whatsapp_bot_lid"] = bot_lid_raw
                     raw_mentions = md.get("mentioned_jids") or md.get("mentionedJids") or md.get("mentions") or []
                     mention_list = raw_mentions if isinstance(raw_mentions, list) else []
                     bot_jid = str(md.get("bot_jid") or "").strip().lower()

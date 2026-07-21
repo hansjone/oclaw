@@ -24,7 +24,11 @@ from runtime.scheduler.recipe import (
 )
 from runtime.scheduler.service import run_scheduled_job_now
 from runtime.scheduler.system_timezone import default_system_timezone
-from runtime.scheduler.whatsapp_mentions import merge_whatsapp_mention_jids, merge_whatsapp_mention_names
+from runtime.scheduler.whatsapp_mentions import (
+    finalize_whatsapp_scheduled_delivery,
+    merge_whatsapp_mention_jids,
+    merge_whatsapp_mention_names,
+)
 from runtime.tools.base import ToolSpec
 from runtime.tools.context_inject import enrich_tool_arguments
 from runtime.types import normalize_interaction_mode, normalize_requested_specialist
@@ -243,6 +247,13 @@ def schedule_create_tool() -> ToolSpec:
                 push_name=str(args.get("creator_push_name") or "").strip(),
                 session_id=str(session_id or ""),
             )
+            delivery = finalize_whatsapp_scheduled_delivery(
+                delivery,
+                creator_external_user_id=str(args.get("creator_external_user_id") or "").strip(),
+                creator_push_name=str(args.get("creator_push_name") or "").strip(),
+                bot_jid=str(args.get("whatsapp_bot_jid") or "").strip(),
+                bot_lid=str(args.get("whatsapp_bot_lid") or "").strip(),
+            )
             interaction_mode = normalize_interaction_mode(
                 str(args.get("interaction_mode") or "expert")
             )
@@ -324,6 +335,14 @@ def schedule_create_tool() -> ToolSpec:
                 "creator_push_name": {
                     "type": "string",
                     "description": "Auto-filled channel display name of the creator.",
+                },
+                "whatsapp_bot_jid": {
+                    "type": "string",
+                    "description": "Auto-filled bot JID for filtering self-mentions on delivery.",
+                },
+                "whatsapp_bot_lid": {
+                    "type": "string",
+                    "description": "Auto-filled bot LID for filtering self-mentions on delivery.",
                 },
                 "delivery": {"type": "object"},
                 "description": {"type": "string"},

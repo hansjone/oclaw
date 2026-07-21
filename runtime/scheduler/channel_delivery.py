@@ -9,8 +9,7 @@ from runtime.scheduler.session_resolver import parse_delivery_json
 from runtime.scheduler.whatsapp_mentions import (
     encode_whatsapp_outbound_source,
     format_whatsapp_mention_text,
-    infer_whatsapp_mention_jids_from_text,
-    normalize_whatsapp_mention_jids,
+    resolve_scheduled_whatsapp_mention_targets,
 )
 
 
@@ -282,30 +281,13 @@ def deliver_scheduled_reply(
         wa.get("account_id") or resolved_account_id or os.getenv("AIA_WHATSAPP_ACCOUNT_ID") or "wa-default"
     ).strip()
     if wa_enabled and chat_id and (text or has_attachments):
-        mention_jids = normalize_whatsapp_mention_jids(wa.get("mention_jids"))
-        if not mention_jids:
-            mention_jids = infer_whatsapp_mention_jids_from_text(
-                text,
-                store=store,
-                tenant_id=tenant_id,
-                account_id=account_id,
-            )
-        mention_names = wa.get("mention_names") if isinstance(wa.get("mention_names"), list) else None
-        if mention_names is None and mention_jids:
-            from runtime.scheduler.whatsapp_mentions import _lookup_push_name
-
-            derived_names: list[str] = []
-            for jid in mention_jids:
-                derived_names.append(
-                    _lookup_push_name(
-                        store,
-                        tenant_id=tenant_id,
-                        account_id=account_id,
-                        jid=str(jid or ""),
-                    )
-                )
-            if any(derived_names):
-                mention_names = derived_names
+        mention_jids, mention_names = resolve_scheduled_whatsapp_mention_targets(
+            delivery=delivery,
+            reply_text=text,
+            store=store,
+            tenant_id=tenant_id,
+            account_id=account_id,
+        )
         out_text = format_whatsapp_mention_text(
             text,
             mention_jids,

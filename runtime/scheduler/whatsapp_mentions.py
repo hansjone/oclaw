@@ -273,6 +273,116 @@ def mention_tag_for_jid(jid: str, *, push_name: str = "") -> str:
     return f"@{local}" if local else ""
 
 
+def resolve_scheduled_whatsapp_mention_targets(
+    *,
+    delivery: dict[str, Any],
+    reply_text: str,
+    store: Any,
+    tenant_id: str,
+    account_id: str,
+) -> tuple[list[str], list[str] | None]:
+    """Resolve @mention targets for scheduled WhatsApp delivery (creator by default)."""
+    from runtime.orchestration.group_ingest import _filter_non_bot_mention_jids, jids_same_user
+    from runtime.scheduler.job_delete import creator_from_delivery
+
+    wa = delivery.get("whatsapp") if isinstance(delivery.get("whatsapp"), dict) else {}
+    creator = creator_from_delivery(delivery)
+    bot_meta: dict[str, Any] = {}
+    bot_jid = str(wa.get("bot_jid") or "").strip()
+    bot_lid = str(wa.get("bot_lid") or "").strip()
+    if bot_jid:
+        bot_meta["bot_jid"] = bot_jid
+    if bot_lid:
+        bot_meta["bot_lid"] = bot_lid
+
+    explicit = _filter_non_bot_mention_jids(
+        normalize_whatsapp_mention_jids(wa.get("mention_jids")),
+        bot_jid=bot_jid or None,
+        metadata=bot_meta or None,
+    )
+    creator_jids = normalize_whatsapp_mention_jids([creator.get("external_user_id") or ""])
+    creator_jid = creator_jids[0] if creator_jids else ""
+
+    if explicit:
+        mention_jids = explicit
+    elif creator_jids:
+        mention_jids = creator_jids
+    else:
+        mention_jids = infer_whatsapp_mention_jids_from_text(
+            reply_text,
+            store=store,
+            tenant_id=tenant_id,
+            account_id=account_id,
+        )
+
+    mention_names = wa.get("mention_names") if isinstance(wa.get("mention_names"), list) else None
+    if mention_names is None and creator.get("push_name") and creator_jids:
+        if not mention_jids or (
+            creator_jid and len(mention_jids) == 1 and jids_same_user(mention_jids[0], creator_jid)
+        ):
+            mention_names = [str(creator.get("push_name") or "").strip()]
+    if mention_names is None and mention_jids:
+        from runtime.scheduler.whatsapp_mentions import _lookup_push_name
+
+        derived_names: list[str] = []
+        for jid in mention_jids:
+            derived_names.append(
+                _lookup_push_name(
+                    store,
+                    tenant_id=tenant_id,
+                    account_id=account_id,
+                    jid=str(jid or ""),
+                )
+            )
+        if any(derived_names):
+            mention_names = derived_names
+    return mention_jids, mention_names
+
+
+def finalize_whatsapp_scheduled_delivery(
+    delivery: dict[str, Any] | None,
+    *,
+    creator_external_user_id: str = "",
+    creator_push_name: str = "",
+    bot_jid: str = "",
+    bot_lid: str = "",
+) -> dict[str, Any]:
+    """Store bot identity for delivery filtering and default @mention to the job creator."""
+    from runtime.orchestration.group_ingest import _filter_non_bot_mention_jids
+
+    out = dict(delivery or {})
+    wa = out.get("whatsapp")
+    if not isinstance(wa, dict) or not wa.get("enabled"):
+        return out
+    wa = dict(wa)
+    bot = str(bot_jid or "").strip()
+    lid = str(bot_lid or "").strip()
+    if bot:
+        wa["bot_jid"] = bot
+    if lid:
+        wa["bot_lid"] = lid
+    meta: dict[str, Any] = {}
+    if bot:
+        meta["bot_jid"] = bot
+    if lid:
+        meta["bot_lid"] = lid
+    jids = _filter_non_bot_mention_jids(
+        normalize_whatsapp_mention_jids(wa.get("mention_jids")),
+        bot_jid=bot or None,
+        metadata=meta or None,
+    )
+    creator_ext = str(creator_external_user_id or "").strip()
+    if not jids and creator_ext:
+        jids = normalize_whatsapp_mention_jids([creator_ext])
+        pname = str(creator_push_name or "").strip()
+        if pname:
+            wa["mention_names"] = [pname]
+    if jids:
+        wa["mention_jids"] = jids
+    out["whatsapp"] = wa
+    return out
+
+
 def format_whatsapp_mention_text(
     text: str,
     mention_jids: list[str],
@@ -311,6 +421,8 @@ __all__ = [
     "decode_whatsapp_outbound_source",
     "encode_whatsapp_outbound_source",
     "extract_whatsapp_mention_names",
+    "finalize_whatsapp_scheduled_delivery",
+    "resolve_scheduled_whatsapp_mention_targets",
     "format_whatsapp_mention_text",
     "infer_whatsapp_mention_jids_from_names",
     "infer_whatsapp_mention_jids_from_text",

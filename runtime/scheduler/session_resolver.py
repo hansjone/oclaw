@@ -19,6 +19,7 @@ class ResolvedSession:
     external_chat_id: str
     external_user_id: str
     is_group: bool
+    source_session_id: str = ""
 
 
 def _ensure_administrator_owner(store: Any, *, tenant_id: str) -> dict[str, Any] | None:
@@ -48,6 +49,137 @@ def _ensure_administrator_owner(store: Any, *, tenant_id: str) -> dict[str, Any]
         "display_name": (user or {}).get("display_name") or "Administrator",
         "role": str((user or {}).get("role") or "owner"),
     }
+
+
+def _create_scheduled_execution_session(
+    store: Any,
+    *,
+    tenant_id: str,
+    user_id: str,
+    job_name: str,
+    run_id: str = "",
+) -> str:
+    rid = str(run_id or "").strip()
+    title = f"Scheduled · {job_name}"
+    if rid:
+        title = f"{title} · {rid[:8]}"
+    tid = str(tenant_id or "").strip()
+    uid = str(user_id or "").strip()
+    if uid and tid:
+        sess = store.create_session_for_user(title=title, tenant_id=tid, user_id=uid)
+    else:
+        sess = store.create_session(title)
+    return str(sess.id)
+
+
+def _resolve_scheduled_channel_context(
+    store: Any,
+    *,
+    job: Any,
+    created_by_user_id: str = "",
+) -> tuple[str, str, str, str, str, str, bool, str]:
+    """Return tenant_id, user_id, channel, account_id, external_chat_id, external_user_id, is_group, source_session_id."""
+    tenant_id = str(getattr(job, "tenant_id", "") or "")
+    delivery = parse_delivery_json(str(getattr(job, "delivery_json", "") or "{}"))
+    source_session_id = str(getattr(job, "source_session_id", "") or "").strip()
+
+    if source_session_id:
+        sess = store.get_session_in_tenant(session_id=source_session_id, tenant_id=tenant_id)
+        if sess:
+            owner = store.get_ui_session_owner(session_id=source_session_id) or {}
+            user_id = str(owner.get("user_id") or created_by_user_id or "").strip()
+            if not user_id:
+                admin = _ensure_administrator_owner(store, tenant_id=tenant_id)
+                user_id = str((admin or {}).get("user_id") or "")
+            channel_ctx = None
+            lookup = getattr(store, "lookup_channel_session_by_session_id", None)
+            if callable(lookup):
+                channel_ctx = lookup(tenant_id=tenant_id, session_id=source_session_id)
+            if isinstance(channel_ctx, dict) and str(channel_ctx.get("channel") or "").strip():
+                ch = str(channel_ctx.get("channel") or "").strip().lower()
+                account_id = str(channel_ctx.get("account_id") or "").strip()
+                external_chat_id = str(channel_ctx.get("external_chat_id") or "").strip()
+                external_user_id = str(channel_ctx.get("external_user_id") or "").strip()
+                is_group = ch == "whatsapp" and external_chat_id.endswith("@g.us")
+                return (
+                    tenant_id,
+                    user_id,
+                    ch,
+                    account_id or ("weixin-default" if ch in {"weixin", "wechat"} else ""),
+                    external_chat_id,
+                    external_user_id,
+                    is_group,
+                    source_session_id,
+                )
+            return (
+                tenant_id,
+                user_id,
+                "admin_chat",
+                "",
+                "",
+                "",
+                False,
+                source_session_id,
+            )
+
+    wa = delivery.get("whatsapp") if isinstance(delivery.get("whatsapp"), dict) else {}
+    wx = delivery.get("weixin") if isinstance(delivery.get("weixin"), dict) else {}
+    wa_enabled = bool(wa.get("enabled")) and str(wa.get("target_type") or "none") != "none"
+    wx_enabled = bool(wx.get("enabled", True))
+
+    if wa_enabled and str(wa.get("chat_id") or "").strip():
+        chat_id = str(wa.get("chat_id") or "").strip()
+        account_id = str(wa.get("account_id") or os.getenv("AIA_WHATSAPP_ACCOUNT_ID") or "wa-default").strip()
+        target_type = str(wa.get("target_type") or "direct").strip().lower()
+        is_group = target_type == "group" or chat_id.endswith("@g.us")
+        external_user_id = session_user_key(is_group=is_group, external_user_id=chat_id.split("@", 1)[0])
+        admin = _ensure_administrator_owner(store, tenant_id=tenant_id)
+        user_id = str(created_by_user_id or (admin or {}).get("user_id") or "")
+        return (
+            tenant_id,
+            user_id,
+            "whatsapp",
+            account_id,
+            chat_id,
+            external_user_id,
+            is_group,
+            "",
+        )
+
+    if wx_enabled:
+        binding = resolve_weixin_binding(store, tenant_id=tenant_id)
+        if not binding:
+            raise RuntimeError("weixin_binding_missing")
+        channel = str(binding.get("channel") or "weixin")
+        account_id = str(binding.get("account_id") or "weixin-default")
+        external_user_id = str(binding.get("external_user_id") or "")
+        external_chat_id = str(binding.get("external_chat_id") or external_user_id)
+        user_id = str(binding.get("user_id") or created_by_user_id or "")
+        return (
+            tenant_id,
+            user_id,
+            channel,
+            account_id,
+            external_chat_id,
+            external_user_id,
+            False,
+            "",
+        )
+
+    admin = _ensure_administrator_owner(store, tenant_id=tenant_id)
+    user_id = str(created_by_user_id or (admin or {}).get("user_id") or "")
+    if not user_id:
+        raise RuntimeError("scheduled_session_owner_missing")
+    return (
+        tenant_id,
+        user_id,
+        "admin_chat",
+        "",
+        "",
+        "",
+        False,
+        source_session_id,
+    )
 
 
 def resolve_weixin_binding(store: Any, *, tenant_id: str) -> dict[str, Any] | None:
@@ -123,153 +255,40 @@ def resolve_scheduled_session(
     *,
     job: Any,
     created_by_user_id: str = "",
+    run_id: str = "",
 ) -> ResolvedSession:
-    tenant_id = str(getattr(job, "tenant_id", "") or "")
-    delivery = parse_delivery_json(str(getattr(job, "delivery_json", "") or "{}"))
-    source_session_id = str(getattr(job, "source_session_id", "") or "").strip()
     job_name = str(getattr(job, "name", "") or "Scheduled task")
-
-    if source_session_id:
-        sess = store.get_session_in_tenant(session_id=source_session_id, tenant_id=tenant_id)
-        if sess:
-            owner = store.get_ui_session_owner(session_id=source_session_id) or {}
-            user_id = str(owner.get("user_id") or created_by_user_id or "").strip()
-            if not user_id:
-                admin = _ensure_administrator_owner(store, tenant_id=tenant_id)
-                user_id = str((admin or {}).get("user_id") or "")
-            channel_ctx = None
-            lookup = getattr(store, "lookup_channel_session_by_session_id", None)
-            if callable(lookup):
-                channel_ctx = lookup(tenant_id=tenant_id, session_id=source_session_id)
-            if isinstance(channel_ctx, dict) and str(channel_ctx.get("channel") or "").strip():
-                ch = str(channel_ctx.get("channel") or "").strip().lower()
-                account_id = str(channel_ctx.get("account_id") or "").strip()
-                external_chat_id = str(channel_ctx.get("external_chat_id") or "").strip()
-                external_user_id = str(channel_ctx.get("external_user_id") or "").strip()
-                is_group = ch == "whatsapp" and external_chat_id.endswith("@g.us")
-                return ResolvedSession(
-                    session_id=source_session_id,
-                    tenant_id=tenant_id,
-                    user_id=user_id,
-                    channel=ch,
-                    account_id=account_id or ("weixin-default" if ch in {"weixin", "wechat"} else ""),
-                    external_chat_id=external_chat_id,
-                    external_user_id=external_user_id,
-                    is_group=is_group,
-                )
-            return ResolvedSession(
-                session_id=source_session_id,
-                tenant_id=tenant_id,
-                user_id=user_id,
-                channel="admin_chat",
-                account_id="",
-                external_chat_id="",
-                external_user_id="",
-                is_group=False,
-            )
-
-    wa = delivery.get("whatsapp") if isinstance(delivery.get("whatsapp"), dict) else {}
-    wx = delivery.get("weixin") if isinstance(delivery.get("weixin"), dict) else {}
-    wa_enabled = bool(wa.get("enabled")) and str(wa.get("target_type") or "none") != "none"
-    wx_enabled = bool(wx.get("enabled", True))
-
-    if wa_enabled and str(wa.get("chat_id") or "").strip():
-        chat_id = str(wa.get("chat_id") or "").strip()
-        account_id = str(wa.get("account_id") or os.getenv("AIA_WHATSAPP_ACCOUNT_ID") or "wa-default").strip()
-        target_type = str(wa.get("target_type") or "direct").strip().lower()
-        is_group = target_type == "group" or chat_id.endswith("@g.us")
-        external_user_id = session_user_key(is_group=is_group, external_user_id=chat_id.split("@", 1)[0])
-        admin = _ensure_administrator_owner(store, tenant_id=tenant_id)
-        user_id = str(created_by_user_id or (admin or {}).get("user_id") or "")
-        session_id = store.get_or_create_channel_session_v2(
-            tenant_id=tenant_id,
-            channel="whatsapp",
-            account_id=account_id,
-            external_chat_id=chat_id,
-            external_user_id=external_user_id,
-            session_title=f"Scheduled · {job_name}",
-        )
-        from runtime.application.gateway.channel_session_owner import (
-            assign_channel_session_to_account_owner,
-        )
-
-        assign_channel_session_to_account_owner(
-            store,
-            session_id=session_id,
-            channel="whatsapp",
-            account_id=account_id,
-            tenant_id=tenant_id,
-            fallback_user_id=user_id,
-        )
-        return ResolvedSession(
-            session_id=session_id,
-            tenant_id=tenant_id,
-            user_id=user_id,
-            channel="whatsapp",
-            account_id=account_id,
-            external_chat_id=chat_id,
-            external_user_id=external_user_id,
-            is_group=is_group,
-        )
-
-    if wx_enabled:
-        binding = resolve_weixin_binding(store, tenant_id=tenant_id)
-        if not binding:
-            raise RuntimeError("weixin_binding_missing")
-        channel = str(binding.get("channel") or "weixin")
-        account_id = str(binding.get("account_id") or "weixin-default")
-        external_user_id = str(binding.get("external_user_id") or "")
-        external_chat_id = str(binding.get("external_chat_id") or external_user_id)
-        user_id = str(binding.get("user_id") or created_by_user_id or "")
-        session_id = store.get_or_create_channel_session_v2(
-            tenant_id=tenant_id,
-            channel=channel,
-            account_id=account_id,
-            external_chat_id=external_chat_id,
-            external_user_id=external_user_id,
-            session_title=f"Scheduled · {job_name}",
-        )
-        from runtime.application.gateway.channel_session_owner import (
-            assign_channel_session_to_account_owner,
-        )
-
-        assign_channel_session_to_account_owner(
-            store,
-            session_id=session_id,
-            channel=channel,
-            account_id=account_id,
-            tenant_id=tenant_id,
-            fallback_user_id=user_id,
-        )
-        return ResolvedSession(
-            session_id=session_id,
-            tenant_id=tenant_id,
-            user_id=user_id,
-            channel=channel,
-            account_id=account_id,
-            external_chat_id=external_chat_id,
-            external_user_id=external_user_id,
-            is_group=False,
-        )
-
-    admin = _ensure_administrator_owner(store, tenant_id=tenant_id)
-    user_id = str(created_by_user_id or (admin or {}).get("user_id") or "")
-    if not user_id:
-        raise RuntimeError("scheduled_session_owner_missing")
-    sess = store.create_session_for_user(
-        title=f"Scheduled · {job_name}",
+    (
+        tenant_id,
+        user_id,
+        channel,
+        account_id,
+        external_chat_id,
+        external_user_id,
+        is_group,
+        source_session_id,
+    ) = _resolve_scheduled_channel_context(
+        store,
+        job=job,
+        created_by_user_id=created_by_user_id,
+    )
+    execution_session_id = _create_scheduled_execution_session(
+        store,
         tenant_id=tenant_id,
         user_id=user_id,
+        job_name=job_name,
+        run_id=run_id,
     )
     return ResolvedSession(
-        session_id=str(sess.id),
+        session_id=execution_session_id,
         tenant_id=tenant_id,
         user_id=user_id,
-        channel="admin_chat",
-        account_id="",
-        external_chat_id="",
-        external_user_id="",
-        is_group=False,
+        channel=channel,
+        account_id=account_id,
+        external_chat_id=external_chat_id,
+        external_user_id=external_user_id,
+        is_group=is_group,
+        source_session_id=source_session_id,
     )
 
 

@@ -334,6 +334,7 @@ def _handle_productivity_commands(
             session_id=str(session_id or "").strip(),
         )
         from runtime.scheduler.job_delete import merge_delivery_creator
+        from runtime.scheduler.whatsapp_mentions import finalize_whatsapp_scheduled_delivery
 
         delivery = merge_delivery_creator(
             delivery,
@@ -341,6 +342,11 @@ def _handle_productivity_commands(
             external_user_id=str(creator_external_user_id or ""),
             push_name=str(creator_push_name or ""),
             session_id=str(session_id or "").strip(),
+        )
+        delivery = finalize_whatsapp_scheduled_delivery(
+            delivery,
+            creator_external_user_id=str(creator_external_user_id or ""),
+            creator_push_name=str(creator_push_name or ""),
         )
         row = store.scheduled_job_create(
             tenant_id=tenant_id,
