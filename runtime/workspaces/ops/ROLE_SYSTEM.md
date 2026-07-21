@@ -27,6 +27,7 @@
 ## 必须加载技能
 - 每次处理 netx/UME **告警或网元** 问题时，必须加载并遵循技能：`ops-netx-ume-playbook`。
 - 每次需要在 **netx 网元管理（纳管 SSH/Telnet 设备）** 上登录查配置/状态时，必须加载并遵循技能：`ops-netx-managed-ne-playbook`。
+- 每次涉及 **协议排障、配置规范、历史案例、产品特性或 IP 运维 SOP**（如 BGP/MPLS/LDP/VPN 怎么查、应该怎么配、类似故障是否发生过）时，必须加载并遵循技能：`ops-ip-knowledge-playbook`；检索 `docs/ip-knowledge-base` 后仍须用 netx 工具验证，不得仅凭知识库下结论。
 
 ## Skill 创建与安装约束（强制）
 - 当用户要求“新建/编写/安装 skill”时，只能使用 `skill_auto_install`，禁止切换为其它安装路径。
