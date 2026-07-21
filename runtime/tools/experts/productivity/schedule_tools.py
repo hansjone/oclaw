@@ -35,6 +35,32 @@ from runtime.types import normalize_interaction_mode, normalize_requested_specia
 from svc.persistence.assistant_store import get_assistant_store
 
 
+def _interval_human(schedule_kind: str, schedule_expr: str, lang: str = "zh") -> str:
+    """Return a human-readable interval string for LLM consumption."""
+    if normalize_schedule_kind(schedule_kind) != "interval":
+        return ""
+    try:
+        secs = int(schedule_expr)
+    except (ValueError, TypeError):
+        return ""
+    is_en = str(lang or "").lower().startswith("en")
+    if secs < 60:
+        return f"{secs} seconds" if is_en else f"{secs} 秒"
+    if secs < 3600:
+        mins = secs // 60
+        rem = secs % 60
+        if rem == 0:
+            return f"every {mins} minute{'s' if mins != 1 else ''}" if is_en else f"每 {mins} 分钟"
+        return (
+            f"every {mins}m {rem}s" if is_en else f"每 {mins} 分 {rem} 秒"
+        )
+    hrs = secs // 3600
+    rem_m = (secs % 3600) // 60
+    if rem_m == 0:
+        return f"every {hrs} hour{'s' if hrs != 1 else ''}" if is_en else f"每 {hrs} 小时"
+    return f"every {hrs}h {rem_m}m" if is_en else f"每 {hrs} 小时 {rem_m} 分钟"
+
+
 def _require(s: str, name: str) -> str:
     v = (s or "").strip()
     if not v:
@@ -161,8 +187,23 @@ def schedule_propose_tool() -> ToolSpec:
                 "session_id": {"type": "string", "description": "Auto-filled from session."},
                 "name": {"type": "string"},
                 "recipe": _RECIPE_PARAM,
-                "schedule_kind": {"type": "string", "enum": ["cron", "once", "interval"]},
-                "schedule_expr": {"type": "string"},
+                "schedule_kind": {
+                    "type": "string",
+                    "enum": ["cron", "once", "interval"],
+                    "description": (
+                        "cron=standard cron expression; "
+                        "once=ISO-8601 datetime; "
+                        "interval=repeat every N **seconds** (integer string, e.g. '300' = every 5 minutes)."
+                    ),
+                },
+                "schedule_expr": {
+                    "type": "string",
+                    "description": (
+                        "For interval: integer number of **seconds** between runs (e.g. '300' for every 5 minutes, '3600' for hourly). "
+                        "For cron: standard 5-field cron expression. "
+                        "For once: ISO-8601 datetime string."
+                    ),
+                },
                 "timezone": {"type": "string"},
                 "lang": {"type": "string"},
             },
@@ -285,7 +326,15 @@ def schedule_create_tool() -> ToolSpec:
                 created_by_user_id=owner_user_id,
                 source="chat",
             )
-            return {"ok": True, "job": store.scheduled_job_to_dict(row)}
+            job_dict = store.scheduled_job_to_dict(row)
+            human = _interval_human(
+                schedule_kind=schedule_kind,
+                schedule_expr=schedule_expr,
+                lang=str(args.get("lang") or "zh"),
+            )
+            if human:
+                job_dict["schedule_expr_human"] = human
+            return {"ok": True, "job": job_dict}
         except Exception as e:
             return {"ok": False, "error": f"{type(e).__name__}: {e}"}
 
@@ -311,8 +360,23 @@ def schedule_create_tool() -> ToolSpec:
                     "description": "Short summary / reminder intent. For playbooks, prefer recipe.goal.",
                 },
                 "recipe": _RECIPE_PARAM,
-                "schedule_kind": {"type": "string", "enum": ["cron", "once", "interval"]},
-                "schedule_expr": {"type": "string"},
+                "schedule_kind": {
+                    "type": "string",
+                    "enum": ["cron", "once", "interval"],
+                    "description": (
+                        "cron=standard cron expression; "
+                        "once=ISO-8601 datetime; "
+                        "interval=repeat every N **seconds** (integer string, e.g. '300' = every 5 minutes)."
+                    ),
+                },
+                "schedule_expr": {
+                    "type": "string",
+                    "description": (
+                        "For interval: integer number of **seconds** between runs (e.g. '300' for every 5 minutes, '3600' for hourly). "
+                        "For cron: standard 5-field cron expression. "
+                        "For once: ISO-8601 datetime string."
+                    ),
+                },
                 "timezone": {"type": "string", "description": "IANA timezone; defaults to the host system timezone."},
                 "interaction_mode": {"type": "string"},
                 "specialist": {"type": "string"},
