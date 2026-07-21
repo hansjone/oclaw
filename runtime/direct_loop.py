@@ -1144,6 +1144,7 @@ def _execute_tool_step(
     inbound_metadata: dict[str, Any] | None = None,
 ) -> tuple[int, dict[str, tuple[dict[str, Any], int]]]:
     t0 = time.perf_counter()
+    lane = str(workspace_lane_role or "").strip().lower()
     _tool_messages, results_by_id = skill_exec.execute_skill_uses(
         ctx=SkillExecutionContext(
             store=store,
@@ -1152,7 +1153,7 @@ def _execute_tool_step(
             lang=lang,
             user_text=user_text,
             inbound_metadata=inbound_metadata,
-            specialist="oclaw",
+            specialist=lane or "oclaw",
             trace_id=trace_id,
             parent_span_id=parent_span_id,
             workspace_dir=workspace_dir,

@@ -1309,7 +1309,7 @@ def process_inbound_payload(payload: dict[str, Any]) -> dict[str, Any]:
                                     store,
                                     tenant_id=tenant_id,
                                     user_id=user_id,
-                                    specialist="generalist",
+                                    specialist=selected_specialist,
                                     session_id=str(session_id),
                                     lang=lang,
                                 )

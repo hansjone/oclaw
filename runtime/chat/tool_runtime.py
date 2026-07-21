@@ -467,6 +467,33 @@ def truncate_tool_result_for_llm_messages(result: dict[str, Any], *, max_chars: 
     }
 
 
+_INTERNAL_TOOL_SPECIALISTS = frozenset({"", "oclaw"})
+
+
+def _resolve_creator_specialist(ctx: ToolExecutionContext) -> str:
+    """Specialist actively running this turn (for schedule_create inheritance)."""
+    from runtime.types import normalize_requested_specialist
+
+    md = ctx.inbound_metadata if isinstance(ctx.inbound_metadata, dict) else {}
+    for raw in (
+        str(ctx.workspace_lane_role or "").strip(),
+        str(ctx.specialist or "").strip(),
+        str(md.get("selected_specialist") or "").strip(),
+        str(md.get("manager_selected_specialist") or "").strip(),
+    ):
+        if not raw or raw.lower() in _INTERNAL_TOOL_SPECIALISTS:
+            continue
+        return normalize_requested_specialist(raw)
+    for raw in (
+        str(ctx.workspace_lane_role or "").strip(),
+        str(md.get("selected_specialist") or "").strip(),
+        str(md.get("manager_selected_specialist") or "").strip(),
+    ):
+        if raw:
+            return normalize_requested_specialist(raw)
+    return "generalist"
+
+
 @dataclass(frozen=True)
 class ToolExecutionConfig:
     max_workers: int = 8
@@ -543,7 +570,7 @@ class ToolExecutor:
                     or ""
                 ).strip()
                 if tname == "schedule_create":
-                    cur_spec = str(ctx.specialist or "").strip().lower()
+                    cur_spec = _resolve_creator_specialist(ctx)
                     if cur_spec and not str(tool_args.get("specialist") or "").strip() and not str(
                         tool_args.get("selected_specialist") or ""
                     ).strip():

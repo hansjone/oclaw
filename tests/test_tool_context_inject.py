@@ -150,6 +150,64 @@ class ToolContextInjectTests(unittest.TestCase):
         self.assertEqual(len(tool_msgs), 1)
         self.assertEqual(str(seen.get("selected_specialist") or ""), "ops")
 
+    def test_schedule_create_inherits_workspace_lane_role_when_specialist_internal(self) -> None:
+        seen: dict[str, object] = {}
+
+        def _capture(args: dict[str, object]) -> dict[str, object]:
+            seen.update(args)
+            return {"ok": True}
+
+        fake_schedule_create = ToolSpec(
+            name="schedule_create",
+            description="capture args",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string"},
+                    "prompt_text": {"type": "string"},
+                    "schedule_kind": {"type": "string"},
+                    "schedule_expr": {"type": "string"},
+                    "selected_specialist": {"type": "string"},
+                },
+                "required": ["name", "prompt_text", "schedule_kind", "schedule_expr"],
+                "additionalProperties": True,
+            },
+            handler=_capture,
+        )
+
+        self.store.add_message(
+            session_id=self.session_id,
+            role="assistant",
+            content="hi",
+            event_type="assistant_text",
+            turn_uuid="t0",
+        )
+        assistant_msg_id = int(self.store.get_messages(session_id=self.session_id, limit=1)[0].id)
+
+        ctx = ToolExecutionContext(
+            store=self.store,
+            tools=ToolRegistry([fake_schedule_create]),
+            session_id=self.session_id,
+            lang="en",
+            specialist="oclaw",
+            workspace_lane_role="ops",
+            turn_uuid="turn-1",
+        )
+        tc = LLMToolCall(
+            id="tc2",
+            name="schedule_create",
+            arguments={
+                "name": "daily report",
+                "prompt_text": "send report",
+                "schedule_kind": "cron",
+                "schedule_expr": "0 9 * * *",
+            },
+        )
+
+        tool_msgs, _ = ToolExecutor().execute_tool_uses(ctx=ctx, assistant_msg_id=assistant_msg_id, tool_uses=[tc])
+        self.assertEqual(len(tool_msgs), 1)
+        self.assertEqual(str(seen.get("selected_specialist") or ""), "ops")
+
 
 if __name__ == "__main__":
     unittest.main()
