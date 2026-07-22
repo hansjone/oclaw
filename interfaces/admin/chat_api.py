@@ -2320,6 +2320,72 @@ def include_chat_routes(router: APIRouter, *, resolve_auth: Callable[[SqliteStor
             },
         )
 
+    @chat.get("/jobs")
+    def api_chat_list_jobs(
+        limit: int = Query(default=50, ge=1, le=100),
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        store = get_assistant_store()
+        resolve_auth(store, authorization)
+        from svc.jobs.background_jobs import get_job_store
+
+        return get_job_store().list_jobs(limit=limit)
+
+    @chat.get("/jobs/{job_id}")
+    def api_chat_get_job(
+        job_id: str,
+        log_tail_chars: int = Query(default=4000, ge=200, le=50000),
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        store = get_assistant_store()
+        resolve_auth(store, authorization)
+        from svc.jobs.background_jobs import get_job_store
+
+        out = get_job_store().get(job_id, log_tail_chars=log_tail_chars)
+        if not out.get("ok") and out.get("error") == "job_not_found":
+            raise HTTPException(status_code=404, detail="job_not_found")
+        return out
+
+    @chat.post("/jobs/{job_id}/cancel")
+    def api_chat_cancel_job(
+        job_id: str,
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        store = get_assistant_store()
+        resolve_auth(store, authorization)
+        from svc.jobs.background_jobs import get_job_store
+
+        out = get_job_store().cancel(job_id)
+        if not out.get("ok") and out.get("error") == "job_not_found":
+            raise HTTPException(status_code=404, detail="job_not_found")
+        return out
+
+    @chat.post("/jobs/cancel-running")
+    def api_chat_cancel_all_running_jobs(
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        store = get_assistant_store()
+        resolve_auth(store, authorization)
+        from svc.jobs.background_jobs import get_job_store
+
+        return get_job_store().cancel_all_running()
+
+    @chat.delete("/jobs/{job_id}")
+    def api_chat_purge_job(
+        job_id: str,
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        store = get_assistant_store()
+        resolve_auth(store, authorization)
+        from svc.jobs.background_jobs import get_job_store
+
+        out = get_job_store().purge(job_id)
+        if not out.get("ok") and out.get("error") == "job_not_found":
+            raise HTTPException(status_code=404, detail="job_not_found")
+        if not out.get("ok") and out.get("error") == "job_still_running":
+            raise HTTPException(status_code=409, detail="job_still_running")
+        return out
+
     router.include_router(chat)
 
 

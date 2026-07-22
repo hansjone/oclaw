@@ -516,6 +516,114 @@
         line-height: 1.45;
         color: var(--ds-text, #e8e8e8);
       }
+      .chat-nav__toolbar {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+      .chat-nav__jobs {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        width: 100%;
+        padding: 8px 10px;
+        border-radius: 8px;
+        border: 1px solid var(--ds-border, rgba(255, 255, 255, 0.12));
+        background: transparent;
+        color: inherit;
+        cursor: pointer;
+        font-size: 13px;
+      }
+      .chat-nav__jobs:hover {
+        background: var(--chat-sess-hover-bg, rgba(255, 255, 255, 0.05));
+      }
+      .chat-nav__jobs--active {
+        border-color: rgba(245, 158, 11, 0.55);
+        background: rgba(245, 158, 11, 0.12);
+      }
+      .chat-jobs-badge {
+        min-width: 1.25rem;
+        height: 1.25rem;
+        padding: 0 6px;
+        border-radius: 999px;
+        color: #fff;
+        font-size: 11px;
+        line-height: 1.25rem;
+        text-align: center;
+        font-weight: 600;
+        flex: 0 0 auto;
+      }
+      .chat-jobs-badge--idle {
+        background: rgba(148, 163, 184, 0.45);
+      }
+      .chat-jobs-badge--hot {
+        background: rgba(239, 68, 68, 0.9);
+        box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.25);
+      }
+      .chat-jobs-row {
+        border: 1px solid var(--ds-border, rgba(255, 255, 255, 0.12));
+        border-radius: 10px;
+        padding: 10px;
+        background: rgba(255, 255, 255, 0.03);
+      }
+      .chat-jobs-row--running {
+        border-color: rgba(245, 158, 11, 0.45);
+      }
+      .chat-jobs-row__top {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        margin-bottom: 6px;
+      }
+      .chat-jobs-row__name {
+        font-weight: 600;
+        font-size: 14px;
+      }
+      .chat-jobs-row__meta {
+        font-size: 12px;
+        line-height: 1.4;
+        margin-bottom: 8px;
+      }
+      .chat-jobs-row__cmd {
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        max-width: 100%;
+      }
+      .chat-jobs-pill {
+        font-size: 11px;
+        padding: 2px 8px;
+        border-radius: 999px;
+        border: 1px solid rgba(255, 255, 255, 0.15);
+      }
+      .chat-jobs-pill--running {
+        background: rgba(245, 158, 11, 0.2);
+        border-color: rgba(245, 158, 11, 0.4);
+      }
+      .chat-jobs-pill--succeeded {
+        background: rgba(34, 197, 94, 0.18);
+        border-color: rgba(34, 197, 94, 0.35);
+      }
+      .chat-jobs-pill--failed,
+      .chat-jobs-pill--timeout,
+      .chat-jobs-pill--cancelled {
+        background: rgba(239, 68, 68, 0.15);
+        border-color: rgba(239, 68, 68, 0.35);
+      }
+      .chat-jobs-log {
+        margin: 8px 0 0;
+        padding: 8px;
+        max-height: 220px;
+        overflow: auto;
+        font-size: 11px;
+        line-height: 1.35;
+        white-space: pre-wrap;
+        word-break: break-word;
+        background: rgba(0, 0, 0, 0.25);
+        border-radius: 8px;
+      }
       /* First paint before chat.js runs (desktop / slow network): avoid empty #app “black hole”. */
       .chat-boot-splash {
         flex: 1;

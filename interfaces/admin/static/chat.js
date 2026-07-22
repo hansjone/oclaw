@@ -34,6 +34,24 @@ const I18N = {
     "chat.fork": "复制会话",
     "chat.audit": "审计与追踪",
     "chat.myProfile": "设置",
+    "chat.jobs": "后台任务",
+    "chat.jobsTitle": "后台任务",
+    "chat.jobsEmpty": "暂无后台任务",
+    "chat.jobsRefresh": "刷新",
+    "chat.jobsKill": "终止",
+    "chat.jobsKillConfirm": "确认终止该任务？进程将被强制结束。",
+    "chat.jobsKillAll": "全部终止",
+    "chat.jobsKillAllConfirm": "确认终止全部运行中的任务？",
+    "chat.jobsPurge": "清除记录",
+    "chat.jobsPurgeConfirm": "清除该已结束任务的本地记录与日志？",
+    "chat.jobsClose": "关闭",
+    "chat.jobsRunning": "运行中 {n}",
+    "chat.jobsHint": "Agent 启动的长任务会列在这里；对话结束后进程仍可能继续。可手动终止以防风险。",
+    "chat.jobsStatus.running": "运行中",
+    "chat.jobsStatus.succeeded": "成功",
+    "chat.jobsStatus.failed": "失败",
+    "chat.jobsStatus.timeout": "超时",
+    "chat.jobsStatus.cancelled": "已取消",
     "chat.attach": "附件",
     "chat.tools": "推理",
     "chat.tools.hidden": "推理已隐藏",
@@ -214,6 +232,24 @@ const I18N = {
     "chat.fork": "Duplicate chat",
     "chat.audit": "Audit & trace",
     "chat.myProfile": "Settings",
+    "chat.jobs": "Background jobs",
+    "chat.jobsTitle": "Background jobs",
+    "chat.jobsEmpty": "No background jobs",
+    "chat.jobsRefresh": "Refresh",
+    "chat.jobsKill": "Kill",
+    "chat.jobsKillConfirm": "Kill this job? The process will be force-terminated.",
+    "chat.jobsKillAll": "Kill all running",
+    "chat.jobsKillAllConfirm": "Kill all running jobs?",
+    "chat.jobsPurge": "Purge",
+    "chat.jobsPurgeConfirm": "Remove local records/logs for this finished job?",
+    "chat.jobsClose": "Close",
+    "chat.jobsRunning": "{n} running",
+    "chat.jobsHint": "Long agent jobs appear here and may keep running after the chat turn ends. Kill them manually if needed.",
+    "chat.jobsStatus.running": "running",
+    "chat.jobsStatus.succeeded": "succeeded",
+    "chat.jobsStatus.failed": "failed",
+    "chat.jobsStatus.timeout": "timeout",
+    "chat.jobsStatus.cancelled": "cancelled",
     "chat.attach": "Attach",
     "chat.tools": "Reasoning",
     "chat.tools.hidden": "Reasoning hidden",
@@ -890,6 +926,257 @@ function showToast(text, { kind = "info", ttlMs = 4200 } = {}) {
   };
   setTimeout(kill, Math.max(1200, Math.min(Number(ttlMs || 4200), 20000)));
   return node;
+}
+
+let _jobsPanelPollTimer = null;
+let _jobsBadgePollTimer = null;
+let _jobsBadgeEl = null;
+let _jobsBtnLabelEl = null;
+
+function _jobStatusLabel(status) {
+  const s = String(status || "").trim().toLowerCase();
+  const key = `chat.jobsStatus.${s}`;
+  const labeled = t(key);
+  return labeled === key ? s || "-" : labeled;
+}
+
+function _fmtJobTs(ts) {
+  const n = Number(ts || 0);
+  if (!n) return "-";
+  try {
+    return new Date(n * 1000).toLocaleString(currentLang === "zh" ? "zh-CN" : "en-US");
+  } catch (_) {
+    return String(n);
+  }
+}
+
+function updateJobsBadge(runningCount) {
+  const n = Math.max(0, parseInt(String(runningCount || 0), 10) || 0);
+  if (_jobsBtnLabelEl) {
+    _jobsBtnLabelEl.textContent = t("chat.jobs");
+  }
+  if (!_jobsBadgeEl) return;
+  _jobsBadgeEl.textContent = String(n);
+  _jobsBadgeEl.hidden = false;
+  _jobsBadgeEl.setAttribute("aria-label", t("chat.jobsRunning", { n }));
+  if (n > 0) {
+    _jobsBadgeEl.classList.add("chat-jobs-badge--hot");
+    _jobsBadgeEl.classList.remove("chat-jobs-badge--idle");
+  } else {
+    _jobsBadgeEl.classList.remove("chat-jobs-badge--hot");
+    _jobsBadgeEl.classList.add("chat-jobs-badge--idle");
+  }
+  const btn = _jobsBadgeEl.closest && _jobsBadgeEl.closest(".chat-nav__jobs");
+  if (btn) {
+    if (n > 0) btn.classList.add("chat-nav__jobs--active");
+    else btn.classList.remove("chat-nav__jobs--active");
+    btn.title = t("chat.jobsRunning", { n });
+  }
+}
+
+async function refreshJobsBadge() {
+  try {
+    const r = await apiGet("/admin/api/chat/jobs?limit=50");
+    updateJobsBadge(r && r.running_count);
+  } catch (_) {}
+}
+
+function startJobsBadgePoller() {
+  stopJobsBadgePoller();
+  refreshJobsBadge();
+  // Keep sidebar count fresh without opening the panel.
+  _jobsBadgePollTimer = setInterval(refreshJobsBadge, 4000);
+}
+
+function stopJobsBadgePoller() {
+  if (_jobsBadgePollTimer) {
+    clearInterval(_jobsBadgePollTimer);
+    _jobsBadgePollTimer = null;
+  }
+}
+
+async function openBackgroundJobsPanel() {
+  document.querySelectorAll(".chat-jobs-backdrop").forEach((n) => n.remove());
+  if (_jobsPanelPollTimer) {
+    clearInterval(_jobsPanelPollTimer);
+    _jobsPanelPollTimer = null;
+  }
+
+  const backdrop = el("div", {
+    class: "chat-confirm-backdrop chat-jobs-backdrop",
+    style: "z-index:9998;",
+  });
+  const card = el("div", {
+    class: "chat-confirm-card chat-jobs-card",
+    style: "max-width:920px;width:94vw;max-height:82vh;display:flex;flex-direction:column;gap:10px;",
+  });
+  const title = el("div", { class: "card__title", text: t("chat.jobsTitle") });
+  const closeBtn = el("button", { type: "button", class: "btn", text: t("chat.jobsClose") });
+  const refreshBtn = el("button", { type: "button", class: "btn", text: t("chat.jobsRefresh") });
+  const killAllBtn = el("button", {
+    type: "button",
+    class: "btn btn--danger",
+    text: t("chat.jobsKillAll"),
+  });
+  const head = el("div", { class: "row", style: "gap:8px;justify-content:space-between;align-items:center;flex-wrap:wrap;" }, [
+    title,
+    el("div", { class: "row", style: "gap:8px;" }, [refreshBtn, killAllBtn, closeBtn]),
+  ]);
+  const hint = el("div", { class: "muted", style: "font-size:12px;line-height:1.45;", text: t("chat.jobsHint") });
+  const summary = el("div", { class: "muted", style: "font-size:12px;" });
+  const list = el("div", {
+    class: "chat-jobs-list",
+    style: "overflow:auto;flex:1;min-height:220px;max-height:58vh;display:flex;flex-direction:column;gap:8px;",
+  });
+
+  const close = () => {
+    if (_jobsPanelPollTimer) {
+      clearInterval(_jobsPanelPollTimer);
+      _jobsPanelPollTimer = null;
+    }
+    try {
+      backdrop.remove();
+    } catch (_) {}
+    refreshJobsBadge();
+  };
+  closeBtn.addEventListener("click", close);
+  backdrop.addEventListener("click", (ev) => {
+    if (ev.target === backdrop) close();
+  });
+
+  const paint = async () => {
+    list.innerHTML = "";
+    list.appendChild(el("div", { class: "muted", text: t("chat.loading") }));
+    try {
+      const r = await apiGet("/admin/api/chat/jobs?limit=50");
+      const jobs = Array.isArray(r && r.jobs) ? r.jobs : [];
+      const running = Number((r && r.running_count) || 0);
+      updateJobsBadge(running);
+      summary.textContent = t("chat.jobsRunning", { n: running }) + ` · total ${Number((r && r.total) || jobs.length)}`;
+      list.innerHTML = "";
+      if (!jobs.length) {
+        list.appendChild(el("div", { class: "muted", text: t("chat.jobsEmpty") }));
+        return;
+      }
+      for (const job of jobs) {
+        const status = String(job.status || "");
+        const runningJob = status === "running";
+        const row = el("div", { class: `chat-jobs-row chat-jobs-row--${status || "unknown"}` });
+        const top = el("div", { class: "chat-jobs-row__top" }, [
+          el("span", { class: "chat-jobs-row__name", text: String(job.name || job.job_id || "-") }),
+          el("span", { class: `chat-jobs-pill chat-jobs-pill--${status}`, text: _jobStatusLabel(status) }),
+        ]);
+        const meta = el(
+          "div",
+          { class: "chat-jobs-row__meta muted" },
+          [
+            el("div", { text: `id: ${job.job_id || "-"}` }),
+            el("div", { text: `pid: ${job.pid != null ? job.pid : "-"} · timeout: ${job.timeout_s || "-"}s` }),
+            el("div", { text: `created: ${_fmtJobTs(job.created_at)} · finished: ${_fmtJobTs(job.finished_at)}` }),
+            el("div", {
+              class: "chat-jobs-row__cmd",
+              text: String(job.command || ""),
+              title: String(job.command || ""),
+            }),
+          ],
+        );
+        const actions = el("div", { class: "chat-jobs-row__actions row", style: "gap:8px;" });
+        if (runningJob) {
+          const killBtn = el("button", {
+            type: "button",
+            class: "btn btn--danger",
+            text: t("chat.jobsKill"),
+            onclick: async () => {
+              if (!window.confirm(t("chat.jobsKillConfirm"))) return;
+              killBtn.disabled = true;
+              try {
+                await apiPost(`/admin/api/chat/jobs/${encodeURIComponent(job.job_id)}/cancel`, {});
+                await paint();
+              } catch (e) {
+                showToast(`${t("chat.error")}: ${String(e)}`, { kind: "error" });
+              } finally {
+                killBtn.disabled = false;
+              }
+            },
+          });
+          actions.appendChild(killBtn);
+        } else {
+          const purgeBtn = el("button", {
+            type: "button",
+            class: "btn",
+            text: t("chat.jobsPurge"),
+            onclick: async () => {
+              if (!window.confirm(t("chat.jobsPurgeConfirm"))) return;
+              purgeBtn.disabled = true;
+              try {
+                await apiDelete(`/admin/api/chat/jobs/${encodeURIComponent(job.job_id)}`);
+                await paint();
+              } catch (e) {
+                showToast(`${t("chat.error")}: ${String(e)}`, { kind: "error" });
+              } finally {
+                purgeBtn.disabled = false;
+              }
+            },
+          });
+          actions.appendChild(purgeBtn);
+        }
+        const detailBtn = el("button", {
+          type: "button",
+          class: "btn",
+          text: currentLang === "zh" ? "日志" : "Logs",
+          onclick: async () => {
+            detailBtn.disabled = true;
+            try {
+              const d = await apiGet(`/admin/api/chat/jobs/${encodeURIComponent(job.job_id)}?log_tail_chars=6000`);
+              const pre = el("pre", {
+                class: "chat-jobs-log",
+                text:
+                  `status=${d.status} exit=${d.exit_code}\n\n--- stdout ---\n${d.stdout_tail || ""}\n\n--- stderr ---\n${d.stderr_tail || ""}`,
+              });
+              const existing = row.querySelector(".chat-jobs-log");
+              if (existing) existing.remove();
+              row.appendChild(pre);
+            } catch (e) {
+              showToast(`${t("chat.error")}: ${String(e)}`, { kind: "error" });
+            } finally {
+              detailBtn.disabled = false;
+            }
+          },
+        });
+        actions.appendChild(detailBtn);
+        row.appendChild(top);
+        row.appendChild(meta);
+        row.appendChild(actions);
+        list.appendChild(row);
+      }
+    } catch (e) {
+      list.innerHTML = "";
+      list.appendChild(el("div", { class: "muted", text: `${t("chat.error")}: ${String(e)}` }));
+    }
+  };
+
+  refreshBtn.addEventListener("click", () => paint());
+  killAllBtn.addEventListener("click", async () => {
+    if (!window.confirm(t("chat.jobsKillAllConfirm"))) return;
+    killAllBtn.disabled = true;
+    try {
+      await apiPost("/admin/api/chat/jobs/cancel-running", {});
+      await paint();
+    } catch (e) {
+      showToast(`${t("chat.error")}: ${String(e)}`, { kind: "error" });
+    } finally {
+      killAllBtn.disabled = false;
+    }
+  });
+
+  card.appendChild(head);
+  card.appendChild(hint);
+  card.appendChild(summary);
+  card.appendChild(list);
+  backdrop.appendChild(card);
+  document.body.appendChild(backdrop);
+  await paint();
+  _jobsPanelPollTimer = setInterval(paint, 4000);
 }
 
 async function openWikiPreviewModal({ sessionId, path }) {
@@ -2737,6 +3024,12 @@ function syncAuthUserLabel() {
           "data-menu-action": "profile",
           text: t("chat.myProfile"),
         }),
+        el("button", {
+          type: "button",
+          class: "chat-sess-menu-item",
+          "data-menu-action": "jobs",
+          text: t("chat.jobs"),
+        }),
       ];
       items.push(el("div", { class: "chat-sess-menu-sep" }));
       items.push(
@@ -4040,6 +4333,25 @@ async function renderChatUi() {
       text: t("chat.newSession"),
     }),
   );
+
+  const jobsBadge = el("span", { class: "chat-jobs-badge chat-jobs-badge--idle", text: "0" });
+  _jobsBadgeEl = jobsBadge;
+  const jobsLabel = el("span", { class: "chat-nav__jobsLabel", text: t("chat.jobs") });
+  _jobsBtnLabelEl = jobsLabel;
+  const btnJobs = el("button", {
+    type: "button",
+    class: "chat-nav__jobs",
+    title: t("chat.jobsRunning", { n: 0 }),
+    onclick: () => {
+      openBackgroundJobsPanel().catch((e) => showToast(`${t("chat.error")}: ${String(e)}`, { kind: "error" }));
+    },
+  });
+  btnJobs.appendChild(jobsLabel);
+  btnJobs.appendChild(jobsBadge);
+  startJobsBadgePoller();
+  // Immediate paint so count is visible before first interval tick.
+  updateJobsBadge(0);
+  refreshJobsBadge();
 
   class OclawWsChatTransport {
     constructor({ tokenProvider }) {
@@ -5490,7 +5802,7 @@ ${autoLimit ? `<div style="margin-top:8px;"><span class="muted">auto-added claus
       el("div", { class: "chat-nav__top" }, [
         buildChatBrandLogoNode(),
       ]),
-      el("div", { class: "chat-nav__toolbar" }, [btnNew]),
+      el("div", { class: "chat-nav__toolbar" }, [btnNew, btnJobs]),
       el("div", { class: "chat-nav__scroll" }, [sessionsListEl, loadMoreWrap]),
       navFooter,
     ]),
@@ -5586,6 +5898,10 @@ document.body.addEventListener("click", async (e) => {
     document.querySelectorAll(".chat-sess-menu-pop").forEach((n) => n.remove());
     if (action === "profile") {
       openAdminFromChat("profile");
+      return;
+    }
+    if (action === "jobs") {
+      openBackgroundJobsPanel().catch((err) => showToast(`${t("chat.error")}: ${String(err)}`, { kind: "error" }));
       return;
     }
     if (action === "logout") {
