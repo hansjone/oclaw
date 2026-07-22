@@ -443,13 +443,73 @@ def test_should_inject_quoted_context_dedupes_recent_message() -> None:
             id=1,
             session_id="s1",
             role="assistant",
-            content="服务器刚刚 502 了",
+            content="server just returned HTTP 502",
             tool_calls=None,
             timestamp="",
         )
     ]
-    assert should_inject_quoted_context(quoted_text="服务器刚刚 502 了", recent_messages=recent) is False
-    assert should_inject_quoted_context(quoted_text="另一条内容", recent_messages=recent) is True
+    assert should_inject_quoted_context(quoted_text="server just returned HTTP 502", recent_messages=recent) is False
+    assert should_inject_quoted_context(quoted_text="a totally different question", recent_messages=recent) is True
+
+
+def test_should_inject_quoted_context_strips_whatsapp_mention_prefix() -> None:
+    from svc.persistence.sqlite_store import ChatMessage
+
+    body = (
+        "### KND-SMNR-EN1-Z20HS — LLDP Neighbors\n\n"
+        "| Device | Port | Peer Device |\n"
+        "|---|---|---|\n"
+        "| KND-SMNR-EN1-Z20HS | cgei-1/1/0/33 | KND-LGGO-EN1-Z20HS |\n"
+        "KND-SMNR-EN1 has only 2 LLDP neighbors in the Kendahe area.\n"
+    )
+    recent = [
+        ChatMessage(
+            id=10,
+            session_id="s1",
+            role="assistant",
+            content=body,
+            tool_calls=None,
+            timestamp="",
+            event_type="assistant_text",
+        )
+    ]
+    # WhatsApp reply-to often prefixes the bot body with @<bot lid/jid>.
+    quoted = f"@68458037407987 {body}"
+    assert should_inject_quoted_context(quoted_text=quoted, recent_messages=recent) is False
+
+
+def test_should_inject_quoted_context_finds_assistant_buried_under_tools() -> None:
+    from svc.persistence.sqlite_store import ChatMessage
+
+    body = (
+        "KND-SMNR-EN1 has only 2 LLDP neighbors — both access-layer devices "
+        "in the Kendahe area connected via cgei ports."
+    )
+    rows = [
+        ChatMessage(
+            id=1,
+            session_id="s1",
+            role="assistant",
+            content=body,
+            tool_calls=None,
+            timestamp="",
+            event_type="assistant_text",
+        )
+    ]
+    for i in range(2, 20):
+        rows.append(
+            ChatMessage(
+                id=i,
+                session_id="s1",
+                role="tool",
+                content=f'{{"ok": true, "n": {i}}}',
+                tool_calls=None,
+                timestamp="",
+                event_type="tool_result",
+            )
+        )
+    assert should_inject_quoted_context(quoted_text=f"@bot {body}", recent_messages=rows) is False
+    assert should_inject_quoted_context(quoted_text="totally new topic xyz about fans", recent_messages=rows) is True
 
 
 def test_build_whatsapp_group_reply_metadata() -> None:
@@ -586,6 +646,8 @@ def test_inbound_dm_still_processes_without_mention(monkeypatch: pytest.MonkeyPa
     store = fresh_sqlite_store
     _setup_whatsapp_identity(store)
     monkeypatch.setattr("svc.persistence.assistant_store.get_assistant_store", lambda: store)
+    # Keep sync replies so this unit test can assert HTTP response shape.
+    monkeypatch.setenv("OCLAW_WHATSAPP_INBOUND_QUEUE_DELIVERY", "0")
 
     captured: dict[str, str] = {}
 
@@ -835,23 +897,35 @@ def test_inbound_group_skips_quoted_context_when_already_in_current_session(
 
     call_no = {"n": 0}
     captured: dict[str, str] = {}
+    prior_reply = "Looks like OSPF neighbor flapping"
 
     class _Turn:
         turn_uuid = "turn-q2"
 
         @property
         def reply_text(self) -> str:
-            return "看起来像 OSPF 邻居抖动" if call_no["n"] == 1 else "继续分析"
+            return prior_reply if call_no["n"] == 1 else "continue analysis"
 
     class _Gw:
         def __init__(self, *, store: object) -> None:
-            _ = store
+            self._store = store
 
         def handle_turn(self, **kwargs: object) -> _Turn:
             call_no["n"] += 1
             msg = kwargs.get("msg")
             captured["text"] = str(getattr(msg, "text", "") or "")
-            return _Turn()
+            turn = _Turn()
+            # Real gateway persists assistant text; mock must do the same so quote
+            # dedupe can see the prior reply in session history.
+            sid = str(getattr(msg, "session_id", "") or "").strip()
+            if sid and turn.reply_text:
+                self._store.add_message(
+                    sid,
+                    "assistant",
+                    turn.reply_text,
+                    event_type="assistant_text",
+                )
+            return turn
 
     monkeypatch.setattr("runtime.gateway.OclawGateway", _Gw)
 
@@ -861,7 +935,7 @@ def test_inbound_group_skips_quoted_context_when_already_in_current_session(
             "account_id": "wa-default",
             "user_id": "111@s.whatsapp.net",
             "chat_id": "120363012345678@g.us",
-            "text": "@bot 先帮我判断原因",
+            "text": "@bot please diagnose first",
             "is_group": True,
             "mentions": ["999@s.whatsapp.net"],
             "metadata": {"bot_jid": "999@s.whatsapp.net", "raw": {"pushName": "Alice"}},
@@ -873,14 +947,15 @@ def test_inbound_group_skips_quoted_context_when_already_in_current_session(
             "account_id": "wa-default",
             "user_id": "111@s.whatsapp.net",
             "chat_id": "120363012345678@g.us",
-            "text": "@bot 那下一步怎么排查？",
+            "text": "@bot what is the next check?",
             "is_group": True,
             "mentions": ["999@s.whatsapp.net"],
             "metadata": {
                 "bot_jid": "999@s.whatsapp.net",
                 "raw": {
                     "pushName": "Alice",
-                    "quotedText": "看起来像 OSPF 邻居抖动",
+                    # WhatsApp reply-to often prefixes the bot body with @<bot jid/lid>.
+                    "quotedText": f"@999 {prior_reply}",
                     "quotedParticipant": "999@s.whatsapp.net",
                     "quotedPushName": "oclaw",
                     "quotedStanzaId": "Q3",
@@ -899,10 +974,11 @@ def test_inbound_group_reply_includes_quote_and_mention_metadata(
     store = fresh_sqlite_store
     _setup_whatsapp_identity(store)
     monkeypatch.setattr("svc.persistence.assistant_store.get_assistant_store", lambda: store)
+    monkeypatch.setenv("OCLAW_WHATSAPP_INBOUND_QUEUE_DELIVERY", "0")
 
     class _Turn:
         turn_uuid = "turn-g"
-        reply_text = "下午三点"
+        reply_text = "afternoon three"
 
     class _Gw:
         def __init__(self, *, store: object) -> None:
@@ -919,7 +995,7 @@ def test_inbound_group_reply_includes_quote_and_mention_metadata(
             "account_id": "wa-default",
             "user_id": "111@s.whatsapp.net",
             "chat_id": "120363012345678@g.us",
-            "text": "@bot 明天几点？",
+            "text": "@bot tomorrow when?",
             "is_group": True,
             "mentions": ["999@s.whatsapp.net"],
             "metadata": {
@@ -934,7 +1010,7 @@ def test_inbound_group_reply_includes_quote_and_mention_metadata(
     assert isinstance(meta, dict)
     assert meta.get("quote_stanza_id") == "ABC123"
     assert meta.get("mention_jids") == ["111@s.whatsapp.net"]
-    assert meta.get("quote_text") == "@bot 明天几点？"
+    assert meta.get("quote_text") == "@bot tomorrow when?"
 
 
 def test_inbound_group_schedule_mention_metadata_preserved_after_text_clean(

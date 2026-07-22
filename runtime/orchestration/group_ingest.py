@@ -169,19 +169,75 @@ def extract_group_quoted_message(*, metadata: dict[str, Any] | None) -> dict[str
 
 
 def _normalize_quoted_compare_text(text: str) -> str:
-    s = re.sub(r"\s+", " ", str(text or "").strip())
-    return s[:280]
+    """Normalize quote/history text for dedupe.
+
+    WhatsApp reply-to often prefixes the bot body with ``@<lid|phone>``; session
+    assistant rows usually do not. Strip those so same-session quotes match.
+    """
+    s = str(text or "").strip()
+    if not s:
+        return ""
+    # Drop leading @tokens (jid / phone / display-name mentions).
+    s = re.sub(r"^(?:@\S+\s+)+", "", s)
+    # Drop common group-ingest wrappers if somehow present.
+    s = re.sub(r"^\[被引用消息\]\s*", "", s)
+    s = re.sub(r"\s+", " ", s).strip()
+    return s[:400]
+
+
+def _quoted_texts_overlap(quoted: str, history: str) -> bool:
+    """True when quote body is essentially the same as a history row."""
+    q = _normalize_quoted_compare_text(quoted)
+    h = _normalize_quoted_compare_text(history)
+    if not q or not h:
+        return False
+    if q == h:
+        return True
+    q_fp = q[:160]
+    h_fp = h[:160]
+    if q_fp == h_fp:
+        return True
+    # Substantial containment only — avoid short-string false positives.
+    min_len = 48
+    if len(q_fp) >= min_len and q_fp in h:
+        return True
+    if len(h_fp) >= min_len and h_fp in q:
+        return True
+    if len(q) >= min_len and len(h) >= min_len:
+        n = 0
+        for a, b in zip(q_fp, h_fp):
+            if a != b:
+                break
+            n += 1
+        if n >= min_len:
+            return True
+    return False
 
 
 def should_inject_quoted_context(*, quoted_text: str, recent_messages: list[Any]) -> bool:
+    """Return False when quoted body already appears in recent session history.
+
+    Prefer assistant rows (same-session bot replies). Also scan other roles as a
+    fallback so previously injected ``[被引用消息]`` user rows still dedupe.
+    """
     token = _normalize_quoted_compare_text(quoted_text)
     if not token:
         return False
+
+    assistants: list[Any] = []
+    others: list[Any] = []
     for row in recent_messages or []:
-        content = _normalize_quoted_compare_text(getattr(row, "content", "") or "")
-        if not content:
-            continue
-        if token == content or token in content or content in token:
+        role = str(getattr(row, "role", "") or "").strip().lower()
+        if role == "assistant":
+            assistants.append(row)
+        else:
+            others.append(row)
+
+    for row in assistants:
+        if _quoted_texts_overlap(token, str(getattr(row, "content", "") or "")):
+            return False
+    for row in others:
+        if _quoted_texts_overlap(token, str(getattr(row, "content", "") or "")):
             return False
     return True
 

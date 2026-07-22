@@ -1318,7 +1318,9 @@ def process_inbound_payload(payload: dict[str, Any]) -> dict[str, Any]:
                             quoted_info = extract_group_quoted_message(metadata=meta_for_group)
                             quoted_text = str(quoted_info.get("quoted_text") or "").strip()
                             if quoted_text:
-                                recent_messages = store.get_messages(str(session_id), limit=6)
+                                # Look back far enough to cover long tool loops; dedupe uses
+                                # assistant bodies so same-session reply-to will not re-inject.
+                                recent_messages = store.get_messages(str(session_id), limit=80)
                                 if should_inject_quoted_context(
                                     quoted_text=quoted_text,
                                     recent_messages=recent_messages,
