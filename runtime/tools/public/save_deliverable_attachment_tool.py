@@ -69,8 +69,8 @@ def save_deliverable_attachment_tool() -> ToolSpec:
         description=(
             "Mark an attachment for outbound channel delivery (WhatsApp/WeChat). "
             "Required before the user receives any generated file, image, or video in a messaging channel. "
-            "Use path for workspace files (after write_file or run_command), or attachment_id for assets "
-            "already in the attachment store (e.g. after cloudflare_image_generate). "
+            "Prefer attachment_id for assets already in the store (write_xlsx, cloudflare_image_generate, etc.). "
+            "Use path for workspace files (after write_file or run_command). "
             "Generating content alone does not send attachments to the channel."
         ),
         parameters={
@@ -82,7 +82,10 @@ def save_deliverable_attachment_tool() -> ToolSpec:
                 },
                 "attachment_id": {
                     "type": "string",
-                    "description": "Existing attachment_id from image/video generation tools.",
+                    "description": (
+                        "Existing attachment_id from generation tools "
+                        "(write_xlsx, cloudflare_image_generate, image_edit, etc.)."
+                    ),
                 },
                 "name": {
                     "type": "string",

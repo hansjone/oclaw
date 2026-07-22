@@ -23,6 +23,11 @@ _ATTACHMENT_BLOB_EXTENSIONS: Final[tuple[str, ...]] = (
     ".mp4",
     ".webm",
     ".mov",
+    ".xlsx",
+    ".xls",
+    ".csv",
+    ".txt",
+    ".pdf",
     "",  # extensionless fallback
 )
 
@@ -53,6 +58,16 @@ def _ext_from_mime(mime: str | None) -> str:
         return ".webm"
     if m in ("video/quicktime", "video/mov"):
         return ".mov"
+    if m == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":
+        return ".xlsx"
+    if m == "application/vnd.ms-excel":
+        return ".xls"
+    if m == "text/csv":
+        return ".csv"
+    if m in ("text/plain", "text/markdown"):
+        return ".txt"
+    if m == "application/pdf":
+        return ".pdf"
     return ""
 
 
@@ -72,6 +87,16 @@ def _guess_mime_from_ext(ext: str) -> str:
         return "video/webm"
     if e == "mov":
         return "video/quicktime"
+    if e == "xlsx":
+        return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    if e == "xls":
+        return "application/vnd.ms-excel"
+    if e == "csv":
+        return "text/csv"
+    if e in ("txt", "md"):
+        return "text/plain"
+    if e == "pdf":
+        return "application/pdf"
     return "application/octet-stream"
 
 

@@ -561,7 +561,7 @@ Recipe 中 `goal` 示例：
 
 ```mermaid
 flowchart LR
-  A[write_file / run_command\n生成 report.xlsx] --> B[save_deliverable_attachment\npath=...]
+  A[write_xlsx\n返回 attachment_id] --> B[save_deliverable_attachment\nattachment_id=...]
   B --> C[Agent 文字回复摘要]
   C --> D[出站携带附件]
   D --> E[WhatsApp Sidecar 发送文件]
