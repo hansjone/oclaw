@@ -35,6 +35,14 @@ const PROXY_URL = (
 ).trim();
 const MEDIA_MAX_BYTES = Number(process.env.OCLAW_WHATSAPP_MEDIA_MAX_BYTES || String(20 * 1024 * 1024)) || 20 * 1024 * 1024;
 const MEDIA_DOWNLOAD_TIMEOUT_MS = Number(process.env.OCLAW_WHATSAPP_MEDIA_TIMEOUT_MS || "90000") || 90_000;
+const TYPING_ENABLED =
+  String(process.env.OCLAW_WHATSAPP_TYPING || "1").trim() !== "0" &&
+  String(process.env.OCLAW_WHATSAPP_TYPING || "1").trim().toLowerCase() !== "false" &&
+  String(process.env.OCLAW_WHATSAPP_TYPING || "1").trim().toLowerCase() !== "off";
+const TYPING_HEARTBEAT_MS = Math.max(
+  3000,
+  Number(process.env.OCLAW_WHATSAPP_TYPING_HEARTBEAT_MS || "8000") || 8000,
+);
 
 function log(msg: string): void {
   process.stdout.write(`${new Date().toISOString()} [baileys-whatsapp] ${msg}\n`);
@@ -916,11 +924,22 @@ async function pollOutboundQueue(sock: ReturnType<typeof makeWASocket>): Promise
             `outbound sent id=${id} chat=${chatId} attachments=${attachments.length} mediaPath=${mediaPath ? "yes" : "no"} text=${text.slice(0, 80)}`,
           );
         } else {
-          const sendContent = buildOutboundSendContent(text, source, sock, chatId);
-          const sent = await sock.sendMessage(chatId, sendContent);
+          const meta = decodeOutboundSource(source);
+          const content = buildMentionedOutboundText(text, meta, sock, chatId);
+          const quoted = buildQuotedMessage({
+            chatId: String((meta as any).quote_remote_jid || (meta as any).quoteRemoteJid || chatId).trim(),
+            stanzaId: String((meta as any).quote_stanza_id || (meta as any).quoteStanzaId || "").trim(),
+            participant: String((meta as any).quote_participant || (meta as any).quoteParticipant || "").trim(),
+            quoteText: String((meta as any).quote_text || (meta as any).quoteText || "").trim(),
+          });
+          const sent = await sock.sendMessage(
+            chatId,
+            content as any,
+            quoted ? { quoted } : undefined,
+          );
           stanzaId = String((sent as any)?.key?.id || "").trim();
           log(
-            `outbound sent id=${id} chat=${chatId} stanza=${stanzaId || "?"} mentions=${(sendContent.mentions || []).length} mention0=${(sendContent.mentions || [])[0] || ""} text=${sendContent.text.slice(0, 80)}`,
+            `outbound sent id=${id} chat=${chatId} stanza=${stanzaId || "?"} mentions=${(content.mentions || []).length} mention0=${(content.mentions || [])[0] || ""} text=${content.text.slice(0, 80)}`,
           );
         }
         try {
@@ -953,7 +972,7 @@ async function pollOutboundQueue(sock: ReturnType<typeof makeWASocket>): Promise
 }
 
 function startOutboundPoller(getSock: () => ReturnType<typeof makeWASocket> | null): void {
-  const intervalMs = Number(process.env.OCLAW_WHATSAPP_OUTBOUND_POLL_MS || "2500") || 2500;
+  const intervalMs = Number(process.env.OCLAW_WHATSAPP_OUTBOUND_POLL_MS || "1000") || 1000;
   setInterval(() => {
     const s = getSock();
     if (!s) return;
@@ -963,6 +982,56 @@ function startOutboundPoller(getSock: () => ReturnType<typeof makeWASocket> | nu
 
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
+}
+
+type TypingEntry = { refs: number; timer: ReturnType<typeof setInterval> | null };
+const typingByChat = new Map<string, TypingEntry>();
+
+async function sendTypingPresence(
+  sock: ReturnType<typeof makeWASocket> | null,
+  chatId: string,
+  state: "composing" | "paused",
+): Promise<void> {
+  const s = sock;
+  const jid = String(chatId || "").trim();
+  if (!s || !jid || !TYPING_ENABLED) return;
+  try {
+    await s.sendPresenceUpdate(state, jid);
+  } catch (err) {
+    if (VERBOSE) log(`presence ${state} failed chat=${jid}: ${String(err).slice(0, 120)}`);
+  }
+}
+
+function startTypingHeartbeat(sock: ReturnType<typeof makeWASocket> | null, chatId: string): void {
+  const jid = String(chatId || "").trim();
+  if (!sock || !jid || !TYPING_ENABLED) return;
+  let entry = typingByChat.get(jid);
+  if (!entry) {
+    entry = { refs: 0, timer: null };
+    typingByChat.set(jid, entry);
+  }
+  entry.refs += 1;
+  if (entry.refs === 1) {
+    void sendTypingPresence(sock, jid, "composing");
+    entry.timer = setInterval(() => {
+      void sendTypingPresence(sock, jid, "composing");
+    }, TYPING_HEARTBEAT_MS);
+  }
+}
+
+function stopTypingHeartbeat(sock: ReturnType<typeof makeWASocket> | null, chatId: string): void {
+  const jid = String(chatId || "").trim();
+  if (!jid || !TYPING_ENABLED) return;
+  const entry = typingByChat.get(jid);
+  if (!entry) return;
+  entry.refs = Math.max(0, entry.refs - 1);
+  if (entry.refs > 0) return;
+  if (entry.timer) {
+    clearInterval(entry.timer);
+    entry.timer = null;
+  }
+  typingByChat.delete(jid);
+  void sendTypingPresence(sock, jid, "paused");
 }
 
 function _ipLooksHijackedOrUnroutable(ip: string): boolean {
@@ -1199,9 +1268,20 @@ async function main(): Promise<void> {
           } else if (VERBOSE || attachments.length) {
             log(`inbound posting chat=${chatId} user=${userId} textLen=${text.length} attachments=${attachments.length}`);
           }
-          const out = await postInbound(inbound);
+          startTypingHeartbeat(s, chatId);
+          let out: Json = {};
+          try {
+            out = await postInbound(inbound);
+          } finally {
+            stopTypingHeartbeat(s, chatId);
+          }
           const replies = Array.isArray(out.replies) ? (out.replies as Json[]) : [];
-          if (isGroup || VERBOSE) log(`inbound ok chat=${chatId} replies=${replies.length}`);
+          const delivery = String((out as any).delivery || "").trim().toLowerCase();
+          if (isGroup || VERBOSE || delivery === "queued" || delivery === "accepted_queued") {
+            log(
+              `inbound ok chat=${chatId} replies=${replies.length} delivery=${delivery || "sync"} outboundId=${String((out as any).outbound_message_id || "")}`,
+            );
+          }
           for (const r of replies) {
             const outText = String((r as any).text || "").trim();
             if (!shouldSendOutboundText(outText) && !(Array.isArray((r as any).attachments) && (r as any).attachments.length)) {

@@ -16,8 +16,15 @@ def encode_whatsapp_outbound_source(
     mention_text_ready: bool = False,
     attachments: list[dict[str, Any]] | None = None,
     media_path: str | None = None,
+    extra: dict[str, Any] | None = None,
 ) -> str:
     payload: dict[str, Any] = {"kind": str(kind or "scheduled_job")}
+    if isinstance(extra, dict):
+        for key, value in extra.items():
+            k = str(key or "").strip()
+            if not k or k in payload:
+                continue
+            payload[k] = value
     jids = normalize_whatsapp_mention_jids(mention_jids)
     if jids:
         payload["mention_jids"] = jids

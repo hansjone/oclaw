@@ -889,6 +889,86 @@ def _should_suppress_channel_reply(*, channel: str, text: str) -> bool:
     return False
 
 
+def _env_flag_enabled(name: str, *, default: bool = True) -> bool:
+    import os
+
+    raw = str(os.getenv(name) or "").strip().lower()
+    if not raw:
+        return bool(default)
+    return raw not in {"0", "false", "no", "off"}
+
+
+def _whatsapp_inbound_queue_delivery_enabled() -> bool:
+    return _env_flag_enabled("OCLAW_WHATSAPP_INBOUND_QUEUE_DELIVERY", default=True)
+
+
+def _channel_turn_serial_queue_enabled() -> bool:
+    return _env_flag_enabled("OCLAW_CHANNEL_TURN_SERIAL_QUEUE", default=True)
+
+
+def _enqueue_whatsapp_inbound_reply(
+    store: Any,
+    *,
+    inbound: Any,
+    account_id: str,
+    tenant_id: str,
+    reply_text: str,
+    reply_attachments: list[dict[str, Any]] | None,
+    reply_metadata: dict[str, Any] | None,
+) -> str:
+    """Persist final WhatsApp reply on the outbound queue (sidecar poller delivers)."""
+    from runtime.scheduler.whatsapp_mentions import encode_whatsapp_outbound_source
+
+    text = str(reply_text or "").strip()
+    reply: dict[str, Any] = {
+        "channel": "whatsapp",
+        "chat_id": str(getattr(inbound, "external_chat_id", "") or ""),
+        "text": text,
+        "attachments": list(reply_attachments or []),
+        "metadata": dict(reply_metadata or {}),
+    }
+    _maybe_expand_reply_attachments_for_channel(reply)
+    _maybe_add_media_path_for_wechat_reply(reply)
+    atts = [a for a in (reply.get("attachments") or []) if isinstance(a, dict)]
+    media_path = str(reply.get("media_path") or "").strip() or None
+    meta = dict(reply.get("metadata") or {}) if isinstance(reply.get("metadata"), dict) else {}
+    mention_jids = meta.get("mention_jids") if isinstance(meta.get("mention_jids"), list) else None
+    mention_names = meta.get("mention_names") if isinstance(meta.get("mention_names"), list) else None
+    quote_extra = {
+        k: meta[k]
+        for k in (
+            "quote_remote_jid",
+            "quote_stanza_id",
+            "quote_participant",
+            "quote_text",
+            "quote_push_name",
+            "reply_to_user_id",
+            "is_group",
+        )
+        if str(meta.get(k) or "").strip() or meta.get(k) is True
+    }
+    source = encode_whatsapp_outbound_source(
+        kind="inbound_reply",
+        mention_jids=mention_jids,
+        mention_names=mention_names,
+        mention_text_ready=bool(mention_jids),
+        attachments=atts or None,
+        media_path=media_path,
+        extra=quote_extra or None,
+    )
+    return str(
+        store.enqueue_channel_outbound_message(
+            channel="whatsapp",
+            chat_id=str(getattr(inbound, "external_chat_id", "") or ""),
+            text=text,
+            tenant_id=str(tenant_id or ""),
+            account_id=str(account_id or "").strip() or "wa-default",
+            source=source,
+        )
+        or ""
+    )
+
+
 def process_inbound_payload(payload: dict[str, Any]) -> dict[str, Any]:
     from runtime.operations.mcp_env import apply_gateway_mcp_env_to_os
 
@@ -951,6 +1031,7 @@ def process_inbound_payload(payload: dict[str, Any]) -> dict[str, Any]:
     preface = ""
     channel_session_id = ""
     channel_turn_uuid = ""
+    tenant_id = ""
     if text.lower().startswith("bind "):
         code = text.split(None, 1)[-1].strip()
         info = store.consume_bind_code(
@@ -1264,79 +1345,220 @@ def process_inbound_payload(payload: dict[str, Any]) -> dict[str, Any]:
                         if not user_text and gw_attachments:
                             user_text = "用户发送了附件，请根据附件内容回复。"
                         if user_text or gw_attachments:
-                            try:
-                                from runtime.gateway import OclawGateway
-                                from runtime.types import StandardMessage
-                                from runtime.lang import resolve_runtime_lang
+                            from runtime.gateway import OclawGateway
+                            from runtime.types import StandardMessage
+                            from runtime.lang import resolve_runtime_lang
+                            from runtime.application.gateway.channel_turn_gate import get_channel_turn_gate
 
-                                interaction_mode, selected_specialist, dispatch_lang = _resolve_channel_dispatch(
-                                    store, channel=inbound.channel, account=account
-                                )
-                                lang = (
-                                    dispatch_lang
-                                    if dispatch_lang in {"zh", "en"}
-                                    else resolve_runtime_lang(store=store, user_text=user_text)
-                                )
-                                gw = OclawGateway(store=store)
-                                msg = StandardMessage(
-                                    session_id=str(session_id),
-                                    tenant_id=str(tenant_id or ""),
-                                    user_id=str(user_id or ""),
-                                    role=str(role or "member"),
-                                    channel=str(inbound.channel or "inbound"),
-                                    text=str(user_text or ""),
-                                    attachments=gw_attachments,
-                                    metadata={
-                                        "tenant_id": tenant_id,
-                                        "user_id": user_id,
-                                        "channel": inbound.channel,
-                                        "role": role,
-                                        "account_id": account_id,
-                                        "interaction_mode": interaction_mode,
-                                        "selected_specialist": selected_specialist,
-                                        "is_group": inbound.is_group,
-                                        "external_user_id": inbound.external_user_id,
-                                        "external_chat_id": inbound.external_chat_id,
-                                        "group_sender_id": inbound.external_user_id,
-                                        "mentioned_jids": mention_jids_for_ctx,
-                                        "mention_names": mention_names_for_ctx,
-                                        "raw_inbound_text": raw_user_text,
-                                        "bot_jid": str(meta_for_inbound.get("bot_jid") or bot_jid or ""),
-                                        "bot_lid": str(meta_for_inbound.get("bot_lid") or ""),
-                                    },
-                                )
-                                manager = _build_admin_gateway_executor(
-                                    store,
-                                    tenant_id=tenant_id,
-                                    user_id=user_id,
-                                    specialist=selected_specialist,
-                                    session_id=str(session_id),
-                                    lang=lang,
-                                )
-                                specialist_factory = lambda sid: _build_admin_gateway_executor(
-                                    store,
-                                    tenant_id=tenant_id,
-                                    user_id=user_id,
-                                    specialist=sid,
-                                    session_id=str(session_id),
-                                    lang=lang,
-                                )
-                                turn_result = gw.handle_turn(
-                                    msg=msg,
-                                    lang=lang,
-                                    executor=manager,
-                                    specialist_executor_factory=specialist_factory,
-                                )
-                                channel_turn_uuid = str(turn_result.turn_uuid or "").strip()
-                                reply = str(turn_result.reply_text or "").strip()
-                                reply_attachments = _collect_reply_attachments_from_history(
-                                    store=store,
-                                    session_id=str(session_id),
-                                    reply_text=reply,
-                                )
-                            except Exception as e:
-                                reply = f"抱歉，处理消息时出错：{type(e).__name__}: {e}"
-                                reply_attachments = []
+                            interaction_mode, selected_specialist, dispatch_lang = _resolve_channel_dispatch(
+                                store, channel=inbound.channel, account=account
+                            )
+                            lang = (
+                                dispatch_lang
+                                if dispatch_lang in {"zh", "en"}
+                                else resolve_runtime_lang(store=store, user_text=user_text)
+                            )
+                            msg_metadata = {
+                                "tenant_id": tenant_id,
+                                "user_id": user_id,
+                                "channel": inbound.channel,
+                                "role": role,
+                                "account_id": account_id,
+                                "interaction_mode": interaction_mode,
+                                "selected_specialist": selected_specialist,
+                                "is_group": inbound.is_group,
+                                "external_user_id": inbound.external_user_id,
+                                "external_chat_id": inbound.external_chat_id,
+                                "group_sender_id": inbound.external_user_id,
+                                "mentioned_jids": mention_jids_for_ctx,
+                                "mention_names": mention_names_for_ctx,
+                                "raw_inbound_text": raw_user_text,
+                                "bot_jid": str(meta_for_inbound.get("bot_jid") or bot_jid or ""),
+                                "bot_lid": str(meta_for_inbound.get("bot_lid") or ""),
+                            }
+                            turn_job: dict[str, Any] = {
+                                "user_text": str(user_text or ""),
+                                "attachments": list(gw_attachments or []),
+                                "msg_metadata": msg_metadata,
+                                "lang": lang,
+                                "interaction_mode": interaction_mode,
+                                "selected_specialist": selected_specialist,
+                                "inbound": inbound,
+                            }
+                            gate = get_channel_turn_gate()
+                            turn_handle = None
+                            if _channel_turn_serial_queue_enabled():
+                                turn_handle = gate.try_begin(str(session_id), turn_job)
+                                if turn_handle is None:
+                                    # Another turn is active; this message will be merged after it.
+                                    return {
+                                        "ok": True,
+                                        "replies": [],
+                                        "delivery": "accepted_queued",
+                                    }
+
+                            gw = OclawGateway(store=store)
+                            manager = _build_admin_gateway_executor(
+                                store,
+                                tenant_id=tenant_id,
+                                user_id=user_id,
+                                specialist=selected_specialist,
+                                session_id=str(session_id),
+                                lang=lang,
+                            )
+                            specialist_factory = lambda sid: _build_admin_gateway_executor(
+                                store,
+                                tenant_id=tenant_id,
+                                user_id=user_id,
+                                specialist=sid,
+                                session_id=str(session_id),
+                                lang=lang,
+                            )
+
+                            serial_replies: list[dict[str, Any]] = []
+                            last_outbound_id = ""
+                            wa_queue_delivery = (
+                                str(inbound.channel or "").strip().lower() == "whatsapp"
+                                and _whatsapp_inbound_queue_delivery_enabled()
+                            )
+                            try:
+                                while True:
+                                    job_text = str(turn_job.get("user_text") or "")
+                                    job_atts = [
+                                        a for a in (turn_job.get("attachments") or []) if isinstance(a, dict)
+                                    ]
+                                    job_meta = (
+                                        dict(turn_job.get("msg_metadata") or {})
+                                        if isinstance(turn_job.get("msg_metadata"), dict)
+                                        else dict(msg_metadata)
+                                    )
+                                    job_lang = str(turn_job.get("lang") or lang or "zh")
+                                    job_inbound = turn_job.get("inbound") or inbound
+                                    try:
+                                        turn_result = gw.handle_turn(
+                                            msg=StandardMessage(
+                                                session_id=str(session_id),
+                                                tenant_id=str(tenant_id or ""),
+                                                user_id=str(user_id or ""),
+                                                role=str(role or "member"),
+                                                channel=str(inbound.channel or "inbound"),
+                                                text=job_text,
+                                                attachments=job_atts,
+                                                metadata=job_meta,
+                                            ),
+                                            lang=job_lang,
+                                            executor=manager,
+                                            specialist_executor_factory=specialist_factory,
+                                        )
+                                        channel_turn_uuid = str(turn_result.turn_uuid or "").strip()
+                                        turn_reply = str(turn_result.reply_text or "").strip()
+                                        turn_atts = _collect_reply_attachments_from_history(
+                                            store=store,
+                                            session_id=str(session_id),
+                                            reply_text=turn_reply,
+                                        )
+                                    except Exception as e:
+                                        turn_reply = f"抱歉，处理消息时出错：{type(e).__name__}: {e}"
+                                        turn_atts = []
+
+                                    reply_metadata: dict[str, Any] = {}
+                                    if (
+                                        str(inbound.channel or "").strip().lower() == "whatsapp"
+                                        and bool(getattr(job_inbound, "is_group", False))
+                                    ):
+                                        from runtime.orchestration.group_ingest import (
+                                            build_whatsapp_group_reply_metadata,
+                                        )
+
+                                        reply_metadata = build_whatsapp_group_reply_metadata(
+                                            inbound=job_inbound
+                                        )
+
+                                    if wa_queue_delivery and (turn_reply or turn_atts):
+                                        try:
+                                            last_outbound_id = _enqueue_whatsapp_inbound_reply(
+                                                store,
+                                                inbound=job_inbound,
+                                                account_id=account_id,
+                                                tenant_id=str(tenant_id or ""),
+                                                reply_text=turn_reply,
+                                                reply_attachments=list(turn_atts or []),
+                                                reply_metadata=reply_metadata,
+                                            )
+                                        except Exception:
+                                            serial_replies.append(
+                                                {
+                                                    "channel": inbound.channel,
+                                                    "chat_id": inbound.external_chat_id,
+                                                    "text": turn_reply,
+                                                    "attachments": list(turn_atts or []),
+                                                    "metadata": reply_metadata,
+                                                }
+                                            )
+                                    elif turn_reply or turn_atts:
+                                        serial_replies.append(
+                                            {
+                                                "channel": inbound.channel,
+                                                "chat_id": inbound.external_chat_id,
+                                                "text": turn_reply,
+                                                "attachments": list(turn_atts or []),
+                                                "metadata": reply_metadata,
+                                            }
+                                        )
+
+                                    # Keep last turn as the primary reply fields for non-queue paths.
+                                    reply = turn_reply
+                                    reply_attachments = list(turn_atts or [])
+
+                                    if turn_handle is None:
+                                        break
+                                    next_job, next_handle = gate.end_and_take_merged(turn_handle)
+                                    if not next_job or next_handle is None:
+                                        turn_handle = None
+                                        break
+                                    turn_job = next_job
+                                    turn_handle = next_handle
+                            finally:
+                                if turn_handle is not None:
+                                    try:
+                                        gate.force_end(turn_handle)
+                                    except Exception:
+                                        pass
+
+                            if wa_queue_delivery and last_outbound_id and not serial_replies:
+                                return {
+                                    "ok": True,
+                                    "replies": [],
+                                    "delivery": "queued",
+                                    "outbound_message_id": last_outbound_id,
+                                }
+                            if serial_replies and not wa_queue_delivery:
+                                # Multiple serial turns: return all sync replies in order.
+                                replies = serial_replies
+                                # Skip the default single-reply assembly below.
+                                if preface:
+                                    first = replies[0] if replies else None
+                                    if isinstance(first, dict) and first.get("text"):
+                                        first["text"] = f"{preface}\n\n{first.get('text')}"
+                                    elif preface:
+                                        replies.insert(
+                                            0,
+                                            {
+                                                "channel": inbound.channel,
+                                                "chat_id": inbound.external_chat_id,
+                                                "text": preface,
+                                                "attachments": [],
+                                                "metadata": {},
+                                            },
+                                        )
+                                for r in replies or []:
+                                    if not isinstance(r, dict):
+                                        continue
+                                    ch = str(r.get("channel") or inbound.channel or "").strip().lower()
+                                    if ch in {"wechat", "weixin", "whatsapp"}:
+                                        _maybe_expand_reply_attachments_for_channel(r)
+                                        _maybe_add_media_path_for_wechat_reply(r)
+                                return {"ok": True, "replies": replies}
                         else:
                             reply = "收到消息，但内容为空。请直接发送文本。"
                             reply_attachments = []
@@ -1371,11 +1593,38 @@ def process_inbound_payload(payload: dict[str, Any]) -> dict[str, Any]:
         if not reply_attachments:
             # If assistant didn't persist attachments, fall back to recent tool-produced media.
             reply_attachments = _collect_recent_tool_attachments(store=store, session_id=str(session_id))
-        reply_metadata: dict[str, Any] = {}
+        reply_metadata = {}
         if str(inbound.channel or "").strip().lower() == "whatsapp" and inbound.is_group:
             from runtime.orchestration.group_ingest import build_whatsapp_group_reply_metadata
 
             reply_metadata = build_whatsapp_group_reply_metadata(inbound=inbound)
+
+        # WhatsApp: deliver via outbound queue so long agent runs survive sidecar HTTP drops.
+        if (
+            str(inbound.channel or "").strip().lower() == "whatsapp"
+            and _whatsapp_inbound_queue_delivery_enabled()
+            and (reply or reply_attachments)
+        ):
+            try:
+                msg_id = _enqueue_whatsapp_inbound_reply(
+                    store,
+                    inbound=inbound,
+                    account_id=account_id,
+                    tenant_id=str(tenant_id or ""),
+                    reply_text=reply,
+                    reply_attachments=list(reply_attachments or []),
+                    reply_metadata=reply_metadata,
+                )
+                return {
+                    "ok": True,
+                    "replies": [],
+                    "delivery": "queued",
+                    "outbound_message_id": msg_id,
+                }
+            except Exception:
+                # Fall back to sync replies if enqueue fails.
+                pass
+
         replies = [
             {
                 "channel": inbound.channel,
