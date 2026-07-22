@@ -6475,6 +6475,100 @@ class SqliteStore(ScheduledJobStoreMixin):
             out.append(item)
         return out
 
+    def claim_pending_channel_outbound_messages(
+        self,
+        *,
+        channel: str,
+        account_id: str,
+        limit: int = 20,
+        lease_seconds: int = 120,
+    ) -> list[dict[str, Any]]:
+        """Atomically claim pending outbound rows so overlapping pollers cannot double-send.
+
+        Marks matched rows ``sending``. Stale ``sending`` rows (lease expired) are reclaimed
+        back to ``pending`` first so a crashed sidecar cannot strand messages forever.
+        """
+        lim = max(1, min(int(limit), 100))
+        lease = max(15, int(lease_seconds or 120))
+        now = datetime.now(timezone.utc)
+        now_iso = now.isoformat()
+        stale_before = (now - timedelta(seconds=lease)).isoformat()
+        ch = str(channel or "").strip()
+        aid = str(account_id or "").strip()
+        with self._connect() as conn:
+            conn.execute(
+                """
+                UPDATE channel_outbound_message
+                SET status = 'pending'
+                WHERE channel = ? AND account_id = ? AND status = 'sending'
+                  AND (last_attempt_at IS NULL OR last_attempt_at = '' OR last_attempt_at < ?)
+                """,
+                (ch, aid, stale_before),
+            )
+            rows = conn.execute(
+                """
+                SELECT id
+                FROM channel_outbound_message
+                WHERE channel = ? AND account_id = ? AND status = 'pending'
+                  AND (next_attempt_at IS NULL OR next_attempt_at = '' OR next_attempt_at <= ?)
+                ORDER BY created_at ASC
+                LIMIT ?
+                """,
+                (ch, aid, now_iso, lim),
+            ).fetchall()
+            ids = [str(r["id"] or "").strip() for r in rows if str(r["id"] or "").strip()]
+            claimed: list[Any] = []
+            for mid in ids:
+                cur = conn.execute(
+                    """
+                    UPDATE channel_outbound_message
+                    SET status = 'sending', last_attempt_at = ?
+                    WHERE id = ? AND status = 'pending'
+                    """,
+                    (now_iso, mid),
+                )
+                if int(cur.rowcount or 0) <= 0:
+                    continue
+                row = conn.execute(
+                    """
+                    SELECT id, tenant_id, channel, account_id, chat_id, text, source, created_at
+                    FROM channel_outbound_message
+                    WHERE id = ?
+                    """,
+                    (mid,),
+                ).fetchone()
+                if row is not None:
+                    claimed.append(row)
+        out: list[dict[str, Any]] = []
+        for r in claimed:
+            source = str(r["source"] or "")
+            meta: dict[str, Any] = {}
+            if source.startswith("{"):
+                try:
+                    parsed = json.loads(source)
+                    if isinstance(parsed, dict):
+                        meta = parsed
+                except Exception:
+                    meta = {}
+            item: dict[str, Any] = {
+                "id": str(r["id"] or ""),
+                "tenant_id": str(r["tenant_id"] or ""),
+                "channel": str(r["channel"] or ""),
+                "account_id": str(r["account_id"] or ""),
+                "chat_id": str(r["chat_id"] or ""),
+                "text": str(r["text"] or ""),
+                "source": source,
+                "created_at": str(r["created_at"] or ""),
+            }
+            atts = [a for a in (meta.get("attachments") or []) if isinstance(a, dict)]
+            if atts:
+                item["attachments"] = atts
+            mp = str(meta.get("media_path") or "").strip()
+            if mp:
+                item["media_path"] = mp
+            out.append(item)
+        return out
+
     def list_pending_weixin_outbound_messages(
         self,
         *,
@@ -6546,7 +6640,7 @@ class SqliteStore(ScheduledJobStoreMixin):
                 """
                 SELECT tenant_id, account_id, chat_id, text, source, send_attempts
                 FROM channel_outbound_message
-                WHERE id = ? AND status = 'pending'
+                WHERE id = ? AND status IN ('pending', 'sending')
                 """,
                 (mid,),
             ).fetchone()
@@ -6558,7 +6652,7 @@ class SqliteStore(ScheduledJobStoreMixin):
                     """
                     UPDATE channel_outbound_message
                     SET status = 'sent', sent_at = ?, error = '', send_attempts = ?, last_attempt_at = ?, next_attempt_at = NULL
-                    WHERE id = ? AND status = 'pending'
+                    WHERE id = ? AND status IN ('pending', 'sending')
                     """,
                     (ts, attempt_no, ts, mid),
                 )
@@ -6568,7 +6662,7 @@ class SqliteStore(ScheduledJobStoreMixin):
                         """
                         UPDATE channel_outbound_message
                         SET status = 'failed', sent_at = ?, error = ?, send_attempts = ?, last_attempt_at = ?, next_attempt_at = NULL
-                        WHERE id = ? AND status = 'pending'
+                        WHERE id = ? AND status IN ('pending', 'sending')
                         """,
                         (ts, str(error or ""), attempt_no, ts, mid),
                     )
@@ -6579,7 +6673,7 @@ class SqliteStore(ScheduledJobStoreMixin):
                         """
                         UPDATE channel_outbound_message
                         SET status = 'pending', error = ?, send_attempts = ?, last_attempt_at = ?, next_attempt_at = ?
-                        WHERE id = ? AND status = 'pending'
+                        WHERE id = ? AND status IN ('pending', 'sending')
                         """,
                         (str(error or ""), attempt_no, ts, next_attempt_at, mid),
                     )

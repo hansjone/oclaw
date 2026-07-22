@@ -294,7 +294,11 @@ def create_app() -> FastAPI:
 
         store = get_assistant_store()
         aid = str(account_id or os.getenv("AIA_WHATSAPP_ACCOUNT_ID") or "wa-default").strip()
-        items = store.list_pending_channel_outbound_messages(channel="whatsapp", account_id=aid, limit=limit)
+        claimer = getattr(store, "claim_pending_channel_outbound_messages", None)
+        if callable(claimer):
+            items = claimer(channel="whatsapp", account_id=aid, limit=limit)
+        else:
+            items = store.list_pending_channel_outbound_messages(channel="whatsapp", account_id=aid, limit=limit)
         return {"ok": True, "items": items}
 
     @app.post("/whatsapp/outbound/ack")

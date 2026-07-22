@@ -973,10 +973,17 @@ async function pollOutboundQueue(sock: ReturnType<typeof makeWASocket>): Promise
 
 function startOutboundPoller(getSock: () => ReturnType<typeof makeWASocket> | null): void {
   const intervalMs = Number(process.env.OCLAW_WHATSAPP_OUTBOUND_POLL_MS || "1000") || 1000;
+  // Overlapping polls used to claim the same pending row twice (send → duplicate WhatsApp
+  // bubbles) once inbound replies also went through the outbound queue.
+  let pollInFlight = false;
   setInterval(() => {
+    if (pollInFlight) return;
     const s = getSock();
     if (!s) return;
-    void pollOutboundQueue(s);
+    pollInFlight = true;
+    void pollOutboundQueue(s).finally(() => {
+      pollInFlight = false;
+    });
   }, Math.max(1000, intervalMs));
 }
 

@@ -1527,14 +1527,45 @@ def process_inbound_payload(payload: dict[str, Any]) -> dict[str, Any]:
                                     except Exception:
                                         pass
 
-                            if wa_queue_delivery and last_outbound_id and not serial_replies:
-                                return {
-                                    "ok": True,
-                                    "replies": [],
-                                    "delivery": "queued",
-                                    "outbound_message_id": last_outbound_id,
-                                }
-                            if serial_replies and not wa_queue_delivery:
+                            if wa_queue_delivery:
+                                # Always leave this branch when queue delivery is on — otherwise
+                                # ``reply`` falls through to the bottom enqueue and WhatsApp
+                                # gets the same final answer twice.
+                                if last_outbound_id and not serial_replies:
+                                    return {
+                                        "ok": True,
+                                        "replies": [],
+                                        "delivery": "queued",
+                                        "outbound_message_id": last_outbound_id,
+                                    }
+                                if serial_replies:
+                                    # Enqueue failed for at least one turn; sync fallback.
+                                    replies = serial_replies
+                                    if preface:
+                                        first = replies[0] if replies else None
+                                        if isinstance(first, dict) and first.get("text"):
+                                            first["text"] = f"{preface}\n\n{first.get('text')}"
+                                        elif preface:
+                                            replies.insert(
+                                                0,
+                                                {
+                                                    "channel": inbound.channel,
+                                                    "chat_id": inbound.external_chat_id,
+                                                    "text": preface,
+                                                    "attachments": [],
+                                                    "metadata": {},
+                                                },
+                                            )
+                                    for r in replies or []:
+                                        if not isinstance(r, dict):
+                                            continue
+                                        ch = str(r.get("channel") or inbound.channel or "").strip().lower()
+                                        if ch in {"wechat", "weixin", "whatsapp"}:
+                                            _maybe_expand_reply_attachments_for_channel(r)
+                                            _maybe_add_media_path_for_wechat_reply(r)
+                                    return {"ok": True, "replies": replies}
+                                return {"ok": True, "replies": [], "delivery": "queued"}
+                            if serial_replies:
                                 # Multiple serial turns: return all sync replies in order.
                                 replies = serial_replies
                                 # Skip the default single-reply assembly below.

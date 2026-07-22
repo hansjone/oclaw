@@ -101,6 +101,26 @@ class WhatsappInboundSerialQueueTests(unittest.TestCase):
         self.assertEqual(source.get("kind"), "inbound_reply")
         self.assertEqual(source.get("quote_stanza_id"), "stanza1")
 
+    def test_whatsapp_queue_delivery_does_not_double_enqueue(self) -> None:
+        """Regression: agent-path enqueue must not fall through to bottom enqueue."""
+        with self._patch_common(), mock.patch("runtime.gateway.OclawGateway") as gw_cls, mock.patch(
+            "runtime.orchestration.group_ingest.should_process_group_inbound", return_value=True
+        ), mock.patch(
+            "runtime.application.gateway.whatsapp_inbound_access.handle_whatsapp_access",
+            return_value=None,
+        ):
+            gw = gw_cls.return_value
+            gw.handle_turn.return_value = _FakeTurn("only once")
+            out = inbound_mod.process_inbound_payload(self._payload("ping"))
+
+        self.assertEqual(out.get("delivery"), "queued")
+        self.assertEqual(out.get("replies"), [])
+        pending = self.store.list_pending_channel_outbound_messages(
+            channel="whatsapp", account_id="wa-default", limit=10
+        )
+        self.assertEqual(len(pending), 1)
+        self.assertEqual(pending[0].get("text"), "only once")
+
     def test_busy_inbound_is_accepted_queued_then_merged(self) -> None:
         release = threading.Event()
         seen_texts: list[str] = []

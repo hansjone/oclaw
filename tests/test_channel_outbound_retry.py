@@ -54,3 +54,26 @@ def test_channel_outbound_retry_success_clears_schedule(tmp_path) -> None:
     assert row["status"] == "sent"
     assert int(row["send_attempts"] or 0) == 2
     assert not str(row["next_attempt_at"] or "").strip()
+
+
+def test_claim_pending_channel_outbound_messages_is_exclusive(tmp_path) -> None:
+    store = SqliteStore(str(tmp_path / "ops.sqlite"))
+    msg_id = store.enqueue_channel_outbound_message(
+        channel="whatsapp",
+        account_id="wa-default",
+        chat_id="120363012345678@g.us",
+        text="once only",
+    )
+    first = store.claim_pending_channel_outbound_messages(
+        channel="whatsapp", account_id="wa-default", limit=5
+    )
+    second = store.claim_pending_channel_outbound_messages(
+        channel="whatsapp", account_id="wa-default", limit=5
+    )
+    assert len(first) == 1
+    assert first[0]["id"] == msg_id
+    assert second == []
+    row = _row(store, msg_id)
+    assert row["status"] == "sending"
+    assert store.ack_channel_outbound_message(message_id=msg_id, ok=True, stanza_id="S1") is True
+    assert _row(store, msg_id)["status"] == "sent"
