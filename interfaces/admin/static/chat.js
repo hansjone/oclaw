@@ -557,14 +557,70 @@ function _foldProcessTextRedundant(processText, collapsedItems) {
   return false;
 }
 
+/**
+ * Prefer a single render of each attachment_id inside one aggregated bubble.
+ * When both generate + save_deliverable_attachment persist the same id, keep the
+ * deliverable row (or the first occurrence if none is marked deliverable).
+ */
+function _preferredAttachmentOwnerById(items) {
+  const preferred = new Map();
+  (Array.isArray(items) ? items : []).forEach((it, itemIdx) => {
+    const list = parseAttachments(it && it.attachments);
+    for (const att of list) {
+      if (!att || typeof att !== "object") continue;
+      const aid = String(att.attachment_id || att.attachmentId || "")
+        .trim()
+        .toLowerCase();
+      if (!aid) continue;
+      const prev = preferred.get(aid);
+      if (prev === undefined) {
+        preferred.set(aid, itemIdx);
+        continue;
+      }
+      if (att.deliverable === true) {
+        const prevAtts = parseAttachments((items[prev] && items[prev].attachments) || null);
+        const prevAtt = prevAtts.find((a) => {
+          const id = String((a && (a.attachment_id || a.attachmentId)) || "")
+            .trim()
+            .toLowerCase();
+          return id === aid;
+        });
+        if (!(prevAtt && prevAtt.deliverable === true)) preferred.set(aid, itemIdx);
+      }
+    }
+  });
+  return preferred;
+}
+
+function _attachmentsForBubbleItem(raw, itemIdx, preferredById) {
+  const list = parseAttachments(raw);
+  if (!list.length) return null;
+  const kept = [];
+  for (const att of list) {
+    if (!att || typeof att !== "object") continue;
+    const aid = String(att.attachment_id || att.attachmentId || "")
+      .trim()
+      .toLowerCase();
+    if (aid && preferredById instanceof Map) {
+      const owner = preferredById.get(aid);
+      if (owner != null && owner !== itemIdx) continue;
+    }
+    kept.push(att);
+  }
+  return kept.length ? kept : null;
+}
+
 async function _buildAggregatedAssistantBubble(tsIso, items) {
   const inner = el("div", { class: "chat-msg chat-msg--assistant chat-msg--rich" });
   const collapsedItems = [];
-  for (const it of items || []) {
+  const preferredAttOwner = _preferredAttachmentOwnerById(items);
+  const itemList = Array.isArray(items) ? items : [];
+  for (let itemIdx = 0; itemIdx < itemList.length; itemIdx++) {
+    const it = itemList[itemIdx];
     const kind = String((it && it.kind) || "");
     const text = String((it && it.text) || "");
-    const parsedAtts = parseAttachments(it && it.attachments);
-    const hasInlineAtt = parsedAtts.length > 0;
+    const filteredAtts = _attachmentsForBubbleItem(it && it.attachments, itemIdx, preferredAttOwner);
+    const hasInlineAtt = Array.isArray(filteredAtts) && filteredAtts.length > 0;
     if (
       !text.trim() &&
       !(kind === "tool_result" && hasInlineAtt) &&
@@ -582,11 +638,11 @@ async function _buildAggregatedAssistantBubble(tsIso, items) {
             collapsedItems.push({ title: t("reasoning.processNotes"), text: t0 });
           }
         }
-        const attsAssistant = await renderAttachmentsEl(it && it.attachments);
+        const attsAssistant = await renderAttachmentsEl(filteredAtts);
         if (attsAssistant) inner.appendChild(attsAssistant);
       } else {
         _appendAssistantTextSegments(inner, text, collapsedItems);
-        const attsAssistant = await renderAttachmentsEl(it && it.attachments);
+        const attsAssistant = await renderAttachmentsEl(filteredAtts);
         if (attsAssistant) inner.appendChild(attsAssistant);
       }
     } else if (kind === "reasoning") {
@@ -597,7 +653,8 @@ async function _buildAggregatedAssistantBubble(tsIso, items) {
       if (adminChatShowToolOutput) collapsedItems.push({ title: _toolSummaryTitle("tool"), text });
       // 支持两类附件：base64（image/input_image）和引用型（image_ref）。
       // image_ref 需要异步拉取 blob，因此改为走 renderAttachmentsEl()。
-      const attsEl = await renderAttachmentsEl(it && it.attachments);
+      // Same attachment_id from generate + save_deliverable is shown once (prefer deliverable).
+      const attsEl = await renderAttachmentsEl(filteredAtts);
       if (attsEl) inner.appendChild(attsEl);
     } else {
       inner.appendChild(el("div", { class: "chat-msg__md", html: renderMarkdownHtml(text) }));

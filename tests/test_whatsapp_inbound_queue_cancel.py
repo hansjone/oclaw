@@ -121,6 +121,63 @@ class WhatsappInboundSerialQueueTests(unittest.TestCase):
         self.assertEqual(len(pending), 1)
         self.assertEqual(pending[0].get("text"), "only once")
 
+    def test_whatsapp_queue_includes_deliverable_tool_image(self) -> None:
+        """Regression (session 8d2b…): image on tool row must still enqueue to WhatsApp.
+
+        Final assistant_text often has no attachments; deliverable lives on
+        ``save_deliverable_attachment`` tool_result. Queue path used to skip it.
+        """
+        reply_text = "done, here is a cute puppy"
+
+        def _handle_turn(**kwargs):
+            msg = kwargs.get("msg")
+            sid = str(getattr(msg, "session_id", "") or "")
+            self.store.add_message(sid, "user", "draw a puppy", event_type="user_text")
+            self.store.add_message(
+                sid,
+                "tool",
+                json.dumps({"ok": True, "attachment_id": "img-puppy", "deliverable": True}),
+                attachments=[
+                    {
+                        "type": "image_ref",
+                        "attachment_id": "img-puppy",
+                        "name": "cute_puppy.png",
+                        "mime": "image/png",
+                        "deliverable": True,
+                    }
+                ],
+                event_type="tool_result",
+            )
+            # Final assistant body intentionally has no attachments (real gateway behavior).
+            self.store.add_message(sid, "assistant", reply_text, event_type="assistant_text")
+            return _FakeTurn(reply_text)
+
+        with self._patch_common(), mock.patch("runtime.gateway.OclawGateway") as gw_cls, mock.patch(
+            "runtime.orchestration.group_ingest.should_process_group_inbound", return_value=True
+        ), mock.patch(
+            "runtime.application.gateway.whatsapp_inbound_access.handle_whatsapp_access",
+            return_value=None,
+        ), mock.patch.object(
+            inbound_mod,
+            "_maybe_expand_reply_attachments_for_channel",
+            # Keep image_ref as-is so we can assert attachment_id without a real asset blob.
+            side_effect=lambda reply: None,
+        ):
+            gw = gw_cls.return_value
+            gw.handle_turn.side_effect = lambda **kw: _handle_turn(**kw)
+            out = inbound_mod.process_inbound_payload(self._payload("draw a puppy", stanza="img1"))
+
+        self.assertEqual(out.get("delivery"), "queued")
+        pending = self.store.list_pending_channel_outbound_messages(
+            channel="whatsapp", account_id="wa-default", limit=5
+        )
+        self.assertEqual(len(pending), 1)
+        self.assertEqual(pending[0].get("text"), reply_text)
+        atts = pending[0].get("attachments") or []
+        self.assertTrue(atts, "outbound must include deliverable image attachment")
+        self.assertEqual(atts[0].get("attachment_id"), "img-puppy")
+        self.assertTrue(atts[0].get("deliverable") is True)
+
     def test_busy_inbound_is_accepted_queued_then_merged(self) -> None:
         release = threading.Event()
         seen_texts: list[str] = []

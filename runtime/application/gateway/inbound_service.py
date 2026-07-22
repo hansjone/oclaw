@@ -1454,11 +1454,19 @@ def process_inbound_payload(payload: dict[str, Any]) -> dict[str, Any]:
                                         )
                                         channel_turn_uuid = str(turn_result.turn_uuid or "").strip()
                                         turn_reply = str(turn_result.reply_text or "").strip()
+                                        # Prefer attachments on the matching assistant text row.
+                                        # Fallback: deliverable tool media from this user turn
+                                        # (e.g. save_deliverable_attachment / image generate).
                                         turn_atts = _collect_reply_attachments_from_history(
                                             store=store,
                                             session_id=str(session_id),
                                             reply_text=turn_reply,
                                         )
+                                        if not turn_atts:
+                                            turn_atts = _collect_recent_tool_attachments(
+                                                store=store,
+                                                session_id=str(session_id),
+                                            )
                                     except Exception as e:
                                         turn_reply = f"抱歉，处理消息时出错：{type(e).__name__}: {e}"
                                         turn_atts = []
