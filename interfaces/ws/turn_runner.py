@@ -20,6 +20,27 @@ from svc.persistence.assistant_store import get_assistant_store
 _LOG = logging.getLogger(__name__)
 
 
+def _latest_turn_uuid(store: SqliteStore, session_id: str) -> str:
+    """Recover this turn's uuid from recent persisted messages (prefer latest user)."""
+    sid = str(session_id or "").strip()
+    if not sid:
+        return ""
+    try:
+        rows = store.get_messages(sid, limit=40)
+    except Exception:
+        return ""
+    latest_any = ""
+    for m in reversed(list(rows or [])):
+        tu = str(getattr(m, "turn_uuid", "") or "").strip()
+        if not tu:
+            continue
+        if str(getattr(m, "role", "") or "").strip().lower() == "user":
+            return tu
+        if not latest_any:
+            latest_any = tu
+    return latest_any
+
+
 def _persisted_chat_attachments_nonempty(raw: Any) -> bool:
     """True when chat_message.attachments has at least one JSON object (list or dict or encoded string)."""
     if raw is None:
@@ -207,6 +228,8 @@ async def run_agent_turn_via_bridge(
     marker_turn_count = 0
     marker_session_count = 0
     marker_keep_count = 0
+    # Snapshot abort before finally clears ``_aborted_run_ids`` (otherwise final still emits).
+    was_aborted = False
 
     def _schedule(coro: Any) -> None:
         try:
@@ -214,15 +237,21 @@ async def run_agent_turn_via_bridge(
         except Exception:
             pass
 
+    def should_stop() -> bool:
+        rid = str(run_id_holder.get("run_id") or "")
+        if not rid:
+            return False
+        with conn._abort_lock:
+            return rid in conn._aborted_run_ids
+
     def on_token(tok: str) -> None:
+        # Raise so streaming LLM / loop exits instead of only suppressing WS deltas.
+        if should_stop():
+            raise RuntimeError("generation interrupted by user")
         token_text = str(tok)
         rid = run_id_holder.get("run_id") or ""
         if first_token_ms_holder["ms"] is None and token_text:
             first_token_ms_holder["ms"] = now_ms()
-        if rid:
-            with conn._abort_lock:
-                if rid in conn._aborted_run_ids:
-                    return
         if rid and not conn._is_webchat_client:
             _schedule(conn.emit_agent_event(run_id=rid, stream="assistant", data={"event": "delta", "delta": token_text}))
         with buf_lock:
@@ -237,19 +266,17 @@ async def run_agent_turn_via_bridge(
         )
 
     def on_progress(text: str) -> None:
+        if should_stop():
+            return
         rid = run_id_holder.get("run_id") or ""
         if rid:
-            with conn._abort_lock:
-                if rid in conn._aborted_run_ids:
-                    return
             _schedule(conn.emit_agent_event(run_id=rid, stream="lifecycle", data={"phase": "running", "message": str(text)}))
 
     def on_tool_ui(name: str, payload: dict[str, Any]) -> None:
+        if should_stop():
+            return
         rid = run_id_holder.get("run_id") or ""
         if rid:
-            with conn._abort_lock:
-                if rid in conn._aborted_run_ids:
-                    return
             pl = {"runId": rid, "sessionKey": str(session_id), "name": str(name), "payload": dict(payload or {}), "ts": now_ms()}
             _schedule(conn.send_event("session.tool", pl))
 
@@ -334,6 +361,7 @@ async def run_agent_turn_via_bridge(
             on_token=on_token,
             on_progress=on_progress,
             on_tool_ui=on_tool_ui,
+            should_stop=should_stop,
         )
 
     async def _heartbeat_during_turn(stop_evt: asyncio.Event) -> None:
@@ -344,12 +372,11 @@ async def run_agent_turn_via_bridge(
                 await asyncio.wait_for(stop_evt.wait(), timeout=4.0)
                 break
             except asyncio.TimeoutError:
+                if should_stop():
+                    continue
                 rid = run_id_holder.get("run_id") or ""
                 if not rid:
                     continue
-                with conn._abort_lock:
-                    if rid in conn._aborted_run_ids:
-                        continue
                 try:
                     await conn.emit_agent_event(
                         run_id=rid,
@@ -360,33 +387,144 @@ async def run_agent_turn_via_bridge(
                     # Best-effort keepalive; never fail the turn on heartbeat errors.
                     pass
 
+    def _interrupt_reply_text() -> str:
+        return "已中断回答。" if str(lang or "").startswith("zh") else "Response stopped."
+
+    async def _emit_aborted_terminal(*, rid: str) -> None:
+        stopped = _interrupt_reply_text()
+        abort_turn = _latest_turn_uuid(store, str(session_id)) or uuid.uuid4().hex
+        abort_msg: dict[str, Any] = {
+            "role": "assistant",
+            "content": stopped,
+            "timestamp": now_ms(),
+            "turn_uuid": abort_turn,
+        }
+        try:
+            store.add_message(
+                session_id=str(session_id),
+                role="assistant",
+                content=stopped,
+                turn_uuid=abort_turn,
+                event_type="assistant_text",
+            )
+        except Exception:
+            _LOG.exception(
+                "turn_runner_aborted_reply_persist_failed session_id=%s run_id=%s",
+                str(session_id),
+                str(rid or ""),
+            )
+        if send_response:
+            try:
+                await conn.send_res(
+                    req_id,
+                    ok=True,
+                    payload={
+                        "runId": rid,
+                        "acceptedAt": now_ms(),
+                        "mode": "sync_direct",
+                        "taskId": "",
+                        "traceId": "",
+                        "reply": stopped,
+                        "selectedSpecialist": str(p.get("specialist") or "generalist"),
+                        "interactionMode": str(p.get("interaction_mode") or "comprehensive"),
+                        "dispatchReason": "aborted",
+                        "executionMode": execution_mode,
+                        "managerSelectedSpecialist": str(p.get("specialist") or "generalist"),
+                        "requestedSpecialist": str(p.get("specialist") or "generalist"),
+                        "dynamicAgentUsed": False,
+                        "dynamicAgentName": "",
+                        "relayPointerCount": 0,
+                        "relayEnvelopePresent": False,
+                        "relayEnvelopePointerCount": 0,
+                        "relayTtlTurnCount": int(marker_turn_count),
+                        "relayTtlSessionCount": int(marker_session_count),
+                        "relayTtlKeepCount": int(marker_keep_count),
+                        "status": "aborted",
+                        "interrupted": True,
+                    },
+                )
+            except Exception:
+                pass
+        await conn.emit_agent_event(
+            run_id=rid,
+            stream="lifecycle",
+            data={"phase": "end", "status": "aborted"},
+        )
+        await conn.emit_chat_event(
+            run_id=rid,
+            state="aborted",
+            reply=stopped,
+            message=abort_msg,
+            session_key=str(session_id),
+        )
+        try:
+            await conn.send_event(
+                "session.marker",
+                {
+                    "runId": rid,
+                    "sessionKey": str(session_id),
+                    "action": "turn_reclaimed",
+                    "reclaimedTurnPointers": int(marker_turn_count),
+                    "relayTtlTurnCount": int(marker_turn_count),
+                    "relayTtlSessionCount": int(marker_session_count),
+                    "relayTtlKeepCount": int(marker_keep_count),
+                },
+            )
+        except Exception:
+            pass
+        try:
+            await conn.send_event("session.message", {"sessionKey": str(session_id), "message": abort_msg})
+        except Exception:
+            pass
+
     hb_stop = asyncio.Event()
     hb_task: asyncio.Task[Any] | None = asyncio.create_task(_heartbeat_during_turn(hb_stop))
+    result: Any = None
+    turn_exc: BaseException | None = None
     try:
         result = await asyncio.to_thread(_run_turn_sync)
-    except Exception as exc:
+    except BaseException as exc:
+        turn_exc = exc
+    finally:
         hb_stop.set()
         if hb_task is not None:
             try:
                 await hb_task
             except Exception:
                 pass
-        err_text = str(exc or "agent_failed")
+        _rid0 = str(run_id_holder.get("run_id") or "")
+        if _rid0:
+            with conn._abort_lock:
+                if _rid0 in conn._aborted_run_ids:
+                    was_aborted = True
+                conn._active_run_session.pop(_rid0, None)
+                conn._aborted_run_ids.discard(_rid0)
+
+    rid = str(getattr(result, "run_id", "") or run_id_holder.get("run_id") or "")
+    if turn_exc is not None:
+        exc_low = str(turn_exc or "").lower()
+        if was_aborted or ("interrupted" in exc_low and "user" in exc_low):
+            was_aborted = True
+            await _emit_aborted_terminal(rid=rid)
+            return
+        err_text = str(turn_exc or "agent_failed")
         user_facing_error = (
             "本轮执行失败：工具不可用或执行异常。"
             f"\n\n错误信息：{err_text}\n\n请重试，或改用其它可用工具。"
         )
+        fail_turn = _latest_turn_uuid(store, str(session_id)) or uuid.uuid4().hex
         fail_msg: dict[str, Any] = {
             "role": "assistant",
             "content": user_facing_error,
             "timestamp": now_ms(),
+            "turn_uuid": fail_turn,
         }
         try:
             store.add_message(
                 session_id=str(session_id),
                 role="assistant",
                 content=str(user_facing_error),
-                turn_uuid=None,
+                turn_uuid=fail_turn,
                 event_type="assistant_text",
             )
         except Exception:
@@ -428,7 +566,7 @@ async def run_agent_turn_via_bridge(
             run_id=run_id_holder.get("run_id") or "",
             stream="lifecycle",
             # Always emit a terminal lifecycle event even on failure.
-            data={"phase": "end", "status": "error", "error": str(exc or "agent_failed")},
+            data={"phase": "end", "status": "error", "error": str(turn_exc or "agent_failed")},
         )
         await conn.emit_chat_event(
             run_id=run_id_holder.get("run_id") or "",
@@ -457,20 +595,7 @@ async def run_agent_turn_via_bridge(
         except Exception:
             pass
         return
-    finally:
-        hb_stop.set()
-        if hb_task is not None:
-            try:
-                await hb_task
-            except Exception:
-                pass
-        _rid0 = str(run_id_holder.get("run_id") or "")
-        if _rid0:
-            with conn._abort_lock:
-                conn._active_run_session.pop(_rid0, None)
-                conn._aborted_run_ids.discard(_rid0)
 
-    rid = str(getattr(result, "run_id", "") or run_id_holder.get("run_id") or "")
     run_status = "success"
     run_last_error_code = ""
     run_stop_reason = ""
@@ -488,8 +613,15 @@ async def run_agent_turn_via_bridge(
             if attempts:
                 latest = attempts[-1] if isinstance(attempts[-1], dict) else {}
                 run_error_detail = str((latest or {}).get("reason") or "").strip()
+                if not run_last_error_code:
+                    run_last_error_code = str((latest or {}).get("error_code") or "").strip()
     except Exception:
         pass
+    if (not was_aborted) and run_last_error_code == "control_interrupted":
+        was_aborted = True
+    if was_aborted:
+        await _emit_aborted_terminal(rid=rid)
+        return
     ttft_payload: dict[str, Any] | None = None
     try:
         ft = first_token_ms_holder.get("ms")
@@ -513,24 +645,6 @@ async def run_agent_turn_via_bridge(
             ttft_payload = _compute_ttft(rows, accepted_ms=int(accepted_ms))
     except Exception:
         ttft_payload = None
-    with conn._abort_lock:
-        if rid and rid in conn._aborted_run_ids:
-            try:
-                await conn.send_event(
-                    "session.marker",
-                    {
-                        "runId": rid,
-                        "sessionKey": str(session_id),
-                        "action": "turn_reclaimed",
-                        "reclaimedTurnPointers": int(marker_turn_count),
-                        "relayTtlTurnCount": int(marker_turn_count),
-                        "relayTtlSessionCount": int(marker_session_count),
-                        "relayTtlKeepCount": int(marker_keep_count),
-                    },
-                )
-            except Exception:
-                pass
-            return
     if send_response:
         await conn.send_res(
             req_id,
@@ -581,8 +695,15 @@ async def run_agent_turn_via_bridge(
         with buf_lock:
             final_text = "".join(token_chunks)
     stream_snapshot = str(final_text or "").strip()
-    turn_for_persist = str(getattr(result, "turn_uuid", "") or "").strip()
-    final_msg: dict[str, Any] = {"role": "assistant", "content": final_text, "timestamp": now_ms(), "turn_uuid": turn_for_persist or ""}
+    turn_for_persist = str(getattr(result, "turn_uuid", "") or "").strip() or _latest_turn_uuid(
+        store, str(session_id)
+    )
+    final_msg: dict[str, Any] = {
+        "role": "assistant",
+        "content": final_text,
+        "timestamp": now_ms(),
+        "turn_uuid": turn_for_persist or "",
+    }
     if run_status == "failed" and not stream_snapshot:
         err_code = run_last_error_code or "unknown_error"
         stop_reason = run_stop_reason or "failed"

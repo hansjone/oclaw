@@ -924,6 +924,7 @@ def _chat_with_empty_body_retry(
     on_progress: Optional[Callable[[str], None]],
     progress_label: str = "oclaw: think",
     allow_dsml_text_tools: bool = False,
+    should_stop: Optional[Callable[[], bool]] = None,
 ) -> Any:
     # Empty assistant body can occur transiently at upstream gateways.
     # Retry until non-empty (bounded by retry count and total timeout).
@@ -932,8 +933,16 @@ def _chat_with_empty_body_retry(
     retry_total_timeout_ms = _safe_nonneg_int(os.getenv("AIA_EMPTY_ASSISTANT_RETRY_TOTAL_TIMEOUT_MS"), 30_000, max_value=300_000)
     started = time.perf_counter()
     retries_done = 0
-    resp = model.chat(msgs, llm_tools, on_token=on_token)
+
+    def _on_token_guarded(tok: str) -> None:
+        _check_stop(should_stop)
+        if on_token:
+            on_token(tok)
+
+    token_cb = _on_token_guarded if (on_token is not None or should_stop is not None) else None
+    resp = model.chat(msgs, llm_tools, on_token=token_cb)
     while True:
+        _check_stop(should_stop)
         content = str(getattr(resp, "content", "") or "")
         reasoning = str(getattr(resp, "reasoning_content", "") or "")
         tool_calls = list(getattr(resp, "tool_calls", []) or [])
@@ -962,14 +971,14 @@ def _chat_with_empty_body_retry(
                 }
             ]
             retries_done += 1
-            resp = model.chat(repair_msgs, llm_tools, on_token=on_token)
+            resp = model.chat(repair_msgs, llm_tools, on_token=token_cb)
             continue
         if on_progress:
             on_progress(f"{progress_label} retry-empty ({retries_done + 1}/{retry_max})…")
         if retry_delay_ms > 0:
             time.sleep(float(retry_delay_ms) / 1000.0)
         retries_done += 1
-        resp = model.chat(msgs, llm_tools, on_token=on_token)
+        resp = model.chat(msgs, llm_tools, on_token=token_cb)
 
 
 def _extract_dsml_invoke_names(text: str) -> list[str]:
@@ -1516,6 +1525,7 @@ def run_oclaw_direct_loop(
             on_progress=on_progress,
             progress_label="oclaw: think",
             allow_dsml_text_tools=allow_dsml_text_tools,
+            should_stop=should_stop,
         )
         assistant_text = str(getattr(resp, "content", "") or "")
         reasoning_text = str(getattr(resp, "reasoning_content", "") or "")
@@ -1673,6 +1683,7 @@ def run_oclaw_direct_loop(
             on_progress=on_progress,
             progress_label="oclaw: finalize",
             allow_dsml_text_tools=False,
+            should_stop=should_stop,
         )
         step = _persist_assistant_step(
             store=store,

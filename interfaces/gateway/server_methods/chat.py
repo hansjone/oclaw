@@ -51,18 +51,40 @@ def _chat_abort_handler(opts: dict[str, Any]) -> None:
         _bad(respond, "invalid chat.abort params")
         return
     run_id = params.get("runId")
-    if not isinstance(run_id, str) or not run_id.strip():
-        _bad(respond, "invalid chat.abort params: runId required")
+    session_key = params.get("sessionKey") or params.get("key")
+    rid = run_id.strip() if isinstance(run_id, str) and run_id.strip() else ""
+    sid = session_key.strip() if isinstance(session_key, str) and session_key.strip() else ""
+    if not rid and not sid:
+        _bad(respond, "invalid chat.abort params: runId or sessionKey required")
         return
     aborted = False
+    aborted_run_ids: list[str] = []
     if isinstance(context, dict):
-        abort_fn = context.get("abort_chat_run")
-        if callable(abort_fn):
-            try:
-                aborted = bool(abort_fn(run_id.strip()))
-            except Exception:
-                aborted = False
-    _ok(respond, {"runId": run_id.strip(), "aborted": aborted})
+        if rid:
+            abort_fn = context.get("abort_chat_run")
+            if callable(abort_fn):
+                try:
+                    aborted = bool(abort_fn(rid))
+                    if aborted:
+                        aborted_run_ids = [rid]
+                except Exception:
+                    aborted = False
+        if not aborted and sid:
+            abort_session_fn = context.get("abort_chat_session")
+            if callable(abort_session_fn):
+                try:
+                    aborted = bool(abort_session_fn(sid))
+                except Exception:
+                    aborted = False
+    _ok(
+        respond,
+        {
+            "runId": rid,
+            "sessionKey": sid,
+            "aborted": aborted,
+            "abortedRunIds": aborted_run_ids,
+        },
+    )
 
 
 def _chat_send_handler(opts: dict[str, Any]) -> None:

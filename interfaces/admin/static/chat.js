@@ -5304,6 +5304,10 @@ ${autoLimit ? `<div style="margin-top:8px;"><span class="muted">auto-added claus
             }
             if (eventName === "session.turn_started") {
               turnAcceptedAtMs = Number(payload.acceptedAt || Date.now()) || Date.now();
+              if (payload.runId) {
+                chatRunId = String(payload.runId);
+                currentAbortMeta = { sessionId: String(activeId || ""), runId: String(chatRunId || "") };
+              }
               _setStreamStatusBase("start");
               return;
             }

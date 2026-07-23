@@ -35,6 +35,18 @@ def build_gateway_context(
             aborted_run_ids.add(rid)
         return True
 
+    def _abort_chat_session(session_key: str) -> bool:
+        sid = str(session_key or "").strip()
+        if not sid:
+            return False
+        with abort_lock:
+            rids = [rid for rid, s in active_run_session.items() if str(s) == sid]
+            if not rids:
+                return False
+            for rid in rids:
+                aborted_run_ids.add(rid)
+        return True
+
     def _enqueue_chat_send(session_key: str, message: str, run_id: str | None, params: dict[str, Any]) -> bool:
         sid = str(session_key or "").strip()
         txt = str(message or "").strip()
@@ -151,6 +163,7 @@ def build_gateway_context(
     context = build_common_gateway_context(store=store)
     context.update({
         "abort_chat_run": _abort_chat_run,
+        "abort_chat_session": _abort_chat_session,
         "enqueue_chat_send": _enqueue_chat_send,
         "run_agent": _run_agent,
         "enqueue_session_send": _enqueue_session_send,
