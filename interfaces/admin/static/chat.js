@@ -5794,6 +5794,7 @@ ${autoLimit ? `<div style="margin-top:8px;"><span class="muted">auto-added claus
   );
 
   const navFooter = el("div", { class: "chat-nav__footer" }, [
+    btnJobs,
     el("div", { id: "authUser", class: "chat-nav__user" }),
   ]);
 
@@ -5802,7 +5803,7 @@ ${autoLimit ? `<div style="margin-top:8px;"><span class="muted">auto-added claus
       el("div", { class: "chat-nav__top" }, [
         buildChatBrandLogoNode(),
       ]),
-      el("div", { class: "chat-nav__toolbar" }, [btnNew, btnJobs]),
+      el("div", { class: "chat-nav__toolbar" }, [btnNew]),
       el("div", { class: "chat-nav__scroll" }, [sessionsListEl, loadMoreWrap]),
       navFooter,
     ]),

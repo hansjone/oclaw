@@ -521,41 +521,47 @@
         flex-direction: column;
         gap: 8px;
       }
-      .chat-nav__jobs {
+      .chat-nav__footer .chat-nav__jobs {
         display: flex;
         align-items: center;
         justify-content: space-between;
         gap: 8px;
         width: 100%;
-        padding: 8px 10px;
+        box-sizing: border-box;
+        margin: 0;
+        padding: 7px 10px;
         border-radius: 8px;
-        border: 1px solid var(--ds-border, rgba(255, 255, 255, 0.12));
+        border: 1px solid transparent;
         background: transparent;
         color: inherit;
         cursor: pointer;
-        font-size: 13px;
+        font-size: 12px;
+        opacity: 0.92;
       }
-      .chat-nav__jobs:hover {
+      .chat-nav__footer .chat-nav__jobs:hover {
         background: var(--chat-sess-hover-bg, rgba(255, 255, 255, 0.05));
+        border-color: var(--ds-border, rgba(255, 255, 255, 0.1));
+        opacity: 1;
       }
-      .chat-nav__jobs--active {
-        border-color: rgba(245, 158, 11, 0.55);
-        background: rgba(245, 158, 11, 0.12);
+      .chat-nav__footer .chat-nav__jobs--active {
+        border-color: rgba(245, 158, 11, 0.45);
+        background: rgba(245, 158, 11, 0.1);
+        opacity: 1;
       }
       .chat-jobs-badge {
-        min-width: 1.25rem;
-        height: 1.25rem;
-        padding: 0 6px;
+        min-width: 1.15rem;
+        height: 1.15rem;
+        padding: 0 5px;
         border-radius: 999px;
         color: #fff;
         font-size: 11px;
-        line-height: 1.25rem;
+        line-height: 1.15rem;
         text-align: center;
         font-weight: 600;
         flex: 0 0 auto;
       }
       .chat-jobs-badge--idle {
-        background: rgba(148, 163, 184, 0.45);
+        background: rgba(148, 163, 184, 0.4);
       }
       .chat-jobs-badge--hot {
         background: rgba(239, 68, 68, 0.9);
