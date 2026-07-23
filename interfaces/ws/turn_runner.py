@@ -582,7 +582,7 @@ async def run_agent_turn_via_bridge(
             final_text = "".join(token_chunks)
     stream_snapshot = str(final_text or "").strip()
     turn_for_persist = str(getattr(result, "turn_uuid", "") or "").strip()
-    final_msg: dict[str, Any] = {"role": "assistant", "content": final_text, "timestamp": now_ms()}
+    final_msg: dict[str, Any] = {"role": "assistant", "content": final_text, "timestamp": now_ms(), "turn_uuid": turn_for_persist or ""}
     if run_status == "failed" and not stream_snapshot:
         err_code = run_last_error_code or "unknown_error"
         stop_reason = run_stop_reason or "failed"
@@ -594,7 +594,7 @@ async def run_agent_turn_via_bridge(
             f"{detail_line}"
             "\n\n请重试，或减少输入复杂度后再试。"
         )
-        final_msg = {"role": "assistant", "content": final_text, "timestamp": now_ms()}
+        final_msg = {"role": "assistant", "content": final_text, "timestamp": now_ms(), "turn_uuid": turn_for_persist or ""}
         try:
             store.add_message(
                 session_id=str(session_id),
@@ -641,6 +641,7 @@ async def run_agent_turn_via_bridge(
                     "timestamp": str(getattr(m, "timestamp", "") or ""),
                     "tool_calls": getattr(m, "tool_calls", None),
                     "attachments": atraw,
+                    "turn_uuid": str(getattr(m, "turn_uuid", "") or "").strip(),
                 }
                 # Admin / WS clients build the reasoning fold from event_payload.reasoning_content (thinking mode)
                 # or event_type=reasoning rows after reload; including these on ``final`` avoids "stream had
