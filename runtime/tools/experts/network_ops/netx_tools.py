@@ -738,8 +738,18 @@ def netx_get_managed_ne_tool() -> ToolSpec:
     )
 
 
+def _netx_exec_max_commands() -> int:
+    """Mirror netx NETX_NE_EXEC_MAX_COMMANDS (default 5, hard cap 50)."""
+    try:
+        raw = int(os.getenv("NETX_NE_EXEC_MAX_COMMANDS") or 5)
+    except ValueError:
+        raw = 5
+    return max(1, min(50, raw))
+
+
 def netx_exec_managed_ne_tool() -> ToolSpec:
     """Run read-only CLI on a managed NE via netx."""
+    max_cmds = _netx_exec_max_commands()
 
     def handler(args: dict[str, Any]) -> dict[str, Any]:
         ne_id = str(args.get("ne_id") or "").strip()
@@ -751,7 +761,7 @@ def netx_exec_managed_ne_tool() -> ToolSpec:
         commands = [str(c).strip() for c in raw_cmds if str(c).strip()]
         if not commands:
             return {"ok": False, "error": "commands_required", "error_code": "commands_required"}
-        if len(commands) > 5:
+        if len(commands) > _netx_exec_max_commands():
             return {"ok": False, "error": "too_many_commands", "error_code": "too_many_commands"}
         body: dict[str, Any] = {"ne_id": ne_id, "commands": commands}
         rts = args.get("read_timeout_sec")
@@ -769,8 +779,9 @@ def netx_exec_managed_ne_tool() -> ToolSpec:
         name="netx_exec_managed_ne",
         description=(
             "经 netx 登录「网元管理」中的设备并执行只读 CLI（POST /v1/managed-ne/exec）。"
-            "每条命令须以 show / display / ping / ping6 开头（只读查询与连通探测，禁止 get/traceroute/改配置等）；"
-            "禁止管道符、分号及改配置类命令；单次最多 5 条；默认读超时 60s。"
+            "每条命令须以 show / display / ping / ping6 / traceroute / tracert / trace / trace6 开头；"
+            f"允许白名单管道过滤；禁止分号及改配置类命令；单次最多 {max_cmds} 条"
+            "（NETX_NE_EXEC_MAX_COMMANDS，硬上限 50）；默认读超时 60s。"
             "返回合并输出（含命令回显）；失败时含 error/detail。"
             "先 netx_list_managed_ne 解析 ne_id；若 connect_status 非 pass 可先 netx_get_managed_ne 看 connect_detail。"
         ),
@@ -782,7 +793,7 @@ def netx_exec_managed_ne_tool() -> ToolSpec:
                     "type": "array",
                     "items": {"type": "string"},
                     "minItems": 1,
-                    "maxItems": 5,
+                    "maxItems": max_cmds,
                     "description": "只读 CLI 列表，如 show version、display interface brief",
                 },
                 "read_timeout_sec": {

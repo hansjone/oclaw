@@ -20,17 +20,18 @@ description: 面向 ops 专家的 netx 纳管网元（网元管理）作业手�
    - `mcp__netx__getManagedNe`：单条详情、`connect_detail`
    - **UME 清单（无需逐台纳管）**：`mcp__netx__listCliTargets`（`source=ume`）或 `queryUmeNeInventory` 取 `ne_id`，再用 `ume_ne_id` 执行 CLI（需先在 netx **UME → CLI 连接** 配置统一凭据/跳板）
 2. **登录查信息**
-   - `mcp__netx__execManagedNe`：`ne_id` **或** `ume_ne_id` + `commands`（最多 5 条只读命令）
+   - `mcp__netx__execManagedNe`：`ne_id` **或** `ume_ne_id` + `commands`（默认最多 5 条，可由 `NETX_NE_EXEC_MAX_COMMANDS` 调高，硬上限 50）
 
 ## CLI 约束（服务端强制）
 
-- 允许前缀：`show `、`display `、`ping `、`ping6 `（服务端强制）
-- 禁止：`|`、`;`、换行拼接、改配置类（configure/write/copy/reload/delete 等）
+- 允许前缀：`show `、`display `、`ping `、`ping6 `、`traceroute `、`tracert `、`trace `、`trace6 `
+- 管道：仅白名单过滤（`include`/`exclude`/`begin`/`section`/`count`/`match`/`grep`/`one-line`/`no-more`）；禁止 `redirect`/`append`/`tee`/`send`
+- 禁止：`;`、换行拼接、改配置类（configure/write/copy/reload/delete 等）
 - 示例：
-  - 思科：`show version`、`show configuration | include hostname` **不可**（含 `|`）→ 改用 `show configuration` 或连通测试已解析的 hostname
-  - 华为：`display version`、`display interface brief`
+  - 思科：`show version`、`show configuration | include hostname`
+  - 华为：`display version`、`display current-configuration | include sysname`
   - ZTE：`show version`、`show interface`
-  - 连通：`ping 192.168.0.1`、`ping6 2001::db8::1`
+  - 连通：`ping 192.168.0.1`、`ping6 2001::db8::1`、`traceroute 10.0.0.1`
 
 ## 排障流程
 
