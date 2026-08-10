@@ -2437,6 +2437,7 @@ def build_admin_router() -> APIRouter:
             prompt_summary_from_recipe,
             recipe_has_playbook,
             resolve_ops_recipe_template,
+            synthesize_recipe_from_prompt,
         )
 
         recipe = payload.get("recipe") if isinstance(payload.get("recipe"), dict) else None
@@ -2457,6 +2458,17 @@ def build_admin_router() -> APIRouter:
             prompt_text = prompt_summary_from_recipe(recipe, fallback=name)
         if not prompt_text:
             return {"ok": False, "error": "name, prompt_text, schedule_expr are required"}
+        if not recipe_has_playbook(recipe):
+            synth = synthesize_recipe_from_prompt(
+                prompt_text,
+                session_id=str(payload.get("source_session_id") or ""),
+            )
+            if recipe_has_playbook(synth):
+                recipe = synth
+                if not str((recipe.get("source") or {}).get("compiled_at") or "").strip():
+                    from datetime import datetime, timezone
+
+                    recipe.setdefault("source", {})["compiled_at"] = datetime.now(timezone.utc).isoformat()
         # WhatsApp field ops default to English when delivery targets WA and lang omitted.
         lang = str(payload.get("lang") or "").strip()
         if not lang:

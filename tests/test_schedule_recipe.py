@@ -104,6 +104,46 @@ class RecipeHelpersTests(unittest.TestCase):
         self.assertIn("工作流", scheduled_turn_system_suffix(lang="zh", playbook=True))
         self.assertIn("提醒", scheduled_turn_system_suffix(lang="zh", playbook=False))
 
+    def test_synthesize_step_headers_and_previous_run(self) -> None:
+        from runtime.scheduler.recipe import synthesize_recipe_from_prompt
+        from runtime.scheduler.turn_text import append_previous_run_context
+
+        prompt = (
+            'Run "unmanaged by dying gasp" report.\n\n'
+            "CRITICAL — Follow this exact algorithm:\n\n"
+            "Step 1 — Query BN EMS failures:\n"
+            "- Query active alarms: native_probable_cause = \"BN EMS alarm NE communication failure\"\n\n"
+            "Step 2 — Query Remote dying gasp:\n"
+            "- Query active alarms: native_probable_cause LIKE \"%Remote dying gasp%\"\n\n"
+            "Step 3 — Join and deliver XLSX via save_deliverable_attachment.\n"
+        )
+        recipe = synthesize_recipe_from_prompt(prompt)
+        assert recipe is not None
+        self.assertTrue(recipe_has_playbook(recipe))
+        self.assertGreaterEqual(len(recipe["steps"]), 3)
+        self.assertEqual((recipe.get("source") or {}).get("compiled_from"), "prompt_text")
+        self.assertTrue((recipe.get("output") or {}).get("need_attachments"))
+        instr = build_scheduled_turn_instruction(
+            prompt_text=prompt,
+            mode="scheduled",
+            lang="en",
+            recipe=recipe,
+            previous_run={
+                "status": "success",
+                "finished_at": "2026-08-10T06:00:00+00:00",
+                "reply_text": "Found 12 candidates; 3 confirmed.",
+            },
+        )
+        self.assertIn("Scheduled playbook", instr)
+        self.assertIn("Previous run context", instr)
+        self.assertIn("Found 12 candidates", instr)
+        with_prev = append_previous_run_context(
+            "base",
+            previous_run={"status": "failed", "error": "timeout on CLI"},
+            lang="en",
+        )
+        self.assertIn("timeout on CLI", with_prev)
+
 
 class ScheduleRecipeToolTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -219,6 +259,29 @@ class ScheduleRecipeToolTests(unittest.TestCase):
         self.assertTrue(recipe_has_playbook(recipe))
         self.assertEqual((recipe.get("source") or {}).get("template_id"), "ume_alarm_tally_daily")
         self.assertIn("UME", str(job.get("prompt_text") or ""))
+
+    def test_create_auto_compiles_structured_prompt(self) -> None:
+        prompt = (
+            "Daily unmanaged dying-gasp correlation.\n\n"
+            "Step 1 — Query BN EMS communication failures.\n"
+            "Step 2 — Query remote dying gasp alarms.\n"
+            "Step 3 — Correlate and attach XLSX report.\n"
+        )
+        out = schedule_create_tool().handler(
+            {
+                "tenant_id": self.tenant_id,
+                "owner_user_id": self.user_id,
+                "name": "dying-gasp-daily",
+                "prompt_text": prompt,
+                "schedule_kind": "cron",
+                "schedule_expr": "0 14 * * *",
+                "lang": "en",
+            }
+        )
+        self.assertTrue(out.get("ok"), out)
+        recipe = (out.get("job") or {}).get("recipe") or {}
+        self.assertTrue(recipe_has_playbook(recipe))
+        self.assertGreaterEqual(len(recipe.get("steps") or []), 3)
 
     def test_simple_reminder_still_works(self) -> None:
         out = schedule_create_tool().handler(

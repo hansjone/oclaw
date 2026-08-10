@@ -23,6 +23,7 @@ from runtime.scheduler.recipe import (
     recipe_has_playbook,
     recipe_missing_fields,
     resolve_ops_recipe_template,
+    synthesize_recipe_from_prompt,
 )
 from runtime.scheduler.service import run_scheduled_job_now
 from runtime.scheduler.system_timezone import default_system_timezone
@@ -255,18 +256,29 @@ def schedule_create_tool() -> ToolSpec:
 
             needs_recipe = looks_like_complex_schedule_prompt(prompt_text, recipe=recipe)
             if needs_recipe and not recipe_has_playbook(recipe):
-                missing = recipe_missing_fields(recipe) or ["goal", "steps", "success_criteria"]
-                return {
-                    "ok": False,
-                    "error": "recipe_required",
-                    "missing_fields": missing,
-                    "hint": (
-                        "This looks like a complex/multi-step job. Call schedule_propose first, "
-                        "show the draft to the user, then schedule_create with a full recipe "
-                        "(goal + >=2 steps + success_criteria). Do not store vague prompts like "
-                        "'继续刚才那个'."
-                    ),
-                }
+                # Prefer auto-compiling a durable recipe from a structured prompt
+                # (Step 1/2..., long algorithm text) over rejecting create.
+                synth = synthesize_recipe_from_prompt(
+                    prompt_text,
+                    session_id=str(args.get("session_id") or ""),
+                )
+                if recipe_has_playbook(synth):
+                    recipe = synth
+                    if not str((recipe.get("source") or {}).get("compiled_at") or "").strip():
+                        recipe.setdefault("source", {})["compiled_at"] = datetime.now(timezone.utc).isoformat()
+                else:
+                    missing = recipe_missing_fields(recipe) or ["goal", "steps", "success_criteria"]
+                    return {
+                        "ok": False,
+                        "error": "recipe_required",
+                        "missing_fields": missing,
+                        "hint": (
+                            "This looks like a complex/multi-step job. Call schedule_propose first, "
+                            "show the draft to the user, then schedule_create with a full recipe "
+                            "(goal + >=2 steps + success_criteria). Do not store vague prompts like "
+                            "'继续刚才那个'."
+                        ),
+                    }
             if recipe and not recipe_has_playbook(recipe) and recipe_missing_fields(recipe):
                 # Explicit but incomplete recipe → reject rather than silently drop.
                 return {

@@ -110,6 +110,7 @@ def normalize_recipe(raw: Any) -> dict[str, Any]:
         "source": {
             "session_id": str(source_raw.get("session_id") or source_raw.get("sessionId") or "").strip(),
             "compiled_at": str(source_raw.get("compiled_at") or source_raw.get("compiledAt") or "").strip(),
+            "compiled_from": str(source_raw.get("compiled_from") or source_raw.get("compiledFrom") or "").strip(),
         },
     }
     return recipe
@@ -164,6 +165,147 @@ def looks_like_complex_schedule_prompt(prompt_text: str, *, recipe: dict[str, An
     if re.search(r"(1[\.\)]|第一步|step\s*1)", text, flags=re.I):
         return True
     return False
+
+
+_STEP_HEADER_RE = re.compile(
+    r"(?im)^\s*(?:"
+    r"step\s*\d+\s*[—\-–:.]?\s*"
+    r"|第[0-9一二三四五六七八九十百]+步\s*[—\-–:.]?\s*"
+    r"|\d+\s*[\.\)\-—–]\s+"
+    r").+$"
+)
+
+
+def _extract_numbered_steps(prompt_text: str) -> tuple[str, list[str]]:
+    """Split prompt into (preamble, step bodies) when Step N / 1. headers exist."""
+    text = str(prompt_text or "").replace("\r\n", "\n").replace("\r", "\n").strip()
+    if not text:
+        return "", []
+    matches = list(_STEP_HEADER_RE.finditer(text))
+    if len(matches) < 2:
+        return text, []
+    preamble = text[: matches[0].start()].strip()
+    steps: list[str] = []
+    for i, m in enumerate(matches):
+        end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
+        chunk = text[m.start() : end].strip()
+        # Drop leading "Step N —" / "1." so compile_playbook can re-number cleanly.
+        body = re.sub(
+            r"(?is)^\s*(?:step\s*\d+|第[0-9一二三四五六七八九十百]+步)\s*[—\-–:.]?\s*",
+            "",
+            chunk,
+            count=1,
+        )
+        body = re.sub(r"(?is)^\s*\d+\s*[\.\)\-—–]\s+", "", body, count=1).strip()
+        if body:
+            steps.append(body)
+        elif chunk:
+            steps.append(chunk)
+    return preamble, steps
+
+
+def synthesize_recipe_from_prompt(prompt_text: str, *, session_id: str = "") -> dict[str, Any] | None:
+    """
+    Build a durable playbook recipe from a long/structured prompt.
+
+    Used when field jobs stored algorithm text in prompt_text but left recipe_json empty.
+    Returns None when the prompt is too thin to treat as a playbook.
+    """
+    text = str(prompt_text or "").strip()
+    if not text or not looks_like_complex_schedule_prompt(text):
+        return None
+
+    preamble, steps = _extract_numbered_steps(text)
+    low = text.lower()
+    need_attachments = any(
+        tok in low or tok in text
+        for tok in ("xlsx", "csv", "pdf", "attachment", "附件", "save_deliverable", "write_xlsx")
+    )
+
+    if len(steps) >= 2:
+        goal = preamble.split("\n\n", 1)[0].strip() if preamble else ""
+        goal = re.sub(r"(?is)^\s*critical\s*[—\-–:]?\s*", "", goal).strip()
+        if not goal:
+            goal = steps[0][:240]
+        if len(goal) > 400:
+            goal = goal[:397].rstrip() + "..."
+        # Prefer keeping full algorithm fidelity: if preamble is short, fold remaining
+        # non-step prose into constraints rather than losing it.
+        constraints: list[str] = []
+        if preamble and preamble != goal and len(preamble) > len(goal) + 20:
+            rest = preamble[len(goal) :].strip() if preamble.startswith(goal) else preamble
+            if rest:
+                constraints.append(rest[:800])
+        success = [
+            "Follow every step end-to-end with tools as needed.",
+            "Deliver a useful channel update reflecting completed work.",
+        ]
+        if need_attachments:
+            success.append("Generated files are saved via save_deliverable_attachment.")
+        recipe = normalize_recipe(
+            {
+                "version": 1,
+                "goal": goal,
+                "steps": steps,
+                "constraints": constraints,
+                "success_criteria": success,
+                "output": {"need_attachments": need_attachments, "style": "channel_update"},
+                "source": {
+                    "session_id": str(session_id or "").strip(),
+                    "compiled_at": "",
+                    "compiled_from": "prompt_text",
+                },
+            }
+        )
+        # Preserve compiled_from beyond normalize (normalize only keeps session_id/compiled_at).
+        recipe.setdefault("source", {})["compiled_from"] = "prompt_text"
+        return recipe
+
+    # No clear Step N headers: still promote long ops prompts so they are not
+    # misclassified as short "reminder" turns.
+    if len(text) < 80 and text.count("\n") < 2:
+        return None
+    goal = text.split("\n\n", 1)[0].strip()
+    if len(goal) > 400:
+        goal = goal[:397].rstrip() + "..."
+    steps = [
+        "Execute the full algorithm described in the goal/prompt end-to-end. Use tools as needed; do not reply with only a short reminder.",
+        "Deliver a useful channel update that reflects completed work"
+        + (" (call save_deliverable_attachment for any generated files)." if need_attachments else "."),
+    ]
+    if text != goal:
+        steps.insert(1, f"Full prompt/algorithm to follow:\n{text}")
+    recipe = normalize_recipe(
+        {
+            "version": 1,
+            "goal": goal,
+            "steps": steps,
+            "constraints": [],
+            "success_criteria": [
+                "Workflow completed with tools as required.",
+                "Channel update delivered.",
+            ],
+            "output": {"need_attachments": need_attachments, "style": "channel_update"},
+            "source": {"session_id": str(session_id or "").strip(), "compiled_at": ""},
+        }
+    )
+    recipe.setdefault("source", {})["compiled_from"] = "prompt_text"
+    return recipe
+
+
+def resolve_effective_playbook_recipe(
+    *,
+    recipe: dict[str, Any] | None,
+    prompt_text: str,
+    session_id: str = "",
+) -> dict[str, Any] | None:
+    """Return a playbook recipe from stored recipe or synthesized prompt; else None."""
+    if recipe_has_playbook(recipe):
+        return normalize_recipe(recipe)
+    synth = synthesize_recipe_from_prompt(prompt_text, session_id=session_id)
+    if recipe_has_playbook(synth):
+        return synth
+    return None
 
 
 def prompt_summary_from_recipe(recipe: dict[str, Any] | None, *, fallback: str = "") -> str:
@@ -461,5 +603,7 @@ __all__ = [
     "recipe_has_playbook",
     "recipe_is_empty",
     "recipe_missing_fields",
+    "resolve_effective_playbook_recipe",
     "resolve_ops_recipe_template",
+    "synthesize_recipe_from_prompt",
 ]

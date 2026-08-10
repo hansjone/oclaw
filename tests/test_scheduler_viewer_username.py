@@ -69,6 +69,9 @@ class ResolveScheduledViewerUsernameTests(unittest.TestCase):
         job.specialist = "generalist"
         job.created_by_user_id = str(self.member["id"])
         job.schedule_kind = "interval"
+        job.recipe_json = "{}"
+        job.source_session_id = ""
+        job.name = "stretch"
 
         run = MagicMock()
         run.id = "run-1"

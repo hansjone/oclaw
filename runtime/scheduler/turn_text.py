@@ -75,27 +75,77 @@ def build_scheduled_turn_instruction(
     mode: str,
     lang: str,
     recipe: dict[str, Any] | None = None,
+    previous_run: dict[str, Any] | None = None,
 ) -> str:
     """Internal LLM instruction for proactive scheduled reminders/playbooks (not user-facing)."""
     _ = str(mode or "scheduled").strip()
     if recipe_has_playbook(recipe):
-        return compile_playbook_instruction(recipe=recipe or {}, lang=lang)
+        text = compile_playbook_instruction(recipe=recipe or {}, lang=lang)
+    else:
+        intent = str(prompt_text or "").strip()
+        is_en = str(lang or "").lower().startswith("en")
+        if is_en:
+            text = (
+                "[Scheduled proactive reminder — internal instruction, not a user message]\n"
+                f"Reminder intent: {intent}\n"
+                "Write a short, friendly proactive reminder TO the user (second person). "
+                "Do not say you received a reminder or that you will remind someone; speak directly to the user."
+            )
+        else:
+            text = (
+                "【定时主动提醒·内部指令，不是用户发言】\n"
+                f"提醒意图：{intent}\n"
+                "请生成一条简短、自然、第二人称的主动提醒消息直接对用户说。"
+                "不要写「收到提醒」「好的我来提醒用户」等元对话；不要假装用户刚说了话。"
+            )
+    return append_previous_run_context(text, previous_run=previous_run, lang=lang)
 
-    intent = str(prompt_text or "").strip()
+
+def append_previous_run_context(
+    instruction: str,
+    *,
+    previous_run: dict[str, Any] | None,
+    lang: str = "en",
+    max_body_chars: int = 800,
+) -> str:
+    """Append a short prior-run note so recurring jobs can compare deltas."""
+    base = str(instruction or "").rstrip()
+    if not previous_run or not isinstance(previous_run, dict):
+        return base
+    status = str(previous_run.get("status") or "").strip() or "unknown"
+    finished = str(previous_run.get("finished_at") or previous_run.get("created_at") or "").strip()
+    err = " ".join(str(previous_run.get("error") or "").split())
+    body = " ".join(str(previous_run.get("reply_text") or "").split())
+    # Prefer error text on failures; otherwise the outbound summary.
+    if status.lower() in {"failed", "error"} and err:
+        body = err
+    cap = max(120, int(max_body_chars or 800))
+    if len(body) > cap:
+        body = body[: cap - 3].rstrip() + "..."
+    if not body and not finished:
+        return base
     is_en = str(lang or "").lower().startswith("en")
     if is_en:
-        return (
-            "[Scheduled proactive reminder — internal instruction, not a user message]\n"
-            f"Reminder intent: {intent}\n"
-            "Write a short, friendly proactive reminder TO the user (second person). "
-            "Do not say you received a reminder or that you will remind someone; speak directly to the user."
+        lines = [
+            "",
+            "[Previous run context — for continuity only; still execute this run fully]",
+            f"Status: {status}" + (f" | Finished: {finished}" if finished else ""),
+        ]
+        if body:
+            lines.append(f"Summary: {body}")
+        lines.append(
+            "Use this for deltas/comparisons when useful; do not skip work just because the prior run succeeded."
         )
-    return (
-        "【定时主动提醒·内部指令，不是用户发言】\n"
-        f"提醒意图：{intent}\n"
-        "请生成一条简短、自然、第二人称的主动提醒消息直接对用户说。"
-        "不要写「收到提醒」「好的我来提醒用户」等元对话；不要假装用户刚说了话。"
-    )
+    else:
+        lines = [
+            "",
+            "【上一轮运行摘要·仅供对照；本轮仍须完整执行】",
+            f"状态：{status}" + (f"｜完成时间：{finished}" if finished else ""),
+        ]
+        if body:
+            lines.append(f"摘要：{body}")
+        lines.append("可参考做环比/差异，但不要因上轮成功而跳过本轮步骤。")
+    return base + "\n" + "\n".join(lines)
 
 
 def scheduled_turn_system_suffix(*, lang: str, playbook: bool = False) -> str:
@@ -128,6 +178,7 @@ def scheduled_turn_system_suffix(*, lang: str, playbook: bool = False) -> str:
 
 
 __all__ = [
+    "append_previous_run_context",
     "build_scheduled_turn_instruction",
     "format_scheduled_failure_summary",
     "format_scheduled_success_summary",

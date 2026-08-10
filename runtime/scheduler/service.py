@@ -7,7 +7,12 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any
 
-from runtime.scheduler.recipe import load_recipe_from_job, recipe_has_playbook
+from runtime.scheduler.recipe import (
+    load_recipe_from_job,
+    recipe_has_playbook,
+    recipe_is_empty,
+    resolve_effective_playbook_recipe,
+)
 from runtime.scheduler.session_resolver import resolve_scheduled_session, resolve_scheduled_viewer_username
 from runtime.scheduler.turn_text import build_scheduled_turn_instruction
 from runtime.worker import ensure_worker_started
@@ -25,6 +30,70 @@ def _tick_interval_seconds() -> float:
         return max(5.0, min(float(raw), 3600.0))
     except Exception:
         return 30.0
+
+
+def _load_previous_run_context(
+    store: Any,
+    *,
+    job_id: str,
+    tenant_id: str,
+    current_run_id: str = "",
+) -> dict[str, Any] | None:
+    """Latest finished run for this job (excluding the run currently being queued)."""
+    lister = getattr(store, "scheduled_job_run_list", None)
+    if not callable(lister):
+        return None
+    try:
+        rows = lister(job_id=str(job_id), tenant_id=str(tenant_id), limit=8) or []
+    except Exception:
+        return None
+    cur = str(current_run_id or "").strip()
+    for row in rows:
+        rid = str(getattr(row, "id", "") or "")
+        if cur and rid == cur:
+            continue
+        status = str(getattr(row, "status", "") or "").strip().lower()
+        if status in {"queued", "running", ""}:
+            continue
+        return {
+            "id": rid,
+            "status": status,
+            "finished_at": str(getattr(row, "finished_at", "") or "") or None,
+            "created_at": str(getattr(row, "created_at", "") or "") or None,
+            "reply_text": str(getattr(row, "reply_text", "") or ""),
+            "error": str(getattr(row, "error", "") or ""),
+        }
+    return None
+
+
+def _maybe_backfill_job_recipe(
+    store: Any,
+    *,
+    job: Any,
+    recipe: dict[str, Any],
+) -> None:
+    """Persist synthesized recipe onto jobs that only stored a long prompt_text."""
+    if not recipe_has_playbook(recipe):
+        return
+    if not recipe_is_empty(load_recipe_from_job(job)):
+        return
+    updater = getattr(store, "scheduled_job_update", None)
+    if not callable(updater):
+        return
+    try:
+        stamped = dict(recipe)
+        src = dict(stamped.get("source") or {})
+        if not str(src.get("compiled_at") or "").strip():
+            src["compiled_at"] = datetime.now(timezone.utc).isoformat()
+        src["compiled_from"] = str(src.get("compiled_from") or "prompt_text")
+        stamped["source"] = src
+        updater(
+            job_id=str(getattr(job, "id") or ""),
+            tenant_id=str(getattr(job, "tenant_id") or ""),
+            patch={"recipe": stamped},
+        )
+    except Exception:
+        pass
 
 
 def enqueue_scheduled_job_run(
@@ -77,13 +146,27 @@ def enqueue_scheduled_job_run(
     agent_run_id = uuid.uuid4().hex
     prompt_text = str(getattr(job, "prompt_text", "") or "").strip()
     lang = str(getattr(job, "lang", "") or "en")
-    recipe = load_recipe_from_job(job)
+    stored_recipe = load_recipe_from_job(job)
+    recipe = resolve_effective_playbook_recipe(
+        recipe=stored_recipe,
+        prompt_text=prompt_text,
+        session_id=str(getattr(job, "source_session_id", "") or ""),
+    )
     playbook = recipe_has_playbook(recipe)
+    if playbook and recipe is not None:
+        _maybe_backfill_job_recipe(store, job=job, recipe=recipe)
+    previous_run = _load_previous_run_context(
+        store,
+        job_id=job_id,
+        tenant_id=tenant_id,
+        current_run_id=str(getattr(run, "id", "") or ""),
+    )
     user_text = build_scheduled_turn_instruction(
         prompt_text=prompt_text,
         mode=mode,
         lang=lang,
         recipe=recipe if playbook else None,
+        previous_run=previous_run,
     )
     viewer_username = resolve_scheduled_viewer_username(
         store,
@@ -105,6 +188,7 @@ def enqueue_scheduled_job_run(
         "text": user_text,
         "prompt_text": prompt_text,
         "recipe": recipe if playbook else {},
+        "previous_run": previous_run or {},
         "attachments": [],
         "metadata": {
             "scheduled_job_id": job_id,
