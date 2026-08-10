@@ -24,9 +24,15 @@ import argparse
 import json
 import os
 import sys
+from pathlib import Path
 
 
 def main() -> int:
+    # Allow `python runtime/operations/scripts/...` from repo root without PYTHONPATH.
+    root = Path(__file__).resolve().parents[3]
+    if str(root) not in sys.path:
+        sys.path.insert(0, str(root))
+
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--keep-days", type=int, default=30, help="Retain rows newer than this many days.")
     p.add_argument("--dry-run", action="store_true", default=False, help="Force dry-run (default).")
