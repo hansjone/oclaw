@@ -40,6 +40,9 @@ def test_enrich_mcp_scope_sql() -> None:
     assert out["required_scope"] == "sql:query"
     assert "fallback_tools" in out
     assert "ume_alarm_xlsx_report" in out["fallback_tools"]
+    assert out.get("next_steps")
+    assert out.get("admin_action", {}).get("required_scope") == "sql:query"
+    assert "Admin" in str(out.get("user_facing_hint") or "")
 
 
 def test_build_finalize_system_suffix() -> None:

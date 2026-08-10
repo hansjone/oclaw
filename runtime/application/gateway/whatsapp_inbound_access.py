@@ -264,6 +264,30 @@ def _notify_requester_access_decision(
     )
 
 
+def notify_whatsapp_access_decision(
+    store: Any,
+    *,
+    tenant_id: str,
+    account_id: str,
+    lang: str = "en",
+    external_user_id: str,
+    phone: str = "",
+    pending_id: str = "",
+    approved: bool,
+) -> None:
+    """Public wrapper for admin/API approve paths to DM the requester."""
+    _notify_requester_access_decision(
+        store,
+        tenant_id=tenant_id,
+        account_id=account_id,
+        lang=lang,
+        external_user_id=external_user_id,
+        phone=phone,
+        pending_id=pending_id,
+        approved=approved,
+    )
+
+
 def _upsert_whatsapp_contact_profile(
     store: Any,
     *,

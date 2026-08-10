@@ -6087,6 +6087,14 @@ class SqliteStore(ScheduledJobStoreMixin):
         )
         if existing:
             return str(existing.get("id") or "") or None
+        try:
+            self.expire_stale_whatsapp_access_pending(
+                tenant_id=str(tenant_id),
+                account_id=str(account_id),
+                older_than_hours=168,
+            )
+        except Exception:
+            pass
         pending_id = uuid.uuid4().hex
         ts = utc_now_iso()
         with self._connect() as conn:
@@ -6272,6 +6280,56 @@ class SqliteStore(ScheduledJobStoreMixin):
                 (st, ts, str(resolved_by or ""), str(pending_id), *allowed),
             )
         return bool(cur.rowcount and cur.rowcount > 0)
+
+    def expire_stale_whatsapp_access_pending(
+        self,
+        *,
+        tenant_id: str = "",
+        account_id: str = "",
+        older_than_hours: int = 168,
+        limit: int = 200,
+    ) -> int:
+        """Mark old open pending requests as dismissed (default 7 days)."""
+        from datetime import datetime, timedelta, timezone
+
+        hours = max(1, min(int(older_than_hours or 168), 24 * 90))
+        cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
+        lim = max(1, min(int(limit or 200), 500))
+        tid = str(tenant_id or "").strip()
+        aid = str(account_id or "").strip()
+        where = ["status = 'pending'", "created_at < ?"]
+        args: list[Any] = [cutoff]
+        if tid:
+            where.append("tenant_id = ?")
+            args.append(tid)
+        if aid:
+            where.append("account_id = ?")
+            args.append(aid)
+        args.append(lim)
+        ts = utc_now_iso()
+        with self._connect() as conn:
+            rows = conn.execute(
+                f"""
+                SELECT id FROM whatsapp_access_pending
+                WHERE {' AND '.join(where)}
+                ORDER BY created_at ASC
+                LIMIT ?
+                """,
+                tuple(args),
+            ).fetchall()
+            ids = [str(r["id"] or "") for r in rows if str(r["id"] or "").strip()]
+            if not ids:
+                return 0
+            placeholders = ", ".join("?" for _ in ids)
+            cur = conn.execute(
+                f"""
+                UPDATE whatsapp_access_pending
+                SET status = 'dismissed', resolved_at = ?, resolved_by = 'system:expire'
+                WHERE id IN ({placeholders}) AND status = 'pending'
+                """,
+                (ts, *ids),
+            )
+            return int(cur.rowcount or 0)
 
     def delete_whatsapp_access_pending(
         self, *, pending_id: str, statuses: tuple[str, ...] = ("pending",)

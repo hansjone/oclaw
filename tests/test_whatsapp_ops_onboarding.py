@@ -20,6 +20,36 @@ def test_access_granted_guide_includes_ops_help() -> None:
     assert "YES" in text or "continue" in text.lower()
 
 
+def test_expire_stale_whatsapp_access_pending(tmp_path) -> None:
+    from datetime import datetime, timedelta, timezone
+
+    from svc.persistence.sqlite_store import SqliteStore
+
+    store = SqliteStore(str(tmp_path / "exp.sqlite"))
+    tenant = store.create_tenant("T")
+    tid = str(tenant["id"])
+    aid = "wa-default"
+    old_id = store.create_whatsapp_access_pending(
+        tenant_id=tid,
+        account_id=aid,
+        external_user_id="8611111111111@s.whatsapp.net",
+        phone="8611111111111",
+        request_text="hi",
+    )
+    assert old_id
+    # Backdate created_at beyond 7 days.
+    old_ts = (datetime.now(timezone.utc) - timedelta(days=10)).isoformat()
+    with store._connect() as conn:  # noqa: SLF001
+        conn.execute(
+            "UPDATE whatsapp_access_pending SET created_at = ? WHERE id = ?",
+            (old_ts, old_id),
+        )
+    n = store.expire_stale_whatsapp_access_pending(tenant_id=tid, account_id=aid, older_than_hours=168)
+    assert n == 1
+    row = store.get_whatsapp_access_pending_by_id(pending_id=str(old_id))
+    assert row and str(row.get("status") or "") == "dismissed"
+
+
 def test_menu_text_whatsapp_not_productivity_chinese() -> None:
     text = _menu_text(channel="whatsapp")
     assert "记待办" not in text

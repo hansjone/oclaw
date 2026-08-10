@@ -1468,6 +1468,14 @@ def build_admin_router() -> APIRouter:
             for source_tid in (tid, legacy_tid):
                 if not source_tid:
                     continue
+                try:
+                    store.expire_stale_whatsapp_access_pending(
+                        tenant_id=source_tid,
+                        account_id=aid,
+                        older_than_hours=168,
+                    )
+                except Exception:
+                    pass
                 for row in store.list_whatsapp_access_pending(
                     tenant_id=source_tid, account_id=aid, status="pending", limit=50
                 ):
@@ -1683,6 +1691,24 @@ def build_admin_router() -> APIRouter:
                 status="approved",
                 extra_tenant_ids=extra_tids,
             )
+            try:
+                from runtime.application.gateway.whatsapp_inbound_access import (
+                    notify_whatsapp_access_decision,
+                )
+
+                cfg = store.get_whatsapp_access_config(tenant_id=tid, account_id=aid) or {}
+                notify_whatsapp_access_decision(
+                    store,
+                    tenant_id=tid,
+                    account_id=aid,
+                    lang=str(cfg.get("lang") or "en"),
+                    external_user_id=external_user_id,
+                    phone=phone_val,
+                    pending_id=pending_id,
+                    approved=True,
+                )
+            except Exception:
+                pass
             return {
                 "ok": bool(changed),
                 "action": "approve",
@@ -1713,6 +1739,24 @@ def build_admin_router() -> APIRouter:
             status="denied",
             extra_tenant_ids=extra_tids,
         )
+        try:
+            from runtime.application.gateway.whatsapp_inbound_access import (
+                notify_whatsapp_access_decision,
+            )
+
+            cfg = store.get_whatsapp_access_config(tenant_id=tid, account_id=aid) or {}
+            notify_whatsapp_access_decision(
+                store,
+                tenant_id=tid,
+                account_id=aid,
+                lang=str(cfg.get("lang") or "en"),
+                external_user_id=external_user_id,
+                phone=phone_val or "",
+                pending_id=pending_id,
+                approved=False,
+            )
+        except Exception:
+            pass
         return {"ok": bool(changed), "action": "deny", "phone": phone_val or external_user_id}
 
     @router.delete("/admin/api/whatsapp/access/pending")

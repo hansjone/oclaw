@@ -6,7 +6,11 @@ from typing import Any
 
 
 from runtime.orchestration.group_ingest import is_nonsend_channel_reply_text
-from runtime.scheduler.turn_text import format_scheduled_failure_summary, format_scheduled_user_reminder
+from runtime.scheduler.turn_text import (
+    format_scheduled_failure_summary,
+    format_scheduled_success_summary,
+    format_scheduled_user_reminder,
+)
 
 
 def resolve_scheduled_outbound_text(*, payload: dict[str, Any], reply_text: str) -> str:
@@ -101,11 +105,16 @@ def finalize_scheduled_turn_success(
     payload: dict[str, Any],
     base_result: dict[str, Any],
 ) -> None:
-    from runtime.scheduler.channel_delivery import deliver_scheduled_reply
+    from runtime.scheduler.channel_delivery import (
+        _collect_scheduled_turn_attachments,
+        deliver_scheduled_reply,
+    )
 
     tenant_id = str(payload.get("tenant_id") or "")
     job_id = str(payload.get("job_id") or "")
     scheduled_run_id = str(payload.get("run_id_scheduled") or "")
+    session_id = str(payload.get("session_id") or "")
+    turn_uuid = str(base_result.get("turn_uuid") or payload.get("run_id") or "")
     reply_text = resolve_scheduled_outbound_text(payload=payload, reply_text=str(base_result.get("reply_text") or ""))
     delivery = payload.get("delivery") if isinstance(payload.get("delivery"), dict) else {}
     delivery_json = json.dumps(delivery, ensure_ascii=False)
@@ -114,10 +123,34 @@ def finalize_scheduled_turn_success(
     if job:
         delivery_json = str(getattr(job, "delivery_json", "") or delivery_json)
 
+    lang = str(payload.get("lang") or getattr(job, "lang", "") or "en")
+    att_count = 0
+    try:
+        att_count = len(
+            _collect_scheduled_turn_attachments(
+                store=store,
+                session_id=session_id,
+                turn_uuid=turn_uuid,
+            )
+            or []
+        )
+    except Exception:
+        att_count = 0
+
+    # Playbook / ops jobs: always wrap with a short success header for WA readability.
+    if job_id or att_count:
+        reply_text = format_scheduled_success_summary(
+            job_name=str(getattr(job, "name", "") or ""),
+            job_id=job_id,
+            reply_text=reply_text,
+            attachment_count=att_count,
+            lang=lang,
+        )
+
     _persist_scheduled_assistant_reply(
         store,
-        session_id=str(payload.get("session_id") or ""),
-        turn_uuid=str(base_result.get("turn_uuid") or payload.get("run_id") or ""),
+        session_id=session_id,
+        turn_uuid=turn_uuid,
         reply_text=reply_text,
     )
     delivery_status = deliver_scheduled_reply(
@@ -128,8 +161,8 @@ def finalize_scheduled_turn_success(
         resolved_channel=str(payload.get("resolved_channel") or ""),
         resolved_chat_id=str(payload.get("resolved_chat_id") or ""),
         resolved_account_id=str(payload.get("resolved_account_id") or ""),
-        session_id=str(payload.get("session_id") or ""),
-        turn_uuid=str(base_result.get("turn_uuid") or payload.get("run_id") or ""),
+        session_id=session_id,
+        turn_uuid=turn_uuid,
     )
     if scheduled_run_id:
         store.scheduled_job_run_update(

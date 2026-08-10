@@ -7,8 +7,12 @@ from pathlib import Path
 from unittest.mock import patch
 
 from runtime.extensions.whatsapp.access_control import denied_reply_text
-from runtime.scheduler.turn_text import format_scheduled_failure_summary, format_scheduled_user_reminder
-from runtime.scheduler.worker_turn import finalize_scheduled_turn_failure
+from runtime.scheduler.turn_text import (
+    format_scheduled_failure_summary,
+    format_scheduled_success_summary,
+    format_scheduled_user_reminder,
+)
+from runtime.scheduler.worker_turn import finalize_scheduled_turn_failure, finalize_scheduled_turn_success
 from svc.persistence.sqlite_store import SqliteStore
 
 
@@ -23,6 +27,18 @@ class ScheduledFailureTextTests(unittest.TestCase):
         self.assertIn("License daily", text)
         self.assertIn("TimeoutError", text)
         self.assertNotIn("定时", text)
+
+    def test_success_summary_wraps_body_and_attachments(self) -> None:
+        text = format_scheduled_success_summary(
+            job_name="Bandwidth watch",
+            reply_text="Critical: 3\nMajor: 1",
+            attachment_count=1,
+            lang="en",
+        )
+        self.assertIn("[Scheduled job done]", text)
+        self.assertIn("Bandwidth watch", text)
+        self.assertIn("Attachments: 1", text)
+        self.assertIn("Critical: 3", text)
 
     def test_reminder_fallback_english(self) -> None:
         self.assertIn("Reminder", format_scheduled_user_reminder("stretch", lang="en"))
@@ -100,6 +116,56 @@ class ScheduledFailureDeliveryTests(unittest.TestCase):
         self.assertIn("tool boom", body)
         updated = self.store.scheduled_job_run_get(run_id=str(run.id), tenant_id=self.tenant_id)
         self.assertEqual(str(getattr(updated, "status", "") or ""), "failed")
+
+    def test_finalize_success_enqueues_wrapped_summary(self) -> None:
+        job = self.store.scheduled_job_create(
+            tenant_id=self.tenant_id,
+            created_by_user_id=self.user_id,
+            name="License daily",
+            prompt_text="license report",
+            schedule_kind="cron",
+            schedule_expr="0 11 * * *",
+            lang="en",
+            delivery={
+                "whatsapp": {
+                    "enabled": True,
+                    "target_type": "group",
+                    "chat_id": "120363011111111111@g.us",
+                    "account_id": "wa-default",
+                }
+            },
+            timezone_name="UTC",
+            status="active",
+        )
+        run = self.store.scheduled_job_run_create(
+            job_id=str(job.id),
+            tenant_id=self.tenant_id,
+            scheduled_at="2026-08-10T00:00:00+00:00",
+        )
+        payload = {
+            "tenant_id": self.tenant_id,
+            "job_id": str(job.id),
+            "run_id_scheduled": str(run.id),
+            "lang": "en",
+            "resolved_channel": "whatsapp",
+            "resolved_chat_id": "120363011111111111@g.us",
+            "resolved_account_id": "wa-default",
+            "session_id": "",
+        }
+        finalize_scheduled_turn_success(
+            self.store,
+            task=None,
+            payload=payload,
+            base_result={"reply_text": "Found 2 license alarms.", "turn_uuid": "tu1"},
+        )
+        pending = self.store.list_pending_channel_outbound_messages(
+            channel="whatsapp", account_id="wa-default", limit=5
+        )
+        self.assertEqual(len(pending), 1)
+        body = str(pending[0].get("text") or "")
+        self.assertIn("[Scheduled job done]", body)
+        self.assertIn("License daily", body)
+        self.assertIn("Found 2 license alarms.", body)
 
 
 if __name__ == "__main__":

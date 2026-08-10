@@ -1052,8 +1052,12 @@ def process_inbound_payload(payload: dict[str, Any]) -> dict[str, Any]:
         )
         channel_is_wa_bind = str(inbound.channel or "").strip().lower() == "whatsapp"
         if info:
-            guide = _menu_text(channel=str(inbound.channel or ""))
-            reply = ("Bound successfully.\n\n" + guide) if channel_is_wa_bind else ("绑定成功。\n\n" + guide)
+            if channel_is_wa_bind:
+                from runtime.extensions.whatsapp.access_control import access_granted_guide_text
+
+                reply = access_granted_guide_text(lang="en")
+            else:
+                reply = "绑定成功。\n\n" + _menu_text(channel=str(inbound.channel or ""))
         else:
             reply = (
                 "Bind failed: invalid or already used code."

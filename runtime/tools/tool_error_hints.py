@@ -88,16 +88,38 @@ def enrich_mcp_scope_error(result: dict[str, Any]) -> dict[str, Any]:
         ]
         out["user_facing_hint"] = (
             "SQL query is not enabled for this bot token. "
-            "I will use alarm aggregate/report tools instead, or an admin can grant sql:query."
+            "I will use alarm aggregate/report tools instead. "
+            "To enable SQL: ask a WhatsApp admin → Admin UI → netx MCP token scopes → grant sql:query."
         )
+        out["next_steps"] = [
+            "Use aggregateUmeAlarms / queryUmeAlarmsRaw / ume_alarm_xlsx_report instead of sqlQueryUme.",
+            "Ask a WhatsApp admin to open Admin → MCP / netx token and grant scope sql:query.",
+            "Do not retry sqlQueryUme until the scope is granted.",
+        ]
+        out["admin_action"] = {
+            "required_scope": "sql:query",
+            "where": "Admin UI → MCP server / netx API token scopes",
+            "ask": "WhatsApp access admin (whitelist contact with list_type=admin)",
+        }
     else:
         out["hint"] = (
             f"Current netx token lacks scope {scope or '(unknown)'}. "
             "Do not retry the same tool; ask an admin to grant it, or use tools that do not need this scope."
         )
         out["user_facing_hint"] = (
-            f"Permission missing ({scope or 'scope'}). An admin needs to grant this on the netx API token."
+            f"Permission missing ({scope or 'scope'}). "
+            "Ask a WhatsApp admin to grant this scope on the netx API token "
+            "(Admin → MCP / netx token scopes)."
         )
+        out["next_steps"] = [
+            f"Ask a WhatsApp admin to grant scope {scope or '(unknown)'} on the netx MCP token.",
+            "Retry only after the scope is granted; do not blind-retry this tool.",
+        ]
+        out["admin_action"] = {
+            "required_scope": scope or "",
+            "where": "Admin UI → MCP server / netx API token scopes",
+            "ask": "WhatsApp access admin (whitelist contact with list_type=admin)",
+        }
     out["failure_class"] = "auth"
     out["retry_forbidden"] = True
     return out

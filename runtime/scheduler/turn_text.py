@@ -16,6 +16,40 @@ def format_scheduled_user_reminder(prompt_text: str, *, lang: str = "en") -> str
     return f"⏰ Reminder: {body}"
 
 
+def format_scheduled_success_summary(
+    *,
+    job_name: str = "",
+    job_id: str = "",
+    reply_text: str = "",
+    attachment_count: int = 0,
+    lang: str = "en",
+    max_body_chars: int = 1200,
+) -> str:
+    """Short user-facing success notice; keeps body but caps length for WhatsApp."""
+    name = str(job_name or "").strip() or str(job_id or "").strip() or "scheduled job"
+    body = str(reply_text or "").strip()
+    # Drop pure reminder fallbacks that just echo the job prompt.
+    if body.startswith("⏰"):
+        body = ""
+    att_n = max(0, int(attachment_count or 0))
+    cap = max(200, int(max_body_chars or 1200))
+    if body and len(body) > cap:
+        body = body[: cap - 3].rstrip() + "..."
+    if str(lang or "").lower().startswith("zh"):
+        head = f"[定时任务完成] {name}"
+        if att_n:
+            head += f"\n附件：{att_n} 个"
+        if body:
+            return f"{head}\n{body}"
+        return head + ("\n（本次无文字摘要，请查看附件。）" if att_n else "\n（本次无摘要内容。）")
+    head = f"[Scheduled job done] {name}"
+    if att_n:
+        head += f"\nAttachments: {att_n}"
+    if body:
+        return f"{head}\n{body}"
+    return head + ("\n(No text summary; see attachment(s).)" if att_n else "\n(No summary content.)")
+
+
 def format_scheduled_failure_summary(
     *,
     job_name: str = "",
@@ -72,11 +106,14 @@ def scheduled_turn_system_suffix(*, lang: str, playbook: bool = False) -> str:
                 "\n\n[Scheduled playbook mode] You are executing a recurring workflow for the user. "
                 "Follow the playbook steps, use tools as needed, and deliver a useful update "
                 "(including save_deliverable_attachment for generated files). "
+                "Lead the final reply with a short English summary (3–8 lines: what ran, key counts, "
+                "ok/failed highlights), then optional detail. "
                 "Do not pretend the user just messaged you."
             )
         return (
             "\n\n【定时工作流模式】你正在执行周期性工作流。"
             "按 playbook 步骤完成任务，按需调用工具；若生成文件须 save_deliverable_attachment。"
+            "最终回复先给 3–8 行摘要（做了什么、关键计数、成败），再写细节。"
             "不要假装用户刚刚发了消息，不要只回一句空提醒。"
         )
     if is_en:
@@ -93,6 +130,7 @@ def scheduled_turn_system_suffix(*, lang: str, playbook: bool = False) -> str:
 __all__ = [
     "build_scheduled_turn_instruction",
     "format_scheduled_failure_summary",
+    "format_scheduled_success_summary",
     "format_scheduled_user_reminder",
     "scheduled_turn_system_suffix",
 ]
