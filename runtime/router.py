@@ -16,7 +16,7 @@ class RouterDecision:
     mode: str  # sync_direct | async_task
     reason: str
     skill_signal: str = ""
-    interaction_mode: str = "comprehensive"
+    interaction_mode: str = "expert"
     requested_specialist: str = "generalist"
 
 

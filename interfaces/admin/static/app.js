@@ -1665,7 +1665,7 @@ async function renderStack() {
     ]);
     const status = el("div", { class: "muted", text: `mode=${curMode} specialist=${curSpecialist} lang=${curLang}` });
     const saveExpertBtn = el("button", {
-      class: "btn",
+      class: "btn btn--primary",
       text: currentLang === "zh" ? "绑定专家" : "Bind specialist",
       onclick: async () => {
         const specialist = String(specialistSel.value || "generalist").trim() || "generalist";
@@ -1678,20 +1678,6 @@ async function renderStack() {
         status.textContent = `mode=${String(resp.interaction_mode || "expert")} specialist=${String(resp.specialist || specialist)} lang=${String(resp.lang || lang)}`;
       },
     });
-    const saveComprehensiveBtn = el("button", {
-      class: "btn btn--primary",
-      text: currentLang === "zh" ? "综合" : "Comprehensive",
-      onclick: async () => {
-        const specialist = String(specialistSel.value || "generalist").trim() || "generalist";
-        const lang = String(langSel.value || "auto").trim().toLowerCase() || "auto";
-        const resp = await apiPost(`/admin/api/chat/settings/channel-dispatch/${encodeURIComponent(channel)}`, {
-          interaction_mode: "comprehensive",
-          specialist,
-          lang,
-        });
-        status.textContent = `mode=${String(resp.interaction_mode || "comprehensive")} specialist=${String(resp.specialist || specialist)} lang=${String(resp.lang || lang)}`;
-      },
-    });
     return el("div", { class: "card" }, [
       el("div", { class: "card__title", text: title }),
       el("div", { class: "row" }, [
@@ -1700,10 +1686,9 @@ async function renderStack() {
         el("label", { text: currentLang === "zh" ? "语言" : "Lang" }),
         langSel,
         saveExpertBtn,
-        saveComprehensiveBtn,
       ]),
       status,
-      el("div", { class: "muted", text: currentLang === "zh" ? "默认绑定通用专家；综合模式下由全能者分派。" : "Defaults to generalist; comprehensive mode lets manager dispatch." }),
+      el("div", { class: "muted", text: currentLang === "zh" ? "通道统一走专家模式；选择默认专家即可。" : "Channels are expert-only; pick the default specialist." }),
     ]);
   };
   const weixinDispatchCard = createChannelDispatchCard("weixin", "Weixin dispatch", weixinDispatchResp || {});
@@ -2320,8 +2305,8 @@ async function renderStack() {
           class: "muted",
           text:
             currentLang === "zh"
-              ? "任何 skill/tool/角色/提示词变更后，请立即预热；复杂变更可直接重启。综合模式下：全能者会产出 dispatch.instruction_text，并只把该指令传给专家执行。系统每10分钟自动异步预热一次。"
-              : "After any skill/tool/role/prompt change, run prewarm immediately; restart for complex changes. In comprehensive mode, manager produces dispatch.instruction_text and only this instruction is sent to specialists. System also auto-prewarms every 10 minutes.",
+              ? "任何 skill/tool/角色/提示词变更后，请立即预热；复杂变更可直接重启。系统每10分钟自动异步预热一次。"
+              : "After any skill/tool/role/prompt change, run prewarm immediately; restart for complex changes. System also auto-prewarms every 10 minutes.",
         },
       ),
       el("div", { class: "row" }, [btnPrewarm]),
@@ -2584,12 +2569,10 @@ async function renderUserManagement() {
     } else {
       accountActiveInput.checked = true;
     }
-    const mode = String(((inst && inst.config) || {}).interaction_mode || "expert").trim().toLowerCase();
     const specialist = String(((inst && inst.config) || {}).specialist || "generalist").trim().toLowerCase() || "generalist";
     accountSpecialistInput.value = availableAccountSpecialists.includes(specialist) ? specialist : "generalist";
-    if (mode === "comprehensive") {
-      accountStatus.textContent = currentLang === "zh" ? "当前账号模式：综合" : "Current account mode: comprehensive";
-    }
+    accountStatus.textContent =
+      currentLang === "zh" ? `当前账号模式：专家（${specialist}）` : `Current account mode: expert (${specialist})`;
     botSecretInput.value = "";
     clearBotChk.checked = false;
   };
@@ -2636,7 +2619,7 @@ async function renderUserManagement() {
       const deleteCell = el("td", {});
       if (inst) {
         const btnBindExpert = el("button", {
-          class: "btn",
+          class: "btn btn--primary",
           text: currentLang === "zh" ? "绑定专家" : "Bind specialist",
           onclick: async (e) => {
             e.stopPropagation();
@@ -2653,24 +2636,6 @@ async function renderUserManagement() {
             await loadAccounts();
           },
         });
-        const btnComprehensive = el("button", {
-          class: "btn btn--primary",
-          text: currentLang === "zh" ? "综合" : "Comprehensive",
-          onclick: async (e) => {
-            e.stopPropagation();
-            const specialist = String(accountSpecialistInput.value || "generalist").trim() || "generalist";
-            await apiPost("/admin/api/user-channel-accounts/upsert", {
-              tenant_id: tenantId,
-              user_id: selectedUserId,
-              channel: ch,
-              account_id: accountId,
-              name: displayName,
-              is_active: !!inst.is_active,
-              config: { interaction_mode: "comprehensive", specialist },
-            });
-            await loadAccounts();
-          },
-        });
         const btnDeleteAccount = el("button", { class: "btn btn--danger", text: t("users.accountDelete"), onclick: async (e) => {
           e.stopPropagation();
           await apiPost("/admin/api/user-channel-accounts/delete", {
@@ -2682,7 +2647,6 @@ async function renderUserManagement() {
           await loadAccounts();
         }});
         deleteCell.appendChild(btnBindExpert);
-        deleteCell.appendChild(btnComprehensive);
         deleteCell.appendChild(btnDeleteAccount);
       } else {
         deleteCell.appendChild(document.createTextNode("—"));

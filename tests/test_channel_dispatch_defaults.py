@@ -38,7 +38,7 @@ def test_channel_dispatch_uses_global_settings() -> None:
         }
     )
     interaction_mode, specialist, lang = _resolve_channel_dispatch(store, channel="whatsapp", account=None)
-    assert interaction_mode == "comprehensive"
+    assert interaction_mode == "expert"
     assert specialist == "ops"
     assert lang == "en"
 

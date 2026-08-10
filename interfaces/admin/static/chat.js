@@ -3361,8 +3361,8 @@ async function renderChatUi() {
     disabled: "disabled",
   });
   const composerShell = el("div", { class: "chat-composer-shell" });
-  const MAIN_MODE_VALUE = "comprehensive";
-  const EXCLUDED_SPECIALISTS = new Set(["main", "memory", "manager_self", "pycache", "__pycache__"]);
+  const MAIN_MODE_VALUE = "generalist";
+  const EXCLUDED_SPECIALISTS = new Set(["main", "memory", "manager_self", "pycache", "__pycache__", "comprehensive"]);
   let specialistCatalog = [];
   /** Hidden: mode is global-only (⋯ menu). Kept for specialist option list in `publishUserMenuPrefsBridge`. */
   const modeSelect = el("select", {
@@ -3372,6 +3372,7 @@ async function renderChatUi() {
     tabIndex: -1,
   });
   let globalMenuModeValue = String(localStorage.getItem(CHAT_USER_MENU_MODE_KEY) || MAIN_MODE_VALUE).toLowerCase();
+  if (globalMenuModeValue === "comprehensive" || globalMenuModeValue === "main") globalMenuModeValue = MAIN_MODE_VALUE;
   const modelSelect = el("select", {
     class: "input",
     style: "min-width:150px;max-width:240px;padding:6px 8px;",
@@ -3424,35 +3425,31 @@ async function renderChatUi() {
   const execSelectWrap = el("span", { class: "chat-exec-mode-wrap", style: "display:inline-flex;align-items:center;" }, [
     execSelect,
   ]);
-  const outboundPlanAgentVersion = () => {
-    const modeVal = String(globalMenuModeValue || MAIN_MODE_VALUE).toLowerCase();
-    if (modeVal === MAIN_MODE_VALUE) return PLAN_AGENT_V1;
-    return normalizePlanAgentVersion(currentPlanAgentVersion);
-  };
+  const outboundPlanAgentVersion = () => PLAN_AGENT_V1;
   const refreshExecUi = () => {
     // Plan mode removed; keep agent execution only.
     execSelectWrap.style.display = "none";
   };
   const modeOptionLabel = (v) => {
     const key = String(v || "").trim().toLowerCase();
-    if (key === MAIN_MODE_VALUE) return t("chat.modeComprehensive");
     if (key === "generalist") return t("chat.specialistGeneralist");
     const row = specialistCatalog.find((x) => String(x.id || "").toLowerCase() === key);
-    if (!row) return key || t("chat.modeComprehensive");
+    if (!row) return key || t("chat.specialistGeneralist");
     const zh = String(row.display_name_zh || "").trim();
     const en = String(row.display_name_en || "").trim();
     return currentLang === "zh" ? (zh || en || key) : (en || zh || key);
   };
   const isSelectableSpecialist = (v) => {
     const key = String(v || "").trim().toLowerCase();
-    if (!key || key === MAIN_MODE_VALUE) return false;
+    if (!key || key === "comprehensive" || key === "main") return false;
     if (key === "generalist") return true;
     return specialistCatalog.some((x) => String(x.id || "").toLowerCase() === key);
   };
   const persistModeSelection = () => {
     const v = String(globalMenuModeValue || MAIN_MODE_VALUE).toLowerCase();
-    localStorage.setItem(CHAT_INTERACTION_MODE_KEY, v);
-    if (v !== MAIN_MODE_VALUE) localStorage.setItem(CHAT_SPECIALIST_PREF_KEY, v);
+    localStorage.setItem(CHAT_INTERACTION_MODE_KEY, "expert");
+    localStorage.setItem(CHAT_USER_MENU_MODE_KEY, v);
+    localStorage.setItem(CHAT_SPECIALIST_PREF_KEY, v);
   };
   const syncHiddenModeSelectFromGlobal = () => {
     const g = String(globalMenuModeValue || MAIN_MODE_VALUE).toLowerCase();
@@ -3460,9 +3457,9 @@ async function renderChatUi() {
     else modeSelect.value = MAIN_MODE_VALUE;
   };
   const applyModeOptions = () => {
-    const prev = String(globalMenuModeValue || MAIN_MODE_VALUE).toLowerCase();
+    let prev = String(globalMenuModeValue || MAIN_MODE_VALUE).toLowerCase();
+    if (prev === "comprehensive" || prev === "main") prev = MAIN_MODE_VALUE;
     modeSelect.innerHTML = "";
-    modeSelect.appendChild(el("option", { value: MAIN_MODE_VALUE, text: modeOptionLabel(MAIN_MODE_VALUE) }));
     modeSelect.appendChild(el("option", { value: "generalist", text: modeOptionLabel("generalist") }));
     specialistCatalog.forEach((x) => {
       const sid = String(x.id || "").toLowerCase();
@@ -3471,6 +3468,7 @@ async function renderChatUi() {
     });
     if (Array.from(modeSelect.options).some((o) => String(o.value || "") === prev)) {
       modeSelect.value = prev;
+      globalMenuModeValue = prev;
     } else {
       modeSelect.value = MAIN_MODE_VALUE;
       globalMenuModeValue = MAIN_MODE_VALUE;
@@ -3584,11 +3582,9 @@ async function renderChatUi() {
       if (gm) {
         const gIm = String(gm.interaction_mode || "").toLowerCase();
         const gSp = String(gm.specialist || "").toLowerCase();
-        if (gIm === "comprehensive") globalMenuModeValue = MAIN_MODE_VALUE;
-        else if (gIm === "expert") {
-          if (isSelectableSpecialist(gSp)) globalMenuModeValue = gSp;
-          else globalMenuModeValue = "generalist";
-        } else globalMenuModeValue = MAIN_MODE_VALUE;
+        if (isSelectableSpecialist(gSp)) globalMenuModeValue = gSp;
+        else if (isSelectableSpecialist(gIm)) globalMenuModeValue = gIm;
+        else globalMenuModeValue = MAIN_MODE_VALUE;
       } else {
         try {
           const ur = await apiGet("/admin/api/chat/user-mode");
@@ -3602,15 +3598,13 @@ async function renderChatUi() {
               ur.plan_agent_version || localStorage.getItem(CHAT_PLAN_AGENT_VERSION_KEY),
             );
             localStorage.setItem(CHAT_PLAN_AGENT_VERSION_KEY, currentPlanAgentVersion);
-            if (gum === "comprehensive") globalMenuModeValue = MAIN_MODE_VALUE;
-            else if (gum === "expert") {
-              if (isSelectableSpecialist(gus)) globalMenuModeValue = gus;
-              else globalMenuModeValue = "generalist";
-            } else globalMenuModeValue = MAIN_MODE_VALUE;
+            if (isSelectableSpecialist(gus)) globalMenuModeValue = gus;
+            else if (isSelectableSpecialist(gum)) globalMenuModeValue = gum;
+            else globalMenuModeValue = MAIN_MODE_VALUE;
           }
         } catch (_) {
-          if (m === "comprehensive") globalMenuModeValue = MAIN_MODE_VALUE;
-          else if (m === "expert" && isSelectableSpecialist(s)) globalMenuModeValue = s;
+          if (m === "expert" && isSelectableSpecialist(s)) globalMenuModeValue = s;
+          else if (isSelectableSpecialist(s)) globalMenuModeValue = s;
           else globalMenuModeValue = MAIN_MODE_VALUE;
         }
       }
@@ -3633,17 +3627,18 @@ async function renderChatUi() {
   const saveUserGlobalModePreference = async () => {
     try {
       const modeVal = String(globalMenuModeValue || MAIN_MODE_VALUE).toLowerCase();
-      const isMain = modeVal === MAIN_MODE_VALUE;
+      const specialist = isSelectableSpecialist(modeVal) ? modeVal : MAIN_MODE_VALUE;
       const resp = await apiPost("/admin/api/chat/user-mode", {
-        interaction_mode: isMain ? "comprehensive" : "expert",
-        specialist: isMain ? "generalist" : modeVal,
+        interaction_mode: "expert",
+        specialist,
         confirm_strategy: String(currentConfirmStrategy || CONFIRM_STRATEGY_STRICT),
         plan_agent_version: String(currentPlanAgentVersion || PLAN_AGENT_V1),
       });
       if (resp && typeof resp.plan_agent_v2_globally_enabled === "boolean") {
         planAgentV2GloballyEnabled = !!resp.plan_agent_v2_globally_enabled;
       }
-      localStorage.setItem(CHAT_USER_MENU_MODE_KEY, modeVal);
+      localStorage.setItem(CHAT_USER_MENU_MODE_KEY, specialist);
+      globalMenuModeValue = specialist;
       if (!resp || resp.ok === false) {
         const detail = String((resp && (resp.error || resp.detail)) || "unknown_error");
         throw new Error(detail);
@@ -3655,13 +3650,11 @@ async function renderChatUi() {
         if (ur && ur.ok) {
           const gum = String((ur.interaction_mode || "").toLowerCase());
           const gus = String((ur.specialist || "").toLowerCase());
-          const expectedIm = isMain ? "comprehensive" : "expert";
-          const expectedSp = isMain ? "generalist" : modeVal;
-          if (gum !== expectedIm || gus !== expectedSp) {
+          if (gum !== "expert" || gus !== specialist) {
             const msg =
               currentLang === "zh"
-                ? `模式未固化：后端返回 interaction_mode=${gum || "-"} specialist=${gus || "-"}（期望 ${expectedIm}/${expectedSp}）`
-                : `Mode not persisted: server returned interaction_mode=${gum || "-"} specialist=${gus || "-"} (expected ${expectedIm}/${expectedSp})`;
+                ? `模式未固化：后端返回 interaction_mode=${gum || "-"} specialist=${gus || "-"}（期望 expert/${specialist}）`
+                : `Mode not persisted: server returned interaction_mode=${gum || "-"} specialist=${gus || "-"} (expected expert/${specialist})`;
             showToast(msg, { kind: "error", ttlMs: 8000 });
           }
         }
@@ -5247,15 +5240,11 @@ ${autoLimit ? `<div style="margin-top:8px;"><span class="muted">auto-added claus
           sessionId: activeId,
           text: userText,
           attachments: attachmentPayload,
-          interactionMode:
-            String(globalMenuModeValue || MAIN_MODE_VALUE).toLowerCase() === MAIN_MODE_VALUE ? "comprehensive" : "expert",
+          interactionMode: "expert",
           idempotencyKey: String(turnId || ""),
-          specialist:
-            String(globalMenuModeValue || MAIN_MODE_VALUE).toLowerCase() === MAIN_MODE_VALUE
-              ? "generalist"
-              : isSelectableSpecialist(String(globalMenuModeValue || "").toLowerCase())
-                ? String(globalMenuModeValue || "generalist").toLowerCase()
-                : "generalist",
+          specialist: isSelectableSpecialist(String(globalMenuModeValue || "").toLowerCase())
+            ? String(globalMenuModeValue || "generalist").toLowerCase()
+            : "generalist",
           memoryMode: String(localStorage.getItem(CHAT_MEMORY_MODE_KEY) || "default"),
           executionMode: String(currentExecutionMode || EXECUTION_MODE_AGENT),
           signal: abortController.signal,

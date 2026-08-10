@@ -104,7 +104,7 @@ def test_channel_dispatch_wechat_reads_weixin_settings() -> None:
             return str(data.get(key) or "")
 
     mode, spec, lang = _resolve_channel_dispatch(_Store(), channel="wechat", account=None)
-    assert mode == "comprehensive"
+    assert mode == "expert"
     assert spec == "ops"
     assert lang == "zh"
     assert _get_channel_dispatch_setting(_Store(), "channel.dispatch.specialist.", "wechat") == "ops"

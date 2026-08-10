@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
-InteractionMode = Literal["comprehensive", "expert"]
+InteractionMode = Literal["expert"]
 SpecialistId = str
 
 ChannelId = Literal[
@@ -34,10 +34,9 @@ class StandardMessage:
 
 
 def normalize_interaction_mode(raw: Any) -> InteractionMode:
-    mode = str(raw or "").strip().lower()
-    if mode in {"expert", "specialist"}:
-        return "expert"
-    return "comprehensive"
+    """Product surface is expert-only; Manager/comprehensive mode is removed."""
+    del raw
+    return "expert"
 
 
 def normalize_requested_specialist(raw: Any) -> SpecialistId:

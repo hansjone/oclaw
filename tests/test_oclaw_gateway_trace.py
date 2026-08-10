@@ -266,7 +266,10 @@ def test_gateway_expert_plan_execution_mode_ignored_without_plan_agent(monkeypat
     assert "Plan mode is active" not in prompt_text
 
 
-def test_gateway_comprehensive_mode_manager_first_selects_specialist(monkeypatch: pytest.MonkeyPatch) -> None:
+
+def test_gateway_forces_expert_when_comprehensive_requested(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Manager/comprehensive mode is removed; inbound comprehensive metadata must not change routing."""
+
     class Store:
         def get_setting(self, _k: str) -> str:
             return ""
@@ -274,12 +277,8 @@ def test_gateway_comprehensive_mode_manager_first_selects_specialist(monkeypatch
         def add_trace_event(self, **_kwargs: object) -> None:
             return None
 
-    class _ManagerModel:
-        def chat(self, _messages, _tools, *, on_token=None):
-            return LLMResponse(
-                content='{"route":{"specialist":"generalist","reason":"needs image edits"},"dispatch":{"instruction_text":"Please edit the image background."}}',
-                tool_calls=[],
-            )
+        def add_message(self, **_kwargs: object) -> None:
+            raise AssertionError("comprehensive assignment message must not be written")
 
     class _Exec:
         def __init__(self, model=None):
@@ -287,21 +286,13 @@ def test_gateway_comprehensive_mode_manager_first_selects_specialist(monkeypatch
             self.tools = object()
             self.system_prompt = ""
 
-    monkeypatch.setattr(
-        "runtime.gateway.get_manager_prompt_prebuild",
-        lambda **kwargs: {
-            "manager_context": "manager",
-            "allowed_fixed": ("generalist", "ops", "memory", "image"),
-            "allowed_fixed_quoted": '"generalist", "ops", "memory", "image"',
-        },
-    )
     captured: dict = {}
 
     def _run_agent_core(**kwargs):
         data = kwargs.get("data")
         captured["exec_text"] = getattr(getattr(data, "msg", None), "text", None)
-        captured["persisted_user_text"] = getattr(data, "persisted_user_text", None)
-        return SimpleNamespace(outcome=SimpleNamespace(final_text="specialist_answer"))
+        captured["wire_policy_role"] = getattr(data, "wire_policy_role", None)
+        return SimpleNamespace(outcome=SimpleNamespace(final_text="specialist_answer", turn_uuid="tu-1"), run_state=None)
 
     monkeypatch.setattr("runtime.gateway.run_agent_core", _run_agent_core)
 
@@ -322,402 +313,14 @@ def test_gateway_comprehensive_mode_manager_first_selects_specialist(monkeypatch
         attachments=[],
         metadata={"interaction_mode": "comprehensive", "selected_specialist": "ops"},
     )
-    out = gw.handle_turn(msg=msg, lang="en", executor=_Exec(model=_ManagerModel()), specialist_executor_factory=_factory)
-    assert out.interaction_mode == "comprehensive"
-    assert out.selected_specialist == "generalist"
-    assert chosen.get("sid") == "generalist"
-    assert captured.get("exec_text") == "Please edit the image background."
-    assert captured.get("persisted_user_text") == "edit this image background"
-
-
-def test_gateway_comprehensive_mode_writes_task_assignment_reasoning(monkeypatch: pytest.MonkeyPatch) -> None:
-    written: list[dict] = []
-
-    class Store:
-        def get_setting(self, _k: str) -> str:
-            return ""
-
-        def add_trace_event(self, **_kwargs: object) -> None:
-            return None
-
-        def add_message(self, **kwargs: object) -> None:
-            written.append(dict(kwargs))
-
-    class _ManagerModel:
-        def chat(self, _messages, _tools, *, on_token=None):
-            return LLMResponse(
-                content='{"route":{"specialist":"ops","reason":"ops task"},"dispatch":{"instruction_text":"请检查并修复网关启动失败。"}}',
-                tool_calls=[],
-            )
-
-    class _Exec:
-        def __init__(self, model=None):
-            self.model = model
-            self.tools = object()
-            self.system_prompt = ""
-
-    monkeypatch.setattr(
-        "runtime.gateway.get_manager_prompt_prebuild",
-        lambda **kwargs: {
-            "manager_context": "manager",
-            "allowed_fixed": ("generalist", "ops", "memory", "image"),
-            "allowed_fixed_quoted": '"generalist", "ops", "memory", "image"',
-        },
-    )
-    monkeypatch.setattr(
-        "runtime.gateway.run_agent_core",
-        lambda **kwargs: SimpleNamespace(outcome=SimpleNamespace(final_text="specialist_answer")),
-    )
-
-    gw = OclawGateway(store=Store())
-    msg = StandardMessage(
-        session_id="sid-assign-1",
-        tenant_id="t1",
-        user_id="u1",
-        role="user",
-        channel="admin_chat",
-        text="网关起不来，帮我修复",
-        attachments=[],
-        metadata={"interaction_mode": "comprehensive"},
-    )
-    _ = gw.handle_turn(msg=msg, lang="zh", executor=_Exec(model=_ManagerModel()))
-    reasoning_rows = [x for x in written if str(x.get("event_type") or "") == "reasoning"]
-    assert reasoning_rows, "expected task-assignment reasoning row"
-    content = str(reasoning_rows[-1].get("content") or "")
-    assert "任务分配" in content
-    assert "specialist=ops" in content
-    assert "请检查并修复网关启动失败" in content
-
-
-def test_gateway_comprehensive_ignores_wiki_inject_flags(monkeypatch: pytest.MonkeyPatch) -> None:
-    class Store:
-        def get_setting(self, _k: str) -> str:
-            return ""
-
-        def add_trace_event(self, **_kwargs: object) -> None:
-            return None
-
-    class _ManagerModel:
-        def chat(self, _messages, _tools, *, on_token=None):
-            return LLMResponse(
-                content=(
-                    '{"route":{"specialist":"generalist","reason":"general",'
-                    '"need_wiki_inject":true,"wiki_query":"router issue"},'
-                    '"dispatch":{"instruction_text":"请先分析问题并给出结论。",'
-                    '"need_wiki_inject":true,"wiki_query":"router issue"}}'
-                ),
-                tool_calls=[],
-            )
-
-    class _Exec:
-        def __init__(self, model=None):
-            self.model = model
-            self.tools = object()
-            self.system_prompt = ""
-
-    monkeypatch.setattr(
-        "runtime.gateway.get_manager_prompt_prebuild",
-        lambda **kwargs: {
-            "manager_context": "manager",
-            "allowed_fixed": ("generalist", "ops", "memory", "image"),
-            "allowed_fixed_quoted": '"generalist", "ops", "memory", "image"',
-        },
-    )
-    captured: dict[str, object] = {}
-
-    def _run_agent_core(**kwargs):
-        data = kwargs.get("data")
-        msg = getattr(data, "msg", None)
-        captured["metadata"] = dict(getattr(msg, "metadata", {}) or {})
-        return SimpleNamespace(outcome=SimpleNamespace(final_text="ok"))
-
-    monkeypatch.setattr("runtime.gateway.run_agent_core", _run_agent_core)
-
-    gw = OclawGateway(store=Store())
-    msg = StandardMessage(
-        session_id="sid-wi-1",
-        tenant_id="t1",
-        user_id="u1",
-        role="user",
-        channel="admin_chat",
-        text="分析一下",
-        attachments=[],
-        metadata={"interaction_mode": "comprehensive"},
-    )
-    out = gw.handle_turn(msg=msg, lang="zh", executor=_Exec(model=_ManagerModel()))
-    assert out.interaction_mode == "comprehensive"
-    md = captured.get("metadata") or {}
-    assert isinstance(md, dict)
-    assert "need_wiki_inject" not in md
-    assert "wiki_query" not in md
-
-def test_gateway_comprehensive_mode_has_manager_final_pass(monkeypatch: pytest.MonkeyPatch) -> None:
-    class Store:
-        def get_setting(self, _k: str) -> str:
-            return ""
-
-        def add_trace_event(self, **_kwargs: object) -> None:
-            return None
-
-    class _ManagerModel:
-        def __init__(self) -> None:
-            self.calls = 0
-
-        def chat(self, _messages, _tools, *, on_token=None):
-            self.calls += 1
-            if self.calls == 1:
-                return LLMResponse(
-                    content='{"route":{"specialist":"generalist","reason":"general"},"dispatch":{"instruction_text":"Analyze the finance report and provide key points."}}',
-                    tool_calls=[],
-                )
-            return LLMResponse(content="final_from_manager", tool_calls=[])
-
-    class _Exec:
-        def __init__(self, model=None):
-            self.model = model
-            self.tools = object()
-            self.system_prompt = ""
-
-    monkeypatch.setattr(
-        "runtime.gateway.get_manager_prompt_prebuild",
-        lambda **kwargs: {
-            "manager_context": "manager",
-            "allowed_fixed": ("generalist", "ops", "memory", "image"),
-            "allowed_fixed_quoted": '"generalist", "ops", "memory", "image"',
-        },
-    )
-    monkeypatch.setattr(
-        "runtime.gateway.run_agent_core",
-        lambda **kwargs: SimpleNamespace(outcome=SimpleNamespace(final_text="specialist_answer")),
-    )
-
-    gw = OclawGateway(store=Store())
-    model = _ManagerModel()
-    msg = StandardMessage(
-        session_id="sid-d1",
-        tenant_id="t1",
-        user_id="u1",
-        role="user",
-        channel="admin_chat",
-        text="analyze finance report",
-        attachments=[],
-        metadata={"interaction_mode": "comprehensive", "selected_specialist": "ops"},
-    )
-    out = gw.handle_turn(msg=msg, lang="en", executor=_Exec(model=model))
-    assert out.interaction_mode == "comprehensive"
-    assert out.selected_specialist == "generalist"
-    assert out.reply_text == "final_from_manager"
-
-
-def test_gateway_comprehensive_mode_dynamic_agent_falls_back_to_generalist(monkeypatch: pytest.MonkeyPatch) -> None:
-    class Store:
-        def get_setting(self, _k: str) -> str:
-            return ""
-
-        def add_trace_event(self, **_kwargs: object) -> None:
-            return None
-
-    class _ManagerModel:
-        def chat(self, _messages, _tools, *, on_token=None):
-            return LLMResponse(
-                content=(
-                    '{"route":{"specialist":"dyn:sql","reason":"needs ad-hoc expert"},'
-                    '"dispatch":{"instruction_text":"Write a SQL query to compute daily active users."},'
-                    '"dynamic_agent":{"name":"dyn:sql","system_prompt":"You are a SQL expert.","tool_policy":{"allow_tags":[],"allow_tools":[]},"reason":"dynamic"}}'
-                ),
-                tool_calls=[],
-            )
-
-    class _Exec:
-        def __init__(self, model=None):
-            self.model = model
-            self.tools = object()
-            self.system_prompt = ""
-
-    monkeypatch.setattr(
-        "runtime.gateway.get_manager_prompt_prebuild",
-        lambda **kwargs: {
-            "manager_context": "manager",
-            "allowed_fixed": ("generalist", "ops", "memory"),
-            "allowed_fixed_quoted": '"generalist", "ops", "memory"',
-        },
-    )
-
-    captured: dict = {}
-
-    def _run_agent_core(**kwargs):
-        data = kwargs.get("data")
-        captured["exec_text"] = getattr(getattr(data, "msg", None), "text", None)
-        return SimpleNamespace(outcome=SimpleNamespace(final_text="generalist_answer", turn_uuid="t1"))
-
-    monkeypatch.setattr("runtime.gateway.run_agent_core", _run_agent_core)
-
-    chosen: dict[str, str] = {}
-
-    def _factory(sid: str):
-        chosen["sid"] = sid
-        return _Exec(model=object())
-
-    gw = OclawGateway(store=Store())
-    msg = StandardMessage(
-        session_id="sid-dyn-1",
-        tenant_id="t1",
-        user_id="u1",
-        role="user",
-        channel="admin_chat",
-        text="How do I compute DAU from events table?",
-        attachments=[],
-        metadata={"interaction_mode": "comprehensive"},
-    )
-    out = gw.handle_turn(msg=msg, lang="en", executor=_Exec(model=_ManagerModel()), specialist_executor_factory=_factory)
-    assert out.interaction_mode == "comprehensive"
-    assert out.selected_specialist == "generalist"
-    assert chosen.get("sid") == "generalist"
-    assert out.dispatch_reason == "dynamic_agent_disabled_fallback"
-    assert captured.get("exec_text") == "Write a SQL query to compute daily active users."
-
-
-def test_gateway_comprehensive_mode_ignores_manager_self_and_dispatches_specialist(monkeypatch: pytest.MonkeyPatch) -> None:
-    class Store:
-        def get_setting(self, _k: str) -> str:
-            return ""
-
-        def add_trace_event(self, **_kwargs: object) -> None:
-            return None
-
-    class _ManagerModel:
-        def __init__(self) -> None:
-            self.calls = 0
-
-        def chat(self, _messages, _tools, *, on_token=None):
-            self.calls += 1
-            if self.calls == 1:
-                return LLMResponse(
-                    content='{"route":{"kind":"manager_self","specialist":"generalist","reason":"can answer directly"},"dispatch":{"instruction_text":"请直接给用户简明答案。"}}',
-                    tool_calls=[],
-                )
-            return LLMResponse(content="manager_self_final", tool_calls=[])
-
-    class _Exec:
-        def __init__(self, model=None):
-            self.model = model
-            self.tools = object()
-            self.system_prompt = ""
-
-    monkeypatch.setattr(
-        "runtime.gateway.get_manager_prompt_prebuild",
-        lambda **kwargs: {
-            "manager_context": "manager",
-            "allowed_fixed": ("generalist", "ops", "memory", "image"),
-            "allowed_fixed_quoted": '"generalist", "ops", "memory", "image"',
-        },
-    )
-
-    captured: dict[str, str] = {}
-
-    def _run_agent_core(**kwargs):
-        data = kwargs["data"]
-        captured["exec_text"] = str(getattr(data.msg, "text", ""))
-
-        class _Outcome:
-            final_text = "specialist_result"
-
-        class _Out:
-            outcome = _Outcome()
-
-        return _Out()
-
-    monkeypatch.setattr("runtime.gateway.run_agent_core", _run_agent_core)
-
-    gw = OclawGateway(store=Store())
-    msg = StandardMessage(
-        session_id="sid-self-1",
-        tenant_id="t1",
-        user_id="u1",
-        role="user",
-        channel="admin_chat",
-        text="请直接回答这个简单问题",
-        attachments=[],
-        metadata={"interaction_mode": "comprehensive"},
-    )
-    out = gw.handle_turn(msg=msg, lang="zh", executor=_Exec(model=_ManagerModel()))
-    assert out.interaction_mode == "comprehensive"
-    assert out.selected_specialist == "generalist"
-    assert captured.get("exec_text") == "请直接给用户简明答案。"
-    assert out.reply_text == "manager_self_final"
-
-
-def test_gateway_comprehensive_mode_suppresses_instruction_echo(monkeypatch: pytest.MonkeyPatch) -> None:
-    class Store:
-        def get_setting(self, _k: str) -> str:
-            return ""
-
-        def add_trace_event(self, **_kwargs: object) -> None:
-            return None
-
-    instruction = "用户说厉害；请友好回应，表达感谢并询问是否有具体问题。"
-
-    class _ManagerModel:
-        def __init__(self) -> None:
-            self.calls = 0
-
-        def chat(self, _messages, _tools, *, on_token=None):
-            self.calls += 1
-            if self.calls == 1:
-                return LLMResponse(
-                    content=(
-                        '{"route":{"specialist":"generalist","reason":"smalltalk"},'
-                        f'"dispatch":{{"instruction_text":"{instruction}"}}'
-                        "}"
-                    ),
-                    tool_calls=[],
-                )
-            # Simulate finalize path echoing instruction.
-            return LLMResponse(content=instruction, tool_calls=[])
-
-    class _Exec:
-        def __init__(self, model=None):
-            self.model = model
-            self.tools = object()
-            self.system_prompt = ""
-
-    monkeypatch.setattr(
-        "runtime.gateway.get_manager_prompt_prebuild",
-        lambda **kwargs: {
-            "manager_context": "manager",
-            "allowed_fixed": ("generalist", "ops", "memory", "image"),
-            "allowed_fixed_quoted": '"generalist", "ops", "memory", "image"',
-        },
-    )
-
-    # Specialist output also echoes instruction -> should still be suppressed.
-    def _run_agent_core(**kwargs):
-        class _Outcome:
-            final_text = instruction
-
-        class _Out:
-            outcome = _Outcome()
-
-        return _Out()
-
-    monkeypatch.setattr("runtime.gateway.run_agent_core", _run_agent_core)
-
-    gw = OclawGateway(store=Store())
-    msg = StandardMessage(
-        session_id="sid-echo-1",
-        tenant_id="t1",
-        user_id="u1",
-        role="user",
-        channel="admin_chat",
-        text="你真厉害",
-        attachments=[],
-        metadata={"interaction_mode": "comprehensive"},
-    )
-    out = gw.handle_turn(msg=msg, lang="zh", executor=_Exec(model=_ManagerModel()))
-    assert out.interaction_mode == "comprehensive"
-    assert "用户说厉害" not in out.reply_text
-    assert "请友好回应" not in out.reply_text
-    assert out.reply_text == "抱歉，我暂时无法给出可展示的结果，请稍后再试。"
+    out = gw.handle_turn(msg=msg, lang="en", executor=_Exec(model=object()), specialist_executor_factory=_factory)
+    assert out.interaction_mode == "expert"
+    assert out.dispatch_reason == "expert_direct"
+    assert out.selected_specialist == "ops"
+    assert chosen.get("sid") == "ops"
+    assert captured.get("exec_text") == "edit this image background"
+    assert captured.get("wire_policy_role") == "ops"
+    assert out.reply_text == "specialist_answer"
 
 
 def test_gateway_command_hook_uses_parsed_command_and_context(monkeypatch: pytest.MonkeyPatch) -> None:

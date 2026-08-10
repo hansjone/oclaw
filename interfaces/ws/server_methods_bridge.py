@@ -62,7 +62,7 @@ def build_gateway_context(
         with abort_lock:
             active_run_session[rid] = sid
         p = dict(params or {})
-        interaction_mode = str(p.get("interaction_mode") or "comprehensive").strip().lower() or "comprehensive"
+        interaction_mode = str(p.get("interaction_mode") or "expert").strip().lower() or "expert"
         specialist = str(p.get("specialist") or "generalist").strip().lower() or "generalist"
         execution_mode = str(p.get("execution_mode") or "agent").strip().lower() or "agent"
         if execution_mode not in {"agent", "plan"}:
@@ -71,7 +71,7 @@ def build_gateway_context(
         if plan_agent_version not in {"v1", "v2"}:
             plan_agent_version = "v1"
         if interaction_mode != "expert":
-            specialist = "generalist"
+            interaction_mode = "expert"
         raw_env = dict(p.get("relay_share_envelope") or {}) if isinstance(p.get("relay_share_envelope"), dict) else {}
         ok_env, _err_env, norm_env = validate_relay_share_envelope(raw_env) if raw_env else (False, "", {})
         agent_params = {
@@ -101,7 +101,7 @@ def build_gateway_context(
         session_id = str(p.get("sessionId") or p.get("sessionKey") or "").strip()
         run_id = str(p.get("idempotencyKey") or "").strip() or uuid.uuid4().hex
         message = str(p.get("message") or "").strip()
-        interaction_mode = str(p.get("interaction_mode") or "comprehensive").strip().lower() or "comprehensive"
+        interaction_mode = str(p.get("interaction_mode") or "expert").strip().lower() or "expert"
         specialist = str(p.get("specialist") or "generalist").strip().lower() or "generalist"
         execution_mode = str(p.get("execution_mode") or "agent").strip().lower() or "agent"
         if execution_mode not in {"agent", "plan"}:
@@ -110,7 +110,7 @@ def build_gateway_context(
         if plan_agent_version not in {"v1", "v2"}:
             plan_agent_version = "v1"
         if interaction_mode != "expert":
-            specialist = "generalist"
+            interaction_mode = "expert"
         raw_env = dict(p.get("relay_share_envelope") or {}) if isinstance(p.get("relay_share_envelope"), dict) else {}
         ok_env, _err_env, norm_env = validate_relay_share_envelope(raw_env) if raw_env else (False, "", {})
         agent_params = {

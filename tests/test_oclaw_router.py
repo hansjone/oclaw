@@ -97,11 +97,13 @@ def test_router_skill_signal_from_metadata() -> None:
     assert d.skill_signal == "skills=4"
 
 
-def test_interaction_mode_normalization_supports_legacy_values() -> None:
-    assert normalize_interaction_mode("comprehensive") == "comprehensive"
+def test_interaction_mode_normalization_is_expert_only() -> None:
+    assert normalize_interaction_mode("comprehensive") == "expert"
     assert normalize_interaction_mode("expert") == "expert"
     assert normalize_interaction_mode("specialist") == "expert"
-    assert normalize_interaction_mode("composite") == "comprehensive"
+    assert normalize_interaction_mode("composite") == "expert"
+    assert normalize_interaction_mode("") == "expert"
+    assert normalize_interaction_mode(None) == "expert"
 
 
 def test_requested_specialist_normalization_defaults_to_generalist() -> None:

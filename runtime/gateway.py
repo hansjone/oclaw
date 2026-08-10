@@ -77,7 +77,7 @@ class OclawGatewayResult:
     mode: str = "sync_direct"
     task_id: str | None = None
     selected_specialist: str = "generalist"
-    interaction_mode: str = "comprehensive"
+    interaction_mode: str = "expert"
     dispatch_reason: str = ""
     manager_selected_specialist: str = "generalist"
     requested_specialist: str = "generalist"
@@ -89,7 +89,8 @@ class OclawGatewayResult:
     relay_ttl_turn_count: int = 0
     relay_ttl_session_count: int = 0
     relay_ttl_keep_count: int = 0
-    # agent-core 本轮 ``chat_message.turn_uuid``；供 WS 收尾与落库兜底对�?    turn_uuid: str = ""
+    # agent-core 本轮 ``chat_message.turn_uuid``；供 WS 收尾与落库兜底对齐
+    turn_uuid: str = ""
 
 
 @dataclass(frozen=True)
@@ -207,7 +208,7 @@ class OclawGateway:
         # - stage "3": renamed on third user message (final)
         if stage_raw == "3":
             return
-        if (cur_title not in ("新会�?, "New Chat")) and (stage_raw != "1"):
+        if (cur_title not in ("新会话", "New Chat")) and (stage_raw != "1"):
             return
         try:
             rows = self.store.get_messages(session_id=sid, limit=200)
@@ -269,7 +270,7 @@ class OclawGateway:
         if not sess:
             return
         cur_title = str(getattr(sess, "title", "") or "").strip()
-        if cur_title not in ("新会�?, "New Chat"):
+        if cur_title not in ("新会话", "New Chat"):
             return
         try:
             rows = self.store.get_messages(session_id=sid, limit=20)
@@ -403,9 +404,9 @@ class OclawGateway:
             user_text = (
                 "请基于以下信息输出最终答复。\n\n"
                 f"原始用户问题:\n{str(msg.text or '').strip()}\n\n"
-                f"已调用专�? {str(specialist or '').strip()}\n\n"
+                f"已调用专家: {str(specialist or '').strip()}\n\n"
                 f"专家结果:\n{str(specialist_reply or '').strip()}\n\n"
-                "要求：保持简洁、准确，不要暴露内部流程�?
+                "要求：保持简洁、准确，不要暴露内部流程。"
             )
             messages = [{"role": "system", "content": manager_context}, {"role": "user", "content": user_text}]
             ensure_no_tool_or_embedded_image_payload(messages=messages, path="gateway.manager_finalize")
@@ -535,9 +536,9 @@ class OclawGateway:
                 "If you need more rows/details, use database tools (`query_tabular_attachment` / `run_tabular_sql`) with table_id."
             )
         return (
-            f"对于大表附件：当前上下文只提供前{preview_rows}行预览�?
-            f"单次读取上限为{max_rows_read}行�?
-            "如果需要更多行或更细节，请通过数据库工具（`query_tabular_attachment` / `run_tabular_sql`）结�?table_id 查询�?
+            f"对于大表附件：当前上下文只提供前{preview_rows}行预览。"
+            f"单次读取上限为{max_rows_read}行。"
+            "如果需要更多行或更细节，请通过数据库工具（`query_tabular_attachment` / `run_tabular_sql`）结合 table_id 查询。"
         )
 
     @staticmethod
@@ -548,8 +549,8 @@ class OclawGateway:
                 "For detailed evidence, use `query_text_attachment` with `text_id` from `text_ref` attachment."
             )
         return (
-            "对于长文本附件：上下文可能只包含摘要/预览�?
-            "如需细节证据，请使用 `text_ref` 提供�?text_id 调用 `query_text_attachment`�?
+            "对于长文本附件：上下文可能只包含摘要/预览。"
+            "如需细节证据，请使用 `text_ref` 提供的 text_id 调用 `query_text_attachment`。"
         )
 
     @staticmethod
@@ -560,7 +561,7 @@ class OclawGateway:
                 "for OCR/description when visual evidence is required."
             )
         return (
-            "对于图片附件：如需 OCR 或图像细节，请使�?attachment_id 调用 `query_image_attachment`�?
+            "对于图片附件：如需 OCR 或图像细节，请使用 attachment_id 调用 `query_image_attachment`。"
         )
 
     @staticmethod
@@ -570,7 +571,7 @@ class OclawGateway:
                 "For video attachments: use `query_video_attachment` with attachment_id from `video_ref` "
                 "to get metadata or transcript (if enabled)."
             )
-        return "对于视频附件：请使用 `video_ref` 提供�?attachment_id 调用 `query_video_attachment` 获取元信�?转写�?
+        return "对于视频附件：请使用 `video_ref` 提供的 attachment_id 调用 `query_video_attachment` 获取元信息/转写。"
 
     @staticmethod
     def _tabular_limits_from_config() -> dict[str, int]:
@@ -734,6 +735,9 @@ class OclawGateway:
         trace_local: Callable[..., None],
         started_at: float,
     ) -> GatewayDispatchPlan:
+        del msg, lang, memory_enabled, trace_local, started_at
+        # Expert-only product surface: never run Manager/comprehensive routing.
+        interaction_mode = "expert"
         manager_specialist = requested_specialist
         dispatch_reason = "expert_direct"
         selected_executor = executor
@@ -741,32 +745,12 @@ class OclawGateway:
         specialist_input_msg: StandardMessage | None = None
         manager_exec_msg: StandardMessage | None = None
         manager_instruction_text = ""
-        if interaction_mode == "expert" and callable(specialist_executor_factory):
+        if callable(specialist_executor_factory):
             try:
                 selected_executor = specialist_executor_factory(requested_specialist)
             except Exception:
                 selected_executor = executor
                 dispatch_reason = "expert_factory_failed"
-        if interaction_mode == "comprehensive":
-            (
-                manager_specialist,
-                dispatch_reason,
-                dynamic_agent,
-                instruction_text,
-            ) = self._manager_select_specialist(msg=msg, lang=lang, executor=executor, memory_enabled=memory_enabled)
-            manager_instruction_text = str(instruction_text or "").strip()
-            trace_local(
-                event_type="manager_decision",
-                payload={
-                    "interaction_mode": interaction_mode,
-                    "manager_selected_specialist": str(manager_specialist or ""),
-                    "dispatch_reason": str(dispatch_reason or ""),
-                    "instruction_chars": int(len(manager_instruction_text or "")),
-                    "dynamic_agent_used": bool(dynamic_agent is not None),
-                    "dynamic_agent_name": str((dynamic_agent or {}).get("name") or "") if isinstance(dynamic_agent, dict) else "",
-                },
-                started_at=started_at,
-            )
         return GatewayDispatchPlan(
             interaction_mode=interaction_mode,
             requested_specialist=requested_specialist,
@@ -915,6 +899,8 @@ class OclawGateway:
         base_metadata = dict(msg.metadata or {})
         memory_enabled = self._memory_enabled()
         interaction_mode = normalize_interaction_mode(base_metadata.get("interaction_mode"))
+        # Defensive: product surface is expert-only regardless of inbound metadata.
+        interaction_mode = "expert"
         requested_specialist = normalize_requested_specialist(base_metadata.get("selected_specialist"))
         if requested_specialist == "memory" and not memory_enabled:
             requested_specialist = "generalist"
@@ -936,66 +922,6 @@ class OclawGateway:
         specialist_input_msg = plan.specialist_input_msg
         manager_exec_msg = plan.manager_exec_msg
         manager_instruction_text = plan.manager_instruction_text
-        if interaction_mode == "comprehensive":
-            if str(manager_instruction_text or "").strip():
-                try:
-                    assignment_title = "Task assignment" if str(lang or "").startswith("en") else "任务分配"
-                    assignment_text = (
-                        f"{assignment_title}\n"
-                        f"specialist={str(manager_specialist or '')}\n"
-                        f"instruction:\n{str(manager_instruction_text or '').strip()}"
-                    )
-                    self.store.add_message(
-                        session_id=msg.session_id,
-                        role="assistant",
-                        content=assignment_text,
-                        tool_calls=None,
-                        event_type="reasoning",
-                    )
-                except Exception:
-                    logger.exception(
-                        "comprehensive_mode_assignment_message_persist_failed session_id=%s",
-                        str(getattr(msg, "session_id", "") or ""),
-                    )
-            # Build specialist/dynamic executor and dispatch only manager instruction to it.
-            specialist_input_msg = StandardMessage(
-                session_id=msg.session_id,
-                tenant_id=msg.tenant_id,
-                user_id=msg.user_id,
-                role=msg.role,
-                channel=msg.channel,
-                text=str(manager_instruction_text or "").strip(),
-                attachments=list(msg.attachments or []),
-                metadata=dict(base_metadata),
-            )
-            manager_exec_msg = StandardMessage(
-                session_id=msg.session_id,
-                tenant_id=msg.tenant_id,
-                user_id=msg.user_id,
-                role=msg.role,
-                channel=msg.channel,
-                text=msg.text,
-                attachments=list(msg.attachments or []),
-                metadata=dict(base_metadata),
-            )
-            if manager_specialist in {"ops", "generalist", "memory"}:
-                if callable(specialist_executor_factory):
-                    try:
-                        selected_executor = specialist_executor_factory(manager_specialist)
-                    except Exception:
-                        selected_executor = executor
-                        dispatch_reason = "manager_factory_failed"
-            else:
-                # Dynamic ephemeral agents removed from product surface; fall back to generalist.
-                manager_specialist = "generalist"
-                dispatch_reason = "dynamic_agent_disabled_fallback"
-                if callable(specialist_executor_factory):
-                    try:
-                        selected_executor = specialist_executor_factory("generalist")
-                    except Exception:
-                        selected_executor = executor
-                dynamic_agent = None
-
         system_prompt_override = ""
         tools_override = None
 
@@ -1032,7 +958,7 @@ class OclawGateway:
             started_at=t0,
         )
         if on_progress:
-            on_progress("oclaw: running�?)
+            on_progress("oclaw: running…")
         if route_mode == "async_task":
             worker_id = ensure_worker_started(store=self.store)
             task = self.store.oclaw_task_create(
@@ -1181,7 +1107,7 @@ class OclawGateway:
                 started_at=t0,
             )
             exec_msg = (
-                specialist_input_msg if (interaction_mode == "comprehensive" and specialist_input_msg is not None) else msg
+                msg
             )
             core_out = run_agent_core(
                 store=self.store,
@@ -1211,32 +1137,12 @@ class OclawGateway:
                     on_tool_ui=on_tool_ui,
                     should_stop=should_stop,
                     skill_binding_role=str(manager_specialist or "generalist"),
-                    wire_policy_role="manager" if interaction_mode == "comprehensive" else str(requested_specialist),
+                    wire_policy_role=str(requested_specialist),
                 ),
             )
             executed_turn_uuid = str(getattr(core_out.outcome, "turn_uuid", "") or "")
             specialist_reply = str(core_out.outcome.final_text or "")
-            if interaction_mode == "comprehensive":
-                reply = self._manager_finalize_output(
-                    msg=msg,
-                    lang=lang,
-                    executor=executor,
-                    specialist=manager_specialist,
-                    specialist_reply=specialist_reply,
-                    memory_enabled=memory_enabled,
-                    on_token=None,
-                )
-                if self._looks_like_manager_instruction(reply, manager_instruction_text):
-                    if not self._looks_like_manager_instruction(specialist_reply, manager_instruction_text):
-                        reply = str(specialist_reply or "").strip()
-                    else:
-                        reply = (
-                            "抱歉，我暂时无法给出可展示的结果，请稍后再试�?
-                            if not str(lang or "").startswith("en")
-                            else "Sorry, no user-safe result is available right now. Please try again later."
-                        )
-            else:
-                reply = specialist_reply
+            reply = specialist_reply
             if not str(reply or "").strip():
                 rs = getattr(core_out, "run_state", None)
                 if rs is not None and str(getattr(rs, "status", "") or "") == "failed":
