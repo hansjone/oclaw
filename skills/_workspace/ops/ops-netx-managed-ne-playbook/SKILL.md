@@ -22,7 +22,7 @@ description: 面向 ops 专家的 netx 纳管网元（网元管理）作业手�
 2. **登录查信息**
    - `mcp__netx__execManagedNe`：`ne_id` **或** `ume_ne_id` + `commands`（默认最多 5 条，可由 `NETX_NE_EXEC_MAX_COMMANDS` 调高，硬上限 50）
    - **一次会话内**：`listCliTargets` 最多调用一次，缓存返回的 id；多条 show 合并进同一次 `commands`，禁止「list→exec→list→exec」循环
-   - 超时：提高 `read_timeout_sec`（60–120）或减少命令条数，禁止对同一命令盲重试
+   - 超时：提高 `read_timeout_sec`（默认 60，慢命令 90–120）或减少命令条数，禁止对同一命令盲重试
 
 ## CLI 约束（服务端强制）
 

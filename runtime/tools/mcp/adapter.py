@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 import json
 import os
+import threading
+import time
 from typing import Any
 
 from runtime.tools.mcp.env_config import mcp_row_env_config
@@ -15,6 +17,71 @@ from runtime.tools.public.bailian_webparser_tool import bailian_webparser_tool
 
 def _mcp_row_env_config(row: dict[str, Any]) -> tuple[list[str], dict[str, str]]:
     return mcp_row_env_config(row)
+
+
+# Long-running netx tools exceed the generic MCP row timeout (often 30s).
+# Production WA ops showed execManagedNe p90/p95 glued to ~30000ms timeouts.
+_MCP_TOOL_TIMEOUT_OVERRIDES_S: dict[str, float] = {
+    "execManagedNe": 320.0,
+    "sqlQueryUme": 90.0,
+    "findTopologyPaths": 60.0,
+    "aggregateUmeAlarmsRaw": 60.0,
+    "queryUmeAlarmsRaw": 60.0,
+    "aggregateUmeAlarms": 60.0,
+}
+
+_LIST_CLI_CACHE_TTL_S = 120.0
+_LIST_CLI_CACHE_LOCK = threading.Lock()
+_LIST_CLI_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
+
+
+def mcp_timeout_for_tool(tool_name: str, row_timeout_s: float | None = None) -> float:
+    """Resolve effective MCP tool wall-clock timeout (oclaw-side)."""
+    name = str(tool_name or "").strip()
+    override = _MCP_TOOL_TIMEOUT_OVERRIDES_S.get(name)
+    base = float(row_timeout_s) if row_timeout_s is not None else 30.0
+    if override is not None:
+        return max(base, float(override))
+    return max(5.0, base)
+
+
+def _list_cli_cache_key(server_id: str, args: dict[str, Any]) -> str:
+    payload = {
+        "server_id": server_id,
+        "source": str(args.get("source") or "all"),
+        "keyword": str(args.get("keyword") or ""),
+        "page": int(args.get("page") or 1),
+        "page_size": int(args.get("page_size") or 50),
+    }
+    return json.dumps(payload, sort_keys=True, ensure_ascii=False)
+
+
+def _get_list_cli_cache(key: str) -> dict[str, Any] | None:
+    now = time.monotonic()
+    with _LIST_CLI_CACHE_LOCK:
+        hit = _LIST_CLI_CACHE.get(key)
+        if not hit:
+            return None
+        ts, payload = hit
+        if now - ts > _LIST_CLI_CACHE_TTL_S:
+            _LIST_CLI_CACHE.pop(key, None)
+            return None
+        return dict(payload)
+
+
+def _set_list_cli_cache(key: str, payload: dict[str, Any]) -> None:
+    with _LIST_CLI_CACHE_LOCK:
+        # Bound memory: drop oldest when large.
+        if len(_LIST_CLI_CACHE) >= 64:
+            oldest = sorted(_LIST_CLI_CACHE.items(), key=lambda kv: kv[1][0])[:16]
+            for k, _ in oldest:
+                _LIST_CLI_CACHE.pop(k, None)
+        _LIST_CLI_CACHE[key] = (time.monotonic(), dict(payload))
+
+
+def clear_list_cli_targets_cache() -> None:
+    with _LIST_CLI_CACHE_LOCK:
+        _LIST_CLI_CACHE.clear()
 
 
 @dataclass
@@ -36,13 +103,47 @@ class _McpBoundTool:
             env_allowlist=self.env_allowlist,
             env_defaults=self.env_defaults,
         )
+        tool_name = self.tool_name
+        server_id = self.server_id
 
         def _handler(args: dict[str, Any]) -> dict[str, Any]:
-            res = rt.call_tool(tool_name=self.tool_name, arguments=args or {})
+            call_args = dict(args or {})
+            cache_key = ""
+            if tool_name == "listCliTargets":
+                cache_key = _list_cli_cache_key(server_id, call_args)
+                cached = _get_list_cli_cache(cache_key)
+                if cached is not None:
+                    out = dict(cached)
+                    out["cache_hit"] = True
+                    out["cache_ttl_s"] = _LIST_CLI_CACHE_TTL_S
+                    out["hint"] = (
+                        out.get("hint")
+                        or "Reused listCliTargets result from short TTL cache; do not re-list before every execManagedNe."
+                    )
+                    return out
+
+            res = rt.call_tool(tool_name=tool_name, arguments=call_args)
             if not isinstance(res, dict):
                 return {"ok": False, "error_code": "mcp_runtime_invalid_payload", "error": "invalid_response"}
             if "ok" not in res:
                 res["ok"] = False
+            if tool_name == "listCliTargets" and res.get("ok") is not False and cache_key:
+                _set_list_cli_cache(cache_key, res)
+                res = dict(res)
+                res["cache_hit"] = False
+                res["hint"] = (
+                    "Cache listCliTargets ids for this session; call execManagedNe with ne_id/ume_ne_id "
+                    "instead of listing again."
+                )
+            if tool_name == "execManagedNe" and res.get("ok") is False:
+                err = str(res.get("error") or res.get("error_code") or "")
+                low = err.lower()
+                if "timeout" in low or res.get("error_code") == "tool_timeout_or_failed":
+                    res = dict(res)
+                    res["hint"] = (
+                        "CLI timed out. Raise read_timeout_sec (60–120), reduce commands, "
+                        "or reuse prior listCliTargets ids — do not blind-retry identical calls."
+                    )
             return res
 
         return ToolSpec(
@@ -156,7 +257,7 @@ def materialize_mcp_tools_for_specialist(
                         tags=frozenset({"mcp", "plugin", "compat"}),
                         version="v1",
                         risk_level="high",
-                        timeout_s=float(row.get("timeout_s") or 30.0),
+                        timeout_s=mcp_timeout_for_tool(tname, float(row.get("timeout_s") or 30.0)),
                         required_permissions=frozenset(str(x) for x in (row.get("required_permissions") or [])),
                         execution_mode="subprocess",
                     )
@@ -168,7 +269,7 @@ def materialize_mcp_tools_for_specialist(
                 description=str(t.get("description") or f"MCP tool {t.get('tool_name') or ''}"),
                 parameters=t.get("parameters") if isinstance(t.get("parameters"), dict) else {},
                 command=command,
-                timeout_s=float(row.get("timeout_s") or 30.0),
+                timeout_s=mcp_timeout_for_tool(tname, float(row.get("timeout_s") or 30.0)),
                 required_permissions=frozenset(str(x) for x in (row.get("required_permissions") or [])),
                 env_allowlist=env_allowlist,
                 env_defaults=env_defaults,
@@ -196,8 +297,10 @@ def materialize_mcp_skills_for_specialist(
 
 
 __all__ = [
+    "clear_list_cli_targets_cache",
     "materialize_mcp_tools",
     "materialize_mcp_tools_for_specialist",
     "materialize_mcp_skills_for_specialist",
+    "mcp_timeout_for_tool",
 ]
 

@@ -23,7 +23,7 @@ from svc.llm.chat_models import (
     gemini_openai_compat_client,
 )
 from runtime.prompt_templates import render_prompt_for_lang
-from runtime.tools.tool_validation import validate_tool_arguments
+from runtime.tools.tool_validation import format_invalid_arguments_error, validate_tool_arguments
 
 logger = logging.getLogger(__name__)
 
@@ -100,8 +100,11 @@ class Agent:
 
         ok, v_err = validate_tool_arguments(tool.parameters, tc.arguments)
         if not ok:
-            msg = f"Invalid arguments: {v_err}" if self.lang.startswith("en") else f"参数不合法: {v_err}"
-            return {"ok": False, "error": msg}, int((time.perf_counter() - t0) * 1000)
+            return format_invalid_arguments_error(
+                tool.parameters or {},
+                str(v_err or "invalid"),
+                lang=str(self.lang or "zh"),
+            ), int((time.perf_counter() - t0) * 1000)
 
         try:
             result = tool.handler(tc.arguments)

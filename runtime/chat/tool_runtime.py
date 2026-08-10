@@ -20,7 +20,7 @@ from typing import Any, Callable, Optional
 from svc.persistence.sqlite_store import SqliteStore
 from runtime.tools.base import ToolRegistry
 from svc.llm.chat_models import LLMToolCall
-from runtime.tools.tool_validation import validate_tool_arguments
+from runtime.tools.tool_validation import format_invalid_arguments_error, validate_tool_arguments
 from runtime.chat.media_redact import ingest_embedded_image_blobs_as_refs
 from runtime.tools.path_guard import (
     workspace_path_access_scope,
@@ -641,8 +641,11 @@ class ToolExecutor:
 
         ok, v_err = validate_tool_arguments(tool.parameters, tool_args)
         if not ok:
-            msg = f"Invalid arguments: {v_err}" if ctx.lang.startswith("en") else f"参数不合法: {v_err}"
-            return {"ok": False, "error_code": "tool_invalid_arguments", "error": msg}, int((time.perf_counter() - t0) * 1000)
+            return format_invalid_arguments_error(
+                tool.parameters or {},
+                str(v_err or "invalid"),
+                lang=str(ctx.lang or "zh"),
+            ), int((time.perf_counter() - t0) * 1000)
 
         try:
             timeout_s = getattr(tool, "timeout_s", None)
@@ -697,17 +700,32 @@ class ToolExecutor:
                         ex.shutdown(wait=False, cancel_futures=True)
                     except Exception:
                         ex.shutdown(wait=False)
-                    return {"ok": False, "error_code": "tool_timeout_or_failed", "error": "tool_timeout_or_failed", "detail": f"{type(e).__name__}: {e}"}, int(
-                        (time.perf_counter() - t0) * 1000
-                    )
+                    return {
+                        "ok": False,
+                        "error_code": "tool_timeout_or_failed",
+                        "error": "tool_timeout_or_failed",
+                        "detail": f"{type(e).__name__}: {e}",
+                        "timeout_s": float(timeout_s),
+                        "tool": str(tc.name or ""),
+                        "hint": (
+                            "Tool wall-clock timeout. For mcp__netx__execManagedNe raise read_timeout_sec "
+                            "and/or reduce commands; do not blind-retry the same call."
+                            if str(ctx.lang or "").startswith("en")
+                            else "工具墙钟超时。对 mcp__netx__execManagedNe 请提高 read_timeout_sec 或减少命令条数，禁止相同参数盲重试。"
+                        ),
+                    }, int((time.perf_counter() - t0) * 1000)
                 except Exception as e:
                     try:
                         ex.shutdown(wait=False, cancel_futures=True)
                     except Exception:
                         ex.shutdown(wait=False)
-                    return {"ok": False, "error_code": "tool_timeout_or_failed", "error": "tool_timeout_or_failed", "detail": f"{type(e).__name__}: {e}"}, int(
-                        (time.perf_counter() - t0) * 1000
-                    )
+                    return {
+                        "ok": False,
+                        "error_code": "tool_timeout_or_failed",
+                        "error": "tool_timeout_or_failed",
+                        "detail": f"{type(e).__name__}: {e}",
+                        "tool": str(tc.name or ""),
+                    }, int((time.perf_counter() - t0) * 1000)
                 else:
                     try:
                         ex.shutdown(wait=False, cancel_futures=True)

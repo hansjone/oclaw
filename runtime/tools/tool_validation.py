@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from typing import Any
 
 try:
@@ -19,6 +20,65 @@ def filter_arguments_to_schema(parameters: dict[str, Any], arguments: dict[str, 
     if schema.get("additionalProperties") is False and props:
         return {k: v for k, v in arguments.items() if k in props}
     return dict(arguments)
+
+
+def _example_from_schema(parameters: dict[str, Any]) -> dict[str, Any]:
+    """Build a minimal example object from JSON Schema properties/required."""
+    props = parameters.get("properties") if isinstance(parameters.get("properties"), dict) else {}
+    required = parameters.get("required") if isinstance(parameters.get("required"), list) else []
+    keys = [str(k) for k in required if str(k) in props]
+    if not keys:
+        # Prefer a few representative optional keys so agents see the shape.
+        keys = list(props.keys())[:4]
+    example: dict[str, Any] = {}
+    for key in keys:
+        spec = props.get(key) if isinstance(props.get(key), dict) else {}
+        if "default" in spec:
+            example[key] = spec["default"]
+            continue
+        t = spec.get("type")
+        if t == "string" or (isinstance(t, list) and "string" in t):
+            enum = spec.get("enum")
+            example[key] = enum[0] if isinstance(enum, list) and enum else f"<{key}>"
+        elif t == "integer" or t == "number":
+            example[key] = int(spec.get("minimum") or 1)
+        elif t == "boolean":
+            example[key] = bool(spec.get("default") if "default" in spec else True)
+        elif t == "array":
+            example[key] = []
+        elif t == "object":
+            example[key] = {}
+        else:
+            example[key] = f"<{key}>"
+    return example
+
+
+def format_invalid_arguments_error(
+    parameters: dict[str, Any],
+    message: str,
+    *,
+    lang: str = "zh",
+) -> dict[str, Any]:
+    """Rich invalid-arg payload so the model can self-correct without blind retries."""
+    props = parameters.get("properties") if isinstance(parameters.get("properties"), dict) else {}
+    required = [str(x) for x in (parameters.get("required") or []) if str(x)]
+    example = _example_from_schema(parameters or {})
+    if str(lang or "").startswith("en"):
+        err = f"Invalid arguments: {message}"
+        hint = "Fix arguments to match the schema example; do not retry with the same payload."
+    else:
+        err = f"参数不合法: {message}"
+        hint = "请按 example 修正参数后重试，不要用相同参数盲目重试。"
+    return {
+        "ok": False,
+        "error_code": "tool_invalid_arguments",
+        "error": err,
+        "validation_message": message,
+        "required": required,
+        "properties": sorted(str(k) for k in props.keys()),
+        "example": example,
+        "hint": hint,
+    }
 
 
 def validate_tool_arguments(parameters: dict[str, Any], arguments: dict[str, Any]) -> tuple[bool, str | None]:
@@ -44,5 +104,8 @@ def validate_tool_arguments(parameters: dict[str, Any], arguments: dict[str, Any
     return True, None
 
 
-__all__ = ["filter_arguments_to_schema", "validate_tool_arguments"]
-
+__all__ = [
+    "filter_arguments_to_schema",
+    "format_invalid_arguments_error",
+    "validate_tool_arguments",
+]
