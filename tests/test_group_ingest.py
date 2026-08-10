@@ -400,8 +400,10 @@ def test_prepare_group_user_text_for_model_user_in_chat() -> None:
         mention_names=["吴华"],
         lang="zh",
     )
-    assert out.startswith("[发言: Bob]")
-    assert "每三分钟提醒@吴华 喝水" in out
+    # Per-user group sessions already isolate by session — no sender prefix.
+    assert out == "每三分钟提醒@吴华 喝水"
+    assert "[发言:" not in out
+    assert "[Sender:" not in out
 
 
 def test_prepare_group_user_text_for_model_shared_chat_prefix() -> None:
@@ -423,7 +425,7 @@ def test_build_group_focus_instruction() -> None:
     en = build_group_focus_instruction()
     zh = build_group_focus_instruction(lang="zh")
     assert "current sender" in en
-    assert "[Sender:" in en or "Sender" in en
+    assert "Shared group" in en or "shared" in en.lower()
     assert "群聊规则" in zh
 
 
@@ -751,8 +753,9 @@ def test_inbound_group_mention_uses_per_user_session_and_sender_prefix(
     assert len(session_ids) == 2
     assert session_ids[0] != session_ids[1]
     assert "[群成员:" not in captured["text"]
-    assert captured["text"].startswith("[Sender: Bob]")
-    assert captured["text"].endswith("again")
+    assert "[发言:" not in captured["text"]
+    assert "[Sender:" not in captured["text"]
+    assert captured["text"] == "again"
     assert "群聊规则" not in captured["text"]
 
     sid = store.get_or_create_channel_session_v2(

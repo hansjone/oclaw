@@ -1453,15 +1453,21 @@ def process_inbound_payload(payload: dict[str, Any]) -> dict[str, Any]:
                                                 )
                                             if str(lang or "").startswith("zh"):
                                                 busy_text = (
-                                                    "本会话还有请求在处理，你这条已排队，完成后会继续回答。"
-                                                    if bool(getattr(inbound, "is_group", False))
+                                                    "本群共享会话还有请求在处理，你这条已排队，完成后会继续回答。"
+                                                    if (
+                                                        bool(getattr(inbound, "is_group", False))
+                                                        and str(group_policy.session_scope or "") == "chat"
+                                                    )
                                                     else "还在处理上一条请求，这条会排队合并处理。"
                                                 )
                                             else:
                                                 busy_text = (
-                                                    "Still working on an earlier request in this chat; "
+                                                    "Still working on an earlier request in this shared group chat; "
                                                     "your message is queued and will be answered next."
-                                                    if bool(getattr(inbound, "is_group", False))
+                                                    if (
+                                                        bool(getattr(inbound, "is_group", False))
+                                                        and str(group_policy.session_scope or "") == "chat"
+                                                    )
                                                     else "Still working on your previous request; "
                                                     "I'll merge this follow-up next."
                                                 )

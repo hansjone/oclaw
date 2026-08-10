@@ -590,11 +590,12 @@ def prepare_group_user_text_for_model(
         account_id=account_id,
     )
     prefix_parts: list[str] = []
-    # Always tag the speaker in groups (shared or per-user) so history/quotes cannot 串话.
-    _ = session_scope  # retained for call-site compatibility / future policy forks
-    prefix_parts.append(
-        build_group_sender_context(metadata=metadata, external_user_id=external_user_id, lang=lang)
-    )
+    # Shared group transcript only: tag speaker so multi-member history cannot 串话.
+    # Per-user group sessions (user_in_chat) already isolate by session — skip the prefix.
+    if normalize_group_session_scope(session_scope) == "chat":
+        prefix_parts.append(
+            build_group_sender_context(metadata=metadata, external_user_id=external_user_id, lang=lang)
+        )
     quote = str(quoted_ctx or "").strip()
     if quote:
         prefix_parts.append(quote)
@@ -605,14 +606,15 @@ def prepare_group_user_text_for_model(
 
 
 def build_group_focus_instruction(*, lang: str = "en") -> str:
+    """Isolation hint for *shared* group transcripts (session_scope=chat)."""
     if str(lang or "").strip().lower().startswith("zh"):
         return (
-            "[群聊规则：只回答当前发言人（见 [发言: …]）的问题；"
+            "[群聊规则（共享会话）：只回答当前发言人（见 [发言: …]）的问题；"
             "除非本条消息明确引用或承接前文，否则不要默认继承其他群成员的上下文；"
             "若排队合并了多条跟进，按条分别回应并 @ 对应发言人。]"
         )
     return (
-        "[Group chat rule: answer only the current sender (see [Sender: …]). "
+        "[Shared group-chat rule: answer only the current sender (see [Sender: …]). "
         "Do not assume context from other members unless this message explicitly quotes or references it. "
         "If several follow-ups were merged while busy, answer each item and @ the matching sender.]"
     )

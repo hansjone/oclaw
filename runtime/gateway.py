@@ -486,11 +486,18 @@ class OclawGateway:
 
     @staticmethod
     def _group_focus_system_hint(msg: StandardMessage, lang: str) -> str:
+        """Only for shared group transcripts (legacy session_scope=chat / __group__)."""
         md = msg.metadata if isinstance(msg.metadata, dict) else {}
         if not bool(md.get("is_group")):
             return ""
-        from runtime.orchestration.group_ingest import build_group_focus_instruction
+        from runtime.orchestration.group_ingest import (
+            build_group_focus_instruction,
+            normalize_group_session_scope,
+        )
 
+        scope = normalize_group_session_scope(md.get("group_session_scope"))
+        if scope != "chat":
+            return ""
         return str(build_group_focus_instruction(lang=lang) or "").strip()
 
     @staticmethod
