@@ -1204,7 +1204,7 @@ def process_inbound_payload(payload: dict[str, Any]) -> dict[str, Any]:
                     if channel_is_wa:
                         reply = (
                             f"This action needs confirmation. "
-                            f"Reply `confirm {token}` or include `[confirm:{token}]`."
+                            f"Reply `YES` / `confirm` or `confirm {token}` / `[confirm:{token}]`."
                         )
                     else:
                         reply = f"该动作需要确认。请回复 `confirm {token}` 或包含 `[confirm:{token}]`。"

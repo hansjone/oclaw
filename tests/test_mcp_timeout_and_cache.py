@@ -70,22 +70,41 @@ class McpTimeoutAndCacheTests(unittest.TestCase):
                         "tool_name": "listCliTargets",
                         "description": "list",
                         "parameters": {"type": "object", "properties": {}},
-                    }
+                    },
+                    {
+                        "tool_name": "queryUmeNeInventory",
+                        "description": "inventory",
+                        "parameters": {"type": "object", "properties": {}},
+                    },
+                    {
+                        "tool_name": "listManagedNe",
+                        "description": "managed",
+                        "parameters": {"type": "object", "properties": {}},
+                    },
                 ],
             )
-            spec = next(s for s in materialize_mcp_tools(store) if s.name.endswith("listCliTargets"))
+            specs = {s.name: s for s in materialize_mcp_tools(store)}
             calls = {"n": 0}
 
             def fake_call_tool(self, tool_name, arguments=None):  # type: ignore[no-untyped-def]
                 calls["n"] += 1
-                return {"ok": True, "data": {"items": [{"ne_id": "1"}]}}
+                return {"ok": True, "data": {"items": [{"ne_id": "1"}], "tool": tool_name}}
 
             with patch("runtime.tools.mcp.adapter.McpProcessRuntime.call_tool", fake_call_tool):
-                first = spec.handler({"keyword": "PE", "source": "ume"})
-                second = spec.handler({"keyword": "PE", "source": "ume"})
-            self.assertEqual(calls["n"], 1)
+                cli = specs["mcp__netx__listCliTargets"]
+                inv = specs["mcp__netx__queryUmeNeInventory"]
+                managed = specs["mcp__netx__listManagedNe"]
+                first = cli.handler({"keyword": "PE", "source": "ume"})
+                second = cli.handler({"keyword": "PE", "source": "ume"})
+                inv1 = inv.handler({"keyword": "core"})
+                inv2 = inv.handler({"keyword": "core"})
+                m1 = managed.handler({"keyword": "x", "vendor": "huawei", "connect_status": "online"})
+                m2 = managed.handler({"keyword": "x", "vendor": "huawei", "connect_status": "online"})
+            self.assertEqual(calls["n"], 3)
             self.assertFalse(first.get("cache_hit"))
             self.assertTrue(second.get("cache_hit"))
+            self.assertTrue(inv2.get("cache_hit"))
+            self.assertTrue(m2.get("cache_hit"))
             self.assertEqual(second.get("data", {}).get("items", [])[0]["ne_id"], "1")
         clear_list_cli_targets_cache()
 

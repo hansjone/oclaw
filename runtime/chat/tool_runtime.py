@@ -967,12 +967,26 @@ class ToolExecutor:
                 continue
             sig = f"{tc.name}:{self._json_dumps_safe(dict(tc.arguments or {}))}"
             count = int(sig_seen.get(sig, 0))
+            name_low = str(tc.name or "").strip().lower()
+            listish = name_low.endswith(
+                (
+                    "listclitargets",
+                    "listmanagedne",
+                    "queryumeneinventory",
+                )
+            )
             if count >= budget:
                 results_by_id[tc.id] = (
                     {
                         "ok": False,
                         "error_code": "tool_loop_guard",
                         "error": f"tool loop guard triggered for signature: {tc.name}",
+                        "hint": (
+                            "Identical list/inventory call already ran this turn; reuse prior ids/rows "
+                            "instead of listing again."
+                            if listish
+                            else "Identical tool call already ran this turn; change arguments or continue without retry."
+                        ),
                     },
                     0,
                 )

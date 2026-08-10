@@ -30,9 +30,15 @@ _MCP_TOOL_TIMEOUT_OVERRIDES_S: dict[str, float] = {
     "aggregateUmeAlarms": 60.0,
 }
 
-_LIST_CLI_CACHE_TTL_S = 120.0
-_LIST_CLI_CACHE_LOCK = threading.Lock()
-_LIST_CLI_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
+# Read-mostly inventory/list tools that agents re-call in tight self-loops on WhatsApp.
+_MCP_LIST_CACHE_TTL_S: dict[str, float] = {
+    "listCliTargets": 120.0,
+    "listManagedNe": 120.0,
+    "queryUmeNeInventory": 90.0,
+}
+
+_MCP_LIST_CACHE_LOCK = threading.Lock()
+_MCP_LIST_CACHE: dict[str, tuple[float, float, dict[str, Any]]] = {}
 
 
 def mcp_timeout_for_tool(tool_name: str, row_timeout_s: float | None = None) -> float:
@@ -45,43 +51,51 @@ def mcp_timeout_for_tool(tool_name: str, row_timeout_s: float | None = None) -> 
     return max(5.0, base)
 
 
-def _list_cli_cache_key(server_id: str, args: dict[str, Any]) -> str:
-    payload = {
-        "server_id": server_id,
-        "source": str(args.get("source") or "all"),
-        "keyword": str(args.get("keyword") or ""),
-        "page": int(args.get("page") or 1),
-        "page_size": int(args.get("page_size") or 50),
+def _mcp_list_cache_ttl(tool_name: str) -> float | None:
+    return _MCP_LIST_CACHE_TTL_S.get(str(tool_name or "").strip())
+
+
+def _mcp_list_cache_key(server_id: str, tool_name: str, args: dict[str, Any]) -> str:
+    # Keep key stable; drop obviously volatile noise keys if present.
+    cleaned = {
+        str(k): args.get(k)
+        for k in sorted(str(x) for x in (args or {}).keys())
+        if str(k) not in {"trace_id", "request_id", "run_id"}
     }
-    return json.dumps(payload, sort_keys=True, ensure_ascii=False)
+    payload = {"server_id": server_id, "tool_name": tool_name, "args": cleaned}
+    return json.dumps(payload, sort_keys=True, ensure_ascii=False, default=str)
 
 
-def _get_list_cli_cache(key: str) -> dict[str, Any] | None:
+def _get_mcp_list_cache(key: str) -> dict[str, Any] | None:
     now = time.monotonic()
-    with _LIST_CLI_CACHE_LOCK:
-        hit = _LIST_CLI_CACHE.get(key)
+    with _MCP_LIST_CACHE_LOCK:
+        hit = _MCP_LIST_CACHE.get(key)
         if not hit:
             return None
-        ts, payload = hit
-        if now - ts > _LIST_CLI_CACHE_TTL_S:
-            _LIST_CLI_CACHE.pop(key, None)
+        ts, ttl, payload = hit
+        if now - ts > float(ttl):
+            _MCP_LIST_CACHE.pop(key, None)
             return None
         return dict(payload)
 
 
-def _set_list_cli_cache(key: str, payload: dict[str, Any]) -> None:
-    with _LIST_CLI_CACHE_LOCK:
-        # Bound memory: drop oldest when large.
-        if len(_LIST_CLI_CACHE) >= 64:
-            oldest = sorted(_LIST_CLI_CACHE.items(), key=lambda kv: kv[1][0])[:16]
+def _set_mcp_list_cache(key: str, payload: dict[str, Any], *, ttl_s: float) -> None:
+    with _MCP_LIST_CACHE_LOCK:
+        if len(_MCP_LIST_CACHE) >= 96:
+            oldest = sorted(_MCP_LIST_CACHE.items(), key=lambda kv: kv[1][0])[:24]
             for k, _ in oldest:
-                _LIST_CLI_CACHE.pop(k, None)
-        _LIST_CLI_CACHE[key] = (time.monotonic(), dict(payload))
+                _MCP_LIST_CACHE.pop(k, None)
+        _MCP_LIST_CACHE[key] = (time.monotonic(), float(ttl_s), dict(payload))
 
 
 def clear_list_cli_targets_cache() -> None:
-    with _LIST_CLI_CACHE_LOCK:
-        _LIST_CLI_CACHE.clear()
+    """Clear inventory/list MCP caches (name kept for test compatibility)."""
+    with _MCP_LIST_CACHE_LOCK:
+        _MCP_LIST_CACHE.clear()
+
+
+def clear_mcp_list_cache() -> None:
+    clear_list_cli_targets_cache()
 
 
 @dataclass
@@ -108,17 +122,18 @@ class _McpBoundTool:
 
         def _handler(args: dict[str, Any]) -> dict[str, Any]:
             call_args = dict(args or {})
+            cache_ttl = _mcp_list_cache_ttl(tool_name)
             cache_key = ""
-            if tool_name == "listCliTargets":
-                cache_key = _list_cli_cache_key(server_id, call_args)
-                cached = _get_list_cli_cache(cache_key)
+            if cache_ttl is not None:
+                cache_key = _mcp_list_cache_key(server_id, tool_name, call_args)
+                cached = _get_mcp_list_cache(cache_key)
                 if cached is not None:
                     out = dict(cached)
                     out["cache_hit"] = True
-                    out["cache_ttl_s"] = _LIST_CLI_CACHE_TTL_S
+                    out["cache_ttl_s"] = float(cache_ttl)
                     out["hint"] = (
                         out.get("hint")
-                        or "Reused listCliTargets result from short TTL cache; do not re-list before every execManagedNe."
+                        or f"Reused {tool_name} result from short TTL cache; do not re-list before every follow-up tool."
                     )
                     return out
 
@@ -130,13 +145,12 @@ class _McpBoundTool:
             from runtime.tools.tool_error_hints import enrich_mcp_scope_error
 
             res = enrich_mcp_scope_error(res)
-            if tool_name == "listCliTargets" and res.get("ok") is not False and cache_key:
-                _set_list_cli_cache(cache_key, res)
+            if cache_ttl is not None and cache_key and res.get("ok") is not False:
+                _set_mcp_list_cache(cache_key, res, ttl_s=float(cache_ttl))
                 res = dict(res)
                 res["cache_hit"] = False
                 res["hint"] = (
-                    "Cache listCliTargets ids for this session; call execManagedNe with ne_id/ume_ne_id "
-                    "instead of listing again."
+                    f"Cache {tool_name} results briefly; reuse ids/rows instead of listing again in the same turn."
                 )
             if tool_name == "execManagedNe" and res.get("ok") is False:
                 from runtime.tools.tool_error_hints import enrich_exec_managed_ne_error
@@ -296,6 +310,7 @@ def materialize_mcp_skills_for_specialist(
 
 __all__ = [
     "clear_list_cli_targets_cache",
+    "clear_mcp_list_cache",
     "materialize_mcp_tools",
     "materialize_mcp_tools_for_specialist",
     "materialize_mcp_skills_for_specialist",

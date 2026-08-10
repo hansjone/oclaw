@@ -26,6 +26,26 @@ def evaluate_risk(task: AgentTask) -> GuardrailResult:
     return GuardrailResult(allowed=True, needs_confirmation=False, reason="Low-risk request")
 
 
+_AFFIRMATIVE_SHORT = frozenset(
+    {
+        "yes",
+        "y",
+        "ok",
+        "okay",
+        "confirm",
+        "continue",
+        "please continue",
+        "go ahead",
+        "可以",
+        "确认",
+        "继续",
+        "好的",
+        "行",
+        "是",
+    }
+)
+
+
 def has_explicit_confirmation(user_text: str) -> bool:
     return has_explicit_confirmation_token(user_text, token=None)
 
@@ -47,6 +67,13 @@ def has_explicit_confirmation_token(user_text: str, token: str | None) -> bool:
         if not t:
             return False
         if f"[confirm:{t}]".lower() in low or f"confirm:{t}".lower() in low:
+            return True
+        # WhatsApp field: short YES/continue while a token is outstanding.
+        import re
+
+        compact = re.sub(r"@\S+", " ", low)
+        compact = " ".join(compact.split())
+        if compact in _AFFIRMATIVE_SHORT:
             return True
     return False
 
