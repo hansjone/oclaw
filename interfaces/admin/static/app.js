@@ -8235,7 +8235,6 @@ async function renderSkills() {
   const marketStatus = el("div", { class: "muted", text: "" });
   const skillModeStatus = el("div", { class: "muted", text: "" });
   const skillPromptModeCb = el("input", { type: "checkbox" });
-  const skillToolcallModeCb = el("input", { type: "checkbox" });
   const skillMarketProviderSelect = el("select", { class: "input", style: "min-width:160px;" }, [
     el("option", { value: "clawhub", text: "clawhub (ClawHub)" }),
     el("option", { value: "cocoloop", text: "cocoloop (CocoLoop)" }),
@@ -8250,7 +8249,6 @@ async function renderSkills() {
     try {
       const r = await apiGet("/admin/api/skills/mode");
       skillPromptModeCb.checked = !!r.prompt_in_system;
-      skillToolcallModeCb.checked = !!r.toolcall_enabled;
       const mp = String(r.market_provider || "clawhub").trim().toLowerCase();
       skillMarketProviderSelect.value = mp === "cocoloop" ? "cocoloop" : "clawhub";
       skillModeStatus.textContent = "";
@@ -8263,14 +8261,12 @@ async function renderSkills() {
     try {
       const r = await apiPost("/admin/api/skills/mode", {
         prompt_in_system: !!skillPromptModeCb.checked,
-        toolcall_enabled: !!skillToolcallModeCb.checked,
         market_provider: String(skillMarketProviderSelect.value || "clawhub").trim(),
       });
       skillPromptModeCb.checked = !!r.prompt_in_system;
-      skillToolcallModeCb.checked = !!r.toolcall_enabled;
       const mp = String(r.market_provider || "clawhub").trim().toLowerCase();
       skillMarketProviderSelect.value = mp === "cocoloop" ? "cocoloop" : "clawhub";
-      skillModeStatus.textContent = `saved: prompt=${String(!!r.prompt_in_system)} toolcall=${String(!!r.toolcall_enabled)} market=${String(skillMarketProviderSelect.value)}`;
+      skillModeStatus.textContent = `saved: prompt=${String(!!r.prompt_in_system)} market=${String(skillMarketProviderSelect.value)}`;
     } catch (e) {
       skillModeStatus.textContent = `mode: ${String(e && e.message ? e.message : e)}`;
     }
@@ -9610,7 +9606,6 @@ async function renderSkills() {
     el("div", { class: "card__title", text: t("title.skills") }),
     el("div", { class: "row", style: "gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px;" }, [
       el("label", { class: "row", style: "gap:6px;align-items:center;" }, [skillPromptModeCb, el("span", { text: "Prompt mode (inject SKILL.md)" })]),
-      el("label", { class: "row", style: "gap:6px;align-items:center;" }, [skillToolcallModeCb, el("span", { text: "Toolcall mode (runtime as tools)" })]),
       el("label", { class: "row", style: "gap:6px;align-items:center;flex-wrap:wrap;" }, [
         el("span", { text: "Market (AIA_SKILL_MARKET_PROVIDER)" }),
         skillMarketProviderSelect,

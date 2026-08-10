@@ -98,14 +98,11 @@ def include_skill_routes(
         ctx = resolve_auth(store, authorization)
         _require_admin(ctx)
         raw_prompt = str(store.get_setting("AIA_SKILLS_PROMPT_IN_SYSTEM") or "").strip().lower()
-        raw_toolcall = str(store.get_setting("AIA_SKILL_TOOLCALL_ENABLED") or "").strip().lower()
         prompt_in_system = raw_prompt not in {"0", "false", "no", "off"}
-        toolcall_enabled = raw_toolcall in {"1", "true", "yes", "on"}
         market_provider = normalize_skill_market_provider_setting(str(store.get_setting(_SKILL_MARKET_PROVIDER_KEY) or ""))
         return {
             "ok": True,
             "prompt_in_system": bool(prompt_in_system),
-            "toolcall_enabled": bool(toolcall_enabled),
             "market_provider": market_provider,
         }
 
@@ -120,14 +117,10 @@ def include_skill_routes(
         _require_admin(ctx)
         if "prompt_in_system" in payload:
             store.set_setting("AIA_SKILLS_PROMPT_IN_SYSTEM", "1" if bool(payload.get("prompt_in_system")) else "0")
-        if "toolcall_enabled" in payload:
-            store.set_setting("AIA_SKILL_TOOLCALL_ENABLED", "1" if bool(payload.get("toolcall_enabled")) else "0")
         if "market_provider" in payload:
             store.set_setting(_SKILL_MARKET_PROVIDER_KEY, normalize_skill_market_provider_setting(str(payload.get("market_provider") or "")))
         raw_prompt = str(store.get_setting("AIA_SKILLS_PROMPT_IN_SYSTEM") or "").strip().lower()
-        raw_toolcall = str(store.get_setting("AIA_SKILL_TOOLCALL_ENABLED") or "").strip().lower()
         prompt_in_system = raw_prompt not in {"0", "false", "no", "off"}
-        toolcall_enabled = raw_toolcall in {"1", "true", "yes", "on"}
         market_provider = normalize_skill_market_provider_setting(str(store.get_setting(_SKILL_MARKET_PROVIDER_KEY) or ""))
         _audit(
             store,
@@ -137,14 +130,12 @@ def include_skill_routes(
             status="ok",
             detail={
                 "prompt_in_system": bool(prompt_in_system),
-                "toolcall_enabled": bool(toolcall_enabled),
                 "market_provider": market_provider,
             },
         )
         return {
             "ok": True,
             "prompt_in_system": bool(prompt_in_system),
-            "toolcall_enabled": bool(toolcall_enabled),
             "market_provider": market_provider,
         }
 
@@ -817,7 +808,7 @@ def include_skill_routes(
             raise HTTPException(status_code=500, detail="tool_registry_unavailable")
         spec = tools.get(name)
         if spec is None:
-            # Skill prompt mode: toolcall may be disabled, fallback to direct runtime execution from manifest.
+            # Skill prompt mode: execute runtime entry from manifest when invoked via Admin/skills APIs.
             mf = next((m for m in discover_workspace_skill_manifests() if str(m.name or "").strip() == name), None)
             if mf is None:
                 raise HTTPException(status_code=404, detail="tool_not_found")

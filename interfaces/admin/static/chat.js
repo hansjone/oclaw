@@ -3430,13 +3430,8 @@ async function renderChatUi() {
     return normalizePlanAgentVersion(currentPlanAgentVersion);
   };
   const refreshExecUi = () => {
-    const modeVal = String(globalMenuModeValue || MAIN_MODE_VALUE).toLowerCase();
-    const expert = modeVal !== MAIN_MODE_VALUE;
-    const show =
-      expert &&
-      planAgentV2GloballyEnabled &&
-      normalizePlanAgentVersion(currentPlanAgentVersion) === PLAN_AGENT_V2;
-    execSelectWrap.style.display = show ? "inline-flex" : "none";
+    // Plan mode removed; keep agent execution only.
+    execSelectWrap.style.display = "none";
   };
   const modeOptionLabel = (v) => {
     const key = String(v || "").trim().toLowerCase();

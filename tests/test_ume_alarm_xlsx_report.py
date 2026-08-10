@@ -126,10 +126,9 @@ def test_filter_preset_and_row_helpers() -> None:
     assert meta["total"] == 2
 
 
-def test_ume_alarm_xlsx_report_registered_when_builtin_disabled(monkeypatch) -> None:
+def test_ume_alarm_xlsx_report_registered_without_inline_netx(monkeypatch) -> None:
     from runtime.tools import expert_registry
 
-    monkeypatch.delenv("OCLAW_NETX_BUILTIN_TOOLS", raising=False)
     expert_registry.clear_expert_tool_cache()
     factories = expert_registry.discover_expert_tool_factories()
     names = {f().name for f in (factories.get("network_ops") or [])}

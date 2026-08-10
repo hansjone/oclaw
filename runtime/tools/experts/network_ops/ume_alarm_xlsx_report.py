@@ -1,7 +1,7 @@
 """Always-on ops tool: query UME alarms → xlsx → optional channel deliverable in one call.
 
-Independent of ``OCLAW_NETX_BUILTIN_TOOLS`` (MCP remains the primary query path; this
-collapses the WhatsApp “export Excel” loop that previously needed 3–12 tool calls).
+Uses shared ``netx_http`` (same REST base as MCP). MCP remains the primary interactive
+query path; this collapses the WhatsApp “export Excel” loop into one tool call.
 """
 
 from __future__ import annotations
@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import Any
 
 from runtime.tools.base import ToolSpec
-from runtime.tools.experts.network_ops import netx_tools as nt
+from runtime.tools.experts.network_ops import netx_http as nt
 from runtime.tools.public.write_xlsx_tool import write_xlsx_tool
 
 _LIST_FIELDS = [

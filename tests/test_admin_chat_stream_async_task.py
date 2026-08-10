@@ -172,8 +172,8 @@ class AdminChatStreamAsyncTaskTests(unittest.TestCase):
         payload = json.loads(str(task.payload or "{}"))
         self.assertEqual(str(payload.get("selected_specialist") or ""), "generalist")
 
-    def test_user_mode_plan_version_sets_v2_feature_flag_in_store(self) -> None:
-        """POST /user-mode mirrors plan_agent_version to AIA_EXPERT_PLAN_AGENT_V2_ENABLED (v2→1, v1→0)."""
+    def test_user_mode_always_clears_plan_agent_v2_flag(self) -> None:
+        """Plan mode removed: POST /user-mode always keeps AIA_EXPERT_PLAN_AGENT_V2_ENABLED=0."""
         token = self._login()
         headers = {
             "authorization": f"Bearer {token}",
@@ -193,8 +193,8 @@ class AdminChatStreamAsyncTaskTests(unittest.TestCase):
         self.assertEqual(r2.status_code, 200)
         body2 = r2.json()
         self.assertTrue(body2.get("ok"), body2)
-        self.assertTrue(body2.get("plan_agent_v2_globally_enabled"), body2)
-        self.assertEqual(str(self.store.get_setting("AIA_EXPERT_PLAN_AGENT_V2_ENABLED") or "").strip(), "1")
+        self.assertFalse(body2.get("plan_agent_v2_globally_enabled"), body2)
+        self.assertEqual(str(self.store.get_setting("AIA_EXPERT_PLAN_AGENT_V2_ENABLED") or "").strip(), "0")
 
         r1 = self.client.post(
             "/admin/api/chat/user-mode",

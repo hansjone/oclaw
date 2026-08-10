@@ -88,6 +88,5 @@
 ## netx 纳管网元（登录设备查 CLI）
 
 - **MCP**：`mcp__netx__listManagedNe` / `mcp__netx__getManagedNe` / `mcp__netx__execManagedNe`。
-- **旧内置**（`OCLAW_NETX_BUILTIN_TOOLS=1`）：`netx_list_managed_ne`、`netx_get_managed_ne`、`netx_exec_managed_ne`。
 
 netx 服务地址：MCP env `NETX_API_URL`（推荐）；锚点探测亦用 `OCLAW_NETX_BASE_URL`。关闭自动锚点：`OCLAW_OPS_NETX_CONTEXT_INJECT=0`。

@@ -13,7 +13,6 @@ from runtime.tools.base import ToolRegistry, ToolSpec
 from runtime.tools.expert_registry import materialize_tools_for_expert
 from runtime.tools.mcp.adapter import materialize_mcp_tools_for_specialist
 from runtime.tools.public_registry import materialize_public_tools
-from runtime.tools.skills_runtime.materialize_skill_tools import materialize_executable_skill_tools
 from runtime.skills import SkillSpec, materialize_skills_from_tool_specs
 
 logger = logging.getLogger(__name__)
@@ -46,21 +45,6 @@ def _plugin_tools_enabled(store: Any | None = None) -> bool:
         if key in os.environ:
             return _is_truthy(os.getenv(key))
     return True
-
-
-def _skill_toolcall_enabled(store: Any | None) -> bool:
-    try:
-        raw_env = str(os.getenv("AIA_SKILL_TOOLCALL_ENABLED") or "").strip()
-        if raw_env:
-            return _is_truthy(raw_env)
-        if store is not None:
-            raw = str(store.get_setting("AIA_SKILL_TOOLCALL_ENABLED") or "").strip()
-            if raw:
-                return _is_truthy(raw)
-    except Exception:
-        pass
-    # Default off: skill uses prompt-injection path, not toolcall path.
-    return False
 
 
 def _apply_declared_tool_policy(
@@ -205,19 +189,6 @@ def materialize_tool_specs(
             collected.append(("expert", spec))
     except Exception as exc:
         logger.warning("expert tool load skipped: %s", exc)
-
-    # collect: skill runtime
-    if _skill_toolcall_enabled(store):
-        try:
-            for spec in materialize_executable_skill_tools(store=store):
-                if not isinstance(spec, ToolSpec):
-                    continue
-                if _hidden_from_model(str(spec.name or "")):
-                    logger.info("skill runtime tool hidden from model registry: %s", str(spec.name or ""))
-                    continue
-                collected.append(("skill_runtime", spec))
-        except Exception as exc:
-            logger.warning("skill runtime tool load skipped: %s", exc)
 
     # MCP tools are role-bound and should be materialized before model injection.
     # Fine-grained penalty/visibility is still applied by wire policy in direct_loop.

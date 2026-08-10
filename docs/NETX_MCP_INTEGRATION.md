@@ -4,7 +4,7 @@ Wire **oclaw** (or any MCP host) to the standard **netx HTTP MCP** in `D:/projec
 
 netx 侧通用安装/更新说明：`D:/project/chatgpt/netx/docs/MCP.md`。
 
-Default path: **stdio MCP → netx REST API** (`NETX_API_URL`). Legacy inline HTTP tools in oclaw are opt-in via `OCLAW_NETX_BUILTIN_TOOLS=1`.
+Default path: **stdio MCP → netx REST API** (`NETX_API_URL`). oclaw also uses the same REST base for ops context inject and `ume_alarm_xlsx_report` via shared `netx_http`.
 
 ## 1) Start netx API
 
@@ -115,14 +115,16 @@ Then run **Health** → **Sync Tools**.
 
 In Admin **MCP specialist binding**, include server **`netx`** for the ops workspace/specialist.
 
-## 4) Dual-track: builtin vs MCP
+## 4) Shared REST helpers in oclaw
 
-| Setting | Effect |
-|---------|--------|
-| `OCLAW_NETX_BUILTIN_TOOLS=0` (default) | Only MCP tools (`mcp__netx__*`); no duplicate inline `netx_*` in catalog |
-| `OCLAW_NETX_BUILTIN_TOOLS=1` | Registers legacy inline HTTP tools **and** MCP if installed — avoid binding both unless testing migration |
+oclaw keeps a small HTTP client (`runtime/tools/experts/network_ops/netx_http.py`) for:
 
-Runtime anchor inject (`OCLAW_OPS_NETX_CONTEXT_INJECT=1`) still works without builtin tools; it only needs netx API reachable at `NETX_API_URL` / `OCLAW_NETX_BASE_URL`.
+- ops system-context anchor inject (`OCLAW_OPS_NETX_CONTEXT_INJECT`)
+- always-on `ume_alarm_xlsx_report` (Excel export shortcut)
+
+Interactive alarm/NE tools are **MCP only** (`mcp__netx__*`). Inline `netx_*` expert tools were removed.
+
+Runtime anchor inject still needs netx API reachable at `NETX_API_URL` / `OCLAW_NETX_BASE_URL`.
 
 ## 5) Cursor / Claude Desktop
 

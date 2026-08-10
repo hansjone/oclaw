@@ -27,7 +27,7 @@ description: 面向 ops 专家的 netx UME 运维作业手册。覆盖告警查�
 | 拓扑路径 | `findTopologyPaths` |
 | 纳管/CLI（另册） | `listManagedNe` / `getManagedNe` / `execManagedNe` / `listCliTargets` |
 
-旧名 `netx_query_ume_alarms` 等仅在 `OCLAW_NETX_BUILTIN_TOOLS=1` 时可用；**优先 MCP**。
+使用 **MCP** 名称（`mcp__netx__*`）；勿使用已移除的旧 inline `netx_*` 工具名。
 
 ## 工具选择顺序
 

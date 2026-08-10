@@ -97,6 +97,5 @@ Each turn may append a **UME alarm runtime anchor** at the end of system context
 ## netx managed NE (device CLI)
 
 - **MCP**: `mcp__netx__listManagedNe` / `mcp__netx__getManagedNe` / `mcp__netx__execManagedNe`.
-- **Legacy builtin** (`OCLAW_NETX_BUILTIN_TOOLS=1`): `netx_list_managed_ne`, `netx_get_managed_ne`, `netx_exec_managed_ne`.
 
 netx API: MCP env `NETX_API_URL` (recommended); anchor probe also uses `OCLAW_NETX_BASE_URL`. Disable anchor inject: `OCLAW_OPS_NETX_CONTEXT_INJECT=0`.

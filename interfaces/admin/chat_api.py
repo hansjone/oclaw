@@ -33,7 +33,6 @@ from svc.files.session_export import export_session_json, export_session_markdow
 from svc.persistence.sqlite_store import SqliteStore
 from svc.persistence.assistant_store import get_assistant_store
 from runtime.gateway import OclawGateway
-from runtime.plan_agent_v2.switch import v2_feature_enabled
 from runtime.types import StandardMessage, normalize_interaction_mode, normalize_requested_specialist
 from runtime.chat.history_tool_result_compact import compact_tool_results_in_session_history
 from runtime.chat.persist_terminal_fallback import persist_assistant_text_if_turn_missing
@@ -1280,7 +1279,7 @@ def include_chat_routes(router: APIRouter, *, resolve_auth: Callable[[SqliteStor
             "execution_mode": s_em,
             "confirm_strategy": u_cs,
             "plan_agent_version": u_pav,
-            "plan_agent_v2_globally_enabled": bool(v2_feature_enabled(store=store)),
+            "plan_agent_v2_globally_enabled": False,
             "global_menu": {
                 "interaction_mode": u_im,
                 "specialist": u_sp,
@@ -1325,7 +1324,7 @@ def include_chat_routes(router: APIRouter, *, resolve_auth: Callable[[SqliteStor
             "execution_mode": s_em,
             "confirm_strategy": u_cs,
             "plan_agent_version": u_pav,
-            "plan_agent_v2_globally_enabled": bool(v2_feature_enabled(store=store)),
+            "plan_agent_v2_globally_enabled": False,
             "global_menu": {
                 "interaction_mode": u_im,
                 "specialist": u_sp,
@@ -1349,7 +1348,7 @@ def include_chat_routes(router: APIRouter, *, resolve_auth: Callable[[SqliteStor
             "specialist": u_sp,
             "confirm_strategy": u_cs,
             "plan_agent_version": u_pav,
-            "plan_agent_v2_globally_enabled": bool(v2_feature_enabled(store=store)),
+            "plan_agent_v2_globally_enabled": False,
         }
 
     @chat.post("/user-mode")
@@ -1377,15 +1376,15 @@ def include_chat_routes(router: APIRouter, *, resolve_auth: Callable[[SqliteStor
             plan_agent_version=plan_agent_version,
         )
         u_im, u_sp, u_cs, u_pav = _resolve_user_menu_chat_settings(store=store, tenant_id=tenant_id, user_id=user_id)
-        # Mirror Plan/Agent version to the gateway feature gate (⋯ menu is the control surface).
-        store.set_setting("AIA_EXPERT_PLAN_AGENT_V2_ENABLED", "1" if str(u_pav or "").strip().lower() == "v2" else "0")
+        # Plan mode removed; keep setting key cleared for leftover clients.
+        store.set_setting("AIA_EXPERT_PLAN_AGENT_V2_ENABLED", "0")
         return {
             "ok": True,
             "interaction_mode": u_im,
             "specialist": u_sp,
             "confirm_strategy": u_cs,
             "plan_agent_version": u_pav,
-            "plan_agent_v2_globally_enabled": bool(v2_feature_enabled(store=store)),
+            "plan_agent_v2_globally_enabled": False,
         }
 
     @chat.get("/admin/user-stats")

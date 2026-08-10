@@ -13,7 +13,7 @@ description: 面向 ops 专家的 netx 纳管网元（网元管理）作业手�
 
 ## 工具选择顺序
 
-优先 **MCP**（`mcp__netx__*`）。legacy：`netx_list_managed_ne` 等（`OCLAW_NETX_BUILTIN_TOOLS=1`）。
+使用 **MCP**（`mcp__netx__*`）。旧 inline `netx_*` 工具已移除。
 
 1. **定位设备**
    - `mcp__netx__listManagedNe`：`keyword`、`connect_status=pass`（**首选定位**）

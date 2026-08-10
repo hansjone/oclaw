@@ -3,7 +3,6 @@ from __future__ import annotations
 import importlib.util
 import inspect
 import logging
-import os
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -20,22 +19,12 @@ _DEPRECATED_TOOL_NAMES: set[str] = {
     # Deprecated internal tool from legacy src/tools chain.
     "get_weather",
 }
-
-
-def netx_builtin_tools_enabled() -> bool:
-    """When false, skip ``network_ops/netx_tools.py`` factories (use MCP ``mcp__netx__*`` instead)."""
-    return str(os.getenv("OCLAW_NETX_BUILTIN_TOOLS") or "0").strip().lower() not in {
-        "0",
-        "false",
-        "no",
-        "off",
-    }
+# Helpers / non-tool modules under experts/ (no *_tool factories expected).
+_SKIP_EXPERT_MODULES: frozenset[str] = frozenset({"netx_tools", "netx_http"})
 
 
 def _skip_expert_module(module_path: Path) -> bool:
-    if module_path.stem == "netx_tools" and not netx_builtin_tools_enabled():
-        return True
-    return False
+    return module_path.stem in _SKIP_EXPERT_MODULES
 
 
 def _load_module_from_path(module_path: Path, module_name: str) -> Any | None:

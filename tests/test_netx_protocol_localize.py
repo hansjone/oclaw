@@ -1,6 +1,6 @@
 import unittest
 
-from runtime.tools.experts.network_ops import netx_tools as nt
+from runtime.tools.experts.network_ops import netx_http as nt
 
 
 class NetxProtocolLocalizeTests(unittest.TestCase):
