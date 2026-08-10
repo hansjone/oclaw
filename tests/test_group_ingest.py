@@ -653,6 +653,47 @@ def test_inbound_group_without_mention_is_silent(monkeypatch: pytest.MonkeyPatch
     )
     assert out.get("ok") is True
     assert out.get("replies") == []
+    assert out.get("delivery") != "mention_nudge"
+
+
+def test_inbound_group_ops_without_mention_gets_throttled_nudge(
+    monkeypatch: pytest.MonkeyPatch, fresh_sqlite_store: SqliteStore
+) -> None:
+    from runtime.application.gateway.ops_short_intent import reset_group_mention_nudge_throttle_for_tests
+
+    store = fresh_sqlite_store
+    _setup_whatsapp_identity(store)
+    monkeypatch.setattr("svc.persistence.assistant_store.get_assistant_store", lambda: store)
+    reset_group_mention_nudge_throttle_for_tests()
+
+    payload = {
+        "channel": "whatsapp",
+        "account_id": "wa-default",
+        "user_id": "111@s.whatsapp.net",
+        "chat_id": "120363012345678@g.us",
+        "text": "fiber cut sites",
+        "is_group": True,
+        "mentions": [],
+        "metadata": {"bot_jid": "999@s.whatsapp.net", "source": "test"},
+    }
+    first = process_inbound_payload(payload)
+    assert first.get("delivery") == "mention_nudge"
+    assert first.get("ops_intent") == "fiber_cut"
+    assert first.get("replies") == []
+    outbound = store.list_channel_outbound_messages(limit=20) if hasattr(store, "list_channel_outbound_messages") else []
+    if not outbound:
+        # Fallback: inspect via raw SQL if list helper missing
+        with store._connect() as conn:  # noqa: SLF001
+            rows = conn.execute(
+                "SELECT text, source FROM channel_outbound_message ORDER BY created_at DESC LIMIT 5"
+            ).fetchall()
+        outbound = [{"text": r[0], "source": r[1]} for r in rows]
+    assert outbound
+    assert any("@mention" in str(o.get("text") or "").lower() or "@me" in str(o.get("text") or "").lower() for o in outbound)
+
+    second = process_inbound_payload(payload)
+    assert second.get("delivery") != "mention_nudge"
+    assert second.get("replies") == []
 
 
 def test_inbound_dm_still_processes_without_mention(monkeypatch: pytest.MonkeyPatch, fresh_sqlite_store: SqliteStore) -> None:
