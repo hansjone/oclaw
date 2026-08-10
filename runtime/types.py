@@ -42,14 +42,14 @@ def normalize_interaction_mode(raw: Any) -> InteractionMode:
 
 def normalize_requested_specialist(raw: Any) -> SpecialistId:
     specialist = str(raw or "").strip().lower()
-    # Accept dynamic specialists discovered from workspaces (e.g. "stock").
+    # Accept specialists discovered from workspaces; removed ones map to generalist.
     # Fallback to "generalist" when unknown.
     try:
         from runtime.agents.specialists import normalize_specialist_id
 
         return normalize_specialist_id(specialist)
     except Exception:
-        if specialist in {"ops", "memory", "generalist", "image"}:
+        if specialist in {"ops", "memory", "generalist"}:
             return specialist
         return "generalist"
 

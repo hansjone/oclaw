@@ -3552,8 +3552,6 @@ async function renderMemory() {
   const enabled = el("input", { type: "checkbox" });
   const backend = el("select", { class: "input" }, [
     el("option", { value: "sqlite", text: "sqlite" }),
-    el("option", { value: "chroma", text: "chroma" }),
-    el("option", { value: "qdrant", text: "qdrant" }),
   ]);
   const topk = el("input", { class: "input", type: "number", value: "5", min: "1", max: "20" });
   const writerEnabled = el("input", { type: "checkbox" });
@@ -4847,7 +4845,7 @@ async function renderModels() {
       ]),
       expertsStatus,
     ], { id: "models-experts" }),
-    el("div", { class: "card section-card", id: "models-eval" }, [evalDetails]),
+    el("div", { class: "card section-card", id: "models-eval", style: "display:none" }, [evalDetails]),
   ]);
 }
 
@@ -8237,7 +8235,6 @@ async function renderSkills() {
   const skillPromptModeCb = el("input", { type: "checkbox" });
   const skillMarketProviderSelect = el("select", { class: "input", style: "min-width:160px;" }, [
     el("option", { value: "clawhub", text: "clawhub (ClawHub)" }),
-    el("option", { value: "cocoloop", text: "cocoloop (CocoLoop)" }),
   ]);
   const marketQ = el("input", { class: "input", placeholder: "search skills (keyword)" });
   const marketLimitInp = el("input", { class: "input", placeholder: "limit", value: "40", style: "max-width:120px;" });
@@ -8249,8 +8246,7 @@ async function renderSkills() {
     try {
       const r = await apiGet("/admin/api/skills/mode");
       skillPromptModeCb.checked = !!r.prompt_in_system;
-      const mp = String(r.market_provider || "clawhub").trim().toLowerCase();
-      skillMarketProviderSelect.value = mp === "cocoloop" ? "cocoloop" : "clawhub";
+      skillMarketProviderSelect.value = "clawhub";
       skillModeStatus.textContent = "";
     } catch (e) {
       skillModeStatus.textContent = `mode: ${String(e && e.message ? e.message : e)}`;
@@ -8261,12 +8257,11 @@ async function renderSkills() {
     try {
       const r = await apiPost("/admin/api/skills/mode", {
         prompt_in_system: !!skillPromptModeCb.checked,
-        market_provider: String(skillMarketProviderSelect.value || "clawhub").trim(),
+        market_provider: "clawhub",
       });
       skillPromptModeCb.checked = !!r.prompt_in_system;
-      const mp = String(r.market_provider || "clawhub").trim().toLowerCase();
-      skillMarketProviderSelect.value = mp === "cocoloop" ? "cocoloop" : "clawhub";
-      skillModeStatus.textContent = `saved: prompt=${String(!!r.prompt_in_system)} market=${String(skillMarketProviderSelect.value)}`;
+      skillMarketProviderSelect.value = "clawhub";
+      skillModeStatus.textContent = `saved: prompt=${String(!!r.prompt_in_system)} market=clawhub`;
     } catch (e) {
       skillModeStatus.textContent = `mode: ${String(e && e.message ? e.message : e)}`;
     }
@@ -10101,11 +10096,15 @@ async function router() {
     view = hasPermission("admin:user:read") ? await renderUserManagement() : forbiddenCard();
   } else if (page === "memory") view = await renderMemory();
   else if (page === "models") view = await renderModels();
-  else if (page === "api-grants") view = await renderApiGrants();
-  else if (page === "audit") view = await renderAudit(route.params.get("session_id") || "");
-  else if (page === "session-monitor") {
+  else if (page === "api-grants" || page === "session-monitor" || page === "admin-audit") {
+    view = el("div", { class: "card" }, [
+      el("div", { class: "card__title", text: t("common.notFound") }),
+      el("div", { class: "muted", text: "This admin page was removed in the product simplification pass." }),
+    ]);
+  } else if (page === "audit") view = await renderAudit(route.params.get("session_id") || "");
+  else if (false && page === "session-monitor") {
     view = isAdministratorUsername() ? await renderSessionMonitor() : el("div", { class: "card" }, [el("div", { class: "card__title", text: t("sessionMonitor.onlyAdministrator") })]);
-  } else if (page === "admin-audit") {
+  } else if (false && page === "admin-audit") {
     view = hasPermission("admin:user:write") ? await renderAdminAudit() : forbiddenCard();
   } else if (page === "plugins") {
     mount(

@@ -10,7 +10,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Optional
 
-from runtime.agents.factory import build_ephemeral_executor
 from runtime.hooks.eligibility_from_metadata import hook_eligibility_from_message_metadata
 from runtime.hooks_runtime import (
     get_active_hooks_config,
@@ -90,8 +89,7 @@ class OclawGatewayResult:
     relay_ttl_turn_count: int = 0
     relay_ttl_session_count: int = 0
     relay_ttl_keep_count: int = 0
-    # agent-core 本轮 ``chat_message.turn_uuid``；供 WS 收尾与落库兜底对齐
-    turn_uuid: str = ""
+    # agent-core 本轮 ``chat_message.turn_uuid``；供 WS 收尾与落库兜底对�?    turn_uuid: str = ""
 
 
 @dataclass(frozen=True)
@@ -209,7 +207,7 @@ class OclawGateway:
         # - stage "3": renamed on third user message (final)
         if stage_raw == "3":
             return
-        if (cur_title not in ("新会话", "New Chat")) and (stage_raw != "1"):
+        if (cur_title not in ("新会�?, "New Chat")) and (stage_raw != "1"):
             return
         try:
             rows = self.store.get_messages(session_id=sid, limit=200)
@@ -271,7 +269,7 @@ class OclawGateway:
         if not sess:
             return
         cur_title = str(getattr(sess, "title", "") or "").strip()
-        if cur_title not in ("新会话", "New Chat"):
+        if cur_title not in ("新会�?, "New Chat"):
             return
         try:
             rows = self.store.get_messages(session_id=sid, limit=20)
@@ -405,9 +403,9 @@ class OclawGateway:
             user_text = (
                 "请基于以下信息输出最终答复。\n\n"
                 f"原始用户问题:\n{str(msg.text or '').strip()}\n\n"
-                f"已调用专家: {str(specialist or '').strip()}\n\n"
+                f"已调用专�? {str(specialist or '').strip()}\n\n"
                 f"专家结果:\n{str(specialist_reply or '').strip()}\n\n"
-                "要求：保持简洁、准确，不要暴露内部流程。"
+                "要求：保持简洁、准确，不要暴露内部流程�?
             )
             messages = [{"role": "system", "content": manager_context}, {"role": "user", "content": user_text}]
             ensure_no_tool_or_embedded_image_payload(messages=messages, path="gateway.manager_finalize")
@@ -537,9 +535,9 @@ class OclawGateway:
                 "If you need more rows/details, use database tools (`query_tabular_attachment` / `run_tabular_sql`) with table_id."
             )
         return (
-            f"对于大表附件：当前上下文只提供前{preview_rows}行预览。"
-            f"单次读取上限为{max_rows_read}行。"
-            "如果需要更多行或更细节，请通过数据库工具（`query_tabular_attachment` / `run_tabular_sql`）结合 table_id 查询。"
+            f"对于大表附件：当前上下文只提供前{preview_rows}行预览�?
+            f"单次读取上限为{max_rows_read}行�?
+            "如果需要更多行或更细节，请通过数据库工具（`query_tabular_attachment` / `run_tabular_sql`）结�?table_id 查询�?
         )
 
     @staticmethod
@@ -550,8 +548,8 @@ class OclawGateway:
                 "For detailed evidence, use `query_text_attachment` with `text_id` from `text_ref` attachment."
             )
         return (
-            "对于长文本附件：上下文可能只包含摘要/预览。"
-            "如需细节证据，请使用 `text_ref` 提供的 text_id 调用 `query_text_attachment`。"
+            "对于长文本附件：上下文可能只包含摘要/预览�?
+            "如需细节证据，请使用 `text_ref` 提供�?text_id 调用 `query_text_attachment`�?
         )
 
     @staticmethod
@@ -562,7 +560,7 @@ class OclawGateway:
                 "for OCR/description when visual evidence is required."
             )
         return (
-            "对于图片附件：如需 OCR 或图像细节，请使用 attachment_id 调用 `query_image_attachment`。"
+            "对于图片附件：如需 OCR 或图像细节，请使�?attachment_id 调用 `query_image_attachment`�?
         )
 
     @staticmethod
@@ -572,7 +570,7 @@ class OclawGateway:
                 "For video attachments: use `query_video_attachment` with attachment_id from `video_ref` "
                 "to get metadata or transcript (if enabled)."
             )
-        return "对于视频附件：请使用 `video_ref` 提供的 attachment_id 调用 `query_video_attachment` 获取元信息/转写。"
+        return "对于视频附件：请使用 `video_ref` 提供�?attachment_id 调用 `query_video_attachment` 获取元信�?转写�?
 
     @staticmethod
     def _tabular_limits_from_config() -> dict[str, int]:
@@ -980,36 +978,23 @@ class OclawGateway:
                 attachments=list(msg.attachments or []),
                 metadata=dict(base_metadata),
             )
-            if manager_specialist in {"ops", "generalist", "image", "memory", "video"}:
+            if manager_specialist in {"ops", "generalist", "memory"}:
                 if callable(specialist_executor_factory):
                     try:
                         selected_executor = specialist_executor_factory(manager_specialist)
                     except Exception:
                         selected_executor = executor
                         dispatch_reason = "manager_factory_failed"
-            elif dynamic_agent:
-                try:
-                    selected_executor = build_ephemeral_executor(
-                        self.store,
-                        lang=lang,
-                        system_prompt=str(dynamic_agent.get("system_prompt") or ""),
-                        tool_policy=dict(dynamic_agent.get("tool_policy") or {}),
-                        viewer_user_id=msg.user_id,
-                        viewer_tenant_id=msg.tenant_id,
-                        policy_session_id=msg.session_id,
-                        path_policy_tenant_id=msg.tenant_id,
-                        path_policy_user_id=msg.user_id,
-                    )
-                    manager_specialist = str(dynamic_agent.get("name") or "dynamic_ephemeral")
-                    dispatch_reason = str(dynamic_agent.get("reason") or "dynamic_agent_selected")
-                except Exception:
-                    manager_specialist = "generalist"
-                    dispatch_reason = "dynamic_agent_build_failed"
-                    if callable(specialist_executor_factory):
-                        try:
-                            selected_executor = specialist_executor_factory("generalist")
-                        except Exception:
-                            selected_executor = executor
+            else:
+                # Dynamic ephemeral agents removed from product surface; fall back to generalist.
+                manager_specialist = "generalist"
+                dispatch_reason = "dynamic_agent_disabled_fallback"
+                if callable(specialist_executor_factory):
+                    try:
+                        selected_executor = specialist_executor_factory("generalist")
+                    except Exception:
+                        selected_executor = executor
+                dynamic_agent = None
 
         system_prompt_override = ""
         tools_override = None
@@ -1047,7 +1032,7 @@ class OclawGateway:
             started_at=t0,
         )
         if on_progress:
-            on_progress("oclaw: running…")
+            on_progress("oclaw: running�?)
         if route_mode == "async_task":
             worker_id = ensure_worker_started(store=self.store)
             task = self.store.oclaw_task_create(
@@ -1246,7 +1231,7 @@ class OclawGateway:
                         reply = str(specialist_reply or "").strip()
                     else:
                         reply = (
-                            "抱歉，我暂时无法给出可展示的结果，请稍后再试。"
+                            "抱歉，我暂时无法给出可展示的结果，请稍后再试�?
                             if not str(lang or "").startswith("en")
                             else "Sorry, no user-safe result is available right now. Please try again later."
                         )

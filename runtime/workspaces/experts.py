@@ -252,7 +252,7 @@ def build_expert_catalog_block(*, include_main: bool = False, per_field_limit: i
 
 def discover_specialist_ids_from_workspaces(
     *,
-    base_order: tuple[str, ...] = ("generalist", "ops", "memory", "image", "video"),
+    base_order: tuple[str, ...] = ("generalist", "ops", "memory"),
 ) -> tuple[str, ...]:
     cache_key = (expert_workspace_signature_token(), tuple(str(x).strip().lower() for x in base_order if str(x).strip()))
     with _CACHE_LOCK:
@@ -266,6 +266,8 @@ def discover_specialist_ids_from_workspaces(
             continue
         # Ignore cache-like directories and malformed expert folders.
         if sid in {"pycache", "__pycache__"} or sid.endswith("pycache"):
+            continue
+        if sid in {"image", "video", "stock"}:
             continue
         if not bool(row.get("has_required_soul")):
             continue
@@ -291,7 +293,7 @@ def warm_expert_workspace_cache() -> None:
 
 def specialist_registry_snapshot(
     *,
-    base_order: tuple[str, ...] = ("generalist", "ops", "memory", "image", "video"),
+    base_order: tuple[str, ...] = ("generalist", "ops", "memory"),
 ) -> tuple[dict[str, Any], ...]:
     """Single source of truth for runtime specialist discovery and metadata."""
     ordered = discover_specialist_ids_from_workspaces(base_order=base_order)

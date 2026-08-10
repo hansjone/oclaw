@@ -509,7 +509,7 @@ def test_gateway_comprehensive_mode_has_manager_final_pass(monkeypatch: pytest.M
     assert out.reply_text == "final_from_manager"
 
 
-def test_gateway_comprehensive_mode_dynamic_agent_dispatches_instruction_only(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_gateway_comprehensive_mode_dynamic_agent_falls_back_to_generalist(monkeypatch: pytest.MonkeyPatch) -> None:
     class Store:
         def get_setting(self, _k: str) -> str:
             return ""
@@ -538,20 +538,25 @@ def test_gateway_comprehensive_mode_dynamic_agent_dispatches_instruction_only(mo
         "runtime.gateway.get_manager_prompt_prebuild",
         lambda **kwargs: {
             "manager_context": "manager",
-            "allowed_fixed": ("generalist", "ops", "memory", "image"),
-            "allowed_fixed_quoted": '"generalist", "ops", "memory", "image"',
+            "allowed_fixed": ("generalist", "ops", "memory"),
+            "allowed_fixed_quoted": '"generalist", "ops", "memory"',
         },
     )
-    monkeypatch.setattr("runtime.gateway.build_ephemeral_executor", lambda *args, **kwargs: _Exec(model=object()))
 
     captured: dict = {}
 
     def _run_agent_core(**kwargs):
         data = kwargs.get("data")
         captured["exec_text"] = getattr(getattr(data, "msg", None), "text", None)
-        return SimpleNamespace(outcome=SimpleNamespace(final_text="dynamic_specialist_answer"))
+        return SimpleNamespace(outcome=SimpleNamespace(final_text="generalist_answer", turn_uuid="t1"))
 
     monkeypatch.setattr("runtime.gateway.run_agent_core", _run_agent_core)
+
+    chosen: dict[str, str] = {}
+
+    def _factory(sid: str):
+        chosen["sid"] = sid
+        return _Exec(model=object())
 
     gw = OclawGateway(store=Store())
     msg = StandardMessage(
@@ -564,9 +569,11 @@ def test_gateway_comprehensive_mode_dynamic_agent_dispatches_instruction_only(mo
         attachments=[],
         metadata={"interaction_mode": "comprehensive"},
     )
-    out = gw.handle_turn(msg=msg, lang="en", executor=_Exec(model=_ManagerModel()))
+    out = gw.handle_turn(msg=msg, lang="en", executor=_Exec(model=_ManagerModel()), specialist_executor_factory=_factory)
     assert out.interaction_mode == "comprehensive"
-    assert out.selected_specialist == "dyn:sql"
+    assert out.selected_specialist == "generalist"
+    assert chosen.get("sid") == "generalist"
+    assert out.dispatch_reason == "dynamic_agent_disabled_fallback"
     assert captured.get("exec_text") == "Write a SQL query to compute daily active users."
 
 

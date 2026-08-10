@@ -4479,7 +4479,7 @@ def build_admin_router() -> APIRouter:
         _require_permission(ctx, "admin:memory:write")
         store.set_setting("MEMORY_VECTOR_ENABLED", "1" if str(payload.get("enabled") or "").lower() in ("1", "true", "yes", "on") else "0")
         backend = str(payload.get("backend") or "sqlite").strip().lower()
-        if backend not in {"sqlite", "chroma", "qdrant"}:
+        if backend != "sqlite":
             backend = "sqlite"
         store.set_setting("MEMORY_VECTOR_BACKEND", backend)
         store.set_setting("MEMORY_VECTOR_TOPK", str(payload.get("top_k") or 5))

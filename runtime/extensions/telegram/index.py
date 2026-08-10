@@ -1,19 +1,18 @@
 from __future__ import annotations
 
-from .api import telegram_plugin
-from runtime.extensions.plugin_api import PluginEntry, define_plugin_entry
+from runtime.extensions.plugin_api import PluginEntry
 
 
 def register_telegram_channel(api) -> None:
-    if hasattr(api, "register_channel"):
-        api.register_channel({"id": "telegram", "plugin": telegram_plugin})
+    """Telegram channel removed from product surface; keep normalize helpers only."""
+    del api
 
 
 def build_telegram_plugin_entry() -> PluginEntry:
-    return define_plugin_entry(
+    return PluginEntry(
         id="telegram",
-        name="Telegram",
-        description="Telegram channel plugin",
+        name="Telegram (disabled)",
+        description="Removed from product surface; outbound normalize helpers remain.",
         register=register_telegram_channel,
     )
 

@@ -81,7 +81,7 @@ def skill_market_install_tool() -> ToolSpec:
             "type": "object",
             "properties": {
                 "slug": {"type": "string"},
-                "provider": {"type": "string", "description": "Optional provider override: clawhub or cocoloop."},
+                "provider": {"type": "string", "description": "Optional provider override (clawhub)."},
                 "version": {"type": "string"},
                 "overwrite": {"type": "boolean"},
             },

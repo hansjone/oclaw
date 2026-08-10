@@ -30,16 +30,15 @@ description: Oclaw 官方 Skill 生命周期手册：安装、更新、卸载、
 
 `<skills_root>` 默认仓库根 `skills/`，可被 **`AIA_SKILLS_ROOT`** 覆盖。
 
-## 技能市场提供方（ClawHub + CocoLoop）
+## 技能市场提供方（ClawHub）
 
-租户设置 **`AIA_SKILL_MARKET_PROVIDER`** 选择市场（网关 `get_market_adapter` 读取）：
+租户设置 **`AIA_SKILL_MARKET_PROVIDER`**（网关 `get_market_adapter` 读取；现仅支持 clawhub）：
 
 | 取值 | 说明 |
 |------|------|
-| **`clawhub`**（默认） | [ClawHub](https://clawhub.ai) 公开技能注册表；HTTP 形态与官方 CLI 一致，见上游文档 [CLI / Registry](https://github.com/openclaw/clawhub/blob/main/docs/cli.md)（`/api/v1/search`、`/api/v1/skills/{slug}`、`/api/v1/download?slug=&version=`）。本仓库客户端：`runtime/tools/skills/clawhub_client.py`，环境变量 **`AIA_CLAWHUB_SITE` / `AIA_CLAWHUB_REGISTRY` / `AIA_CLAWHUB_TOKEN`**（或 `CLAWHUB_*`）与官方 `CLAWHUB_*` 对齐。 |
-| **`cocoloop`** | [CocoLoop 技能商店](https://hub.cocoloop.cn) 开放列表接口：`GET {api}/api/v1/store/skills`（分页、`keyword`、`sort`），详情：`GET {api}/api/v1/store/skills/{id}`；列表项中的 **`download_url`** 为 zip 直链（常见域名 `dl.cocoloop.cn`）。实现：`runtime/tools/skills/cocoloop_client.py`；可选 **`AIA_COCOLOOP_API_BASE`**（默认 `https://api.cocoloop.com`）。别名：`cocoloop-cn`、`cocoloop_cn` 与 `cocoloop` 相同。 |
+| **`clawhub`**（默认） | [ClawHub](https://clawhub.ai) 公开技能注册表；HTTP 形态与官方 CLI 一致，见上游文档 [CLI / Registry](https://github.com/openclaw/clawhub/blob/main/docs/cli.md)。本仓库客户端：`runtime/tools/skills/clawhub_client.py`，环境变量 **`AIA_CLAWHUB_SITE` / `AIA_CLAWHUB_REGISTRY` / `AIA_CLAWHUB_TOKEN`**（或 `CLAWHUB_*`）。 |
 
-安装仍统一走 **`install_skill_from_registry_archive`**：对 ClawHub 与 CocoLoop 均为 **HTTPS zip 归档 URL**，无需在服务器上安装 `clawhub` / `cocoloop` CLI。
+安装统一走 **`install_skill_from_registry_archive`**（HTTPS zip 归档 URL），无需在服务器上安装 `clawhub` CLI。
 
 ## 发现与安装（模型视角）
 

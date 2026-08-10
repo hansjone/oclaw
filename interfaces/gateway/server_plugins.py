@@ -36,13 +36,14 @@ def _resolve_gateway_startup_plugin_ids(
     out = [str(x).strip() for x in plugins if str(x).strip()]
     slot_cfg = ((config.get("plugins") or {}).get("slots") or {}) if isinstance(config, dict) else {}
     memory_slot = str(slot_cfg.get("memory") or "").strip()
-    memory_plugin_ids = {"memory-core", "memory-wiki", "memory-lancedb"}
+    memory_plugin_ids = {"memory-wiki"}
+    skip_plugin_ids = {"telegram", "memory-core", "memory-lancedb"}
     if out:
         if memory_slot:
-            out = [x for x in out if x not in memory_plugin_ids]
-            if memory_slot.lower() != "none":
+            out = [x for x in out if x not in {"memory-core", "memory-wiki", "memory-lancedb"}]
+            if memory_slot.lower() != "none" and memory_slot not in skip_plugin_ids:
                 out.append(memory_slot)
-        return out
+        return [x for x in out if x not in skip_plugin_ids]
     # Auto-discover local plugins when explicit list is absent.
     roots = [
         runtime_extensions_root(),
@@ -62,10 +63,10 @@ def _resolve_gateway_startup_plugin_ids(
             seen.add(pid)
             out.append(pid)
     if memory_slot:
-        out = [x for x in out if x not in memory_plugin_ids]
-        if memory_slot.lower() != "none":
+        out = [x for x in out if x not in {"memory-core", "memory-wiki", "memory-lancedb"}]
+        if memory_slot.lower() != "none" and memory_slot not in skip_plugin_ids:
             out.append(memory_slot)
-    return out
+    return [x for x in out if x not in skip_plugin_ids]
 
 
 def _load_oclaw_plugins(

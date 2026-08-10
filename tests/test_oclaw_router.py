@@ -106,15 +106,15 @@ def test_interaction_mode_normalization_supports_legacy_values() -> None:
 
 def test_requested_specialist_normalization_defaults_to_generalist() -> None:
     assert normalize_requested_specialist("ops") == "ops"
-    # "stock" is a dynamic specialist discovered from runtime workspaces.
-    assert normalize_requested_specialist("stock") == "stock"
-    assert normalize_requested_specialist("image") == "image"
-    # Unknown ids fall back to generalist.
+    # Removed specialists map to generalist.
+    assert normalize_requested_specialist("stock") == "generalist"
+    assert normalize_requested_specialist("image") == "generalist"
+    assert normalize_requested_specialist("video") == "generalist"
     assert normalize_requested_specialist("memory") == "memory"
     assert normalize_requested_specialist("unknown") == "generalist"
 
 
-def test_router_video_expert_sync_despite_long_attachments() -> None:
+def test_router_removed_video_expert_uses_normal_routing() -> None:
     long_text = "x" * 150
     msg = StandardMessage(
         session_id="s1",
@@ -127,9 +127,8 @@ def test_router_video_expert_sync_despite_long_attachments() -> None:
         metadata={"interaction_mode": "expert", "selected_specialist": "video"},
     )
     d = decide_route(msg)
-    assert d.mode == "sync_direct"
-    assert d.reason == "video_expert_legacy_lane"
-    assert d.requested_specialist == "video"
+    assert d.requested_specialist == "generalist"
+    assert d.reason != "video_expert_legacy_lane"
 
 
 def test_router_carries_interaction_mode_and_requested_specialist() -> None:

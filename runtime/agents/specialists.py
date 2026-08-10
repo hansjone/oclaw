@@ -13,6 +13,10 @@ AgentRoleId = str
 MANAGER_AGENT_ID: AgentRoleId = "manager"
 AGENT_PROFILE_BINDINGS_KEY = "agent_profile_bindings"
 
+# Product simplification: media/stock specialists removed from the surface.
+_REMOVED_SPECIALIST_IDS: frozenset[str] = frozenset({"image", "video", "stock"})
+_BASE_SPECIALIST_ORDER: tuple[str, ...] = ("generalist", "ops", "memory")
+
 
 @dataclass(frozen=True)
 class SpecialistConfig:
@@ -46,22 +50,18 @@ SPECIALISTS: dict[SpecialistId, SpecialistConfig] = {
         expert_name="memory",
         default_tool_tags=None,
     ),
-    "image": SpecialistConfig(
-        specialist_id="image",
-        # Vision turns attach pixels in-message; gateway executor exposes no tools (see factory).
-        expert_name="image",
-        default_tool_tags=None,
-    ),
-    "video": SpecialistConfig(
-        specialist_id="video",
-        expert_name="video",
-        default_tool_tags=None,
-    ),
 }
 
+
 def discover_specialist_ids() -> tuple[SpecialistId, ...]:
-    rows = specialist_registry_snapshot(base_order=("generalist", "ops", "memory", "image", "video"))
-    return tuple(str(x.get("id") or "").strip().lower() for x in rows if str(x.get("id") or "").strip())
+    rows = specialist_registry_snapshot(base_order=_BASE_SPECIALIST_ORDER)
+    out: list[str] = []
+    for x in rows:
+        sid = str(x.get("id") or "").strip().lower()
+        if not sid or sid in _REMOVED_SPECIALIST_IDS:
+            continue
+        out.append(sid)
+    return tuple(out)
 
 
 def specialist_ids() -> tuple[SpecialistId, ...]:
@@ -101,6 +101,8 @@ def model_role_for_specialist(specialist_id: SpecialistId) -> AgentRoleId:
 
 def normalize_specialist_id(specialist_id: SpecialistId | None) -> SpecialistId:
     sid = (specialist_id or "").strip().lower()
+    if sid in _REMOVED_SPECIALIST_IDS:
+        return "generalist"
     if sid in SPECIALISTS:
         return sid
     if sid in discover_specialist_ids():

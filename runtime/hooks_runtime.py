@@ -25,28 +25,6 @@ class _HooksState:
 
 
 _STATE = _HooksState()
-_log_gmail = logging.getLogger("oclaw.hooks.gmail")
-
-
-class _GmailWatcherLogAdapter:
-    def info(self, msg: str) -> None:
-        _log_gmail.info("%s", msg)
-
-    def warn(self, msg: str) -> None:
-        _log_gmail.warning("%s", msg)
-
-    def error(self, msg: str) -> None:
-        _log_gmail.error("%s", msg)
-
-
-def _maybe_start_gmail_watcher_with_logs(resolved_cfg: dict[str, Any]) -> None:
-    """After hooks load: parity hook for OpenClaw gateway post-attach Gmail lifecycle."""
-    try:
-        from runtime.hooks.gmail_watcher_lifecycle import start_gmail_watcher_with_logs
-
-        start_gmail_watcher_with_logs(cfg=resolved_cfg, log=_GmailWatcherLogAdapter())
-    except Exception:
-        _log_gmail.exception("gmail watcher lifecycle failed")
 
 
 def _reset_hooks_runtime_state_for_test() -> None:
@@ -146,7 +124,6 @@ def initialize_hooks_runtime(
         _STATE.hooks_mod = hooks_mod
         _STATE.resolved_config = resolved_cfg
         _STATE.last_error = ""
-        _maybe_start_gmail_watcher_with_logs(resolved_cfg)
         return loaded
     except Exception as exc:
         _STATE.initialized = True

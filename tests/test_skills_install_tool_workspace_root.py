@@ -78,6 +78,7 @@ def test_skill_market_install_tool_provider_arg_overrides_setting(monkeypatch, t
     tool = skill_market_install_tool()
     result = tool.handler({"slug": "demo", "provider": "cocoloop", "version": "latest"})
     assert bool(result.get("ok")) is True
-    assert captured["provider"] == "cocoloop"
+    # CocoLoop market removed; provider args normalize to clawhub.
+    assert captured["provider"] == "clawhub"
     assert captured["skills_root"].replace("\\", "/").endswith("/skills/_workspace")
 
