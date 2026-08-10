@@ -62,7 +62,7 @@ const I18N = {
     "chat.compressHistoryFail": "压缩失败：{error}",
     "chat.tools.off": "关",
     "chat.tools.on": "开",
-    "chat.status.oclaw": "主控",
+    "chat.status.oclaw": "助手",
     "chat.status.agent": "专家",
     "chat.status.tool": "工具",
     "chat.status.plan": "规划",
@@ -182,7 +182,6 @@ const I18N = {
     "chat.specialistImageShort": "图像",
     "chat.specialistVideoShort": "视频",
     "chat.specialistMemoryShort": "记忆",
-    "chat.specialistManagerSelfShort": "全能者",
     "chat.attachment.download": "下载",
     "chat.attachment.preview": "预览",
     "chat.attachment.previewLoading": "加载中…",
@@ -252,7 +251,7 @@ const I18N = {
     "chat.compressHistoryFail": "Compaction failed: {error}",
     "chat.tools.off": "Off",
     "chat.tools.on": "On",
-    "chat.status.oclaw": "Controller",
+    "chat.status.oclaw": "Assistant",
     "chat.status.agent": "Agent",
     "chat.status.tool": "Tool",
     "chat.status.plan": "Plan",
@@ -372,7 +371,6 @@ const I18N = {
     "chat.specialistImageShort": "Image",
     "chat.specialistVideoShort": "Video",
     "chat.specialistMemoryShort": "Memory",
-    "chat.specialistManagerSelfShort": "Manager",
     "chat.attachment.download": "Download",
     "chat.attachment.preview": "Preview",
     "chat.attachment.previewLoading": "Loading…",
@@ -861,15 +859,16 @@ function interactionModeLabel(mode) {
 
 function specialistLabel(specialist) {
   const s = String(specialist || "").toLowerCase();
-  if (s === "manager") return currentLang === "zh" ? "主控" : "Manager";
-  if (s === "manager_self") return t("chat.specialistManagerSelfShort");
+  // Legacy manager / manager_self / main aliases display as generalist.
+  if (s === "manager" || s === "manager_self" || s === "main" || s === "comprehensive") {
+    return t("chat.specialistGeneralistShort");
+  }
   if (s === "ops") return t("chat.specialistOpsShort");
   if (s === "image") return t("chat.specialistImageShort");
   if (s === "video") return t("chat.specialistVideoShort");
   if (s === "memory") return t("chat.specialistMemoryShort");
   return t("chat.specialistGeneralistShort");
 }
-
 function memoryModeShortLabel(memoryMode) {
   const mm = String(memoryMode || "default").toLowerCase();
   if (mm === "store_only") return t("chat.memoryModeStoreOnlyShort");
