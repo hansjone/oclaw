@@ -63,7 +63,7 @@ body.theme-ds-body .nav__item {
 }
 
 body.theme-ds-body .nav__item:hover {
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--ds-menu-hover-bg, rgba(255, 255, 255, 0.06));
 }
 
 body.theme-ds-body .nav__item--active {
@@ -90,8 +90,12 @@ body.theme-ds-body .topbar__title {
 }
 
 body.theme-ds-body .content {
-  background: var(--ds-bg);
   color: var(--ds-text);
+  /* Keep styles.css radial wash for themed shells; flatten only DeepSeek (no attribute). */
+}
+
+body.theme-ds-body:not([data-admin-theme]) .content {
+  background: var(--ds-bg);
 }
 
 body.theme-ds-body .muted {
@@ -99,19 +103,21 @@ body.theme-ds-body .muted {
 }
 
 body.theme-ds-body .btn {
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--ds-menu-hover-bg, rgba(255, 255, 255, 0.06));
   border-color: var(--ds-border);
   color: var(--ds-text);
 }
 
 body.theme-ds-body .btn:hover {
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--ds-menu-hover-bg, rgba(255, 255, 255, 0.1));
+  filter: brightness(1.12);
 }
 
 body.theme-ds-body .btn--primary {
   background: var(--ds-accent-soft);
   border-color: var(--ds-accent-border-strong);
   color: var(--ds-text);
+  filter: none;
 }
 
 body.theme-ds-body .input {
@@ -353,7 +359,7 @@ body.theme-ds-body .card {
 
 .chat-sess-row--active {
   background: var(--chat-sess-active-bg, rgba(255, 255, 255, 0.062));
-  border-color: rgba(255, 255, 255, 0.08);
+  border-color: var(--chat-sess-border, rgba(255, 255, 255, 0.08));
 }
 
 .chat-sess-row--active .chat-sess-btn {

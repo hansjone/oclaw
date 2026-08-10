@@ -87,7 +87,8 @@ const I18N = {
     "auth.disabled": "账号已被禁用，请联系管理员",
     "common.error": "错误",
     "theme.label": "界面配色",
-    "theme.deepseek": "DeepSeek 默认",
+    "theme.netx": "NetX 暗色",
+    "theme.deepseek": "DeepSeek",
     "theme.github": "GitHub 暗色",
     "theme.nord": "Nord",
     "theme.dracula": "Dracula",
@@ -276,7 +277,8 @@ const I18N = {
     "auth.disabled": "Account is disabled",
     "common.error": "Error",
     "theme.label": "Color theme",
-    "theme.deepseek": "DeepSeek (default)",
+    "theme.netx": "NetX Dark",
+    "theme.deepseek": "DeepSeek",
     "theme.github": "GitHub Dark",
     "theme.nord": "Nord",
     "theme.dracula": "Dracula",
@@ -3017,10 +3019,10 @@ function syncAuthUserLabel() {
         style: "width:100%;margin:4px 8px 8px;max-width:calc(100% - 16px);",
       });
       try {
-        (window.OclawAdminTheme && window.OclawAdminTheme.THEMES ? window.OclawAdminTheme.THEMES : ["deepseek"]).forEach((tid) => {
+        (window.OclawAdminTheme && window.OclawAdminTheme.THEMES ? window.OclawAdminTheme.THEMES : ["netx"]).forEach((tid) => {
           themeSelMenu.appendChild(el("option", { value: tid, text: t(`theme.${tid}`) }));
         });
-        themeSelMenu.value = window.OclawAdminTheme ? window.OclawAdminTheme.currentAdminTheme() : "deepseek";
+        themeSelMenu.value = window.OclawAdminTheme ? window.OclawAdminTheme.currentAdminTheme() : "netx";
       } catch (_) {}
       themeSelMenu.addEventListener("change", () => {
         try {
