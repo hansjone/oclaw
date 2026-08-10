@@ -3473,11 +3473,71 @@ async function renderChatUi() {
   });
   let globalMenuModeValue = String(localStorage.getItem(CHAT_USER_MENU_MODE_KEY) || MAIN_MODE_VALUE).toLowerCase();
   if (globalMenuModeValue === "comprehensive" || globalMenuModeValue === "main") globalMenuModeValue = MAIN_MODE_VALUE;
-  const modelSelect = el("select", {
+  const modelSelectBtn = el("button", {
+    type: "button",
     class: "chat-composer-chip chat-composer-chip--select",
     title: t("chat.activeModelLabel"),
+    text: "-",
   });
+  const modelSelectWrap = el("div", { class: "chat-model-select" }, [modelSelectBtn]);
   let modelSelectNameToId = new Map();
+  let modelSelectOptions = [];
+  let modelSelectedKey = "";
+  const syncModelSelectBtn = () => {
+    const hit = modelSelectOptions.find((o) => o.key === modelSelectedKey);
+    modelSelectBtn.textContent = String((hit && hit.label) || "-");
+  };
+  const openModelSelectMenu = (anchorEl) => {
+    dismissChatMenus();
+    const items = modelSelectOptions.length
+      ? modelSelectOptions.map((opt) =>
+          el("button", {
+            type: "button",
+            class:
+              "chat-sess-menu-item" +
+              (opt.key === modelSelectedKey ? " chat-sess-menu-item--active" : ""),
+            text: opt.label,
+            onclick: async (ev) => {
+              ev.stopPropagation();
+              dismissChatMenus();
+              const key = String(opt.key || "").trim();
+              if (!key || key === modelSelectedKey) return;
+              modelSelectedKey = key;
+              syncModelSelectBtn();
+              const pid = String(modelSelectNameToId.get(key) || "").trim();
+              if (!pid) return;
+              try {
+                await apiPost("/admin/api/models/active", { profile_id: pid });
+                await refreshActiveModelText();
+              } catch (e) {
+                statusBar.textContent = `${t("chat.error")}: ${String(e)}`;
+              }
+            },
+          }),
+        )
+      : [el("div", { class: "chat-sess-menu-item muted", text: "-" })];
+    const menu = el("div", { class: "chat-sess-menu-pop chat-model-select-pop u-pop-menu" }, items);
+    menu.style.position = "fixed";
+    menu.style.zIndex = "300";
+    const rect = (anchorEl || modelSelectBtn).getBoundingClientRect();
+    attachChatMenuDismiss(menu);
+    const mrect = menu.getBoundingClientRect();
+    const pad = 8;
+    let left = rect.left;
+    let top = rect.bottom + 6;
+    if (top + mrect.height > window.innerHeight - pad) {
+      top = Math.max(pad, rect.top - 6 - mrect.height);
+    }
+    left = Math.max(pad, Math.min(left, window.innerWidth - pad - mrect.width));
+    menu.style.left = `${left}px`;
+    menu.style.top = `${top}px`;
+    menu.style.minWidth = `${Math.max(168, Math.ceil(rect.width))}px`;
+  };
+  modelSelectBtn.addEventListener("click", (ev) => {
+    ev.stopPropagation();
+    if (modelSelectBtn.disabled) return;
+    openModelSelectMenu(ev.currentTarget);
+  });
   const normalizeExecutionMode = (v) => {
     const raw = String(v || "").trim().toLowerCase();
     return raw === EXECUTION_MODE_PLAN ? EXECUTION_MODE_PLAN : EXECUTION_MODE_AGENT;
@@ -3585,8 +3645,8 @@ async function renderChatUi() {
   const activeModelText = el("span", { class: "muted", text: `${t("chat.activeModelLabel")}: -` });
   const applyModelSelectorVisibility = (modelsState) => {
     const show = !(modelsState && modelsState.chat_model_selector_visible === false);
-    modelSelect.style.display = show ? "" : "none";
-    modelSelect.disabled = !show;
+    modelSelectWrap.style.display = show ? "" : "none";
+    modelSelectBtn.disabled = !show;
   };
   const refreshActiveModelText = async () => {
     try {
@@ -3597,8 +3657,8 @@ async function renderChatUi() {
       const p = profiles.find((x) => String(x.id || "") === aid) || null;
       const modelName = String((p && p.model) || "").trim() || "-";
       activeModelText.textContent = `${t("chat.activeModelLabel")}: ${modelName}`;
-      modelSelect.innerHTML = "";
       modelSelectNameToId = new Map();
+      modelSelectOptions = [];
       const usedKeys = new Set();
       profiles.forEach((row) => {
         const pid = String(row && row.id ? row.id : "");
@@ -3613,38 +3673,30 @@ async function renderChatUi() {
         }
         usedKeys.add(key);
         modelSelectNameToId.set(key, pid);
-        const display = String(row.model || row.name || pid);
-        modelSelect.appendChild(el("option", { value: key, text: display }));
+        modelSelectOptions.push({
+          key,
+          id: pid,
+          label: String(row.model || row.name || pid),
+        });
       });
       if (p) {
-        const rawName = String(p.name || "").trim();
         const firstKey = Array.from(modelSelectNameToId.keys()).find((k) => modelSelectNameToId.get(k) === aid) || "";
-        const key = firstKey || rawName;
-        if (key && Array.from(modelSelect.options).some((o) => String(o.value || "") === key)) {
-          modelSelect.value = key;
-        }
-      } else if (modelSelect.options.length > 0) {
-        modelSelect.value = String(modelSelect.options[0].value || "");
+        modelSelectedKey = firstKey || "";
+      } else if (modelSelectOptions.length > 0) {
+        modelSelectedKey = String(modelSelectOptions[0].key || "");
+      } else {
+        modelSelectedKey = "";
       }
+      syncModelSelectBtn();
     } catch (_) {
       applyModelSelectorVisibility(null);
       activeModelText.textContent = `${t("chat.activeModelLabel")}: -`;
-      modelSelect.innerHTML = "";
-      modelSelect.appendChild(el("option", { value: "", text: "-" }));
-      modelSelect.value = "";
+      modelSelectNameToId = new Map();
+      modelSelectOptions = [];
+      modelSelectedKey = "";
+      syncModelSelectBtn();
     }
   };
-  modelSelect.addEventListener("change", async () => {
-    const selectedKey = String(modelSelect.value || "").trim();
-    const pid = String(modelSelectNameToId.get(selectedKey) || "").trim();
-    if (!pid) return;
-    try {
-      await apiPost("/admin/api/models/active", { profile_id: pid });
-      await refreshActiveModelText();
-    } catch (e) {
-      statusBar.textContent = `${t("chat.error")}: ${String(e)}`;
-    }
-  });
   const loadSessionModePreference = async () => {
     if (!activeId) {
       setExecutionMode(currentExecutionMode, { persistLocal: true, saveSession: false });
@@ -3781,7 +3833,7 @@ async function renderChatUi() {
   });
   const composerMetaBar = el("div", { class: "chat-composer-meta" }, [
     execSelectWrap,
-    modelSelect,
+    modelSelectWrap,
     compressBtn,
   ]);
 

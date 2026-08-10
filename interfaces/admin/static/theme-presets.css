@@ -321,32 +321,45 @@ body.theme-ds-body[data-admin-theme="light"] .chat-composer {
 
 body.theme-ds-body[data-admin-theme="light"] .chat-composer-chip,
 body.theme-ds-body[data-admin-theme="light"] .chat-composer-chip--select {
-  background-color: #ffffff;
-  border-color: rgba(15, 23, 42, 0.16);
-  color: #0f172a;
+  background-color: transparent;
+  border: none;
+  color: rgba(15, 23, 42, 0.62);
 }
 
 body.theme-ds-body[data-admin-theme="light"] .chat-composer-chip--select {
-  background-color: #ffffff;
+  background-color: transparent;
   background-image:
-    linear-gradient(45deg, transparent 50%, rgba(15, 23, 42, 0.55) 50%),
-    linear-gradient(135deg, rgba(15, 23, 42, 0.55) 50%, transparent 50%);
+    linear-gradient(45deg, transparent 50%, rgba(15, 23, 42, 0.45) 50%),
+    linear-gradient(135deg, rgba(15, 23, 42, 0.45) 50%, transparent 50%);
   background-position:
-    calc(100% - 14px) calc(50% - 2px),
-    calc(100% - 9px) calc(50% - 2px);
-  background-size: 5px 5px, 5px 5px;
+    calc(100% - 10px) calc(50% - 1.5px),
+    calc(100% - 6px) calc(50% - 1.5px);
+  background-size: 4px 4px, 4px 4px;
   background-repeat: no-repeat;
 }
 
-body.theme-ds-body[data-admin-theme="light"] .chat-composer-chip--select option {
-  background-color: #ffffff;
+body.theme-ds-body[data-admin-theme="light"] .chat-model-select-pop {
+  background: #ffffff;
+  border-color: rgba(15, 23, 42, 0.12);
+  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.12);
+}
+
+body.theme-ds-body[data-admin-theme="light"] .chat-model-select-pop .chat-sess-menu-item--active {
+  background: rgba(37, 99, 235, 0.12);
   color: #0f172a;
 }
 
 body.theme-ds-body[data-admin-theme="light"] .chat-composer-chip:hover,
 body.theme-ds-body[data-admin-theme="light"] .chat-composer-chip--select:hover {
-  background-color: #f8fafc;
-  border-color: rgba(37, 99, 235, 0.35);
+  background-color: rgba(15, 23, 42, 0.05);
+  color: #0f172a;
+}
+
+body.theme-ds-body[data-admin-theme="light"] .chat-composer-chip:focus-visible,
+body.theme-ds-body[data-admin-theme="light"] .chat-composer-chip--select:focus-visible {
+  background-color: rgba(37, 99, 235, 0.1);
+  color: #0f172a;
+  box-shadow: none;
 }
 
 body.theme-ds-body[data-admin-theme="light"] .chat-composer-shell {
