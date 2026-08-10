@@ -206,13 +206,13 @@ body.theme-ds-body .card {
   width: 28px;
   height: 28px;
   border-radius: 50%;
-  background-color: rgba(255, 255, 255, 0.14);
+  background-color: var(--ds-menu-hover-bg, rgba(148, 163, 184, 0.14));
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.22);
   transition: background-color 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
 }
 
 .chat-nav__new:hover .chat-nav__newGlyph {
-  background-color: rgba(255, 255, 255, 0.22);
+  background-color: var(--ds-accent-soft, rgba(148, 163, 184, 0.22));
   transform: scale(1.05);
 }
 
@@ -220,7 +220,7 @@ body.theme-ds-body .card {
 .chat-nav__newGlyph::after {
   content: "";
   position: absolute;
-  background-color: #fff;
+  background-color: var(--ds-text, #fff);
   border-radius: 2px;
   top: 50%;
   left: 50%;
@@ -390,7 +390,7 @@ body.theme-ds-body .card {
   flex-direction: column;
   border: none;
   border-radius: 0;
-  background: var(--ds-chat-main, #050505);
+  background: var(--ds-chat-main, var(--ds-bg, #070b14));
   overflow: hidden;
 }
 
@@ -555,13 +555,13 @@ body.theme-ds-body .card {
 
 /* 与助手侧 oliver.svg 一致：浅底 + 内边距，矢量用 contain（避免大 viewBox 在 flex 下撑开一行） */
 .chat-avatar--bot {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--ds-menu-hover-bg, rgba(148, 163, 184, 0.1));
   padding: 5px;
   object-fit: contain;
 }
 
 .chat-avatar--userBuiltin {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--ds-menu-hover-bg, rgba(148, 163, 184, 0.1));
   padding: 5px;
   object-fit: contain;
 }
@@ -614,8 +614,8 @@ body.theme-ds-body .card {
   align-self: flex-start;
   width: auto;
   max-width: 100%;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid var(--ds-border, rgba(255, 255, 255, 0.08));
+  background: var(--ds-splash-bg, rgba(148, 163, 184, 0.06));
+  border: 1px solid var(--ds-border, rgba(148, 163, 184, 0.18));
 }
 
 .chat-msg__actions {
@@ -634,10 +634,10 @@ body.theme-ds-body .card {
 }
 
 .chat-msg__action-btn {
-  border: 1px solid rgba(148, 163, 184, 0.25);
+  border: 1px solid var(--ds-border, rgba(148, 163, 184, 0.25));
   background: transparent;
-  color: rgba(203, 213, 225, 0.92);
-  border-radius: 999px;
+  color: var(--ds-text-muted, rgba(203, 213, 225, 0.92));
+  border-radius: 8px;
   font-size: 15px;
   width: 32px;
   height: 32px;
@@ -649,7 +649,7 @@ body.theme-ds-body .card {
 }
 
 .chat-msg__action-btn:hover {
-  background: rgba(30, 41, 59, 0.45);
+  background: var(--ds-menu-hover-bg, rgba(30, 41, 59, 0.45));
 }
 
 .chat-msg__action-btn--danger {
@@ -861,15 +861,15 @@ body.theme-ds-body .card {
 .chat-msg__md .mermaid .mermaid-fallback pre {
   margin: 0;
   white-space: pre-wrap;
-  color: #e5e7eb;
+  color: var(--ds-text, #e5e7eb);
 }
 
 .chat-msg--tool {
   align-self: flex-start;
   font-family: ui-monospace, monospace;
   font-size: 12px;
-  background: rgba(0, 0, 0, 0.25);
-  border: 1px dashed rgba(255, 255, 255, 0.12);
+  background: var(--ds-surface, rgba(15, 23, 42, 0.55));
+  border: 1px dashed var(--ds-border, rgba(148, 163, 184, 0.22));
 }
 
 /* In-dialog progress (e.g. Core: analyzing request…) during stream; not the footer status line */
@@ -879,8 +879,8 @@ body.theme-ds-body .card {
   font-size: 12px;
   line-height: 1.45;
   color: var(--ds-text-muted, rgba(232, 232, 232, 0.72));
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px dashed rgba(255, 255, 255, 0.14);
+  background: var(--ds-splash-bg, rgba(148, 163, 184, 0.06));
+  border: 1px dashed var(--ds-border, rgba(148, 163, 184, 0.22));
   white-space: pre-wrap;
   word-break: break-word;
 }
@@ -890,16 +890,16 @@ body.theme-ds-body .card {
   gap: 10px;
   align-items: center;
   padding: 8px 10px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  border: 1px solid var(--ds-border, rgba(148, 163, 184, 0.18));
   border-radius: 12px;
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--ds-splash-bg, rgba(148, 163, 184, 0.05));
   cursor: default;
 }
 
 .chat-task-stage__toggle {
   margin-left: auto;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--ds-border, rgba(148, 163, 184, 0.18));
+  background: var(--ds-splash-bg, rgba(148, 163, 184, 0.06));
   color: var(--ds-text-muted, rgba(232, 232, 232, 0.72));
   border-radius: 8px;
   padding: 1px 6px;
@@ -908,7 +908,7 @@ body.theme-ds-body .card {
 }
 
 .chat-task-stage__toggle:hover {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--ds-menu-hover-bg, rgba(148, 163, 184, 0.12));
 }
 
 /* Fold model reasoning blocks in assistant bubbles (same rules as Streamlit messages.py). */
@@ -927,9 +927,9 @@ body.theme-ds-body .card {
 .chat-msg__reasoning {
   align-self: stretch;
   margin: 4px 0 2px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--ds-border, rgba(148, 163, 184, 0.18));
   border-radius: 12px;
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--ds-splash-bg, rgba(148, 163, 184, 0.05));
   padding: 4px 10px 6px;
 }
 
@@ -963,7 +963,7 @@ body.theme-ds-body .card {
   word-break: break-word;
   background: rgba(0, 0, 0, 0.2);
   border-radius: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--ds-border, rgba(148, 163, 184, 0.12));
 }
 
 .chat-msg__reasoning-block {
@@ -1001,7 +1001,7 @@ body.theme-ds-body .card {
 }
 
 .chat-msg__process-caret {
-  color: rgba(232, 232, 232, 0.6);
+  color: var(--ds-text-muted, rgba(232, 232, 232, 0.6));
   font-size: 12px;
   line-height: 1;
 }
@@ -1014,7 +1014,7 @@ body.theme-ds-body .card {
 
 .chat-composer {
   flex-shrink: 0;
-  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  border-top: 1px solid var(--ds-border, rgba(148, 163, 184, 0.12));
   padding: 10px 12px 12px;
 }
 

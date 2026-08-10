@@ -982,12 +982,10 @@ async function openBackgroundJobsPanel() {
   }
 
   const backdrop = el("div", {
-    class: "chat-confirm-backdrop chat-jobs-backdrop",
-    style: "z-index:9998;",
+    class: "chat-confirm-backdrop chat-jobs-backdrop u-z-modal",
   });
   const card = el("div", {
-    class: "chat-confirm-card chat-jobs-card",
-    style: "max-width:920px;width:94vw;max-height:82vh;display:flex;flex-direction:column;gap:10px;",
+    class: "chat-confirm-card chat-jobs-card u-jobs-card",
   });
   const title = el("div", { class: "card__title", text: t("chat.jobsTitle") });
   const closeBtn = el("button", { type: "button", class: "btn", text: t("chat.jobsClose") });
@@ -997,15 +995,14 @@ async function openBackgroundJobsPanel() {
     class: "btn btn--danger",
     text: t("chat.jobsKillAll"),
   });
-  const head = el("div", { class: "row", style: "gap:8px;justify-content:space-between;align-items:center;flex-wrap:wrap;" }, [
+  const head = el("div", { class: "row u-row-between" }, [
     title,
-    el("div", { class: "row", style: "gap:8px;" }, [refreshBtn, killAllBtn, closeBtn]),
+    el("div", { class: "row u-gap-8" }, [refreshBtn, killAllBtn, closeBtn]),
   ]);
-  const hint = el("div", { class: "muted", style: "font-size:12px;line-height:1.45;", text: t("chat.jobsHint") });
-  const summary = el("div", { class: "muted", style: "font-size:12px;" });
+  const hint = el("div", { class: "muted u-hint", text: t("chat.jobsHint") });
+  const summary = el("div", { class: "muted u-fs-12" });
   const list = el("div", {
-    class: "chat-jobs-list",
-    style: "overflow:auto;flex:1;min-height:220px;max-height:58vh;display:flex;flex-direction:column;gap:8px;",
+    class: "chat-jobs-list u-jobs-list",
   });
 
   const close = () => {
@@ -1059,7 +1056,7 @@ async function openBackgroundJobsPanel() {
             }),
           ],
         );
-        const actions = el("div", { class: "chat-jobs-row__actions row", style: "gap:8px;" });
+        const actions = el("div", { class: "chat-jobs-row__actions row u-gap-8" });
         if (runningJob) {
           const killBtn = el("button", {
             type: "button",
@@ -1163,16 +1160,14 @@ async function openWikiPreviewModal({ sessionId, path }) {
   const p = String(path || "").replace(/\\/g, "/").replace(/^\//, "");
   if (!sid || !p) return;
   const backdrop = el("div", {
-    class: "chat-confirm-backdrop",
-    style: "z-index:9998;",
+    class: "chat-confirm-backdrop u-z-modal",
   });
   const card = el("div", {
-    class: "chat-confirm-card",
-    style: "max-width:980px;width:92vw;max-height:78vh;overflow:auto;",
+    class: "chat-confirm-card u-profile-card",
   });
   const title = el("div", { class: "card__title", text: t("chat.wikiPreviewTitle", { path: p }) });
   const closeBtn = el("button", { type: "button", class: "btn", text: t("chat.wikiPreviewClose") });
-  const head = el("div", { class: "row", style: "gap:8px;justify-content:space-between;align-items:center;" }, [
+  const head = el("div", { class: "row u-row-between" }, [
     title,
     closeBtn,
   ]);
@@ -1250,30 +1245,25 @@ async function openDispatchLabelsEditor(statusEl) {
     ? JSON.stringify(cfg.overrides, null, 2)
     : "";
   const backdrop = el("div", {
-    class: "chat-confirm-backdrop",
-    style: "z-index:9999;",
+    class: "chat-confirm-backdrop u-z-modal-top",
   });
   const card = el("div", {
-    class: "card",
-    style: "width:min(860px,96vw);max-height:86vh;overflow:auto;padding:12px;",
+    class: "card u-json-card",
   });
   const title = el("div", { class: "card__title", text: t("chat.dispatchLabelsTitle") });
   const tip = el("div", { class: "muted", text: t("chat.dispatchLabelsPrompt") });
-  const err = el("div", { class: "muted", style: "color:#dc2626;" });
+  const err = el("div", { class: "muted u-text-danger" });
   const ta = el("textarea", {
-    class: "input",
-    style: "width:100%;min-height:320px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;",
+    class: "input u-mono-area",
   });
   ta.value = initText;
   const previewTitle = el("div", { class: "muted", text: t("chat.dispatchLabelsEffectivePreview") });
-  const diffOnlyWrap = el("label", { class: "muted", style: "display:flex;gap:6px;align-items:center;cursor:pointer;" });
+  const diffOnlyWrap = el("label", { class: "muted u-check-row" });
   const diffOnlyCb = el("input", { type: "checkbox" });
   diffOnlyWrap.appendChild(diffOnlyCb);
   diffOnlyWrap.appendChild(el("span", { text: t("chat.dispatchLabelsDiffOnly") }));
   const preview = el("textarea", {
-    class: "input",
-    style:
-      "width:100%;min-height:220px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;",
+    class: "input u-mono-area-sm",
     readonly: "readonly",
   });
   const btnSave = el("button", { type: "button", class: "btn btn--primary", text: t("chat.dispatchLabelsSave") });
@@ -1282,7 +1272,7 @@ async function openDispatchLabelsEditor(statusEl) {
   const btnExport = el("button", { type: "button", class: "btn", text: t("chat.dispatchLabelsExport") });
   const btnImport = el("button", { type: "button", class: "btn", text: t("chat.dispatchLabelsImport") });
   const btnCancel = el("button", { type: "button", class: "btn", text: t("chat.dispatchLabelsCancel") });
-  const fileInput = el("input", { type: "file", accept: "application/json,.json", style: "display:none" });
+  const fileInput = el("input", { class: "u-hidden", type: "file", accept: "application/json,.json" });
   const close = () => backdrop.remove();
   const saveCurrent = async () => {
     const raw = String(ta.value || "").trim();
@@ -1395,16 +1385,16 @@ async function openDispatchLabelsEditor(statusEl) {
 
   card.appendChild(title);
   card.appendChild(tip);
-  card.appendChild(el("div", { style: "height:8px;" }));
+  card.appendChild(el("div", { class: "u-h-8" }));
   card.appendChild(ta);
-  card.appendChild(el("div", { style: "height:8px;" }));
+  card.appendChild(el("div", { class: "u-h-8" }));
   card.appendChild(previewTitle);
   card.appendChild(diffOnlyWrap);
   card.appendChild(preview);
-  card.appendChild(el("div", { style: "height:8px;" }));
+  card.appendChild(el("div", { class: "u-h-8" }));
   card.appendChild(err);
   card.appendChild(
-    el("div", { class: "row", style: "gap:8px;justify-content:flex-end;margin-top:8px;" }, [
+    el("div", { class: "row u-row-end-sm" }, [
       btnDefaults,
       btnImport,
       btnExport,
@@ -1583,8 +1573,7 @@ function clearChatPageBlockers() {
 
 function attachChatMenuDismiss(menu) {
   const scrim = el("div", {
-    class: "chat-menu-scrim",
-    style: "position:fixed;inset:0;z-index:250;background:transparent;",
+    class: "chat-menu-scrim u-overlay-scrim",
   });
   const closeAll = () => {
     dismissChatMenus();
@@ -2707,10 +2696,9 @@ async function renderAttachmentsEl(raw) {
         if (String(typ || "") === "video_ref" && mime.toLowerCase().startsWith("video/")) {
           card.appendChild(
             el("video", {
-              class: "chat-att-video",
+              class: "chat-att-video u-media-preview",
               controls: true,
               preload: "metadata",
-              style: "max-width:100%;max-height:420px;margin-top:8px;border-radius:8px;",
               src: url,
             }),
           );
@@ -2721,10 +2709,9 @@ async function renderAttachmentsEl(raw) {
       if (remote && String(typ || "") === "video_ref" && mime.toLowerCase().startsWith("video/")) {
         card.appendChild(
           el("video", {
-            class: "chat-att-video",
+            class: "chat-att-video u-media-preview",
             controls: true,
             preload: "metadata",
-            style: "max-width:100%;max-height:420px;margin-top:8px;border-radius:8px;",
             src: remote,
           }),
         );
@@ -3012,11 +2999,10 @@ function syncAuthUserLabel() {
       ];
       items.push(el("div", { class: "chat-sess-menu-sep" }));
       items.push(
-        el("div", { class: "muted", style: "padding:6px 10px 2px;font-size:12px;", text: t("theme.label") }),
+        el("div", { class: "muted u-menu-label", text: t("theme.label") }),
       );
       const themeSelMenu = el("select", {
-        class: "input",
-        style: "width:100%;margin:4px 8px 8px;max-width:calc(100% - 16px);",
+        class: "input u-menu-select",
       });
       try {
         (window.OclawAdminTheme && window.OclawAdminTheme.THEMES ? window.OclawAdminTheme.THEMES : ["netx"]).forEach((tid) => {
@@ -3033,8 +3019,8 @@ function syncAuthUserLabel() {
       const bridge = window.__chatUserMenuPrefs;
       if (bridge && typeof bridge === "object") {
         items.push(el("div", { class: "chat-sess-menu-sep" }));
-        items.push(el("div", { class: "muted", style: "padding:6px 10px 2px;font-size:12px;", text: t("chat.modeLabel") }));
-        const modeSel = el("select", { class: "input", style: "width:100%;margin:4px 8px 8px;max-width:calc(100% - 16px);" });
+        items.push(el("div", { class: "muted u-menu-label", text: t("chat.modeLabel") }));
+        const modeSel = el("select", { class: "input u-menu-select" });
         try {
           const rows = Array.isArray(bridge.getModeOptions && bridge.getModeOptions()) ? bridge.getModeOptions() : [];
           rows.forEach((r) => modeSel.appendChild(el("option", { value: String(r.value || ""), text: String(r.label || r.value || "") })));
@@ -3052,7 +3038,7 @@ function syncAuthUserLabel() {
           }
         });
         items.push(modeSel);
-        const reasonWrap = el("label", { class: "switch-wrap", style: "margin:2px 8px 8px;" }, [
+        const reasonWrap = el("label", { class: "switch-wrap u-switch-menu" }, [
           el("input", { type: "checkbox", class: "switch-input" }),
           el("span", { class: "switch-slider" }),
           el("span", { class: "muted", text: t("chat.tools") }),
@@ -3087,8 +3073,7 @@ function syncAuthUserLabel() {
         }),
       );
       const menu = el("div", {
-        class: "chat-sess-menu-pop",
-        style: "position:fixed;min-width:220px;z-index:300;",
+        class: "chat-sess-menu-pop u-pop-menu",
       }, items);
       const rect = moreBtn.getBoundingClientRect();
       attachChatMenuDismiss(menu);
@@ -3162,7 +3147,7 @@ async function renderLogin() {
     text: t("auth.login"),
     onclick: doLogin,
   });
-  const card = el("div", { class: "card", style: "max-width:440px;width:100%" }, [
+  const card = el("div", { class: "card u-modal-card-sm" }, [
     el("div", { class: "card__title", text: t("auth.login") }),
     el("div", { class: "chat-login-fields" }, [username, password]),
     el("div", { class: "row chat-login-actions" }, [btn]),
@@ -3271,7 +3256,7 @@ async function renderChatUi() {
     rows: "1",
     placeholder: t("chat.placeholder"),
   });
-  const fileInput = el("input", { type: "file", multiple: "multiple", style: "display:none", accept: "*/*" });
+  const fileInput = el("input", { class: "u-hidden", type: "file", multiple: "multiple", accept: "*/*" });
   const attachBtn = el("button", {
     type: "button",
     class: "chat-composer-iconbtn",
@@ -3301,16 +3286,14 @@ async function renderChatUi() {
   let specialistCatalog = [];
   /** Hidden: mode is global-only (⋯ menu). Kept for specialist option list in `publishUserMenuPrefsBridge`. */
   const modeSelect = el("select", {
-    class: "input",
-    style: "display:none;",
+    class: "input u-hidden",
     "aria-hidden": "true",
     tabIndex: -1,
   });
   let globalMenuModeValue = String(localStorage.getItem(CHAT_USER_MENU_MODE_KEY) || MAIN_MODE_VALUE).toLowerCase();
   if (globalMenuModeValue === "comprehensive" || globalMenuModeValue === "main") globalMenuModeValue = MAIN_MODE_VALUE;
   const modelSelect = el("select", {
-    class: "input",
-    style: "min-width:150px;max-width:240px;padding:6px 8px;",
+    class: "input u-select-mode",
     title: t("chat.activeModelLabel"),
   });
   let modelSelectNameToId = new Map();
@@ -3322,8 +3305,7 @@ async function renderChatUi() {
     normalizeExecutionMode(v) === EXECUTION_MODE_PLAN ? t("chat.execModePlan") : t("chat.execModeAgent");
   let currentExecutionMode = normalizeExecutionMode(localStorage.getItem(CHAT_EXECUTION_MODE_KEY) || EXECUTION_MODE_AGENT);
   const execSelect = el("select", {
-    class: "input",
-    style: "min-width:96px;max-width:140px;padding:6px 8px;",
+    class: "input u-select-exec",
   });
   const refreshExecutionSelect = () => {
     const prev = normalizeExecutionMode(execSelect.value || currentExecutionMode);
@@ -3344,7 +3326,7 @@ async function renderChatUi() {
   });
   refreshExecutionSelect();
   execSelect.value = currentExecutionMode;
-  const execSelectWrap = el("span", { class: "chat-exec-mode-wrap", style: "display:inline-flex;align-items:center;" }, [
+  const execSelectWrap = el("span", { class: "chat-exec-mode-wrap u-inline-flex" }, [
     execSelect,
   ]);
   const refreshExecUi = () => {
@@ -3584,13 +3566,12 @@ async function renderChatUi() {
   };
   await refreshActiveModelText();
   refreshExecUi();
-  const composerMetaBar = el("div", { class: "row", style: "gap:8px;padding:2px 4px 6px;align-items:center;" }, [
+  const composerMetaBar = el("div", { class: "row u-gap-8 u-composer-meta" }, [
     execSelectWrap,
     modelSelect,
     el("button", {
       type: "button",
-      class: "btn",
-      style: "padding:4px 8px;min-height:auto;font-size:12px;",
+      class: "btn u-btn-compact",
       text: t("chat.compressHistory"),
       onclick: async () => {
         const sid = String(activeId || "");
@@ -3668,7 +3649,7 @@ async function renderChatUi() {
         if (ev.target === backdrop) close(false);
       });
       card.appendChild(text);
-      card.appendChild(el("div", { class: "row", style: "gap:8px;justify-content:flex-end;margin-top:10px;" }, [btnCancel, btnOk]));
+      card.appendChild(el("div", { class: "row u-row-end" }, [btnCancel, btnOk]));
       backdrop.appendChild(card);
       document.body.appendChild(backdrop);
     });
@@ -3678,10 +3659,9 @@ async function renderChatUi() {
       const card = el("div", { class: "chat-confirm-card" });
       const text = el("div", { class: "chat-confirm-text", text: String(message || "") });
       const input = el("input", {
-        class: "input",
+        class: "input u-w-full-mt-10",
         type: "text",
         value: String(initialValue || ""),
-        style: "width:100%;margin-top:10px;",
       });
       const btnCancel = el("button", { type: "button", class: "btn", text: t("chat.dispatchLabelsCancel") });
       const btnOk = el("button", { type: "button", class: "btn btn--primary", text: t("chat.dispatchLabelsSave") });
@@ -3705,7 +3685,7 @@ async function renderChatUi() {
       });
       card.appendChild(text);
       card.appendChild(input);
-      card.appendChild(el("div", { class: "row", style: "gap:8px;justify-content:flex-end;margin-top:10px;" }, [btnCancel, btnOk]));
+      card.appendChild(el("div", { class: "row u-row-end" }, [btnCancel, btnOk]));
       backdrop.appendChild(card);
       document.body.appendChild(backdrop);
       setTimeout(() => {
@@ -3773,13 +3753,12 @@ async function renderChatUi() {
           const node = showToast(msg.text, { kind: msg.kind, ttlMs: 6500 });
           const acts = Array.isArray(msg.actions) ? msg.actions : [];
           if (acts.length) {
-            const btnRow = el("div", { class: "row", style: "gap:8px;flex-wrap:wrap;margin-top:8px;" });
+            const btnRow = el("div", { class: "row u-row-wrap-mt-loose" });
             for (const a of acts) {
               btnRow.appendChild(
                 el("button", {
                   type: "button",
-                  class: "btn",
-                  style: "padding:4px 8px;min-height:auto;font-size:12px;",
+                  class: "btn u-btn-compact",
                   text: String(a.label || "View"),
                   onclick: (e) => {
                     e.stopPropagation();
@@ -3972,7 +3951,7 @@ async function renderChatUi() {
     loadMoreWrap.innerHTML = "";
     if (!sessions.length) {
       sessionsListEl.appendChild(
-        el("div", { class: "muted", style: "padding:10px 0 10px 8px", text: t("chat.noSessions") }),
+        el("div", { class: "muted u-empty-pad", text: t("chat.noSessions") }),
       );
       return;
     }
@@ -4025,8 +4004,7 @@ async function renderChatUi() {
     }
     if (sessions.length < sessionTotal) {
       const lm = el("button", {
-        class: "btn",
-        style: "width:100%;margin-top:8px",
+        class: "btn u-w-full-mt-8",
         text: t("chat.loadMore"),
         onclick: async () => {
           try {
@@ -5687,7 +5665,7 @@ document.body.addEventListener("click", (e) => {
   if (!_statusReasonPairs.length) return;
   document.querySelectorAll(".chat-sess-menu-pop").forEach((n) => n.remove());
   const items = _statusReasonPairs.map(([k, n]) => `${reasonLabel(k)}: ${n}`).join("\n");
-  const pop = el("div", { class: "chat-sess-menu-pop", style: "position:fixed;max-width:420px;white-space:pre-wrap;line-height:1.4;" }, [
+  const pop = el("div", { class: "chat-sess-menu-pop u-pop-tip" }, [
     el("div", { class: "chat-sess-menu-item", text: t("chat.dynamicAllReasonsTitle") }),
     el("div", { class: "chat-sess-menu-item", text: items || "-" }),
   ]);
@@ -5745,7 +5723,7 @@ async function boot() {
   } catch (err) {
     mount(
       el("div", { class: "chat-app--login" }, [
-        el("div", { class: "card", style: "max-width:520px;width:100%" }, [
+        el("div", { class: "card u-modal-card" }, [
           el("div", { class: "card__title", text: t("common.error") }),
           el("div", { class: "pre", text: String(err) }),
         ]),
@@ -5817,7 +5795,7 @@ document.addEventListener("keydown", (ev) => {
 boot().catch((err) => {
   mount(
     el("div", { class: "chat-app--login" }, [
-      el("div", { class: "card", style: "max-width:520px;width:100%" }, [
+      el("div", { class: "card u-modal-card" }, [
         el("div", { class: "card__title", text: t("common.error") }),
         el("div", { class: "pre", text: String(err) }),
       ]),

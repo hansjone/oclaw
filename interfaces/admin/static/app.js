@@ -2231,7 +2231,7 @@ async function renderStack() {
     .map((rid) => {
       const item = promptsMap[rid] && typeof promptsMap[rid] === "object" ? promptsMap[rid] : {};
       const finalSystem = String(item.system_prompt || "");
-      return el("div", { class: "card", style: "margin-top:10px;" }, [
+      return el("div", { class: "card u-mt-10" }, [
         el("div", { class: "card__title", text: `role: ${rid}` }),
         el("div", {}, [
           el("div", { class: "muted", text: "system_prompt" }),
@@ -2285,7 +2285,7 @@ async function renderStack() {
     el("div", { class: "card" }, [
       el("div", { class: "card__title", text: t("stack.title") }),
       el("div", { class: "row" }, [btnUp, btnDown]),
-      el("div", { style: "height:10px" }),
+      el("div", { class: "u-h-10" }),
       el("table", { class: "table" }, [
         el("thead", {}, [el("tr", {}, [el("th", { text: t("table.pid") }), el("th", { text: t("table.service") }), el("th", { text: "端口" }), el("th", { text: t("table.status") })])]),
         el("tbody", {}, items),
@@ -2934,7 +2934,7 @@ async function renderUserManagement() {
   await loadAccounts();
 
   const tenantsListHint = allTenants.length > 1
-    ? el("div", { class: "muted", style: "margin-top:8px", text: t("tenants.allTenantsHint") })
+    ? el("div", { class: "muted u-mt-8", text: t("tenants.allTenantsHint") })
     : el("div", {});
 
   return el("div", {}, [
@@ -2942,7 +2942,7 @@ async function renderUserManagement() {
       el("div", { class: "card__title", text: t("tenants.title") }),
       el("div", { class: "row" }, [createName, btnCreateTenant]),
       el("div", { class: "row" }, [el("label", { text: t("tenants.select") }), selector]),
-      el("div", { class: "muted", style: "margin-top:6px", text: t("tenants.scopeHint") }),
+      el("div", { class: "muted u-mt-6", text: t("tenants.scopeHint") }),
       el("table", { class: "table" }, [
         el("thead", {}, [el("tr", {}, [
           el("th", { text: t("tenants.colTenantName") }),
@@ -4004,7 +4004,7 @@ async function renderModels() {
   const bindingWrap = el("div", {});
   const opsAiSpecialistSelect = el("select", { class: "input", disabled: !canConfigureBindings });
   const opsAiProfileSelect = el("select", { class: "input", disabled: !canConfigureBindings });
-  const modelsGrantsLinkRow = el("div", { class: "muted", style: "display:none" });
+  const modelsGrantsLinkRow = el("div", { class: "muted u-hidden" });
   const newName = el("input", { class: "input", placeholder: t("models.createNamePlaceholder") });
   const newMode = el("select", { class: "input", disabled: !canMutateProfiles }, [
     el("option", { value: "openai", text: t("models.mode.openai") }),
@@ -4110,7 +4110,7 @@ async function renderModels() {
 
   const secretsStatusMsg = el("div", { class: "muted", text: "" });
   const secretsMigrateBtn = el("button", { class: "btn", text: t("secrets.migrateBtn") });
-  const secretsCard = el("div", { class: "card", style: "display:none" }, [
+  const secretsCard = el("div", { class: "card u-hidden" }, [
     el("div", { class: "card__title", text: t("secrets.migrateTitle") }),
     el("div", { class: "muted", text: t("secrets.migrateHint") }),
     el("div", { class: "row" }, [secretsMigrateBtn]),
@@ -4788,7 +4788,7 @@ async function renderModels() {
       el("div", { class: "row" }, [btnDelete]),
     ], { id: "models-api" }),
     renderSectionCard("Experts", "Runtime registry and workspace prompt files are split into two sections below.", [
-      el("div", { class: "card", style: "margin:8px 0;padding:10px;" }, [
+      el("div", { class: "card u-pad-block" }, [
         el("div", { class: "card__title", text: "Runtime Expert Registry" }),
         el("div", { class: "row" }, [el("label", { text: "Existing" }), expertsSelect]),
         el("div", { class: "row" }, [btnExpertDelete]),
@@ -4800,7 +4800,7 @@ async function renderModels() {
         el("div", { class: "row" }, [el("label", { text: "Name(zh)" }), expertNameZh]),
         el("div", { class: "row" }, [el("label", { text: "Role" }), expertRoleSel]),
       ]),
-      el("div", { class: "card", style: "margin:8px 0;padding:10px;" }, [
+      el("div", { class: "card u-pad-block" }, [
         el("div", { class: "card__title", text: "Workspace Prompt Files" }),
         el("div", { class: "muted", text: "SOUL.md or ROLE_SYSTEM.md is required." }),
         el("div", { class: "row" }, [el("label", { text: "SOUL.md" }), expertSoul]),
@@ -4809,7 +4809,7 @@ async function renderModels() {
       ]),
       expertsStatus,
     ], { id: "models-experts" }),
-    el("div", { class: "card section-card", id: "models-eval", style: "display:none" }, [evalDetails]),
+    el("div", { class: "card section-card u-hidden", id: "models-eval" }, [evalDetails]),
   ]);
 }
 
@@ -5119,44 +5119,39 @@ async function renderPlugins() {
   const preflightFixWrap = el("div");
   const toolPolicyStatus = el("div", { class: "muted", text: "" });
   const turnMaxWorkersInput = el("input", {
-    class: "input",
+    class: "input u-max-w-120",
     type: "number",
     min: "1",
     max: "32",
     value: String(Number(toolPolicy.turn_max_tool_workers || 8)),
-    style: "max-width:120px",
   });
   const turnMaxRoundsInput = el("input", {
-    class: "input",
+    class: "input u-max-w-120",
     type: "number",
     min: "1",
     max: "300",
     value: String(Number(toolPolicy.turn_max_tool_rounds || 100)),
-    style: "max-width:120px",
   });
   const turnMaxCtxInput = el("input", {
-    class: "input",
+    class: "input u-max-w-120",
     type: "number",
     min: "10",
     max: "400",
     value: String(Number(toolPolicy.turn_max_context_messages || 80)),
-    style: "max-width:120px",
   });
   const sseQueueMaxsizeInput = el("input", {
-    class: "input",
+    class: "input u-max-w-140",
     type: "number",
     min: "200",
     max: "50000",
     value: String(Number(toolPolicy.sse_queue_maxsize || 2000)),
-    style: "max-width:140px",
   });
   const toolLogMaxCharsInput = el("input", {
-    class: "input",
+    class: "input u-max-w-140",
     type: "number",
     min: "20000",
     max: "2000000",
     value: String(Number(toolPolicy.tool_log_max_chars || 200000)),
-    style: "max-width:140px",
   });
   const enableMcpToolsCb = el("input", { type: "checkbox" });
   enableMcpToolsCb.checked = !!toolPolicy.enable_mcp_tools;
@@ -5169,12 +5164,11 @@ async function renderPlugins() {
   const chatShowTtftDebugCb = el("input", { type: "checkbox" });
   chatShowTtftDebugCb.checked = !!toolPolicy.chat_show_ttft_debug;
   const toolLlmMessageMaxCharsInput = el("input", {
-    class: "input",
+    class: "input u-max-w-140",
     type: "number",
     min: "0",
     max: "500000",
     value: String(Number(toolPolicy.tool_llm_message_max_chars ?? 0)),
-    style: "max-width:140px",
   });
   const mcpFilesystemExtraRootsInput = el("input", {
     class: "input",
@@ -5194,20 +5188,18 @@ async function renderPlugins() {
   const oclawRetryCodesStrictModeCb = el("input", { type: "checkbox" });
   oclawRetryCodesStrictModeCb.checked = !!toolPolicy.oclaw_retry_codes_strict_mode;
   const wecomLongconnWorkersInput = el("input", {
-    class: "input",
+    class: "input u-max-w-120",
     type: "number",
     min: "1",
     max: "8",
     value: String(Number(toolPolicy.wecom_longconn_workers || 2)),
-    style: "max-width:120px",
   });
   const wecomLongconnInboundQueueInput = el("input", {
-    class: "input",
+    class: "input u-max-w-140",
     type: "number",
     min: "20",
     max: "5000",
     value: String(Number(toolPolicy.wecom_longconn_inbound_queue_maxsize || 200)),
-    style: "max-width:140px",
   });
   const saveToolPolicyBtn = el("button", {
     class: "btn",
@@ -5735,7 +5727,7 @@ async function renderPlugins() {
       }
     },
   });
-  const cliInstallModal = el("div", { class: "session-monitor-modal", style: "display:none;" });
+  const cliInstallModal = el("div", { class: "session-monitor-modal u-hidden" });
   const cliInstallModalTitle = el("div", { class: "card__title", text: "MCP CLI install" });
   const cliInstallModalBody = el("pre", { class: "pre", text: "" });
   const closeCliInstallModal = () => {
@@ -5757,7 +5749,7 @@ async function renderPlugins() {
     el("div", { class: "card session-monitor-modal__card", style: "width:min(720px,96vw);" }, [
       cliInstallModalTitle,
       cliInstallModalBody,
-      el("div", { class: "row", style: "justify-content:flex-end;margin-top:10px;" }, [
+      el("div", { class: "row u-row-end" }, [
         el("button", { class: "btn", text: "Close", onclick: closeCliInstallModal }),
       ]),
     ]),
@@ -5916,13 +5908,13 @@ async function renderPlugins() {
     healthBtn.className = "chat-sess-menu-item";
     syncBtn.className = "chat-sess-menu-item";
     const actionMenuBtn = el("button", {
-      class: "chat-sess-more",
+      class: "chat-sess-more u-overlay-fixed",
       text: "⋯",
       title: "MCP actions",
       onclick: (ev) => {
         ev.stopPropagation();
         closeMcpActionMenu();
-        const menu = el("div", { class: "chat-sess-menu-pop", style: "position:fixed;z-index:250;" }, [
+        const menu = el("div", { class: "chat-sess-menu-pop" }, [
           toggleBtn,
           healthBtn,
           syncBtn,
@@ -6353,7 +6345,7 @@ pip install git+https://github.com/philschmid/code-sandbox-mcp.git && python -m 
         ]),
       ]),
       usageSummaryPager.wrap,
-      el("div", { class: "muted", text: "Recent MCP Calls", style: "margin-top:10px;" }),
+      el("div", { class: "muted u-mt-10", text: "Recent MCP Calls" }),
       el("div", { class: "table-wrap" }, [
         el("table", { class: "table table--compact" }, [
           el("thead", {}, [el("tr", {}, [
@@ -6568,7 +6560,7 @@ async function renderSessionMonitor() {
   const detailStatus = el("div", { class: "muted", text: t("sessionMonitor.noMessages") });
   const detailPager = el("div", { class: "row" });
   const detailRoleFilter = el("select", { class: "input" });
-  const detailModal = el("div", { class: "session-monitor-modal", style: "display:none;" });
+  const detailModal = el("div", { class: "session-monitor-modal u-hidden" });
   const detailModalCard = el("div", { class: "session-monitor-modal__card" });
   const totalsWrap = el("div", { class: "row" });
   let selectedUserId = "";
@@ -6818,7 +6810,7 @@ async function renderSessionMonitor() {
         onclick: (ev) => {
           ev.stopPropagation();
           closeSessionMenu();
-          const menu = el("div", { class: "chat-sess-menu-pop", style: "position:fixed;z-index:250;" }, [
+          const menu = el("div", { class: "chat-sess-menu-pop u-overlay-fixed" }, [
             el("button", {
               class: "chat-sess-menu-item",
               text: t("sessionMonitor.viewDetail"),
@@ -7257,10 +7249,10 @@ async function renderWorkspacePaths() {
     el("div", { class: "muted", text: t("workspacePaths.help") }),
   ];
   if (selfService) {
-    cardParts.push(el("div", { class: "muted", style: "margin-top:6px;", text: t("workspacePaths.selfOnly") }));
+    cardParts.push(el("div", { class: "muted u-mt-6", text: t("workspacePaths.selfOnly") }));
   }
   cardParts.push(
-    el("div", { style: "height:10px" }),
+    el("div", { class: "u-h-10" }),
     el("div", { class: "row" }, [
       el("label", { text: t("workspacePaths.tenant") }),
       tenantSel,
@@ -7275,14 +7267,14 @@ async function renderWorkspacePaths() {
       allowAnyCb,
       el("span", { text: t("workspacePaths.allowAny") }),
     ]),
-    el("div", { class: "muted", style: "margin-top:6px;line-height:1.45;", text: t("workspacePaths.allowAnyHint") }),
+    el("div", { class: "muted u-muted-block", text: t("workspacePaths.allowAnyHint") }),
     el("label", { class: "row", style: "align-items:center;gap:8px;margin-top:10px;" }, [
       allowHighToolsCb,
       el("span", { text: t("workspacePaths.allowHighTools") }),
     ]),
-    el("div", { class: "muted", style: "margin-top:6px;line-height:1.45;", text: t("workspacePaths.allowHighToolsHint") }),
+    el("div", { class: "muted u-muted-block", text: t("workspacePaths.allowHighToolsHint") }),
     el("div", { class: "row", style: "margin-top:10px;gap:8px;" }, [loadBtn, saveBtn]),
-    el("div", { class: "muted", style: "margin-top:8px;" }, [el("span", { text: t("workspacePaths.status") + ": " }), status]),
+    el("div", { class: "muted u-mt-8" }, [el("span", { text: t("workspacePaths.status") + ": " }), status]),
   );
   return el("div", { class: "card" }, cardParts);
 }
@@ -7488,16 +7480,16 @@ async function renderAttachments() {
         inputRow(t("attachments.toolModeMinRows"), toolMinRowsInput),
         inputRow(t("attachments.toolModeMaxBytes"), toolMaxBytesInput),
         inputRow(t("attachments.sqlTimeoutMs"), sqlTimeoutInput),
-        el("div", { class: "muted", style: "margin-top:6px;line-height:1.45;", text: t("attachments.sqlTimeoutHint") }),
+        el("div", { class: "muted u-muted-block", text: t("attachments.sqlTimeoutHint") }),
       ], { id: "attach-table" }),
       renderSectionCard("图像与视频策略", "", [
         inputRow(t("attachments.imageReplayCapChars"), imageReplayCapInput),
-        el("div", { class: "muted", style: "margin-top:6px;line-height:1.45;", text: t("attachments.imageReplayCapHint") }),
+        el("div", { class: "muted u-muted-block", text: t("attachments.imageReplayCapHint") }),
         inputRow(t("attachments.videoReplayCapChars"), videoReplayCapInput),
-        el("div", { class: "muted", style: "margin-top:6px;line-height:1.45;", text: t("attachments.videoReplayCapHint") }),
+        el("div", { class: "muted u-muted-block", text: t("attachments.videoReplayCapHint") }),
         inputRow(t("attachments.videoTranscriptChunkSize"), videoTranscriptChunkSizeInput),
         inputRow(t("attachments.videoTranscriptChunkOverlap"), videoTranscriptChunkOverlapInput),
-        el("div", { class: "muted", style: "margin-top:6px;line-height:1.45;", text: t("attachments.videoTranscriptChunkHint") }),
+        el("div", { class: "muted u-muted-block", text: t("attachments.videoTranscriptChunkHint") }),
       ], { id: "attach-media" }),
     ]),
     renderSectionCard("压缩包预算策略", "", [
@@ -7505,8 +7497,8 @@ async function renderAttachments() {
       inputRow(t("attachments.archiveMaxFileCount"), archiveMaxFileCountInput),
       inputRow(t("attachments.archiveMaxEntryBytes"), archiveMaxEntryBytesInput),
       inputRow(t("attachments.archiveMaxTotalBytes"), archiveMaxTotalBytesInput),
-      el("div", { class: "muted", style: "margin-top:6px;line-height:1.45;", text: t("attachments.archivePolicyHint") }),
-      el("div", { style: "height:8px" }),
+      el("div", { class: "muted u-muted-block", text: t("attachments.archivePolicyHint") }),
+      el("div", { class: "u-h-8" }),
       status,
     ], { id: "attach-archive" }),
   ]);
@@ -7518,10 +7510,8 @@ async function renderProfile() {
   const metaUser = el("div", { class: "muted pre", text: "" });
   const metaIds = el("div", { class: "muted pre", text: "" });
   const avatarPreview = el("img", {
-    class: "profile-avatar-preview",
+    class: "profile-avatar-preview u-hidden u-avatar-chip",
     alt: "",
-    style:
-      "display:none;width:48px;height:48px;border-radius:999px;object-fit:contain;border:2px solid rgba(255,255,255,0.12);background:rgba(255,255,255,0.08);padding:5px;box-sizing:border-box;",
   });
   const avatarRow = el("div", { class: "row", style: "align-items:center;gap:16px;flex-wrap:wrap;" }, [
     el("div", {}, [avatarPreview]),
@@ -7530,7 +7520,7 @@ async function renderProfile() {
       el("div", { class: "muted", style: "margin-bottom:8px;font-size:12px;line-height:1.4;", text: t("profile.avatarHint") }),
     ]),
   ]);
-  const fileInput = el("input", { type: "file", accept: "image/png,image/jpeg,image/jpg,image/webp,image/gif", style: "display:none" });
+  const fileInput = el("input", { class: "u-hidden", type: "file", accept: "image/png,image/jpeg,image/jpg,image/webp,image/gif" });
   const chooseBtn = el("button", { class: "btn", type: "button", text: t("profile.chooseImage") });
   const removeBtn = el("button", { class: "btn", type: "button", text: t("profile.removeAvatar") });
   const saveBtn = el("button", { class: "btn btn--primary", type: "button", text: t("profile.save") });
@@ -7649,14 +7639,14 @@ async function renderProfile() {
     el("div", { class: "card__title", text: t("title.profile") }),
     el("div", { class: "muted", style: "margin-bottom:10px;line-height:1.45;", text: t("profile.help") }),
     el("div", { class: "row" }, [el("label", { text: t("profile.displayName") }), dnInput]),
-    el("div", { style: "height:8px" }),
+    el("div", { class: "u-h-8" }),
     avatarRow,
     el("div", { class: "row", style: "margin-top:10px;gap:8px;flex-wrap:wrap;" }, [fileInput, chooseBtn, removeBtn]),
     el("div", { class: "row", style: "margin-top:12px;gap:8px;flex-wrap:wrap;" }, [saveBtn, chatBtn]),
-    el("div", { style: "height:8px" }),
+    el("div", { class: "u-h-8" }),
     el("div", { style: "margin-top:14px" }, [metaUser]),
-    el("div", { style: "margin-top:6px" }, [metaIds]),
-    el("div", { class: "muted", style: "margin-top:10px;" }, [status]),
+    el("div", { class: "u-mt-6" }, [metaIds]),
+    el("div", { class: "muted u-mt-10" }, [status]),
   ]);
   return el("div", {}, [profileCard]);
 }
@@ -7775,19 +7765,19 @@ async function renderSkills() {
 
   const btnMarketSearch = el("button", { class: "btn", text: "Search", onclick: async () => await loadMarket(marketQ.value) });
   const btnMarketLatest = el("button", { class: "btn", text: "Latest", onclick: async () => await loadMarket("") });
-  const marketBox = el("details", { style: "margin:10px 0 14px 0;" }, [
-    el("summary", { text: "Skill market (ClawHub / CocoLoop)", style: "cursor:pointer;user-select:none;" }),
-    el("div", { style: "height:8px" }),
-    el("div", { class: "row", style: "gap:8px;flex-wrap:wrap;margin-bottom:8px;" }, [marketQ, marketLimitInp, btnMarketSearch, btnMarketLatest]),
+  const marketBox = el("details", { class: "u-spacer-v" }, [
+    el("summary", { class: "u-drag", text: "Skill market (ClawHub / CocoLoop)" }),
+    el("div", { class: "u-h-8" }),
+    el("div", { class: "row u-row-wrap-mb" }, [marketQ, marketLimitInp, btnMarketSearch, btnMarketLatest]),
     marketStatus,
-    el("div", { style: "height:8px" }),
+    el("div", { class: "u-h-8" }),
     el("div", { class: "table-wrap" }, [
       el("table", { class: "table table--compact" }, [
         el("thead", {}, [el("tr", {}, [el("th", { text: "slug" }), el("th", { text: "name" }), el("th", { text: "version" }), el("th", { text: "description" }), el("th", { text: "action" })])]),
         marketTbody,
       ]),
     ]),
-    el("div", { style: "height:8px" }),
+    el("div", { class: "u-h-8" }),
     el("div", { class: "muted", text: "Detail" }),
     marketDetailPre,
   ]);
@@ -7840,13 +7830,13 @@ async function renderSkills() {
       const namesCell = names.length
         ? el("details", {}, [
           el("summary", { text: previewText || "(empty)" }),
-          el("div", { class: "muted", style: "margin-top:4px;white-space:normal;line-height:1.5;", text: names.join(", ") }),
+          el("div", { class: "muted u-mt-4 u-wrap-lh", text: names.join(", ") }),
         ])
         : el("span", { class: "muted", text: "-" });
       const docsOnlyCell = docsOnlyNames.length
         ? el("details", {}, [
           el("summary", { text: docsOnlyNames.slice(0, 4).join(", ") }),
-          el("div", { class: "muted", style: "margin-top:4px;white-space:normal;line-height:1.5;", text: docsOnlyNames.join(", ") }),
+          el("div", { class: "muted u-mt-4 u-wrap-lh", text: docsOnlyNames.join(", ") }),
         ])
         : el("span", { class: "muted", text: "-" });
       skillEffectiveTbody.appendChild(
@@ -7902,7 +7892,7 @@ async function renderSkills() {
         else prev.delete(nm);
         draft[current] = Array.from(prev);
       });
-      skillBindingListWrap.appendChild(el("label", { class: "row", style: "gap:6px;align-items:center;" }, [cb, el("span", { text: nm })]));
+      skillBindingListWrap.appendChild(el("label", { class: "row u-row-center" }, [cb, el("span", { text: nm })]));
     });
   };
   const loadSkillBinding = async () => {
@@ -7977,11 +7967,10 @@ async function renderSkills() {
       }
     },
   });
-  const skillBindingBox = el("details", { style: "margin:10px 0 14px 0;" }, [
-    el("summary", { text: "Skill role binding (specialists)", style: "cursor:pointer;user-select:none;" }),
+  const skillBindingBox = el("details", { class: "u-spacer-v" }, [
+    el("summary", { class: "u-drag", text: "Skill role binding (specialists)" }),
     el("div", {
-      class: "muted",
-      style: "margin:8px 0;line-height:1.5;",
+      class: "muted u-muted-block-lg",
       text:
         "When enabled, the model skills catalog is filtered per role: each role sees only skills bound to that role, plus skills under skills/_workspace/public/. If nothing is bound yet, non-public skills are hidden until you assign them.",
     }),
@@ -7992,19 +7981,19 @@ async function renderSkills() {
       skillBindingEnabledCb,
       el("span", { text: "Enable role binding (AIA_SKILL_ROLE_BINDING_ENABLED)" }),
     ]),
-    el("div", { class: "row", style: "gap:8px;flex-wrap:wrap;margin-top:8px;align-items:center;" }, [
+    el("div", { class: "row u-row-wrap-mt" }, [
       el("label", { text: "Role" }),
       skillRoleSelect,
       btnSaveSkillBinding,
     ]),
-    el("div", { class: "muted", style: "margin:8px 0 4px 0;", text: "Role binding dashboard" }),
+    el("div", { class: "muted u-label-mt", text: "Role binding dashboard" }),
     el("div", { class: "table-wrap" }, [
       el("table", { class: "table table--compact" }, [
         el("thead", {}, [el("tr", {}, [el("th", { text: "role" }), el("th", { text: "direct skills" }), el("th", { text: "effective" })])]),
         skillBindingDashTbody,
       ]),
     ]),
-    el("div", { class: "muted", style: "margin:8px 0 4px 0;", text: "Effective skills dashboard (binding + MCP + tools)" }),
+    el("div", { class: "muted u-label-mt", text: "Effective skills dashboard (binding + MCP + tools)" }),
     el("div", { class: "table-wrap" }, [
       el("table", { class: "table table--compact" }, [
         el("thead", {}, [el("tr", {}, [
@@ -8079,11 +8068,11 @@ async function renderSkills() {
     text: "Preview",
     onclick: async () => await loadInternalToolsPreview(internalRoleSelect.value),
   });
-  const internalToolsBox = el("details", { style: "margin:10px 0 14px 0;" }, [
-    el("summary", { text: "Internal tools preview (public + expert)", style: "cursor:pointer;user-select:none;" }),
-    el("div", { class: "muted", style: "margin:8px 0;line-height:1.5;", text: "Preview dynamically loaded builtin tools for a role (public shared + expert-scoped)." }),
+  const internalToolsBox = el("details", { class: "u-spacer-v" }, [
+    el("summary", { class: "u-drag", text: "Internal tools preview (public + expert)" }),
+    el("div", { class: "muted u-muted-block-lg", text: "Preview dynamically loaded builtin tools for a role (public shared + expert-scoped)." }),
     internalToolsStatus,
-    el("div", { class: "row", style: "gap:8px;flex-wrap:wrap;margin-top:8px;align-items:center;" }, [
+    el("div", { class: "row u-row-wrap-mt" }, [
       el("label", { text: "Role" }),
       internalRoleSelect,
       btnInternalPreview,
@@ -8101,7 +8090,7 @@ async function renderSkills() {
         },
       }),
     ]),
-    el("div", { class: "table-wrap", style: "margin-top:8px" }, [
+    el("div", { class: "table-wrap u-mt-8" }, [
       el("table", { class: "table table--compact" }, [
         el("thead", {}, [el("tr", {}, [
           el("th", { text: "source" }),
@@ -8114,7 +8103,7 @@ async function renderSkills() {
         internalToolsTbody,
       ]),
     ]),
-    el("div", { class: "muted", style: "margin-top:8px", text: "Skipped modules / factory errors" }),
+    el("div", { class: "muted u-mt-8", text: "Skipped modules / factory errors" }),
     internalSkippedPre,
   ]);
 
@@ -8127,7 +8116,7 @@ async function renderSkills() {
   const llmModeBadge = el("span", { class: "badge badge--mode-restricted", text: "restricted" });
   const llmDiffPre = el("pre", { class: "muted pre", text: "" });
   const llmDiffTbody = el("tbody");
-  const llmDiffTableWrap = el("div", { class: "table-wrap", style: "margin-top:8px" }, [
+  const llmDiffTableWrap = el("div", { class: "table-wrap u-mt-8" }, [
     el("table", { class: "table table--compact" }, [
       el("thead", {}, [el("tr", {}, [
         el("th", { text: "type" }),
@@ -8215,16 +8204,16 @@ async function renderSkills() {
       selfCheckStatus.textContent = `export failed: ${String(e && e.message ? e.message : e)}`;
     }
   };
-  const selfCheckBox = el("details", { style: "margin:10px 0 14px 0;" }, [
-    el("summary", { text: "Tools self-check", style: "cursor:pointer;user-select:none;" }),
-    el("div", { class: "muted", style: "margin:8px 0;line-height:1.5;", text: "Run one-shot diagnostics across roles for internal/wired tools, role mode and permanent bans." }),
+  const selfCheckBox = el("details", { class: "u-spacer-v" }, [
+    el("summary", { class: "u-drag", text: "Tools self-check" }),
+    el("div", { class: "muted u-muted-block-lg", text: "Run one-shot diagnostics across roles for internal/wired tools, role mode and permanent bans." }),
     selfCheckStatus,
-    el("div", { class: "row", style: "gap:8px;align-items:center;margin-top:8px;" }, [
+    el("div", { class: "row u-row-center-mt" }, [
       el("button", { class: "btn btn--primary", text: "Run self-check", onclick: runSelfCheck }),
       el("button", { class: "btn", text: "Export self-check JSON", onclick: exportSelfCheckJson }),
       selfCheckSummary,
     ]),
-    el("div", { class: "table-wrap", style: "margin-top:8px" }, [
+    el("div", { class: "table-wrap u-mt-8" }, [
       el("table", { class: "table table--compact" }, [
         el("thead", {}, [el("tr", {}, [
           el("th", { text: "role" }),
@@ -8335,14 +8324,14 @@ async function renderSkills() {
       skillHealthStatus.textContent = `export failed: ${String(e && e.message ? e.message : e)}`;
     }
   };
-  const skillHealthBox = el("details", { style: "margin:10px 0 14px 0;" }, [
-    el("summary", { text: "Skills health self-check", style: "cursor:pointer;user-select:none;" }),
-    el("div", { class: "muted", style: "margin:8px 0;line-height:1.5;", text: "Run executable skill diagnostics and show failure code distribution." }),
+  const skillHealthBox = el("details", { class: "u-spacer-v" }, [
+    el("summary", { class: "u-drag", text: "Skills health self-check" }),
+    el("div", { class: "muted u-muted-block-lg", text: "Run executable skill diagnostics and show failure code distribution." }),
     skillHealthStatus,
-    el("div", { class: "row", style: "gap:8px;align-items:center;margin-top:8px;" }, [
+    el("div", { class: "row u-row-center-mt" }, [
       el("button", { class: "btn btn--primary", text: "Run skills self-check", onclick: runSkillHealthCheck }),
       el("button", { class: "btn", text: "Export skills self-check JSON", onclick: exportSkillHealthJson }),
-      el("label", { class: "row", style: "gap:6px;align-items:center;" }, [
+      el("label", { class: "row u-row-center" }, [
         skillHealthFailedOnlyCb,
         el("span", { class: "muted", text: "Only failed items" }),
       ]),
@@ -8350,14 +8339,14 @@ async function renderSkills() {
     ]),
     el("div", { class: "row", style: "gap:12px;align-items:flex-start;flex-wrap:wrap;margin-top:8px;" }, [
       el("div", { class: "table-wrap", style: "min-width:280px;flex:1;" }, [
-        el("div", { class: "muted", style: "margin:0 0 6px 0;", text: "classification_counts" }),
+        el("div", { class: "muted u-mb-6", text: "classification_counts" }),
         el("table", { class: "table table--compact" }, [
           el("thead", {}, [el("tr", {}, [el("th", { text: "code" }), el("th", { text: "count" })])]),
           skillHealthClassifyTbody,
         ]),
       ]),
       el("div", { class: "table-wrap", style: "min-width:360px;flex:2;" }, [
-        el("div", { class: "muted", style: "margin:0 0 6px 0;", text: "execution_checks (top 30)" }),
+        el("div", { class: "muted u-mb-6", text: "execution_checks (top 30)" }),
         el("table", { class: "table table--compact" }, [
           el("thead", {}, [el("tr", {}, [el("th", { text: "skill" }), el("th", { text: "status" }), el("th", { text: "error_code" }), el("th", { text: "output_truncated" }), el("th", { text: "action" })])]),
           skillHealthExecTbody,
@@ -8475,11 +8464,11 @@ async function renderSkills() {
         const p0 = a.parameters ? JSON.stringify(a.parameters, null, 2) : "";
         const p1 = b.parameters ? JSON.stringify(b.parameters, null, 2) : "";
         const box = el("details", {}, [
-          el("summary", { text: "compare", style: "cursor:pointer;user-select:none;" }),
-          el("div", { class: "muted", style: "margin-top:6px;" }, [el("div", { text: "raw.description" }), el("pre", { class: "muted pre", text: d0 })]),
-          el("div", { class: "muted", style: "margin-top:6px;" }, [el("div", { text: "wired.description" }), el("pre", { class: "muted pre", text: d1 })]),
-          el("div", { class: "muted", style: "margin-top:6px;" }, [el("div", { text: "raw.parameters" }), el("pre", { class: "muted pre", text: p0 })]),
-          el("div", { class: "muted", style: "margin-top:6px;" }, [el("div", { text: "wired.parameters" }), el("pre", { class: "muted pre", text: p1 })]),
+          el("summary", { class: "u-drag", text: "compare" }),
+          el("div", { class: "muted u-mt-6" }, [el("div", { text: "raw.description" }), el("pre", { class: "muted pre", text: d0 })]),
+          el("div", { class: "muted u-mt-6" }, [el("div", { text: "wired.description" }), el("pre", { class: "muted pre", text: d1 })]),
+          el("div", { class: "muted u-mt-6" }, [el("div", { text: "raw.parameters" }), el("pre", { class: "muted pre", text: p0 })]),
+          el("div", { class: "muted u-mt-6" }, [el("div", { text: "wired.parameters" }), el("pre", { class: "muted pre", text: p1 })]),
         ]);
         return box;
       };
@@ -8534,11 +8523,11 @@ async function renderSkills() {
       btnLLMToggle.textContent = next === "wired" ? "Toggle raw/wired" : "Toggle raw/wired";
     },
   });
-  const llmToolsBox = el("details", { style: "margin:10px 0 14px 0;" }, [
-    el("summary", { text: "LLM tools preview (after wire policy)", style: "cursor:pointer;user-select:none;" }),
-    el("div", { class: "muted", style: "margin:8px 0;line-height:1.5;", text: "Preview the final tools injected to the model for a role (internal + MCP + role_mode + MCP specialist binding)." }),
+  const llmToolsBox = el("details", { class: "u-spacer-v" }, [
+    el("summary", { class: "u-drag", text: "LLM tools preview (after wire policy)" }),
+    el("div", { class: "muted u-muted-block-lg", text: "Preview the final tools injected to the model for a role (internal + MCP + role_mode + MCP specialist binding)." }),
     llmToolsStatus,
-    el("div", { class: "row", style: "gap:8px;flex-wrap:wrap;margin-top:8px;align-items:center;" }, [
+    el("div", { class: "row u-row-wrap-mt" }, [
       el("label", { text: "Role" }),
       llmRoleSelect,
       btnLLMPreview,
@@ -8558,21 +8547,21 @@ async function renderSkills() {
       }),
       el("span", { class: "muted", text: "role_mode:" }),
       llmModeBadge,
-      el("label", { class: "row", style: "gap:6px;align-items:center;" }, [
+      el("label", { class: "row u-row-center" }, [
         llmTracePlanCb,
         el("span", { class: "muted", text: "Trace exposure plan" }),
       ]),
       el("button", { class: "btn", text: "Save trace setting", onclick: saveExposureTraceSetting }),
     ]),
-    el("div", { class: "table-wrap", style: "margin-top:8px" }, [
+    el("div", { class: "table-wrap u-mt-8" }, [
       el("table", { class: "table table--compact" }, [
         el("thead", {}, [el("tr", {}, [el("th", { text: "name" }), el("th", { text: "description" }), el("th", { text: "kind" }), el("th", { text: "parameters" })])]),
         llmToolsTbody,
       ]),
     ]),
-    el("div", { class: "muted", style: "margin-top:8px", text: "Diff / diagnostics" }),
+    el("div", { class: "muted u-mt-8", text: "Diff / diagnostics" }),
     llmRemovedPre,
-    el("div", { class: "muted", style: "margin-top:8px", text: "raw vs wired diff (added/removed/changed)" }),
+    el("div", { class: "muted u-mt-8", text: "raw vs wired diff (added/removed/changed)" }),
     llmDiffPre,
     llmDiffTableWrap,
   ]);
@@ -8587,10 +8576,10 @@ async function renderSkills() {
     }
     skillActionMenuEl = null;
   };
-  const skillTestRunModal = el("div", { class: "session-monitor-modal", style: "display:none;" });
+  const skillTestRunModal = el("div", { class: "session-monitor-modal u-hidden" });
   const skillTestRunTitle = el("div", { class: "card__title", text: "Skill test run" });
   const skillTestRunArgs = el("textarea", { class: "input", rows: "8", style: "width:100%;min-width:0;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;", placeholder: "{}" });
-  const skillInstallModal = el("div", { class: "session-monitor-modal", style: "display:none;" });
+  const skillInstallModal = el("div", { class: "session-monitor-modal u-hidden" });
   const skillInstallTitle = el("div", { class: "card__title", text: "Skill installation" });
   const skillInstallMsg = el("div", { class: "muted", style: "line-height:1.5;" });
   const closeSkillInstallModal = () => {
@@ -8614,7 +8603,7 @@ async function renderSkills() {
   const skillInstallCard = el("div", { class: "card session-monitor-modal__card", style: "width:min(560px,96vw);" }, [
     skillInstallTitle,
     skillInstallMsg,
-    el("div", { class: "row", style: "justify-content:flex-end;margin-top:10px;" }, [
+    el("div", { class: "row u-row-end" }, [
       el("button", { class: "btn", text: "Close", onclick: closeSkillInstallModal }),
     ]),
   ]);
@@ -8660,7 +8649,7 @@ async function renderSkills() {
     skillTestRunTitle,
     el("div", { class: "muted", style: "margin-bottom:8px;", text: "Input JSON args passed to the executable skill runtime." }),
     skillTestRunArgs,
-    el("div", { class: "row", style: "gap:8px;justify-content:flex-end;margin-top:10px;" }, [skillTestRunCancelBtn, skillTestRunRunBtn]),
+    el("div", { class: "row u-row-end" }, [skillTestRunCancelBtn, skillTestRunRunBtn]),
   ]);
   skillTestRunModal.appendChild(skillTestRunCard);
   const retryableOnlyCb = el("input", { type: "checkbox" });
@@ -8768,13 +8757,13 @@ async function renderSkills() {
         },
       });
       const actionMenuBtn = el("button", {
-        class: "chat-sess-more",
+        class: "chat-sess-more u-overlay-fixed",
         text: "⋯",
         title: "Skill actions",
         onclick: (ev) => {
           ev.stopPropagation();
           closeSkillActionMenu();
-          const menu = el("div", { class: "chat-sess-menu-pop", style: "position:fixed;z-index:250;" }, [
+          const menu = el("div", { class: "chat-sess-menu-pop" }, [
             toggleBtn,
             testRunBtn,
             repairDepsBtn,
@@ -9022,7 +9011,7 @@ async function renderSkills() {
   return el("div", { class: "card" }, [
     el("div", { class: "card__title", text: t("title.skills") }),
     el("div", { class: "row", style: "gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px;" }, [
-      el("label", { class: "row", style: "gap:6px;align-items:center;" }, [skillPromptModeCb, el("span", { text: "Prompt mode (inject SKILL.md)" })]),
+      el("label", { class: "row u-row-center" }, [skillPromptModeCb, el("span", { text: "Prompt mode (inject SKILL.md)" })]),
       el("label", { class: "row", style: "gap:6px;align-items:center;flex-wrap:wrap;" }, [
         el("span", { text: "Market (AIA_SKILL_MARKET_PROVIDER)" }),
         skillMarketProviderSelect,
@@ -9032,25 +9021,25 @@ async function renderSkills() {
     ]),
     docsHint,
     marketBox,
-    el("details", { style: "margin:10px 0 14px 0;" }, [
-      el("summary", { text: "Skill installation (local / registry)", style: "cursor:pointer;user-select:none;" }),
-      el("div", { style: "height:8px" }),
+    el("details", { class: "u-spacer-v" }, [
+      el("summary", { class: "u-drag", text: "Skill installation (local / registry)" }),
+      el("div", { class: "u-h-8" }),
       el("div", { class: "muted", style: "margin-bottom:8px;line-height:1.5;" }, [
         el("div", { text: "Local dir: 目录内必须包含 SKILL.md（支持绝对路径）。" }),
         el("div", { text: "Registry: zip/tar 的 URL（支持 file:// 本地 URI）。" }),
       ]),
-      el("div", { class: "row", style: "gap:8px;flex-wrap:wrap;margin-bottom:8px;" }, [regInp, btnInstallRegistry]),
-      el("div", { class: "row", style: "gap:8px;flex-wrap:wrap;margin-bottom:8px;" }, [localDirInp, btnInstallLocal]),
+      el("div", { class: "row u-row-wrap-mb" }, [regInp, btnInstallRegistry]),
+      el("div", { class: "row u-row-wrap-mb" }, [localDirInp, btnInstallLocal]),
     ]),
     skillBindingBox,
     selfCheckBox,
     skillHealthBox,
     internalToolsBox,
     llmToolsBox,
-    el("div", { class: "row", style: "gap:8px;flex-wrap:wrap;margin-bottom:8px;" }, [nameInp, descInp]),
+    el("div", { class: "row u-row-wrap-mb" }, [nameInp, descInp]),
     el("div", { style: "margin-bottom:8px;" }, [bodyInp]),
-    el("div", { class: "row", style: "gap:8px;flex-wrap:wrap;margin-bottom:8px;" }, [btnCreate]),
-    el("div", { class: "row", style: "gap:8px;flex-wrap:wrap;margin-bottom:8px;" }, [btnRefresh, btnRepairDepsAll]),
+    el("div", { class: "row u-row-wrap-mb" }, [btnCreate]),
+    el("div", { class: "row u-row-wrap-mb" }, [btnRefresh, btnRepairDepsAll]),
     el("div", { class: "table-wrap" }, [
       el("table", { class: "table table--compact" }, [
         el("thead", {}, [el("tr", {}, [
@@ -9065,10 +9054,10 @@ async function renderSkills() {
         tbody,
       ]),
     ]),
-    el("div", { style: "height:10px" }),
+    el("div", { class: "u-h-10" }),
     el("div", { class: "row", style: "gap:8px;align-items:center;" }, [
       el("div", { class: "muted", text: "Recent skill install audit" }),
-      el("label", { class: "row", style: "gap:6px;align-items:center;" }, [
+      el("label", { class: "row u-row-center" }, [
         retryableOnlyCb,
         el("span", { class: "muted", text: "Only retryable failures" }),
       ]),
@@ -9135,7 +9124,7 @@ async function renderScheduledJobs() {
   const runsBox = el("pre", { class: "code", style: "max-height:220px;overflow:auto;white-space:pre-wrap;" });
   const msg = el("div", { class: "muted", text: "" });
 
-  const editModal = el("div", { class: "session-monitor-modal", style: "display:none;" });
+  const editModal = el("div", { class: "session-monitor-modal u-hidden" });
   const editTitle = el("div", { class: "card__title", text: t("scheduledJobs.editTitle") });
   const editNameInput = el("input", { class: "input", placeholder: "name" });
   const editKindInput = el("select", {}, [
@@ -9206,11 +9195,11 @@ async function renderScheduledJobs() {
     editTitle,
     editWeixinInfo,
     editNameInput,
-    el("div", { class: "row", style: "gap:8px;" }, [editKindInput, editExprInput]),
+    el("div", { class: "row u-gap-8" }, [editKindInput, editExprInput]),
     editPromptInput,
     editSpecialistInput,
     editWaChatInput,
-    el("div", { class: "row", style: "gap:8px;justify-content:flex-end;margin-top:10px;" }, [
+    el("div", { class: "row u-row-end" }, [
       el("button", { class: "btn", text: t("scheduledJobs.cancel"), onclick: closeEditModal }),
       editSaveBtn,
     ]),
@@ -9246,13 +9235,13 @@ async function renderScheduledJobs() {
     for (const job of resp.items || []) {
       const jobId = String(job.id || "");
       const btnMore = el("button", {
-        class: "chat-sess-more",
+        class: "chat-sess-more u-overlay-fixed",
         text: "⋯",
         title: t("scheduledJobs.menuTitle"),
         onclick: (ev) => {
           ev.stopPropagation();
           closeScheduledJobMenu();
-          const menu = el("div", { class: "chat-sess-menu-pop", style: "position:fixed;z-index:250;" }, [
+          const menu = el("div", { class: "chat-sess-menu-pop" }, [
             el("button", {
               class: "chat-sess-menu-item",
               text: t("scheduledJobs.viewRuns"),
@@ -9391,7 +9380,7 @@ async function renderScheduledJobs() {
     el("div", { class: "card__title", text: t("scheduledJobs.createTitle") }),
     weixinInfo,
     nameInput,
-    el("div", { class: "row", style: "gap:8px;" }, [kindInput, exprInput]),
+    el("div", { class: "row u-gap-8" }, [kindInput, exprInput]),
     promptInput,
     specialistInput,
     waChatInput,
@@ -9427,10 +9416,10 @@ async function renderScheduledJobs() {
           el("colgroup", {}, [
             el("col", { style: "width:14%" }),
             el("col", { style: "width:14%" }),
-            el("col", { style: "width:12%" }),
+            el("col", { class: "u-w-12p" }),
             el("col", { style: "width:8%" }),
-            el("col", { style: "width:12%" }),
-            el("col", { style: "width:12%" }),
+            el("col", { class: "u-w-12p" }),
+            el("col", { class: "u-w-12p" }),
             el("col", { style: "width:8%" }),
             el("col", { style: "width:10%" }),
             el("col", { style: "width:10%" }),
