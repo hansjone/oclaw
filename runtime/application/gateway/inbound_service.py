@@ -100,7 +100,11 @@ def _build_admin_gateway_executor(
     )
 
 
-def _menu_text() -> str:
+def _menu_text(*, channel: str = "") -> str:
+    if str(channel or "").strip().lower() == "whatsapp":
+        from runtime.extensions.whatsapp.access_control import whatsapp_ops_help_text
+
+        return whatsapp_ops_help_text(lang="en")
     return (
         "已绑定成功，常用命令：\n"
         "1) 帮助 / 菜单\n"
@@ -121,13 +125,14 @@ def _handle_productivity_commands(
     session_id: str = "",
     creator_external_user_id: str = "",
     creator_push_name: str = "",
+    channel: str = "",
 ) -> str | None:
     t = (text or "").strip()
     t_low = t.lower()
     if not t:
         return None
     if t in ("帮助", "菜单", "help", "/help"):
-        return _menu_text()
+        return _menu_text(channel=channel)
 
     from svc.config.paths import db_path
     from svc.persistence.sqlite_store import SqliteStore
@@ -1045,7 +1050,16 @@ def process_inbound_payload(payload: dict[str, Any]) -> dict[str, Any]:
                 else None
             ),
         )
-        reply = ("绑定成功。\n\n" + _menu_text()) if info else "绑定失败：无效或已使用的绑定码。"
+        channel_is_wa_bind = str(inbound.channel or "").strip().lower() == "whatsapp"
+        if info:
+            guide = _menu_text(channel=str(inbound.channel or ""))
+            reply = ("Bound successfully.\n\n" + guide) if channel_is_wa_bind else ("绑定成功。\n\n" + guide)
+        else:
+            reply = (
+                "Bind failed: invalid or already used code."
+                if channel_is_wa_bind
+                else "绑定失败：无效或已使用的绑定码。"
+            )
     else:
         if inbound.is_group and not should_process_group_inbound(
             is_group=inbound.is_group,
@@ -1238,6 +1252,7 @@ def process_inbound_payload(payload: dict[str, Any]) -> dict[str, Any]:
                             )
                             or ""
                         ),
+                        channel=str(inbound.channel or ""),
                     )
                     if cmd_reply is not None:
                         reply = cmd_reply
@@ -1742,7 +1757,7 @@ def process_inbound_payload(payload: dict[str, Any]) -> dict[str, Any]:
             if reply:
                 reply = f"{preface}\n\n{reply}"
             else:
-                reply = f"{preface}\n\n{_menu_text()}"
+                reply = f"{preface}\n\n{_menu_text(channel=str(inbound.channel or ''))}"
 
     ch_lower = str(inbound.channel or "").strip().lower()
     if ch_lower in {"wechat", "weixin"}:

@@ -343,6 +343,43 @@ def coerce_whatsapp_access_target(value: str) -> str:
     return normalize_whatsapp_target(normalize_whatsapp_phone(value))
 
 
+def whatsapp_ops_help_text(*, lang: str = "en") -> str:
+    """Short field-ops guide for WhatsApp (English-first deployments)."""
+    if str(lang or "").strip().lower().startswith("zh"):
+        return (
+            "群聊请 @机器人 再提问。\n"
+            "常用示例：\n"
+            "- 断纤 / fiber cut 告警\n"
+            "- 离线网元清单\n"
+            "- 告警导出 Excel / alarm excel\n"
+            "- license / capacity 查询\n"
+            "长任务可回复 YES / continue。\n"
+            "绑定团队账号：bind <code>"
+        )
+    return (
+        "In groups, @mention the bot first.\n"
+        "Try:\n"
+        "- fiber cut alarms\n"
+        "- list offline NEs\n"
+        "- alarm excel report\n"
+        "- license / capacity check\n"
+        "During long tasks reply YES / continue.\n"
+        "Team account: bind <code>"
+    )
+
+
+def access_granted_guide_text(*, lang: str = "en") -> str:
+    if str(lang or "").strip().lower().startswith("zh"):
+        return "访问已批准，可以使用助手了。\n\n" + whatsapp_ops_help_text(lang=lang)
+    return "Access approved — you can use the assistant now.\n\n" + whatsapp_ops_help_text(lang=lang)
+
+
+def access_denied_final_text(*, lang: str = "en") -> str:
+    if str(lang or "").strip().lower().startswith("zh"):
+        return "访问申请未通过。如需使用请联系管理员。"
+    return "Your access request was not approved. Contact an administrator if you still need access."
+
+
 def denied_reply_text(*, lang: str, pending_id: str = "", already_pending: bool = False) -> str:
     pid = str(pending_id or "").strip()
     if str(lang or "").strip().lower().startswith("zh"):

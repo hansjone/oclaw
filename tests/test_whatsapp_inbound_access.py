@@ -272,6 +272,17 @@ def test_handle_whatsapp_access_admin_yes_with_stanza_mapping(monkeypatch) -> No
     replies = out.get("replies") if isinstance(out.get("replies"), list) else []
     md = replies[0].get("metadata") if replies and isinstance(replies[0], dict) else {}
     assert md.get("quote_stanza_id") == "admin_reply_1"
+    decision = [
+        o
+        for o in store.outbound
+        if "whatsapp_access_decision" in str(o.get("source") or "")
+    ]
+    assert len(decision) == 1
+    assert "8615601877957" in str(decision[0].get("chat_id") or "")
+    assert "Access approved" in str(decision[0].get("text") or "")
+    assert "@mention" in str(decision[0].get("text") or "").lower() or "fiber" in str(
+        decision[0].get("text") or ""
+    ).lower()
 
 
 def test_handle_whatsapp_access_admin_yes_with_quoted_text_fallback(monkeypatch) -> None:
@@ -305,6 +316,13 @@ def test_handle_whatsapp_access_admin_yes_with_quoted_text_fallback(monkeypatch)
     assert out is not None
     assert store.pending[0]["status"] == "denied"
     assert store.contacts.get("8615601877957", {}).get("list_type") == "blacklist"
+    decision = [
+        o
+        for o in store.outbound
+        if "whatsapp_access_decision" in str(o.get("source") or "")
+    ]
+    assert len(decision) == 1
+    assert "not approved" in str(decision[0].get("text") or "").lower()
 
 
 def test_handle_whatsapp_access_denied_enqueues_notify_with_pending_source(monkeypatch) -> None:

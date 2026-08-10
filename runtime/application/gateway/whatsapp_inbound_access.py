@@ -5,6 +5,8 @@ import uuid
 from typing import Any
 
 from runtime.extensions.whatsapp.access_control import (
+    access_denied_final_text,
+    access_granted_guide_text,
     admin_approval_result_text,
     admin_notify_text,
     default_access_lang,
@@ -24,7 +26,7 @@ from runtime.extensions.whatsapp.access_control import (
     resolve_whatsapp_sender_jid,
     whatsapp_sender_lookup_jids,
 )
-from runtime.extensions.whatsapp.api import is_whatsapp_user_target
+from runtime.extensions.whatsapp.api import is_whatsapp_user_target, normalize_whatsapp_target
 from runtime.extensions.whatsapp.tenant import resolve_whatsapp_tenant_id
 
 
@@ -167,6 +169,22 @@ def _ensure_guest_identity(
     )
 
 
+def _requester_dm_chat_id(*, external_user_id: str, phone: str = "") -> str:
+    jid = str(external_user_id or "").strip()
+    if jid and is_whatsapp_user_target(jid):
+        try:
+            return normalize_whatsapp_target(jid)
+        except Exception:
+            return jid
+    ph = str(phone or "").strip() or phone_from_jid(jid)
+    if ph:
+        try:
+            return normalize_whatsapp_target(ph)
+        except Exception:
+            pass
+    return jid
+
+
 def _notify_admins(
     store: Any,
     *,
@@ -208,6 +226,42 @@ def _notify_admins(
                 ensure_ascii=False,
             ),
         )
+
+
+def _notify_requester_access_decision(
+    store: Any,
+    *,
+    tenant_id: str,
+    account_id: str,
+    lang: str,
+    external_user_id: str,
+    phone: str,
+    pending_id: str,
+    approved: bool,
+) -> None:
+    chat_id = _requester_dm_chat_id(external_user_id=external_user_id, phone=phone)
+    if not chat_id or not is_whatsapp_user_target(chat_id):
+        return
+    text = (
+        access_granted_guide_text(lang=lang)
+        if approved
+        else access_denied_final_text(lang=lang)
+    )
+    store.enqueue_channel_outbound_message(
+        channel="whatsapp",
+        chat_id=chat_id,
+        text=text,
+        tenant_id=tenant_id,
+        account_id=account_id,
+        source=json.dumps(
+            {
+                "kind": "whatsapp_access_decision",
+                "pending_id": str(pending_id or ""),
+                "approved": bool(approved),
+            },
+            ensure_ascii=False,
+        ),
+    )
 
 
 def _upsert_whatsapp_contact_profile(
@@ -346,6 +400,17 @@ def _handle_admin_message(
     deleter = getattr(store, "delete_whatsapp_pending_notify_for_pending", None)
     if callable(deleter):
         deleter(pending_id=pending_id)
+
+    _notify_requester_access_decision(
+        store,
+        tenant_id=tenant_id,
+        account_id=account_id,
+        lang=lang,
+        external_user_id=target_jid,
+        phone=target_phone,
+        pending_id=pending_id,
+        approved=approved,
+    )
 
     raw = meta.get("raw") if isinstance(meta.get("raw"), dict) else {}
     reply_meta: dict[str, Any] = {
