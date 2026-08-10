@@ -69,6 +69,33 @@ def format_scheduled_failure_summary(
     return f"[Scheduled job failed] {name}\nError: {err}\nCheck the job config or retry manually."
 
 
+def format_scheduled_skip_summary(
+    *,
+    job_name: str = "",
+    job_id: str = "",
+    overlapping_run_id: str = "",
+    lang: str = "en",
+) -> str:
+    """User-facing notice when a due tick is skipped because a prior run is still active."""
+    name = str(job_name or "").strip() or str(job_id or "").strip() or "scheduled job"
+    oid = str(overlapping_run_id or "").strip()
+    if str(lang or "").lower().startswith("zh"):
+        lines = [
+            f"[定时任务跳过] {name}",
+            "原因：上一轮仍在运行（overlapping），本轮已跳过以免叠跑。",
+        ]
+        if oid:
+            lines.append(f"进行中的 run：{oid[:12]}")
+        return "\n".join(lines)
+    lines = [
+        f"[Scheduled job skipped] {name}",
+        "Reason: previous run still active (overlapping); this tick was skipped.",
+    ]
+    if oid:
+        lines.append(f"Active run: {oid[:12]}")
+    return "\n".join(lines)
+
+
 def build_scheduled_turn_instruction(
     *,
     prompt_text: str,
@@ -181,6 +208,7 @@ __all__ = [
     "append_previous_run_context",
     "build_scheduled_turn_instruction",
     "format_scheduled_failure_summary",
+    "format_scheduled_skip_summary",
     "format_scheduled_success_summary",
     "format_scheduled_user_reminder",
     "scheduled_turn_system_suffix",

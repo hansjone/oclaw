@@ -203,10 +203,16 @@ def _handle_productivity_commands(
         rows = store.scheduled_job_list(tenant_id=tenant_id, status=None, limit=10)
         if not rows:
             return "当前没有定时任务。"
-        lines = [
-            f"- {r.name} | {r.schedule_kind}:{r.schedule_expr} | {r.status} | id={r.id[:8]}"
-            for r in rows
-        ]
+        lines = []
+        for r in rows:
+            d = store.scheduled_job_to_dict(r)
+            playbook = "playbook" if d.get("playbook") else ("recipe" if d.get("has_recipe") else "reminder")
+            steps_n = int(d.get("steps_n") or 0)
+            last = str(d.get("last_run_status") or "").strip() or "—"
+            lines.append(
+                f"- {r.name} | {r.schedule_kind}:{r.schedule_expr} | {r.status} | "
+                f"{playbook} steps={steps_n} | last={last} | id={r.id[:8]}"
+            )
         return "定时任务：\n" + "\n".join(lines)
 
     if t.startswith("暂停定时任务 ") or t.startswith("暂停定时 "):

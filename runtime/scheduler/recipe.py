@@ -319,6 +319,20 @@ def prompt_summary_from_recipe(recipe: dict[str, Any] | None, *, fallback: str =
     return str(fallback or "").strip()
 
 
+def recipe_list_summary(recipe: dict[str, Any] | None) -> dict[str, Any]:
+    """Compact playbook signals for schedule_list / admin tables."""
+    norm = normalize_recipe(recipe or {})
+    steps = list(norm.get("steps") or [])
+    goal = str(norm.get("goal") or "").strip()
+    playbook = bool(goal) and len(steps) >= 2
+    return {
+        "playbook": playbook,
+        "has_recipe": not recipe_is_empty(norm),
+        "steps_n": len(steps),
+        "recipe_goal": goal[:240],
+    }
+
+
 def preview_markdown(
     *,
     name: str,
@@ -602,6 +616,7 @@ __all__ = [
     "prompt_summary_from_recipe",
     "recipe_has_playbook",
     "recipe_is_empty",
+    "recipe_list_summary",
     "recipe_missing_fields",
     "resolve_effective_playbook_recipe",
     "resolve_ops_recipe_template",

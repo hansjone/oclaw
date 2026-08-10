@@ -27,12 +27,17 @@ const I18N = {
     "scheduledJobs.count": "{count} 个任务",
     "scheduledJobs.colName": "名称",
     "scheduledJobs.colSchedule": "计划",
+    "scheduledJobs.colPlaybook": "剧本",
     "scheduledJobs.colStatus": "状态",
     "scheduledJobs.colNextRun": "下次运行",
     "scheduledJobs.colLastRun": "上次运行",
     "scheduledJobs.colSpecialist": "专家",
     "scheduledJobs.colDelivery": "投递",
     "scheduledJobs.colActions": "操作",
+    "scheduledJobs.playbookYes": "playbook · {n} 步",
+    "scheduledJobs.playbookPartial": "有 recipe · {n} 步",
+    "scheduledJobs.playbookNo": "提醒",
+    "scheduledJobs.skippedOverlap": "已跳过（叠跑）",
     "scheduledJobs.menuTitle": "任务操作",
     "scheduledJobs.viewRuns": "查看运行记录",
     "scheduledJobs.pause": "暂停",
@@ -505,12 +510,17 @@ const I18N = {
     "scheduledJobs.count": "{count} job(s)",
     "scheduledJobs.colName": "name",
     "scheduledJobs.colSchedule": "schedule",
+    "scheduledJobs.colPlaybook": "playbook",
     "scheduledJobs.colStatus": "status",
     "scheduledJobs.colNextRun": "next_run",
     "scheduledJobs.colLastRun": "last_run",
     "scheduledJobs.colSpecialist": "specialist",
     "scheduledJobs.colDelivery": "delivery",
     "scheduledJobs.colActions": "actions",
+    "scheduledJobs.playbookYes": "playbook · {n} steps",
+    "scheduledJobs.playbookPartial": "recipe · {n} steps",
+    "scheduledJobs.playbookNo": "reminder",
+    "scheduledJobs.skippedOverlap": "Skipped (overlapping)",
     "scheduledJobs.menuTitle": "Job actions",
     "scheduledJobs.viewRuns": "View runs",
     "scheduledJobs.pause": "Pause",
@@ -9692,6 +9702,13 @@ function formatScheduledJobDelivery(job) {
   return parts.length ? parts.join(" + ") : "—";
 }
 
+function formatScheduledJobPlaybook(job) {
+  const steps = Number(job && job.steps_n != null ? job.steps_n : 0) || 0;
+  if (job && job.playbook) return tf("scheduledJobs.playbookYes", { n: String(steps) });
+  if (job && job.has_recipe) return tf("scheduledJobs.playbookPartial", { n: String(steps) });
+  return t("scheduledJobs.playbookNo");
+}
+
 function buildScheduledJobDeliveryPayload(job, waChatId) {
   const existing = (job && job.delivery && typeof job.delivery === "object") ? job.delivery : {};
   const wa = existing.whatsapp && typeof existing.whatsapp === "object" ? { ...existing.whatsapp } : {};
@@ -9884,8 +9901,13 @@ async function renderScheduledJobs() {
               text: t("scheduledJobs.runNow"),
               onclick: async () => {
                 closeScheduledJobMenu();
-                await apiPost(`/admin/api/scheduled-jobs/${encodeURIComponent(jobId)}/run-now`, {});
-                msg.textContent = t("scheduledJobs.triggered");
+                const out = await apiPost(`/admin/api/scheduled-jobs/${encodeURIComponent(jobId)}/run-now`, {});
+                if (out && out.skipped) {
+                  msg.textContent = t("scheduledJobs.skippedOverlap");
+                } else {
+                  msg.textContent = t("scheduledJobs.triggered");
+                }
+                await loadJobs();
               },
             }),
             ...(canWrite
@@ -9935,6 +9957,7 @@ async function renderScheduledJobs() {
       const tr = el("tr", {}, [
         tdCell(job.name || "", 24),
         tdCell(`${job.schedule_kind}:${job.schedule_expr}`, 28),
+        tdCell(formatScheduledJobPlaybook(job), 18),
         tdCell(job.status || "", 10),
         tdCell(job.next_run_at || "—", 20),
         tdCell(lastRun, 24),
@@ -10011,12 +10034,13 @@ async function renderScheduledJobs() {
       el("div", { class: "table-wrap" }, [
         el("table", { class: "table table--compact" }, [
           el("colgroup", {}, [
-            el("col", { style: "width:16%" }),
-            el("col", { style: "width:18%" }),
+            el("col", { style: "width:14%" }),
+            el("col", { style: "width:14%" }),
+            el("col", { style: "width:12%" }),
             el("col", { style: "width:8%" }),
-            el("col", { style: "width:14%" }),
-            el("col", { style: "width:14%" }),
-            el("col", { style: "width:10%" }),
+            el("col", { style: "width:12%" }),
+            el("col", { style: "width:12%" }),
+            el("col", { style: "width:8%" }),
             el("col", { style: "width:10%" }),
             el("col", { style: "width:10%" }),
           ]),
@@ -10024,6 +10048,7 @@ async function renderScheduledJobs() {
             el("tr", {}, [
               el("th", { text: t("scheduledJobs.colName") }),
               el("th", { text: t("scheduledJobs.colSchedule") }),
+              el("th", { text: t("scheduledJobs.colPlaybook") }),
               el("th", { text: t("scheduledJobs.colStatus") }),
               el("th", { text: t("scheduledJobs.colNextRun") }),
               el("th", { text: t("scheduledJobs.colLastRun") }),

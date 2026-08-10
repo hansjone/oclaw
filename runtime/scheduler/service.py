@@ -14,12 +14,14 @@ from runtime.scheduler.recipe import (
     resolve_effective_playbook_recipe,
 )
 from runtime.scheduler.session_resolver import resolve_scheduled_session, resolve_scheduled_viewer_username
-from runtime.scheduler.turn_text import build_scheduled_turn_instruction
+from runtime.scheduler.turn_text import build_scheduled_turn_instruction, format_scheduled_skip_summary
 from runtime.worker import ensure_worker_started
 
 _LOCK = threading.Lock()
 _THREAD: threading.Thread | None = None
 _RUNNING = False
+
+_OVERLAP_ACTIVE_STATUSES = frozenset({"queued", "running"})
 
 
 def _tick_interval_seconds() -> float:
@@ -30,6 +32,162 @@ def _tick_interval_seconds() -> float:
         return max(5.0, min(float(raw), 3600.0))
     except Exception:
         return 30.0
+
+
+def _overlap_stale_seconds() -> float:
+    import os
+
+    raw = str(os.getenv("AIA_SCHEDULER_OVERLAP_STALE_SECONDS") or "10800").strip()
+    try:
+        return max(600.0, min(float(raw), 86400.0))
+    except Exception:
+        return 10800.0
+
+
+def _parse_run_ts(raw: Any) -> datetime | None:
+    text = str(raw or "").strip()
+    if not text:
+        return None
+    try:
+        return datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except Exception:
+        return None
+
+
+def _find_blocking_scheduled_run(
+    store: Any,
+    *,
+    job_id: str,
+    tenant_id: str,
+    exclude_run_id: str = "",
+) -> Any | None:
+    """Return an active (queued/running) run that should block a new enqueue.
+
+    Stale active runs (older than AIA_SCHEDULER_OVERLAP_STALE_SECONDS) are marked
+    failed so a stuck worker cannot block the job forever.
+    """
+    lister = getattr(store, "scheduled_job_run_list", None)
+    if not callable(lister):
+        return None
+    try:
+        rows = lister(job_id=str(job_id), tenant_id=str(tenant_id), limit=12) or []
+    except Exception:
+        return None
+    exclude = str(exclude_run_id or "").strip()
+    stale_sec = _overlap_stale_seconds()
+    now = datetime.now(timezone.utc)
+    for row in rows:
+        rid = str(getattr(row, "id", "") or "")
+        if exclude and rid == exclude:
+            continue
+        status = str(getattr(row, "status", "") or "").strip().lower()
+        if status not in _OVERLAP_ACTIVE_STATUSES:
+            continue
+        started = _parse_run_ts(getattr(row, "started_at", None)) or _parse_run_ts(
+            getattr(row, "created_at", None)
+        )
+        age = (now - started).total_seconds() if started is not None else 0.0
+        if started is not None and age > stale_sec:
+            updater = getattr(store, "scheduled_job_run_update", None)
+            if callable(updater):
+                try:
+                    updater(
+                        run_id=rid,
+                        tenant_id=str(tenant_id),
+                        patch={
+                            "status": "failed",
+                            "finished_at": now.isoformat(),
+                            "error": "stale_running_cleared",
+                        },
+                    )
+                except Exception:
+                    pass
+            continue
+        return row
+    return None
+
+
+def _notify_overlapping_skip(
+    store: Any,
+    *,
+    job: Any,
+    overlapping_run_id: str,
+    reply_text: str,
+) -> dict[str, Any]:
+    from runtime.scheduler.channel_delivery import deliver_scheduled_reply
+
+    delivery_json = str(getattr(job, "delivery_json", "") or "{}")
+    try:
+        return deliver_scheduled_reply(
+            store,
+            tenant_id=str(getattr(job, "tenant_id", "") or ""),
+            reply_text=reply_text,
+            delivery_json=delivery_json,
+        )
+    except Exception as exc:
+        return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+
+
+def _skip_overlapping_job_run(
+    store: Any,
+    *,
+    job: Any,
+    blocking: Any,
+    mode: str,
+) -> dict[str, Any]:
+    tenant_id = str(getattr(job, "tenant_id", "") or "")
+    job_id = str(getattr(job, "id") or "")
+    lang = str(getattr(job, "lang", "") or "en")
+    overlapping_id = str(getattr(blocking, "id", "") or "")
+    summary = format_scheduled_skip_summary(
+        job_name=str(getattr(job, "name", "") or ""),
+        job_id=job_id,
+        overlapping_run_id=overlapping_id,
+        lang=lang,
+    )
+    run = store.scheduled_job_run_create(
+        job_id=job_id,
+        tenant_id=tenant_id,
+        scheduled_at=str(getattr(job, "next_run_at", "") or datetime.now(timezone.utc).isoformat()),
+        status="skipped",
+    )
+    delivery_status = _notify_overlapping_skip(
+        store,
+        job=job,
+        overlapping_run_id=overlapping_id,
+        reply_text=summary,
+    )
+    store.scheduled_job_run_update(
+        run_id=run.id,
+        tenant_id=tenant_id,
+        patch={
+            "status": "skipped",
+            "finished_at": datetime.now(timezone.utc).isoformat(),
+            "reply_text": summary,
+            "error": "overlapping_run",
+            "delivery_status": delivery_status,
+        },
+    )
+    # Advance the schedule so the tick does not re-fire every 30s while blocked.
+    if str(mode or "") == "scheduled":
+        try:
+            store.scheduled_job_reserve_next_run(job_id=job_id, tenant_id=tenant_id)
+        except Exception:
+            pass
+    store.scheduled_job_mark_run(
+        job_id=job_id,
+        tenant_id=tenant_id,
+        last_run_status="skipped",
+        pause_after=False,
+    )
+    return {
+        "ok": True,
+        "skipped": True,
+        "reason": "overlapping_run",
+        "run_id": run.id,
+        "overlapping_run_id": overlapping_id,
+        "reply_text": summary,
+    }
 
 
 def _load_previous_run_context(
@@ -101,9 +259,19 @@ def enqueue_scheduled_job_run(
     *,
     job: Any,
     mode: str = "scheduled",
+    force_overlap: bool = False,
 ) -> dict[str, Any]:
     tenant_id = str(getattr(job, "tenant_id", "") or "")
     job_id = str(getattr(job, "id") or "")
+    if not force_overlap:
+        blocking = _find_blocking_scheduled_run(store, job_id=job_id, tenant_id=tenant_id)
+        if blocking is not None:
+            return _skip_overlapping_job_run(
+                store,
+                job=job,
+                blocking=blocking,
+                mode=mode,
+            )
     run = store.scheduled_job_run_create(
         job_id=job_id,
         tenant_id=tenant_id,
@@ -241,26 +409,46 @@ def enqueue_scheduled_job_run(
 def scheduler_tick(store: Any) -> dict[str, Any]:
     due = store.scheduled_job_list_due(limit=20)
     triggered = 0
+    skipped = 0
     errors: list[str] = []
     for job in due:
         try:
             out = enqueue_scheduled_job_run(store, job=job, mode="scheduled")
-            if out.get("ok"):
+            if out.get("skipped"):
+                skipped += 1
+            elif out.get("ok"):
                 triggered += 1
             else:
                 errors.append(str(out.get("error") or "enqueue_failed"))
         except Exception as exc:
             errors.append(f"{getattr(job, 'id', '')}: {type(exc).__name__}: {exc}")
-    return {"ok": True, "due": len(due), "triggered": triggered, "errors": errors}
+    return {
+        "ok": True,
+        "due": len(due),
+        "triggered": triggered,
+        "skipped": skipped,
+        "errors": errors,
+    }
 
 
-def run_scheduled_job_now(store: Any, *, tenant_id: str, job_id: str) -> dict[str, Any]:
+def run_scheduled_job_now(
+    store: Any,
+    *,
+    tenant_id: str,
+    job_id: str,
+    force_overlap: bool = False,
+) -> dict[str, Any]:
     job = store.scheduled_job_get(job_id=job_id, tenant_id=tenant_id)
     if not job:
         return {"ok": False, "error": "job_not_found"}
     if str(job.status or "") != "active":
         return {"ok": False, "error": "job_not_active"}
-    return enqueue_scheduled_job_run(store, job=job, mode="manual")
+    return enqueue_scheduled_job_run(
+        store,
+        job=job,
+        mode="manual",
+        force_overlap=force_overlap,
+    )
 
 
 def _scheduler_loop(*, store: Any) -> None:

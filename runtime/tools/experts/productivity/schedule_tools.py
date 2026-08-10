@@ -470,13 +470,22 @@ def schedule_list_tool() -> ToolSpec:
             status = str(args.get("status") or "").strip() or None
             limit = int(args.get("limit") or 50)
             rows = store.scheduled_job_list(tenant_id=tenant_id, status=status, limit=limit)
-            return {"ok": True, "items": [store.scheduled_job_to_dict(r) for r in rows]}
+            items: list[dict[str, Any]] = []
+            for r in rows:
+                d = store.scheduled_job_to_dict(r)
+                # List view: keep playbook signals, drop bulky recipe bodies for the LLM.
+                d.pop("recipe", None)
+                items.append(d)
+            return {"ok": True, "items": items}
         except Exception as e:
             return {"ok": False, "error": f"{type(e).__name__}: {e}"}
 
     return ToolSpec(
         name="schedule_list",
-        description="List scheduled jobs for a tenant.",
+        description=(
+            "List scheduled jobs for a tenant. Each item includes playbook/has_recipe/steps_n/"
+            "recipe_goal/last_run_status (full recipe bodies omitted; open the job detail for the full recipe)."
+        ),
         parameters={
             "type": "object",
             "properties": {

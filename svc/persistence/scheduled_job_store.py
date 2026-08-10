@@ -620,6 +620,9 @@ class ScheduledJobStoreMixin:
                 recipe = raw_recipe
         except Exception:
             recipe = {}
+        from runtime.scheduler.recipe import recipe_list_summary
+
+        summary = recipe_list_summary(recipe)
         return {
             "id": job.id,
             "tenant_id": job.tenant_id,
@@ -631,6 +634,10 @@ class ScheduledJobStoreMixin:
             "timezone": job.timezone,
             "prompt_text": job.prompt_text,
             "recipe": recipe,
+            "playbook": bool(summary.get("playbook")),
+            "has_recipe": bool(summary.get("has_recipe")),
+            "steps_n": int(summary.get("steps_n") or 0),
+            "recipe_goal": str(summary.get("recipe_goal") or ""),
             "interaction_mode": job.interaction_mode,
             "specialist": job.specialist,
             "lang": job.lang,
