@@ -3,14 +3,12 @@
 from __future__ import annotations
 
 from runtime.tools.catalog import (
-    TOOL_FACTORIES,
     default_registry,
     materialize_tool_specs,
     tool_inventory,
 )
 
 __all__ = [
-    "TOOL_FACTORIES",
     "default_registry",
     "materialize_tool_specs",
     "tool_inventory",

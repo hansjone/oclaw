@@ -2760,7 +2760,7 @@ def build_admin_router() -> APIRouter:
         store = get_assistant_store()
         ctx = _resolve_auth(store, authorization)
         _require_permission(ctx, "admin:tenant:write")
-        # Oclaw takeover: legacy tool-policy switches are disconnected (kept in DB for later).
+        # Oclaw takeover: legacy tool-policy switches removed (fixed display values for API compat).
         disabled = False
         retry_mode = "first_round_only"
         loop_state_machine = True
@@ -2771,9 +2771,7 @@ def build_admin_router() -> APIRouter:
         turn_max_tool_workers = max(1, min(int(tmw_raw), 32)) if tmw_raw.isdigit() else 8
         turn_max_tool_rounds = max(1, min(int(tmr_raw), 300)) if tmr_raw.isdigit() else 100
         turn_max_context_messages = max(10, min(int(tmc_raw), 400)) if tmc_raw.isdigit() else 80
-        # Oclaw takeover: legacy runner switches are disconnected (kept in DB for later).
         turn_runner_impl = "oclaw"
-        # Oclaw takeover: legacy manager decision mode is disconnected (kept in DB for later).
         manager_decision_mode = ""
         sse_raw = str(store.get_setting("AIA_SSE_QUEUE_MAXSIZE") or "").strip()
         sse_queue_maxsize = max(200, min(int(sse_raw), 50_000)) if sse_raw.isdigit() else 2000
@@ -2781,8 +2779,20 @@ def build_admin_router() -> APIRouter:
         tool_log_max_chars = max(20_000, min(int(tl_raw), 2_000_000)) if tl_raw.isdigit() else 64_000
         emcp_raw = str(store.get_setting("AIA_ENABLE_MCP_TOOLS") or "").strip().lower()
         enable_mcp_tools = emcp_raw not in ("0", "false", "no", "off")
-        epl_raw = str(store.get_setting("AIA_ENABLE_PLUGIN_TOOLS") or "").strip().lower()
-        enable_plugin_tools = epl_raw in ("1", "true", "yes", "on")
+        # Align with catalog._plugin_tools_enabled: unset → ON (env may override).
+        epl_sv = store.get_setting("AIA_ENABLE_PLUGIN_TOOLS")
+        if epl_sv is None or str(epl_sv).strip() == "":
+            import os as _os
+
+            epl_env = str(
+                _os.getenv("AIA_ENABLE_PLUGIN_TOOLS")
+                or _os.getenv("AIA_PLUGIN_TOOLS_ENABLED")
+                or "1"
+            ).strip().lower()
+            enable_plugin_tools = epl_env not in ("0", "false", "no", "off")
+        else:
+            epl_raw = str(epl_sv).strip().lower()
+            enable_plugin_tools = epl_raw in ("1", "true", "yes", "on")
         # Absent DB row must read as OFF: matches LocalAdapter.run_command (no row → env only; no env → disabled).
         # Previously `str(None or "")` made the UI show ON while execution stayed disabled (confusing on new machines).
         erc_sv = store.get_setting("AIA_ENABLE_RUN_COMMAND")
@@ -2859,7 +2869,7 @@ def build_admin_router() -> APIRouter:
         store = get_assistant_store()
         ctx = _resolve_auth(store, authorization)
         _require_permission(ctx, "admin:tenant:write")
-        # Oclaw takeover: legacy tool-policy switches are disconnected (kept in DB for later).
+        # Legacy tool-policy switches removed from product surface (fixed values for API compat).
         disable_confirm = False
         retry_mode = "first_round_only"
         sm = True
@@ -2892,7 +2902,7 @@ def build_admin_router() -> APIRouter:
         except Exception:
             tl_cap_n = 64_000
         emcp = bool(payload.get("enable_mcp_tools", True))
-        epl = bool(payload.get("enable_plugin_tools", False))
+        epl = bool(payload.get("enable_plugin_tools", True))
         erc = bool(payload.get("enable_run_command", True))
         tctx = bool(payload.get("tool_context_truncate_enabled", True))
         ttft_debug = bool(payload.get("chat_show_ttft_debug", False))
@@ -2952,19 +2962,14 @@ def build_admin_router() -> APIRouter:
         except Exception:
             wc_in_q_n = 200
         # Canonical professional prefix.
-        # Legacy-only (disconnected): do not write the following settings:
-        # - AIA_DISABLE_TOOL_CONFIRM
-        # - AIA_TOOL_ENFORCED_RETRY_MODE
-        # - AIA_TOOL_LOOP_STATE_MACHINE
-        # - AIA_TOOL_SIGNATURE_BUDGET
         store.set_setting("AIA_TURN_MAX_TOOL_WORKERS", str(tmw_n))
         store.set_setting("AIA_TURN_MAX_TOOL_ROUNDS", str(tmr_n))
         store.set_setting("AIA_TURN_MAX_CONTEXT_MESSAGES", str(tmc_n))
-        # Legacy-only (disconnected): do not write AIA_MANAGER_DECISION_MODE here.
         store.set_setting("AIA_SSE_QUEUE_MAXSIZE", str(sse_q_n))
         store.set_setting("AIA_TOOL_LOG_MAX_CHARS", str(tl_cap_n))
         store.set_setting("AIA_ENABLE_MCP_TOOLS", "1" if emcp else "0")
         store.set_setting("AIA_ENABLE_PLUGIN_TOOLS", "1" if epl else "0")
+        os.environ["AIA_ENABLE_PLUGIN_TOOLS"] = "1" if epl else "0"
         store.set_setting("AIA_ENABLE_RUN_COMMAND", "1" if erc else "0")
         # Keep runtime gate aligned with Admin toggle immediately.
         os.environ["AIA_ENABLE_RUN_COMMAND"] = "1" if erc else "0"
@@ -3474,7 +3479,7 @@ def build_admin_router() -> APIRouter:
         ctx = _resolve_auth(store, authorization)
         _require_permission(ctx, "admin:tenant:write")
         available = _ordered_mcp_roles()
-        raw = str(store.get_setting("mcp_allowed_specialists") or "").strip() or "generalist,manager"
+        raw = str(store.get_setting("mcp_allowed_specialists") or "").strip() or "generalist,manager,ops"
         allowed = [x.strip().lower() for x in raw.split(",") if x.strip()]
         allowed_set = set(allowed)
         ordered = [x for x in available if x in allowed_set]

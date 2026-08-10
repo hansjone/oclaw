@@ -18,18 +18,12 @@
 - `AIA_ASSISTANT_MODE`
   - 默认：空（代码内决定默认模式）
   - 作用：助手模式选择
-  - 生效：`oclaw/platform/llm/chat_models.py`, `oclaw/runtime/agents/factory.py`
-
-- `AIA_MANAGER_DECISION_MODE`
-  - 默认：空
-  - 作用：**Legacy（已断开）**：旧 manager 决策模式（如 `rule`）
-  - 说明：oclaw runtime 默认不再走 `CompositeOpsAgent` 的 manager 决策；该变量仅保留以便后续接回 legacy
-  - 生效：`oclaw/runtime/agents/manager_agent.py`（仅 legacy 链路）
+  - 生效：`svc/llm/chat_models.py`, `runtime/agents/factory.py`
 
 - `AIA_TURN_MAX_TOOL_WORKERS`
   - 默认：`8`
   - 作用：单轮工具并发上限
-  - 生效：`oclaw/oclaw_runtime/gateway.py`, `oclaw/oclaw_runtime/direct_loop.py`
+  - 生效：`runtime/gateway.py`, `runtime/direct_loop.py`
 
 - `AIA_TURN_MAX_TOOL_ROUNDS`
   - 默认：`100`
@@ -95,28 +89,7 @@
   - 默认：`0`
   - 作用：控制 Admin 保存 `AIA_OCLAW_RETRYABLE_ERROR_CODES` 时的未知 code 行为
   - 说明：`0`=过滤并告警；`1`=直接拒绝保存（HTTP 400）
-  - 生效：`oclaw/interfaces/admin/routes.py`, `oclaw/interfaces/admin/static/app.js`
-
-- `AIA_TOOL_ENFORCED_RETRY_MODE`
-  - 默认：`first_round_only`
-  - 作用：**Legacy（已断开）**：工具必需场景下的强制重试策略
-  - 生效：仅 legacy 链路（保留占位，暂不影响 oclaw）
-
-- `AIA_TOOL_LOOP_STATE_MACHINE`
-  - 默认：`1`
-  - 作用：**Legacy（已断开）**：工具循环状态机开关
-  - 生效：仅 legacy 链路（保留占位，暂不影响 oclaw）
-
-- `AIA_TOOL_SIGNATURE_BUDGET`
-  - 默认：`2`
-  - 作用：**Legacy（已断开）**：同签名工具调用预算
-  - 生效：仅 legacy 链路（保留占位，暂不影响 oclaw）
-
-- `AIA_OCLAW_ALLOW_LEGACY_FALLBACK`
-  - 默认：`0`（关闭）
-  - 作用：oclaw 执行失败时，是否允许回退到 legacy `executor.run_turn(...)`
-  - 说明：默认 fail-closed（不回退），避免无意中触发旧 manager/runner
-  - 生效：`oclaw/oclaw_runtime/gateway.py`, `oclaw/runtime/agents/specialist_agent.py`
+  - 生效：`interfaces/admin/routes.py`, `interfaces/admin/static/app.js`
 
 ## LLM 传输与 replay（OpenAI 兼容）
 
@@ -162,26 +135,26 @@
 
 ## 工具执行与安全
 
-- `AIA_DISABLE_TOOL_CONFIRM`
-  - 默认：`0`
-  - 作用：**Legacy（已断开）**：是否禁用高风险工具确认
-  - 说明：oclaw 工具执行已移除执行时确认策略；该变量保留以便后续接回 legacy
-  - 生效：仅 legacy 链路（保留占位）
-
 - `AIA_ENABLE_MCP_TOOLS`
   - 默认：`1`
   - 作用：启用 MCP 工具
-  - 生效：`oclaw/tools/catalog.py`
+  - 生效：`runtime/tools/catalog.py`
 
 - `AIA_ENABLE_PLUGIN_TOOLS`
-  - 默认：`0`
-  - 作用：启用插件工具
-  - 生效：`oclaw/tools/catalog.py`
+  - 默认：`1`（未设置时开启；Admin 可关）
+  - 作用：启用 Python 扩展插件工具
+  - 说明：与历史别名 `AIA_PLUGIN_TOOLS_ENABLED` 等价；Admin DB 设置优先
+  - 生效：`runtime/tools/catalog.py`, `interfaces/admin/routes.py`
+
+- `AIA_PLUGIN_TOOLS_ENABLED`
+  - 默认：同 `AIA_ENABLE_PLUGIN_TOOLS`
+  - 作用：**别名**（兼容旧 env）；新代码请用 `AIA_ENABLE_PLUGIN_TOOLS`
+  - 生效：`runtime/tools/catalog.py`
 
 - `AIA_ENABLE_RUN_COMMAND`
   - 默认：`0`
   - 作用：允许高风险 `run_command` 工具
-  - 生效：`oclaw/tools/catalog.py`, `oclaw/tools/experts/workspace/shell_tools.py`
+  - 生效：`runtime/tools/catalog.py`, `runtime/tools/experts/workspace/shell_tools.py`
 
 - `AIA_TOOL_LLM_MESSAGE_MAX_CHARS`
   - 默认：`0`（不限制）
@@ -247,9 +220,9 @@
 ## MCP 与工具线侧
 
 - `AIA_MCP_SPECIALISTS`
-  - 默认：`generalist`
-  - 作用：允许使用 MCP 的 specialist 列表
-  - 生效：`oclaw/tools/mcp/adapter.py`
+  - 默认：`generalist,manager,ops`
+  - 作用：未配置 `mcp_specialist_server_binding` 时，允许使用 MCP 的 specialist 列表
+  - 生效：`runtime/tools/mcp/adapter.py`
 
 - `AIA_MCP_ENV_ALLOWLIST`
   - 默认：未设置时使用内置补充名单（仅用于**未**出现在 `mcp_local.env` 里、但要从宿主环境透传的变量名，见 `mcp_env._DEFAULT_ALLOWLIST`）

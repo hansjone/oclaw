@@ -262,7 +262,7 @@ def materialize_mcp_tools_for_specialist(
     except Exception:
         raw_allowed = ""
     if not raw_allowed:
-        raw_allowed = str(os.getenv("AIA_MCP_SPECIALISTS") or "generalist,manager").strip()
+        raw_allowed = str(os.getenv("AIA_MCP_SPECIALISTS") or "generalist,manager,ops").strip()
     allowed = {x.strip().lower() for x in raw_allowed.split(",") if x.strip()}
     if binding_server_ids is None and sp and sp not in allowed:
         return []

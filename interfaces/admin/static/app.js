@@ -5168,10 +5168,6 @@ async function renderPlugins() {
   const installStatus = el("div", { class: "muted", text: "" });
   const preflightFixWrap = el("div");
   const toolPolicyStatus = el("div", { class: "muted", text: "" });
-  const legacyToolPolicyNote = el("div", {
-    class: "muted",
-    text: "Legacy tool-policy switches (confirm/retry/state-machine/signature budget) are disconnected under oclaw.",
-  });
   const turnMaxWorkersInput = el("input", {
     class: "input",
     type: "number",
@@ -5195,14 +5191,6 @@ async function renderPlugins() {
     max: "400",
     value: String(Number(toolPolicy.turn_max_context_messages || 80)),
     style: "max-width:120px",
-  });
-  const turnRunnerImplNote = el("div", {
-    class: "muted",
-    text: "Turn runner: oclaw (legacy runners disconnected)",
-  });
-  const managerDecisionModeNote = el("div", {
-    class: "muted",
-    text: "Manager decision mode: (legacy disconnected)",
   });
   const sseQueueMaxsizeInput = el("input", {
     class: "input",
@@ -6638,8 +6626,7 @@ async function renderPlugins() {
   applyWireRoleSelectorState();
   applyWireRoleModeUiState();
   const foldToolPolicy = pluginsFold(`【1】工具策略与已注册插件（${pluginCatalog.length}）`, [
-    el("div", { class: "muted", text: "Tool policy（确认 / 重试）与 Python 工具插件表" }),
-    legacyToolPolicyNote,
+    el("div", { class: "muted", text: "Tool policy（并发 / 轮次 / MCP·插件开关）与 Python 工具插件表" }),
     el("div", { class: "row" }, [
       el("label", { text: "Turn max tool workers (1-32)" }),
       turnMaxWorkersInput,
@@ -6651,14 +6638,6 @@ async function renderPlugins() {
     el("div", { class: "row" }, [
       el("label", { text: "Turn max context messages (10-400)" }),
       turnMaxCtxInput,
-    ]),
-    el("div", { class: "row" }, [
-      el("label", { text: "Turn runner implementation" }),
-      turnRunnerImplNote,
-    ]),
-    el("div", { class: "row" }, [
-      el("label", { text: "Manager decision mode" }),
-      managerDecisionModeNote,
     ]),
     el("div", { class: "row" }, [
       el("label", { text: "SSE queue maxsize (200-50000)" }),

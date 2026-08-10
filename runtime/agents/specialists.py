@@ -21,6 +21,15 @@ class SpecialistConfig:
     default_tool_tags: frozenset[str] | None
 
 
+@dataclass(frozen=True)
+class SpecialistProfile:
+    """Prompt/tool surface for a specialist id (gateway executor factory)."""
+
+    name: str
+    system_prefix: str
+    tool_tags: frozenset[str] | None = None
+
+
 SPECIALISTS: dict[SpecialistId, SpecialistConfig] = {
     "ops": SpecialistConfig(
         specialist_id="ops",
@@ -140,6 +149,7 @@ __all__ = [
     "MANAGER_AGENT_ID",
     "SpecialistConfig",
     "SpecialistId",
+    "SpecialistProfile",
     "SPECIALISTS",
     "specialist_ids",
     "default_system_prefix_for_specialist",

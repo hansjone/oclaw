@@ -25,15 +25,30 @@ _MODEL_TOOLS_DENYLIST = frozenset(
     }
 )
 
-# Legacy export: some modules still import TOOL_FACTORIES. Tools are now intentionally
-# restricted to a single safe builtin (`system_time`), so this is left empty.
-TOOL_FACTORIES: tuple[object, ...] = ()
 
 def _is_truthy(v: str | None) -> bool:
     return str(v or "").strip().lower() in ("1", "true", "yes", "on")
 
 
-def _skill_toolcall_enabled(store: SqliteStore | None) -> bool:
+def _plugin_tools_enabled(store: Any | None = None) -> bool:
+    """Admin setting ``AIA_ENABLE_PLUGIN_TOOLS`` wins; env aliases accepted.
+
+    Default ON when unset (matches historical ``AIA_PLUGIN_TOOLS_ENABLED=1``).
+    """
+    if store is not None:
+        try:
+            raw = store.get_setting("AIA_ENABLE_PLUGIN_TOOLS")
+            if raw is not None and str(raw).strip() != "":
+                return _is_truthy(str(raw))
+        except Exception:
+            pass
+    for key in ("AIA_ENABLE_PLUGIN_TOOLS", "AIA_PLUGIN_TOOLS_ENABLED"):
+        if key in os.environ:
+            return _is_truthy(os.getenv(key))
+    return True
+
+
+def _skill_toolcall_enabled(store: Any | None) -> bool:
     try:
         raw_env = str(os.getenv("AIA_SKILL_TOOLCALL_ENABLED") or "").strip()
         if raw_env:
@@ -232,8 +247,8 @@ def materialize_tool_specs(
         except Exception as exc:
             logger.warning("mcp tool load skipped: %s", exc)
 
-    # collect: plugin
-    if not _is_truthy(os.getenv("AIA_PLUGIN_TOOLS_ENABLED", "1")):
+    # collect: plugin (Admin AIA_ENABLE_PLUGIN_TOOLS / env alias AIA_PLUGIN_TOOLS_ENABLED)
+    if not _plugin_tools_enabled(store):
         return _resolve_tool_conflicts(collected)
 
     try:

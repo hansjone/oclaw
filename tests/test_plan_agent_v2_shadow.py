@@ -3,17 +3,17 @@ from __future__ import annotations
 from pathlib import Path
 
 from svc.persistence.sqlite_store import SqliteStore
-from runtime.plan_agent_v2_adapter import evaluate_for_expert_mode
-from runtime.plan_agent_v2_compat import build_shadow_gateway_result, legacy_gateway_result_keys
-from runtime.plan_agent_v2_gateway_adapter import evaluate_gateway_expert_turn_shadow
-from runtime.plan_agent_v2_manager import PlanModeManagerV2
-from runtime.plan_agent_v2_models import PLAN_MODE_PLAN, PlanAgentStateV2
-from runtime.plan_agent_v2_prompt_injector import build_plan_mode_prefix
-from runtime.plan_agent_v2_state_store import PlanAgentStateStoreV2
-from runtime.plan_agent_v2_switch import should_route_to_v2, v2_feature_enabled
-from runtime.plan_agent_v2_tool_specs import materialize_plan_mode_v2_tools
-from runtime.plan_agent_v2_tool_policy import filter_tools_for_mode
-from runtime.plan_agent_v2_trace import emit_plan_agent_v2_trace
+from runtime.plan_agent_v2.adapter import evaluate_for_expert_mode
+from runtime.plan_agent_v2.compat import build_shadow_gateway_result, legacy_gateway_result_keys
+from runtime.plan_agent_v2.gateway_adapter import evaluate_gateway_expert_turn_shadow
+from runtime.plan_agent_v2.manager import PlanModeManagerV2
+from runtime.plan_agent_v2.models import PLAN_MODE_PLAN, PlanAgentStateV2
+from runtime.plan_agent_v2.prompt_injector import build_plan_mode_prefix
+from runtime.plan_agent_v2.state_store import PlanAgentStateStoreV2
+from runtime.plan_agent_v2.switch import should_route_to_v2, v2_feature_enabled
+from runtime.plan_agent_v2.tool_specs import materialize_plan_mode_v2_tools
+from runtime.plan_agent_v2.tool_policy import filter_tools_for_mode
+from runtime.plan_agent_v2.trace import emit_plan_agent_v2_trace
 from runtime.plan_agent_v2 import should_route_to_v2 as should_route_to_v2_pkg
 from runtime.gateway import OclawGatewayResult
 from runtime.tools.base import ToolRegistry, ToolSpec

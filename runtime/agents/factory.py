@@ -6,10 +6,9 @@ import os
 from typing import Any
 
 from runtime.agents.agent_scope import resolve_default_agent_id
-from runtime.agents.network_ops_agent import NetworkOpsAgent
-from runtime.agents.specialist_agent import SpecialistProfile
 from runtime.agents.specialists import (
     AGENT_PROFILE_BINDINGS_KEY,
+    SpecialistProfile,
     normalize_specialist_id,
     agent_role_ids,
     MANAGER_AGENT_ID,
@@ -63,7 +62,7 @@ def _build_executor_components(
     viewer_username: str | None = None,
     viewer_tenant_id: str | None = None,
 ) -> tuple[
-    NetworkOpsAgent,
+    Agent,
     dict[str, SpecialistProfile],
     object,
     str,
@@ -205,9 +204,15 @@ def _build_executor_components(
         specialist_models[sid] = m
         specialist_modes[sid] = md
 
-    base_agent = NetworkOpsAgent(
+    base_agent = Agent(
         store=store,
+        tools=default_registry(
+            expert=expert_name_for_specialist("ops"),
+            specialist="ops",
+            store=store,
+        ),
         model=specialist_models.get("ops") or active_model,
+        system_prompt=default_system_prefix_for_specialist("ops", lang),
         lang=lang,
         llm_profile_mode=specialist_modes.get("ops") or active_mode,
     )
@@ -315,17 +320,6 @@ def build_gateway_executor(
     prof = specialist_profiles.get(sid) or specialist_profiles["generalist"]
     chosen_model = specialist_models.get(prof.name) or base_agent.model
     chosen_mode = specialist_modes.get(prof.name) or getattr(base_agent, "llm_profile_mode", None)
-    if prof.name == "ops":
-        return NetworkOpsAgent(
-            store=store,
-            model=chosen_model,
-            lang=(lang or "zh").strip().lower(),
-            llm_profile_mode=chosen_mode,
-            system_prompt=prof.system_prefix,
-            policy_session_id=policy_session_id,
-            path_policy_tenant_id=path_policy_tenant_id,
-            path_policy_user_id=path_policy_user_id,
-        )
     reg_kw: dict[str, Any] = {
         "expert": expert_name_for_specialist(prof.name),
         "specialist": prof.name,

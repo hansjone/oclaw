@@ -63,6 +63,7 @@ def test_memory_wiki_plugin_registry_and_catalog_wiring(tmp_path: Path, monkeypa
     assert {"wiki_status", "wiki_lint", "wiki_apply", "wiki_search", "wiki_get"} <= names
     assert all(callable(t.get("handler")) for t in tools if str(t.get("name") or "").startswith("wiki_"))
 
+    monkeypatch.setenv("AIA_ENABLE_PLUGIN_TOOLS", "1")
     monkeypatch.setenv("AIA_PLUGIN_TOOLS_ENABLED", "1")
     monkeypatch.setenv("AIA_PLUGIN_TOOL_IDS", "memory-wiki")
     specs = materialize_tool_specs()

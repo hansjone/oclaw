@@ -26,7 +26,7 @@
 4. **有图**：调用 **`send_legacy_image_messages`**（`/chat/completions` 兼容路径，非 Responses API）。
 5. **输出解析**：**`legacy_image_turn_bundle`**  
    - 文本可为空；若有生成图则 **`materialize_legacy_response_output_attachments`** 写入本地 blob，产出 **`image_ref`**（或退化为 **`image_url`**）。
-6. **占位文案**：成功但只有图、无模型正文时，由 **`legacy_image_assistant_body_with_placeholder`**（`image_legacy_client`）写入中英文占位句；网关与 `specialist_agent` 共用，避免两处字符串分叉。
+6. **占位文案**：成功但只有图、无模型正文时，由 **`legacy_image_assistant_body_with_placeholder`**（`image_legacy_client`）写入中英文占位句；与 `direct_loop` early-exit 共用。
 7. **持久化**：**`store.add_message(role=assistant, event_type=assistant_text, attachments=…)`** —— 附件以 JSON 形式挂在助手消息上，而非 tool 行。
 
 ---
@@ -36,7 +36,7 @@
 | 场景 | 模块 | 说明 |
 |------|------|------|
 | Chat 网关 + 图片专家 | `direct_loop._maybe_image_specialist_legacy_gateway_turn` | 上文主路径；Early Return，不进主 LLM 循环。 |
-| Specialist 编排临时会话 | `runtime/agents/specialist_agent.py` | 同样调用 `send_legacy_image_messages` / `legacy_image_turn_bundle`，逻辑对齐但不经过同一 Early Return。 |
+| Gateway early-exit | `runtime/direct_loop.py` | Image specialist 走 legacy HTTP lane，不经过 Responses 协议。 |
 
 两处共用 **`platform/llm/image_legacy_client.py`**，避免分叉实现。
 
@@ -78,7 +78,7 @@
 
 ## 8. 变更原则（避免波及其它链路）
 
-1. **默认改动范围**：`image_legacy_client.py`、`image_http_common.py`、`direct_loop` 中 **`_maybe_image_specialist_*` 函数体**、`specialist_agent` 中与 legacy image 调用相邻代码、`turn_runner` / `chat.js` 中与 **assistant + attachments** 展示相邻逻辑。
+1. **默认改动范围**：`image_legacy_client.py`、`image_http_common.py`、`direct_loop` 中 **`_maybe_image_specialist_*` 函数体**、`turn_runner` / `chat.js` 中与 **assistant + attachments** 展示相邻逻辑。
 2. **勿在** `openai_responses.py` **中为图片专家单独分支**，除非明确要做「非 legacy」通用能力。
 3. 新增开关优先 **`AIA_IMAGE_*` / `AIA_IMAGE_SPECIALIST_*`**，勿复用 OCR 变量。
 4. UI 层附件渲染：**assistant_text 与 tool_result** 对称处理引用型附件，避免只修一端。

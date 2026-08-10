@@ -27,7 +27,7 @@
 5. **调用**：`send_video_generation_request` — `POST .../video-synthesis`（`X-DashScope-Async: enable`），再轮询 **`GET .../api/v1/tasks/{task_id}`** 直至 `SUCCEEDED` / 失败 / 超时。
 6. **输出**：成功时从 `output.video_url` 下载为本地 blob，产出 **`video_ref`**；下载失败时退化为仅带 **`url`** 的 `video_ref` 行（前端仍可尝试外链播放）。
 7. **占位文案**：`legacy_video_assistant_body_with_placeholder` 与图片专家对称（仅附件、无正文时插入中英文短句）。
-8. **编排**：`runtime/agents/specialist_agent.py` 在 `step.specialist == "video"` 时调用同一客户端（按父任务附件 + 父会话历史解析首帧），保证综合模式子专家与专家模式行为一致。
+8. **编排**：video specialist 在 `direct_loop` early-exit 中调用同一客户端；综合模式经 gateway 选中 video specialist 后走同一路径。
 
 ---
 
@@ -64,5 +64,5 @@
 
 ## 8. 变更原则
 
-1. 默认只改 **`video_generation_client.py`**、`direct_loop` 的 **`_maybe_video_specialist_*`**、`specialist_agent` 视频分支、`factory` / `gateway` 白名单、**`chat.js`** 附件展示、本文与 **`ENVIRONMENT_VARIABLES.md`**。
+1. 默认只改 **`video_generation_client.py`**、`direct_loop` 的 **`_maybe_video_specialist_*`**、`factory` / `gateway` 白名单、**`chat.js`** 附件展示、本文与 **`ENVIRONMENT_VARIABLES.md`**。
 2. 勿在通用 **`openai_responses`** 中为视频专家单独绕路，除非产品明确要求统一传输。

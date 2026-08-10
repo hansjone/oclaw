@@ -3,7 +3,6 @@
 Uses ``{"image":...}/{"text":...}`` or typed compatible-mode blocks on ``/chat/completions`` only.
 The **image specialist** uses this module from:
 
-- :mod:`~runtime.agents.specialist_agent` (orchestration temp sessions)
 - :mod:`~runtime.direct_loop` when ``skill_binding_role=="image"`` (**gateway /chat UI**), so vision
   turns never hit :class:`~svc.llm.transports.openai_responses.OpenAIResponsesModel` unless explicitly disabled via env.
 
@@ -359,7 +358,7 @@ def legacy_image_assistant_body_with_placeholder(
 ) -> str:
     """If the model returned images but no visible text, use the standard chat placeholder (ZH/EN).
 
-    Shared by ``direct_loop`` (gateway /chat) and ``specialist_agent`` (temp sessions).
+    Shared by ``direct_loop`` (gateway /chat) for the image specialist early-exit lane.
     """
     if str(body_text or "").strip():
         return str(body_text or "")
