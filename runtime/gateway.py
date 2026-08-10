@@ -485,9 +485,20 @@ class OclawGateway:
         return str(maybe_ops_short_intent_system_hint(text=str(msg.text or ""), lang=lang) or "").strip()
 
     def _resolve_max_tool_rounds(self, msg: StandardMessage, *, base: int) -> int:
-        """Cap tool rounds for WhatsApp/WeChat ops short intents (cut 12+ tool loops)."""
+        """Optionally cap short-intent rounds when explicitly configured.
+
+        Field ops often raise AIA_TURN_MAX_TOOL_ROUNDS (e.g. 200). Absolute caps hurt
+        legitimate multi-NE work; identical-arg / retry_forbidden guards handle loops.
+        Set AIA_OPS_SHORT_INTENT_MAX_TOOL_ROUNDS only if you want an explicit short-intent ceiling.
+        """
         rounds = max(1, min(int(base), 300))
         if not self._is_channel_delivery_channel(msg):
+            return rounds
+        try:
+            raw = str(self.store.get_setting("AIA_OPS_SHORT_INTENT_MAX_TOOL_ROUNDS") or "").strip()
+        except Exception:
+            raw = ""
+        if not raw.isdigit():
             return rounds
         md = msg.metadata if isinstance(msg.metadata, dict) else {}
         from runtime.application.gateway.ops_short_intent import detect_ops_short_intent
@@ -495,12 +506,7 @@ class OclawGateway:
         intent = detect_ops_short_intent(str(msg.text or md.get("raw_inbound_text") or ""))
         if not intent:
             return rounds
-        try:
-            raw = str(self.store.get_setting("AIA_OPS_SHORT_INTENT_MAX_TOOL_ROUNDS") or "").strip()
-            cap = int(raw) if raw.isdigit() else 8
-        except Exception:
-            cap = 8
-        cap = max(3, min(int(cap), 30))
+        cap = max(3, min(int(raw), 300))
         return min(rounds, cap)
 
     @staticmethod

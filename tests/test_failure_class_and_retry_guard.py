@@ -130,7 +130,8 @@ def test_retry_forbidden_blocks_same_tool_different_args(tmp_path: Path) -> None
     assert blocked.get("retry_forbidden") is True
 
 
-def test_exec_managed_ne_call_budget(tmp_path: Path) -> None:
+def test_distinct_exec_managed_ne_calls_not_capped_by_count(tmp_path: Path) -> None:
+    """Field ops may legitimately CLI many NEs; only identical-arg loops are blocked."""
     store = SqliteStore(str(tmp_path / "cli.sqlite"))
     sess = store.create_session("t")
     calls = {"n": 0}
@@ -154,11 +155,10 @@ def test_exec_managed_ne_call_budget(tmp_path: Path) -> None:
         store=store,
         tools=reg,
         session_id=sess.id,
-        turn_uuid="turn-cli-budget",
+        turn_uuid="turn-cli-many",
         lang="en",
     )
-    # 4 distinct-arg calls allowed; 5th blocked by call budget.
-    for i in range(4):
+    for i in range(8):
         ToolExecutor().execute_tool_uses(
             ctx=ctx,
             assistant_msg_id=i + 1,
@@ -171,123 +171,4 @@ def test_exec_managed_ne_call_budget(tmp_path: Path) -> None:
             ],
             signature_budget=2,
         )
-    assert calls["n"] == 4
-    _, results = ToolExecutor().execute_tool_uses(
-        ctx=ctx,
-        assistant_msg_id=99,
-        tool_uses=[
-            LLMToolCall(
-                id="cX",
-                name="mcp__netx__execManagedNe",
-                arguments={"ne_id": "ne-x", "commands": ["disp x"]},
-            )
-        ],
-        signature_budget=2,
-    )
-    blocked, _ = results["cX"]
-    assert calls["n"] == 4
-    assert blocked.get("error_code") == "cli_call_budget_exceeded"
-
-
-def test_exec_managed_ne_fail_budget(tmp_path: Path) -> None:
-    store = SqliteStore(str(tmp_path / "cli-fail.sqlite"))
-    sess = store.create_session("t")
-    calls = {"n": 0}
-
-    def _handler(_args):
-        calls["n"] += 1
-        return {"ok": False, "error_code": "tool_timeout_or_failed", "error": "timeout"}
-
-    reg = ToolRegistry(
-        [
-            ToolSpec(
-                name="mcp__netx__execManagedNe",
-                description="exec",
-                parameters={"type": "object", "properties": {"ne_id": {"type": "string"}}},
-                handler=_handler,
-                read_only=False,
-            )
-        ]
-    )
-    ctx = ToolExecutionContext(
-        store=store,
-        tools=reg,
-        session_id=sess.id,
-        turn_uuid="turn-cli-fail",
-        lang="en",
-    )
-    for i in range(2):
-        ToolExecutor().execute_tool_uses(
-            ctx=ctx,
-            assistant_msg_id=i + 1,
-            tool_uses=[
-                LLMToolCall(
-                    id=f"f{i}",
-                    name="mcp__netx__execManagedNe",
-                    arguments={"ne_id": f"ne-{i}", "commands": ["disp"]},
-                )
-            ],
-            signature_budget=2,
-        )
-    assert calls["n"] == 2
-    _, results = ToolExecutor().execute_tool_uses(
-        ctx=ctx,
-        assistant_msg_id=3,
-        tool_uses=[
-            LLMToolCall(
-                id="f3",
-                name="mcp__netx__execManagedNe",
-                arguments={"ne_id": "ne-3", "commands": ["disp"]},
-            )
-        ],
-        signature_budget=2,
-    )
-    blocked, _ = results["f3"]
-    assert calls["n"] == 2
-    assert blocked.get("error_code") == "cli_fail_budget_exceeded"
-
-
-def test_run_command_call_budget(tmp_path: Path) -> None:
-    store = SqliteStore(str(tmp_path / "shell.sqlite"))
-    sess = store.create_session("t")
-    calls = {"n": 0}
-
-    def _handler(_args):
-        calls["n"] += 1
-        return {"ok": True, "stdout": "ok", "exit_code": 0}
-
-    reg = ToolRegistry(
-        [
-            ToolSpec(
-                name="run_command",
-                description="shell",
-                parameters={"type": "object", "properties": {"command": {"type": "string"}}},
-                handler=_handler,
-                read_only=False,
-            )
-        ]
-    )
-    ctx = ToolExecutionContext(
-        store=store,
-        tools=reg,
-        session_id=sess.id,
-        turn_uuid="turn-shell-budget",
-        lang="en",
-    )
-    for i in range(5):
-        ToolExecutor().execute_tool_uses(
-            ctx=ctx,
-            assistant_msg_id=i + 1,
-            tool_uses=[LLMToolCall(id=f"s{i}", name="run_command", arguments={"command": f"echo {i}"})],
-            signature_budget=2,
-        )
-    assert calls["n"] == 5
-    _, results = ToolExecutor().execute_tool_uses(
-        ctx=ctx,
-        assistant_msg_id=99,
-        tool_uses=[LLMToolCall(id="sX", name="run_command", arguments={"command": "echo x"})],
-        signature_budget=2,
-    )
-    blocked, _ = results["sX"]
-    assert calls["n"] == 5
-    assert blocked.get("error_code") == "shell_call_budget_exceeded"
+    assert calls["n"] == 8

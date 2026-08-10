@@ -1031,6 +1031,10 @@ def test_ops_short_intent_caps_tool_rounds(tmp_path) -> None:
         attachments=[],
         metadata={},
     )
-    assert gw._resolve_max_tool_rounds(short, base=100) == 8
-    assert gw._resolve_max_tool_rounds(long, base=100) == 100
-    assert gw._resolve_max_tool_rounds(admin, base=100) == 100
+    assert gw._resolve_max_tool_rounds(short, base=200) == 200
+    assert gw._resolve_max_tool_rounds(long, base=200) == 200
+    assert gw._resolve_max_tool_rounds(admin, base=200) == 200
+
+    store.set_setting("AIA_OPS_SHORT_INTENT_MAX_TOOL_ROUNDS", "12")
+    assert gw._resolve_max_tool_rounds(short, base=200) == 12
+    assert gw._resolve_max_tool_rounds(long, base=200) == 200
