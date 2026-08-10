@@ -36,3 +36,10 @@ def test_enrich_mcp_scope_sql() -> None:
     assert out["required_scope"] == "sql:query"
     assert "fallback_tools" in out
     assert "ume_alarm_xlsx_report" in out["fallback_tools"]
+
+
+def test_enrich_exec_auth() -> None:
+    from runtime.tools.tool_error_hints import enrich_exec_managed_ne_error
+
+    out = enrich_exec_managed_ne_error({"ok": False, "error": "authentication failed: Permission denied"})
+    assert out["error_class"] == "auth"

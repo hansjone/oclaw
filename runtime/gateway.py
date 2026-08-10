@@ -479,6 +479,12 @@ class OclawGateway:
         return str(build_channel_file_delivery_instruction(lang=lang) or "").strip()
 
     @staticmethod
+    def _ops_short_intent_system_hint(msg: StandardMessage, lang: str) -> str:
+        from runtime.application.gateway.ops_short_intent import maybe_ops_short_intent_system_hint
+
+        return str(maybe_ops_short_intent_system_hint(text=str(msg.text or ""), lang=lang) or "").strip()
+
+    @staticmethod
     def _tabular_query_system_hint(lang: str) -> str:
         limits = OclawGateway._tabular_limits_from_config()
         preview_rows = int(limits.get("large_table_preview_rows") or _DEFAULT_TABULAR_PREVIEW_ROWS)
@@ -1174,6 +1180,10 @@ class OclawGateway:
                 ch_hint = self._channel_file_delivery_system_hint(lang)
                 if ch_hint:
                     sys_prompt = f"{sys_prompt}\n\n{ch_hint}".strip()
+                if str(manager_specialist or requested_specialist or "").strip().lower() == "ops":
+                    intent_hint = self._ops_short_intent_system_hint(msg, lang)
+                    if intent_hint:
+                        sys_prompt = f"{sys_prompt}\n\n{intent_hint}".strip()
             if self._has_tabular_ref_attachments(msg):
                 sys_prompt = f"{sys_prompt}\n\n{self._tabular_query_system_hint(lang)}".strip()
             if self._has_text_ref_attachments(msg):

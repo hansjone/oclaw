@@ -1193,6 +1193,7 @@ def process_inbound_payload(payload: dict[str, Any]) -> dict[str, Any]:
                 target={"is_group": bool(inbound.is_group), "mention_all": bool(mention_all)},
             )
             d = pe.decide_action(ctx=act)
+            channel_is_wa = str(inbound.channel or "").strip().lower() == "whatsapp"
             if d.needs_confirmation:
                 token_key = f"confirm_token:{session_id}"
                 token = (store.get_setting(token_key) or "").strip()
@@ -1200,12 +1201,22 @@ def process_inbound_payload(payload: dict[str, Any]) -> dict[str, Any]:
                     token = pe.new_confirmation_token()
                     store.set_setting(token_key, token)
                 if not has_explicit_confirmation_token(inbound.text, token):
-                    reply = f"该动作需要确认。请回复 `confirm {token}` 或包含 `[confirm:{token}]`。"
+                    if channel_is_wa:
+                        reply = (
+                            f"This action needs confirmation. "
+                            f"Reply `confirm {token}` or include `[confirm:{token}]`."
+                        )
+                    else:
+                        reply = f"该动作需要确认。请回复 `confirm {token}` 或包含 `[confirm:{token}]`。"
                 else:
                     reply = f"[assistant] ok scope={scope} session={session_id[:8]} (confirmed)"
             else:
                 if not _role_can_write(role, inbound.text):
-                    reply = "你的角色暂无写入权限。请联系管理员提升权限。"
+                    reply = (
+                        "Your role cannot write yet. Ask an administrator to raise your permissions."
+                        if channel_is_wa
+                        else "你的角色暂无写入权限。请联系管理员提升权限。"
+                    )
                 else:
                     cmd_reply = _handle_productivity_commands(
                         text=inbound.text,
@@ -1410,6 +1421,39 @@ def process_inbound_payload(payload: dict[str, Any]) -> dict[str, Any]:
                                 turn_handle = gate.try_begin(str(session_id), turn_job)
                                 if turn_handle is None:
                                     # Another turn is active; this message will be merged after it.
+                                    if (
+                                        str(inbound.channel or "").strip().lower() == "whatsapp"
+                                        and _whatsapp_inbound_queue_delivery_enabled()
+                                        and gate.pending_count(str(session_id)) == 1
+                                    ):
+                                        try:
+                                            busy_meta = None
+                                            if bool(getattr(inbound, "is_group", False)):
+                                                from runtime.application.gateway.whatsapp_progress import (
+                                                    build_whatsapp_group_progress_metadata,
+                                                )
+
+                                                busy_meta = build_whatsapp_group_progress_metadata(
+                                                    inbound=inbound
+                                                )
+                                            busy_text = (
+                                                "还在处理上一条请求，这条会排队合并处理。"
+                                                if str(lang or "").startswith("zh")
+                                                else "Still working on your previous request; "
+                                                "I'll merge this follow-up next."
+                                            )
+                                            _enqueue_whatsapp_inbound_reply(
+                                                store,
+                                                inbound=inbound,
+                                                account_id=account_id,
+                                                tenant_id=str(tenant_id or ""),
+                                                reply_text=busy_text,
+                                                reply_attachments=None,
+                                                reply_metadata=busy_meta,
+                                                kind="inbound_progress",
+                                            )
+                                        except Exception:
+                                            pass
                                     return {
                                         "ok": True,
                                         "replies": [],

@@ -139,14 +139,9 @@ class _McpBoundTool:
                     "instead of listing again."
                 )
             if tool_name == "execManagedNe" and res.get("ok") is False:
-                err = str(res.get("error") or res.get("error_code") or "")
-                low = err.lower()
-                if "timeout" in low or res.get("error_code") == "tool_timeout_or_failed":
-                    res = dict(res)
-                    res["hint"] = (
-                        "CLI timed out. Raise read_timeout_sec (60–120), reduce commands, "
-                        "or reuse prior listCliTargets ids — do not blind-retry identical calls."
-                    )
+                from runtime.tools.tool_error_hints import enrich_exec_managed_ne_error
+
+                res = enrich_exec_managed_ne_error(res)
             return res
 
         return ToolSpec(

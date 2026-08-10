@@ -93,7 +93,114 @@ def enrich_mcp_scope_error(result: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
+def _unwrap_nested_error_blob(raw: Any) -> tuple[str, str]:
+    """Best-effort unwrap double-encoded MCP/netx error payloads."""
+    import json
+
+    text = str(raw or "").strip()
+    code = ""
+    if not text:
+        return "", ""
+    cur: Any = text
+    for _ in range(3):
+        if isinstance(cur, dict):
+            code = str(cur.get("error_code") or cur.get("code") or code or "")
+            nested = cur.get("error")
+            if nested is None and cur.get("data") is not None:
+                nested = cur.get("data")
+            if isinstance(nested, (dict, list)):
+                cur = nested
+                continue
+            if nested is not None:
+                text = str(nested)
+                cur = nested
+                if isinstance(cur, str) and cur.strip().startswith("{"):
+                    try:
+                        cur = json.loads(cur)
+                        continue
+                    except Exception:
+                        break
+            break
+        if isinstance(cur, str) and cur.strip().startswith("{"):
+            try:
+                cur = json.loads(cur)
+                continue
+            except Exception:
+                text = cur
+                break
+        if isinstance(cur, str):
+            text = cur
+        break
+    if isinstance(cur, dict):
+        text = str(cur.get("error") or cur.get("message") or text)
+        code = str(cur.get("error_code") or cur.get("code") or code or "")
+    return str(text or "").strip(), str(code or "").strip()
+
+
+def enrich_exec_managed_ne_error(result: dict[str, Any]) -> dict[str, Any]:
+    """Classify execManagedNe failures so agents stop blind-retrying."""
+    if not isinstance(result, dict) or result.get("ok") is not False:
+        return result
+    out = dict(result)
+    raw_err = out.get("error")
+    raw_code = str(out.get("error_code") or "")
+    unwrapped, nested_code = _unwrap_nested_error_blob(raw_err)
+    if unwrapped and unwrapped != str(raw_err or "").strip():
+        out["error_detail"] = unwrapped
+    code = (nested_code or raw_code or "").strip()
+    blob = f"{unwrapped} {code} {raw_err}".lower()
+
+    error_class = "exec_failed"
+    hint = (
+        "CLI failed. Check ne_id/ume_ne_id, avoid identical blind retries, "
+        "and prefer batching show commands in one execManagedNe call."
+    )
+    if "timeout" in blob or code in {"tool_timeout_or_failed", "read_timeout", "deadline_exceeded"}:
+        error_class = "timeout"
+        hint = (
+            "CLI timed out. Raise read_timeout_sec (60–120), reduce commands, "
+            "or reuse prior listCliTargets ids — do not blind-retry identical calls."
+        )
+    elif any(
+        x in blob
+        for x in (
+            "unreachable",
+            "connection refused",
+            "no route",
+            "timed out connecting",
+            "host unreachable",
+            "network is unreachable",
+            "connect_failed",
+            "ssh_connect",
+        )
+    ):
+        error_class = "unreachable"
+        hint = (
+            "Device unreachable / connect failed. Do not spam retries; report the NE as unreachable "
+            "and try another target or verify UME→CLI credentials/jump host."
+        )
+    elif any(x in blob for x in ("auth", "permission denied", "login failed", "authentication", "password")):
+        error_class = "auth"
+        hint = (
+            "CLI authentication failed. Do not retry the same credentials; "
+            "fix UME→CLI / managed-NE credentials instead."
+        )
+    elif any(x in blob for x in ("command", "syntax", "invalid input", "ambiguous command", "%error")):
+        error_class = "command_error"
+        hint = (
+            "Command rejected by the device. Fix the CLI syntax or vendor dialect; "
+            "do not retry the identical command string."
+        )
+
+    out["error_class"] = error_class
+    if code and not out.get("error_code"):
+        out["error_code"] = code
+    out["hint"] = hint
+    return out
+
+
 __all__ = [
+    "enrich_exec_managed_ne_error",
     "enrich_mcp_scope_error",
     "format_unregistered_tool_error",
     "suggest_tool_names",

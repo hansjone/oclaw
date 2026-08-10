@@ -235,10 +235,19 @@ class WhatsappInboundSerialQueueTests(unittest.TestCase):
         pending = self.store.list_pending_channel_outbound_messages(
             channel="whatsapp", account_id="wa-default", limit=10
         )
-        self.assertEqual(len(pending), 2)
+        self.assertEqual(len(pending), 3)
         texts = " ".join(str(p.get("text") or "") for p in pending)
         self.assertIn("ans:1", texts)
         self.assertIn("ans:2", texts)
+        self.assertIn("Still working", texts)
+        kinds = []
+        for p in pending:
+            try:
+                kinds.append(json.loads(str(p.get("source") or "{}")).get("kind"))
+            except Exception:
+                kinds.append(None)
+        self.assertIn("inbound_progress", kinds)
+        self.assertEqual(kinds.count("inbound_reply"), 2)
 
 
 if __name__ == "__main__":
