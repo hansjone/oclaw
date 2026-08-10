@@ -68,7 +68,7 @@ def build_gateway_context(
         if execution_mode not in {"agent", "plan"}:
             execution_mode = "agent"
         plan_agent_version = str(p.get("plan_agent_version") or "v1").strip().lower() or "v1"
-        if plan_agent_version not in {"v1", "v2"}:
+        if plan_agent_version != "v1":
             plan_agent_version = "v1"
         if interaction_mode != "expert":
             interaction_mode = "expert"
@@ -107,7 +107,7 @@ def build_gateway_context(
         if execution_mode not in {"agent", "plan"}:
             execution_mode = "agent"
         plan_agent_version = str(p.get("plan_agent_version") or "v1").strip().lower() or "v1"
-        if plan_agent_version not in {"v1", "v2"}:
+        if plan_agent_version != "v1":
             plan_agent_version = "v1"
         if interaction_mode != "expert":
             interaction_mode = "expert"

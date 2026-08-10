@@ -108,10 +108,6 @@ const I18N = {
     "chat.execModePlan": "Plan",
     "chat.execModeApplied": "执行态：{mode}",
     "chat.confirmStrategyLabel": "确认策略",
-    "chat.planAgentVersionLabel": "Plan / Agent 版本",
-    "chat.planAgentVersionV1": "v1（经典）",
-    "chat.planAgentVersionV2": "v2",
-    "chat.planAgentVersionV2Disabled": "v2（未启用，需 AIA_EXPERT_PLAN_AGENT_V2_ENABLED=1）",
     "chat.confirmStrategyStrict": "Strict（需切换 Agent）",
     "chat.confirmStrategyAuto": "Auto（自动确认执行）",
     "chat.confirmStrategyOff": "Off（不拦截确认）",
@@ -306,9 +302,6 @@ const I18N = {
     "chat.execModePlan": "Plan",
     "chat.execModeApplied": "Execution: {mode}",
     "chat.confirmStrategyLabel": "Confirm Strategy",
-    "chat.planAgentVersionLabel": "Plan / Agent version",
-    "chat.planAgentVersionV1": "v1 (classic)",
-    "chat.planAgentVersionV2": "v2",
     "chat.confirmStrategyStrict": "Strict (switch to Agent first)",
     "chat.confirmStrategyAuto": "Auto (confirm executes directly)",
     "chat.confirmStrategyOff": "Off (no confirm-mode gate)",
@@ -414,7 +407,6 @@ const CHAT_INTERACTION_MODE_KEY = "ops_chat_interaction_mode";
 const CHAT_MEMORY_MODE_KEY = "ops_chat_memory_mode";
 const CHAT_EXECUTION_MODE_KEY = "ops_chat_execution_mode";
 const CHAT_CONFIRM_STRATEGY_KEY = "ops_chat_confirm_strategy";
-const CHAT_PLAN_AGENT_VERSION_KEY = "ops_chat_plan_agent_version";
 const CHAT_USER_MENU_MODE_KEY = "ops_chat_user_menu_mode";
 const CHAT_REASONING_TOGGLE_KEY = "ops_chat_reasoning_toggle";
 const EXECUTION_MODE_AGENT = "agent";
@@ -423,7 +415,6 @@ const CONFIRM_STRATEGY_STRICT = "strict";
 const CONFIRM_STRATEGY_AUTO = "auto";
 const CONFIRM_STRATEGY_OFF = "off";
 const PLAN_AGENT_V1 = "v1";
-const PLAN_AGENT_V2 = "v2";
 /** Default on: reasoning/tool fold matches streamed behavior; new browsers have no localStorage yet. */
 const ADMIN_CHAT_SHOW_TOOL_OUTPUT_DEFAULT = true;
 const REASONING_BLOCK_MAX_CHARS = 12000;
@@ -3073,29 +3064,6 @@ function syncAuthUserLabel() {
           }
         });
         items.push(modeSel);
-        items.push(el("div", { class: "muted", style: "padding:6px 10px 2px;font-size:12px;", text: t("chat.planAgentVersionLabel") }));
-        const pavSel = el("select", { class: "input", style: "width:100%;margin:4px 8px 8px;max-width:calc(100% - 16px);" });
-        try {
-          const prow = Array.isArray(bridge.getPlanAgentVersionOptions && bridge.getPlanAgentVersionOptions())
-            ? bridge.getPlanAgentVersionOptions()
-            : [];
-          prow.forEach((r) =>
-            pavSel.appendChild(el("option", { value: String(r.value || ""), text: String(r.label || r.value || "") })),
-          );
-          pavSel.value = String((bridge.getPlanAgentVersionValue && bridge.getPlanAgentVersionValue()) || "");
-        } catch (_) {}
-        pavSel.addEventListener("change", async () => {
-          const v = pavSel.value;
-          try {
-            pavSel.disabled = true;
-            if (bridge.setPlanAgentVersionValue) await bridge.setPlanAgentVersionValue(v);
-          } catch (_) {
-            // errors are surfaced by saveUserGlobalModePreference()
-          } finally {
-            pavSel.disabled = false;
-          }
-        });
-        items.push(pavSel);
         items.push(el("div", { class: "muted", style: "padding:2px 10px 2px;font-size:12px;", text: t("chat.confirmStrategyLabel") }));
         const csSel = el("select", { class: "input", style: "width:100%;margin:4px 8px 8px;max-width:calc(100% - 16px);" });
         try {
@@ -3393,12 +3361,6 @@ async function renderChatUi() {
     normalizeExecutionMode(v) === EXECUTION_MODE_PLAN ? t("chat.execModePlan") : t("chat.execModeAgent");
   let currentExecutionMode = normalizeExecutionMode(localStorage.getItem(CHAT_EXECUTION_MODE_KEY) || EXECUTION_MODE_AGENT);
   let currentConfirmStrategy = normalizeConfirmStrategy(localStorage.getItem(CHAT_CONFIRM_STRATEGY_KEY) || CONFIRM_STRATEGY_STRICT);
-  const normalizePlanAgentVersion = (v) => {
-    const raw = String(v || "").trim().toLowerCase();
-    return raw === PLAN_AGENT_V2 ? PLAN_AGENT_V2 : PLAN_AGENT_V1;
-  };
-  let planAgentV2GloballyEnabled = false;
-  let currentPlanAgentVersion = normalizePlanAgentVersion(localStorage.getItem(CHAT_PLAN_AGENT_VERSION_KEY) || PLAN_AGENT_V1);
   const execSelect = el("select", {
     class: "input",
     style: "min-width:96px;max-width:140px;padding:6px 8px;",
@@ -3425,7 +3387,6 @@ async function renderChatUi() {
   const execSelectWrap = el("span", { class: "chat-exec-mode-wrap", style: "display:inline-flex;align-items:center;" }, [
     execSelect,
   ]);
-  const outboundPlanAgentVersion = () => PLAN_AGENT_V1;
   const refreshExecUi = () => {
     // Plan mode removed; keep agent execution only.
     execSelectWrap.style.display = "none";
@@ -3574,10 +3535,6 @@ async function renderChatUi() {
       const mm = String((resp && resp.memory_mode) || "").toLowerCase();
       const em = String((resp && resp.execution_mode) || "").toLowerCase();
       const cs = String((resp && resp.confirm_strategy) || "").toLowerCase();
-      planAgentV2GloballyEnabled = !!(resp && resp.plan_agent_v2_globally_enabled);
-      const pavRaw = String((resp && resp.plan_agent_version) || "").trim().toLowerCase();
-      currentPlanAgentVersion = normalizePlanAgentVersion(pavRaw || localStorage.getItem(CHAT_PLAN_AGENT_VERSION_KEY));
-      localStorage.setItem(CHAT_PLAN_AGENT_VERSION_KEY, currentPlanAgentVersion);
       const gm = resp && resp.global_menu && typeof resp.global_menu === "object" ? resp.global_menu : null;
       if (gm) {
         const gIm = String(gm.interaction_mode || "").toLowerCase();
@@ -3589,15 +3546,10 @@ async function renderChatUi() {
         try {
           const ur = await apiGet("/admin/api/chat/user-mode");
           if (ur && ur.ok) {
-            planAgentV2GloballyEnabled = !!(ur.plan_agent_v2_globally_enabled != null ? ur.plan_agent_v2_globally_enabled : planAgentV2GloballyEnabled);
             const gum = String((ur.interaction_mode || "").toLowerCase());
             const gus = String((ur.specialist || "").toLowerCase());
             currentConfirmStrategy = normalizeConfirmStrategy(ur.confirm_strategy || currentConfirmStrategy);
             localStorage.setItem(CHAT_CONFIRM_STRATEGY_KEY, currentConfirmStrategy);
-            currentPlanAgentVersion = normalizePlanAgentVersion(
-              ur.plan_agent_version || localStorage.getItem(CHAT_PLAN_AGENT_VERSION_KEY),
-            );
-            localStorage.setItem(CHAT_PLAN_AGENT_VERSION_KEY, currentPlanAgentVersion);
             if (isSelectableSpecialist(gus)) globalMenuModeValue = gus;
             else if (isSelectableSpecialist(gum)) globalMenuModeValue = gum;
             else globalMenuModeValue = MAIN_MODE_VALUE;
@@ -3632,11 +3584,8 @@ async function renderChatUi() {
         interaction_mode: "expert",
         specialist,
         confirm_strategy: String(currentConfirmStrategy || CONFIRM_STRATEGY_STRICT),
-        plan_agent_version: String(currentPlanAgentVersion || PLAN_AGENT_V1),
+        plan_agent_version: PLAN_AGENT_V1,
       });
-      if (resp && typeof resp.plan_agent_v2_globally_enabled === "boolean") {
-        planAgentV2GloballyEnabled = !!resp.plan_agent_v2_globally_enabled;
-      }
       localStorage.setItem(CHAT_USER_MENU_MODE_KEY, specialist);
       globalMenuModeValue = specialist;
       if (!resp || resp.ok === false) {
@@ -3962,19 +3911,6 @@ async function renderChatUi() {
           globalMenuModeValue = next;
           localStorage.setItem(CHAT_USER_MENU_MODE_KEY, globalMenuModeValue);
           syncHiddenModeSelectFromGlobal();
-          await saveUserGlobalModePreference();
-          refreshExecUi();
-          publishUserMenuPrefsBridge();
-        },
-        getPlanAgentVersionOptions: () => [
-          { value: PLAN_AGENT_V1, label: t("chat.planAgentVersionV1") },
-          { value: PLAN_AGENT_V2, label: t("chat.planAgentVersionV2") },
-        ],
-        getPlanAgentVersionValue: () => String(currentPlanAgentVersion || PLAN_AGENT_V1),
-        setPlanAgentVersionValue: async (v) => {
-          const next = normalizePlanAgentVersion(v);
-          currentPlanAgentVersion = next;
-          localStorage.setItem(CHAT_PLAN_AGENT_VERSION_KEY, currentPlanAgentVersion);
           await saveUserGlobalModePreference();
           refreshExecUi();
           publishUserMenuPrefsBridge();
@@ -4542,7 +4478,7 @@ async function renderChatUi() {
           specialist: String(specialist || "generalist"),
           memory_mode: String(memoryMode || "default"),
           execution_mode: String(executionMode || "agent"),
-          plan_agent_version: outboundPlanAgentVersion(),
+          plan_agent_version: PLAN_AGENT_V1,
           lang: currentLang === "en" ? "en" : "zh",
         },
       };

@@ -744,9 +744,9 @@ def _normalize_confirm_strategy(payload: dict[str, Any] | None) -> str:
 
 
 def _normalize_plan_agent_version(payload: dict[str, Any] | None) -> str:
-    body = payload or {}
-    raw = str(body.get("plan_agent_version") or "").strip().lower()
-    return raw if raw in {"v1", "v2"} else "v1"
+    """Plan agent v2 removed; always wire as classic v1."""
+    del payload
+    return "v1"
 
 
 def _resolve_user_menu_chat_settings(
@@ -755,7 +755,7 @@ def _resolve_user_menu_chat_settings(
     tenant_id: str,
     user_id: str,
 ) -> tuple[str, str, str, str]:
-    """User-wide settings (⋯ menu): mode + confirm + plan/agent version — all sessions share these keys."""
+    """User-wide settings (⋯ menu): mode + confirm — all sessions share these keys."""
     user_mode_key = _chat_user_mode_setting_key(tenant_id=tenant_id, user_id=user_id, field="interaction_mode")
     user_specialist_key = _chat_user_mode_setting_key(tenant_id=tenant_id, user_id=user_id, field="specialist")
     user_confirm_strategy_key = _chat_user_mode_setting_key(tenant_id=tenant_id, user_id=user_id, field="confirm_strategy")
