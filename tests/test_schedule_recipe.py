@@ -75,10 +75,14 @@ class RecipeHelpersTests(unittest.TestCase):
         self.assertIn("ume_alarm_tally_daily", ids)
         self.assertIn("ume_critical_xlsx_daily", ids)
         self.assertIn("ne_license_check_weekly", ids)
+        self.assertIn("bandwidth_congestion_daily", ids)
         tmpl = resolve_ops_recipe_template("alarm_tally")
         assert tmpl is not None
         self.assertTrue(recipe_has_playbook(tmpl))
         self.assertEqual((tmpl.get("source") or {}).get("template_id"), "ume_alarm_tally_daily")
+        cong = resolve_ops_recipe_template("congestion")
+        assert cong is not None
+        self.assertEqual((cong.get("source") or {}).get("template_id"), "bandwidth_congestion_daily")
         self.assertIsNone(resolve_ops_recipe_template("nope"))
 
     def test_turn_instruction_modes(self) -> None:

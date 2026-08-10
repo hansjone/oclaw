@@ -34,6 +34,13 @@ _HINTS: dict[str, tuple[str, str]] = {
         "[短指令：License/容量。优先 aggregateUmeAlarms / queryUmeAlarmsRaw（license 关键字）"
         "或 ume_alarm_xlsx_report(mode=list, keyword=license)；≤3 次工具，勿刷 CLI。]",
     ),
+    "congestion": (
+        "[Ops short-intent: bandwidth congestion. Prefer aggregateUmeAlarms / queryUmeAlarmsRaw "
+        "(bandwidth/utilization/congestion keywords) or ume_alarm_xlsx_report(mode=list); "
+        "≤3 tool calls — no CLI spam / no sqlQueryUme unless scoped.]",
+        "[短指令：带宽拥塞。优先 aggregateUmeAlarms / queryUmeAlarmsRaw（带宽/利用率/拥塞）"
+        "或 ume_alarm_xlsx_report(mode=list)；≤3 次工具，勿刷 CLI / 勿先 sqlQueryUme。]",
+    ),
     "continue": (
         "[Ops short-intent: continue/confirm. Resume the unfinished prior task immediately; "
         "do not re-ask confirmation or restart the query from scratch.]",
@@ -64,7 +71,9 @@ def detect_ops_short_intent(text: str) -> str | None:
         return "offline"
     if any(k in t for k in ("excel", "xlsx", "spreadsheet", "export", "send me the table", "表格", "导出")):
         return "excel_export"
-    if any(k in t for k in ("license", "licence", "capacity", "带宽", "拥塞", "license到期")):
+    if any(k in t for k in ("congest", "bandwidth", "utilization", "拥塞", "带宽", "利用率", "端口忙")):
+        return "congestion"
+    if any(k in t for k in ("license", "licence", "capacity", "license到期")):
         return "license"
     if any(
         k in t

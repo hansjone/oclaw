@@ -363,6 +363,59 @@ def _load_turn_failed_signatures(store: Any, *, session_id: str, turn_uuid: str)
     return out
 
 
+def _result_is_retry_forbidden(payload: dict[str, Any] | None) -> bool:
+    if not isinstance(payload, dict):
+        return False
+    if payload.get("retry_forbidden") is True:
+        return True
+    code = str(payload.get("error_code") or "").strip().lower()
+    if code == "insufficient_scope":
+        return True
+    fc = str(payload.get("failure_class") or "").strip().lower()
+    if fc == "auth" and "scope" in f"{payload.get('error') or ''} {code}".lower():
+        return True
+    return False
+
+
+def _load_turn_retry_forbidden_tools(store: Any, *, session_id: str, turn_uuid: str) -> set[str]:
+    """Tool names that returned retry_forbidden / insufficient_scope earlier in this turn."""
+    tu = str(turn_uuid or "").strip()
+    sid = str(session_id or "").strip()
+    out: set[str] = set()
+    if not tu or not sid:
+        return out
+    try:
+        rows = store.get_messages(session_id=sid, limit=500)
+    except Exception:
+        return out
+    for m in rows or []:
+        if str(getattr(m, "role", "") or "").strip().lower() != "tool":
+            continue
+        if str(getattr(m, "turn_uuid", "") or "").strip() != tu:
+            continue
+        ep = _parse_event_payload(getattr(m, "event_payload", None))
+        name = str(ep.get("tool_name") or "").strip()
+        if ep.get("retry_forbidden") is True and name:
+            out.add(name)
+            continue
+        try:
+            payload = json.loads(str(getattr(m, "content", "") or "") or "{}")
+        except Exception:
+            payload = {}
+        if isinstance(payload, dict) and _result_is_retry_forbidden(payload):
+            raw_tc = getattr(m, "tool_calls", None)
+            if isinstance(raw_tc, str):
+                try:
+                    raw_tc = json.loads(raw_tc)
+                except Exception:
+                    raw_tc = None
+            if not name and isinstance(raw_tc, dict):
+                name = str(raw_tc.get("name") or "").strip()
+            if name:
+                out.add(name)
+    return out
+
+
 def normalize_tool_result(result: Any) -> dict[str, Any]:
     if isinstance(result, dict):
         out = dict(result)
@@ -985,6 +1038,11 @@ class ToolExecutor:
             session_id=ctx.session_id,
             turn_uuid=str(ctx.turn_uuid or ""),
         )
+        retry_forbidden_tools = _load_turn_retry_forbidden_tools(
+            ctx.store,
+            session_id=ctx.session_id,
+            turn_uuid=str(ctx.turn_uuid or ""),
+        )
 
         results_by_id: dict[str, tuple[dict[str, Any], int]] = {}
         runnable_tool_uses: list[LLMToolCall] = []
@@ -993,6 +1051,27 @@ class ToolExecutor:
         sig_seen: dict[str, int] = {}
         budget = max(1, min(int(signature_budget or 2), 8))
         for tc in tool_uses:
+            if str(tc.name or "") in retry_forbidden_tools:
+                results_by_id[tc.id] = (
+                    {
+                        "ok": False,
+                        "error_code": "retry_forbidden_blocked",
+                        "failure_class": "retry_guard",
+                        "retry_forbidden": True,
+                        "error": f"tool blocked for remainder of turn after non-retryable failure: {tc.name}",
+                        "hint": (
+                            "This tool already failed with a non-retryable error (e.g. insufficient_scope). "
+                            "Switch to fallback tools (aggregateUmeAlarms / queryUmeAlarmsRaw / "
+                            "ume_alarm_xlsx_report) or ask an admin — do not call it again this turn."
+                        ),
+                    },
+                    0,
+                )
+                _trace(
+                    "retry_forbidden_blocked",
+                    {"tool_name": tc.name},
+                )
+                continue
             if tc.name in _TABULAR_QUERY_TOOL_NAMES and not has_tabular_ref_in_session:
                 results_by_id[tc.id] = (
                     {
@@ -1099,6 +1178,13 @@ class ToolExecutor:
                     "listclitargets",
                     "listmanagedne",
                     "queryumeneinventory",
+                    "queryumealarms",
+                    "queryumealarmsraw",
+                    "aggregateumealarms",
+                    "aggregateumealarmsraw",
+                    "runumediagnostics",
+                    "sqlqueryume",
+                    "findtopologypaths",
                 )
             )
             if count >= budget:
@@ -1108,8 +1194,8 @@ class ToolExecutor:
                         "error_code": "tool_loop_guard",
                         "error": f"tool loop guard triggered for signature: {tc.name}",
                         "hint": (
-                            "Identical list/inventory call already ran this turn; reuse prior ids/rows "
-                            "instead of listing again."
+                            "Identical list/query/aggregate call already ran this turn; reuse prior rows "
+                            "or change filters — do not re-query identically."
                             if listish
                             else "Identical tool call already ran this turn; change arguments or continue without retry."
                         ),
@@ -1150,6 +1236,20 @@ class ToolExecutor:
                     "tool_names": [str(getattr(x, "name", "") or "") for x in batch],
                 },
             )
+            if on_tool_ui:
+                for tc in batch:
+                    try:
+                        on_tool_ui(
+                            "tool_use_call",
+                            {
+                                "phase": "call",
+                                "tool_name": str(tc.name or ""),
+                                "tool_call_id": str(tc.id or ""),
+                                "arguments": dict(tc.arguments or {}),
+                            },
+                        )
+                    except Exception:
+                        pass
             if len(batch) > 1:
                 workers = min(int(self.config.max_workers), len(batch))
                 with ThreadPoolExecutor(max_workers=workers) as ex:
@@ -1187,6 +1287,8 @@ class ToolExecutor:
             result = normalize_tool_result(result)
             if isinstance(result, dict) and result.get("ok") is False:
                 failed_signatures.add(f"{tc.name}:{self._json_dumps_safe(dict(tc.arguments or {}))}")
+            if isinstance(result, dict) and _result_is_retry_forbidden(result):
+                retry_forbidden_tools.add(str(tc.name or ""))
             persisted_result, ingested_refs = ingest_embedded_image_blobs_as_refs(
                 result,
                 filename_prefix=f"{str(tc.name or 'tool')}-{str(tc.id or '')}",
@@ -1243,6 +1345,9 @@ class ToolExecutor:
                     "ok": bool(result.get("ok")) if isinstance(result, dict) else False,
                     "tool_signature": tool_sig[:800],
                     "failure_class": str((result or {}).get("failure_class") or "") if isinstance(result, dict) else "",
+                    "retry_forbidden": bool(
+                        isinstance(result, dict) and _result_is_retry_forbidden(result)
+                    ),
                 },
             )
             try:

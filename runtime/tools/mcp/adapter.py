@@ -41,6 +41,7 @@ _MCP_LIST_CACHE_TTL_S: dict[str, float] = {
     "aggregateUmeAlarms": 45.0,
     "aggregateUmeAlarmsRaw": 45.0,
     "runUmeDiagnostics": 60.0,
+    "findTopologyPaths": 60.0,
 }
 
 _MCP_LIST_CACHE_LOCK = threading.Lock()

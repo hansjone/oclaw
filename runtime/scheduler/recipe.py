@@ -332,6 +332,9 @@ _OPS_RECIPE_TEMPLATE_ALIASES: dict[str, str] = {
     "critical_xlsx_daily": "ume_critical_xlsx_daily",
     "license_check": "ne_license_check_weekly",
     "license_weekly": "ne_license_check_weekly",
+    "congestion": "bandwidth_congestion_daily",
+    "bandwidth": "bandwidth_congestion_daily",
+    "bandwidth_congestion": "bandwidth_congestion_daily",
 }
 
 OPS_RECIPE_TEMPLATES: dict[str, dict[str, Any]] = {
@@ -386,6 +389,24 @@ OPS_RECIPE_TEMPLATES: dict[str, dict[str, Any]] = {
         ],
         "success_criteria": [
             "Group receives a license/capacity status summary for the target set",
+        ],
+        "output": {"need_attachments": False},
+    },
+    "bandwidth_congestion_daily": {
+        "version": 1,
+        "goal": "Daily bandwidth congestion / utilization hotspot summary for ops WhatsApp",
+        "steps": [
+            "Call aggregateUmeAlarms or queryUmeAlarmsRaw with bandwidth/congestion/utilization keywords",
+            "Optionally ume_alarm_xlsx_report(mode=list) if the user wants a file (deliverable=true)",
+            "Summarize top congested hosts/ports in concise English — avoid sqlQueryUme unless scoped",
+        ],
+        "constraints": [
+            "Prefer English for WhatsApp field ops",
+            "Do not spam CLI or identical alarm re-queries",
+            "If insufficient_scope on SQL, switch to aggregate/report tools immediately",
+        ],
+        "success_criteria": [
+            "Group receives a congestion/utilization hotspot summary with freshness",
         ],
         "output": {"need_attachments": False},
     },
