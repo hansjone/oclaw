@@ -177,9 +177,6 @@ async def run_agent_turn_via_bridge(
     execution_mode = str(p.get("execution_mode") or "agent").strip().lower() or "agent"
     if execution_mode not in {"agent", "plan"}:
         execution_mode = "agent"
-    plan_agent_version = str(p.get("plan_agent_version") or "v1").strip().lower() or "v1"
-    if plan_agent_version != "v1":
-        plan_agent_version = "v1"
     store = get_assistant_store()
     gw = OclawGateway(store=store)
 
@@ -292,7 +289,6 @@ async def run_agent_turn_via_bridge(
             "interaction_mode": str(p.get("interaction_mode") or "expert"),
             "selected_specialist": str(p.get("specialist") or "generalist"),
             "execution_mode": execution_mode,
-            "plan_agent_version": plan_agent_version,
             "relay_share_envelope": dict(p.get("relay_share_envelope") or {})
             if isinstance(p.get("relay_share_envelope"), dict)
             else {},

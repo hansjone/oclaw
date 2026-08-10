@@ -220,7 +220,7 @@
 ## MCP 与工具线侧
 
 - `AIA_MCP_SPECIALISTS`
-  - 默认：`generalist,manager,ops`
+  - 默认：`generalist,ops`
   - 作用：未配置 `mcp_specialist_server_binding` 时，允许使用 MCP 的 specialist 列表
   - 生效：`runtime/tools/mcp/adapter.py`
 

@@ -737,24 +737,12 @@ def _normalize_execution_mode(payload: dict[str, Any] | None) -> str:
     return raw if raw in {"agent", "plan"} else "agent"
 
 
-def _normalize_confirm_strategy(payload: dict[str, Any] | None) -> str:
-    """Plan-mode confirm gate removed; keep a fixed wire default for older clients."""
-    del payload
-    return "strict"
-
-
-def _normalize_plan_agent_version(payload: dict[str, Any] | None) -> str:
-    """Plan agent v2 removed; always wire as classic v1."""
-    del payload
-    return "v1"
-
-
 def _resolve_user_menu_chat_settings(
     *,
     store: SqliteStore,
     tenant_id: str,
     user_id: str,
-) -> tuple[str, str, str, str]:
+) -> tuple[str, str]:
     """User-wide settings (⋯ menu): mode + specialist — all sessions share these keys."""
     user_mode_key = _chat_user_mode_setting_key(tenant_id=tenant_id, user_id=user_id, field="interaction_mode")
     user_specialist_key = _chat_user_mode_setting_key(tenant_id=tenant_id, user_id=user_id, field="specialist")
@@ -763,8 +751,7 @@ def _resolve_user_menu_chat_settings(
     interaction_mode = normalize_interaction_mode(mode_raw or "expert")
     specialist = normalize_requested_specialist(specialist_raw or "generalist")
     specialist = _apply_specialist_flags(store, specialist)
-    # Legacy plan-mode fields kept as wire constants for older clients.
-    return interaction_mode, specialist, "strict", "v1"
+    return interaction_mode, specialist
 
 
 def _persist_user_menu_chat_settings(
@@ -774,10 +761,7 @@ def _persist_user_menu_chat_settings(
     user_id: str,
     interaction_mode: str,
     specialist: str,
-    confirm_strategy: str,
-    plan_agent_version: str,
 ) -> None:
-    del confirm_strategy, plan_agent_version
     store.set_setting(
         _chat_user_mode_setting_key(tenant_id=tenant_id, user_id=user_id, field="interaction_mode"),
         interaction_mode,
@@ -834,13 +818,13 @@ def _resolve_mode_settings(
     tenant_id: str,
     user_id: str,
     session_id: str,
-) -> tuple[str, str, str, str, str, str]:
-    """User-wide mode/specialist + session memory/exec (+ legacy confirm/plan_agent defaults) for gateway + REST send."""
-    u_im, u_sp, u_cs, u_pav = _resolve_user_menu_chat_settings(store=store, tenant_id=tenant_id, user_id=user_id)
+) -> tuple[str, str, str, str]:
+    """User-wide mode/specialist + session memory/exec for gateway + REST send."""
+    u_im, u_sp = _resolve_user_menu_chat_settings(store=store, tenant_id=tenant_id, user_id=user_id)
     s_mm, s_em = _resolve_session_dialog_chat_settings(
         store=store, tenant_id=tenant_id, user_id=user_id, session_id=str(session_id)
     )
-    return u_im, u_sp, s_mm, s_em, u_cs, u_pav
+    return u_im, u_sp, s_mm, s_em
 
 
 def _seed_new_session_dialog_from_user_defaults(
@@ -1255,21 +1239,16 @@ def include_chat_routes(router: APIRouter, *, resolve_auth: Callable[[SqliteStor
         s_mm, s_em = _resolve_session_dialog_chat_settings(
             store=store, tenant_id=tenant_id, user_id=user_id, session_id=str(session_id)
         )
-        u_im, u_sp, u_cs, u_pav = _resolve_user_menu_chat_settings(store=store, tenant_id=tenant_id, user_id=user_id)
+        u_im, u_sp = _resolve_user_menu_chat_settings(store=store, tenant_id=tenant_id, user_id=user_id)
         return {
             "ok": True,
             "interaction_mode": u_im,
             "specialist": u_sp,
             "memory_mode": s_mm,
             "execution_mode": s_em,
-            "confirm_strategy": u_cs,
-            "plan_agent_version": u_pav,
-            "plan_agent_v2_globally_enabled": False,
             "global_menu": {
                 "interaction_mode": u_im,
                 "specialist": u_sp,
-                "confirm_strategy": u_cs,
-                "plan_agent_version": u_pav,
             },
         }
 
@@ -1300,21 +1279,16 @@ def include_chat_routes(router: APIRouter, *, resolve_auth: Callable[[SqliteStor
         s_mm, s_em = _resolve_session_dialog_chat_settings(
             store=store, tenant_id=tenant_id, user_id=user_id, session_id=str(session_id)
         )
-        u_im, u_sp, u_cs, u_pav = _resolve_user_menu_chat_settings(store=store, tenant_id=tenant_id, user_id=user_id)
+        u_im, u_sp = _resolve_user_menu_chat_settings(store=store, tenant_id=tenant_id, user_id=user_id)
         return {
             "ok": True,
             "interaction_mode": u_im,
             "specialist": u_sp,
             "memory_mode": s_mm,
             "execution_mode": s_em,
-            "confirm_strategy": u_cs,
-            "plan_agent_version": u_pav,
-            "plan_agent_v2_globally_enabled": False,
             "global_menu": {
                 "interaction_mode": u_im,
                 "specialist": u_sp,
-                "confirm_strategy": u_cs,
-                "plan_agent_version": u_pav,
             },
         }
 
@@ -1326,14 +1300,11 @@ def include_chat_routes(router: APIRouter, *, resolve_auth: Callable[[SqliteStor
         ctx = resolve_auth(store, authorization)
         tenant_id = str(ctx.get("tenant_id") or "")
         user_id = str(ctx.get("user_id") or "")
-        u_im, u_sp, u_cs, u_pav = _resolve_user_menu_chat_settings(store=store, tenant_id=tenant_id, user_id=user_id)
+        u_im, u_sp = _resolve_user_menu_chat_settings(store=store, tenant_id=tenant_id, user_id=user_id)
         return {
             "ok": True,
             "interaction_mode": u_im,
             "specialist": u_sp,
-            "confirm_strategy": u_cs,
-            "plan_agent_version": u_pav,
-            "plan_agent_v2_globally_enabled": False,
         }
 
     @chat.post("/user-mode")
@@ -1349,27 +1320,18 @@ def include_chat_routes(router: APIRouter, *, resolve_auth: Callable[[SqliteStor
         interaction_mode = normalize_interaction_mode(payload.get("interaction_mode"))
         specialist = normalize_requested_specialist(payload.get("specialist"))
         specialist = _apply_specialist_flags(store, specialist)
-        confirm_strategy = _normalize_confirm_strategy(payload)
-        plan_agent_version = _normalize_plan_agent_version(payload)
         _persist_user_menu_chat_settings(
             store=store,
             tenant_id=tenant_id,
             user_id=user_id,
             interaction_mode=interaction_mode,
             specialist=specialist,
-            confirm_strategy=confirm_strategy,
-            plan_agent_version=plan_agent_version,
         )
-        u_im, u_sp, u_cs, u_pav = _resolve_user_menu_chat_settings(store=store, tenant_id=tenant_id, user_id=user_id)
-        # Plan mode removed; keep setting key cleared for leftover clients.
-        store.set_setting("AIA_EXPERT_PLAN_AGENT_V2_ENABLED", "0")
+        u_im, u_sp = _resolve_user_menu_chat_settings(store=store, tenant_id=tenant_id, user_id=user_id)
         return {
             "ok": True,
             "interaction_mode": u_im,
             "specialist": u_sp,
-            "confirm_strategy": u_cs,
-            "plan_agent_version": u_pav,
-            "plan_agent_v2_globally_enabled": False,
         }
 
     @chat.get("/admin/user-stats")
@@ -1945,42 +1907,33 @@ def include_chat_routes(router: APIRouter, *, resolve_auth: Callable[[SqliteStor
         memory_mode = _normalize_memory_mode(payload)
         execution_mode = _normalize_execution_mode(payload)
         if "interaction_mode" not in payload and "chat_mode" not in payload:
-            interaction_mode, _, _, _, _, _ = _resolve_mode_settings(
+            interaction_mode, _, _, _ = _resolve_mode_settings(
                 store=store,
                 tenant_id=tenant_id,
                 user_id=user_id,
                 session_id=str(session_id),
             )
         if "specialist" not in payload:
-            _, selected_specialist, _, _, _, _ = _resolve_mode_settings(
+            _, selected_specialist, _, _ = _resolve_mode_settings(
                 store=store,
                 tenant_id=tenant_id,
                 user_id=user_id,
                 session_id=str(session_id),
             )
         if "memory_mode" not in payload:
-            _, _, memory_mode, _, _, _ = _resolve_mode_settings(
+            _, _, memory_mode, _ = _resolve_mode_settings(
                 store=store,
                 tenant_id=tenant_id,
                 user_id=user_id,
                 session_id=str(session_id),
             )
         if "execution_mode" not in payload:
-            _, _, _, execution_mode, _, _ = _resolve_mode_settings(
+            _, _, _, execution_mode = _resolve_mode_settings(
                 store=store,
                 tenant_id=tenant_id,
                 user_id=user_id,
                 session_id=str(session_id),
             )
-        if "plan_agent_version" not in payload:
-            _, _, _, _, _, plan_agent_version = _resolve_mode_settings(
-                store=store,
-                tenant_id=tenant_id,
-                user_id=user_id,
-                session_id=str(session_id),
-            )
-        else:
-            plan_agent_version = _normalize_plan_agent_version(payload)
         selected_specialist = _apply_specialist_flags(store, selected_specialist)
         if not text_raw and not attachments:
             raise HTTPException(status_code=400, detail="text_or_attachments_required")
@@ -2036,7 +1989,6 @@ def include_chat_routes(router: APIRouter, *, resolve_auth: Callable[[SqliteStor
                     "selected_specialist": selected_specialist,
                     "memory_mode": memory_mode,
                     "execution_mode": execution_mode,
-                    "plan_agent_version": plan_agent_version,
                 },
             )
             gw_result = gw.handle_turn(
@@ -2089,42 +2041,33 @@ def include_chat_routes(router: APIRouter, *, resolve_auth: Callable[[SqliteStor
         memory_mode = _normalize_memory_mode(payload)
         execution_mode = _normalize_execution_mode(payload)
         if "interaction_mode" not in payload and "chat_mode" not in payload:
-            interaction_mode, _, _, _, _, _ = _resolve_mode_settings(
+            interaction_mode, _, _, _ = _resolve_mode_settings(
                 store=store,
                 tenant_id=tenant_id,
                 user_id=user_id,
                 session_id=str(session_id),
             )
         if "specialist" not in payload:
-            _, selected_specialist, _, _, _, _ = _resolve_mode_settings(
+            _, selected_specialist, _, _ = _resolve_mode_settings(
                 store=store,
                 tenant_id=tenant_id,
                 user_id=user_id,
                 session_id=str(session_id),
             )
         if "memory_mode" not in payload:
-            _, _, memory_mode, _, _, _ = _resolve_mode_settings(
+            _, _, memory_mode, _ = _resolve_mode_settings(
                 store=store,
                 tenant_id=tenant_id,
                 user_id=user_id,
                 session_id=str(session_id),
             )
         if "execution_mode" not in payload:
-            _, _, _, execution_mode, _, _ = _resolve_mode_settings(
+            _, _, _, execution_mode = _resolve_mode_settings(
                 store=store,
                 tenant_id=tenant_id,
                 user_id=user_id,
                 session_id=str(session_id),
             )
-        if "plan_agent_version" not in payload:
-            _, _, _, _, _, plan_agent_version = _resolve_mode_settings(
-                store=store,
-                tenant_id=tenant_id,
-                user_id=user_id,
-                session_id=str(session_id),
-            )
-        else:
-            plan_agent_version = _normalize_plan_agent_version(payload)
         selected_specialist = _apply_specialist_flags(store, selected_specialist)
         if not text_raw and not attachments:
             raise HTTPException(status_code=400, detail="text_or_attachments_required")
@@ -2169,7 +2112,6 @@ def include_chat_routes(router: APIRouter, *, resolve_auth: Callable[[SqliteStor
             "selected_specialist": selected_specialist,
             "memory_mode": memory_mode,
             "execution_mode": execution_mode,
-            "plan_agent_version": plan_agent_version,
         }
 
         _DONE = object()

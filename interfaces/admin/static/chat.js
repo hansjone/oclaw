@@ -402,8 +402,6 @@ const CHAT_USER_MENU_MODE_KEY = "ops_chat_user_menu_mode";
 const CHAT_REASONING_TOGGLE_KEY = "ops_chat_reasoning_toggle";
 const EXECUTION_MODE_AGENT = "agent";
 const EXECUTION_MODE_PLAN = "plan";
-const CONFIRM_STRATEGY_STRICT = "strict";
-const PLAN_AGENT_V1 = "v1";
 /** Default on: reasoning/tool fold matches streamed behavior; new browsers have no localStorage yet. */
 const ADMIN_CHAT_SHOW_TOOL_OUTPUT_DEFAULT = true;
 const REASONING_BLOCK_MAX_CHARS = 12000;
@@ -3539,8 +3537,6 @@ async function renderChatUi() {
       const resp = await apiPost("/admin/api/chat/user-mode", {
         interaction_mode: "expert",
         specialist,
-        confirm_strategy: CONFIRM_STRATEGY_STRICT,
-        plan_agent_version: PLAN_AGENT_V1,
       });
       localStorage.setItem(CHAT_USER_MENU_MODE_KEY, specialist);
       globalMenuModeValue = specialist;
@@ -4422,7 +4418,6 @@ async function renderChatUi() {
           specialist: String(specialist || "generalist"),
           memory_mode: String(memoryMode || "default"),
           execution_mode: String(executionMode || "agent"),
-          plan_agent_version: PLAN_AGENT_V1,
           lang: currentLang === "en" ? "en" : "zh",
         },
       };

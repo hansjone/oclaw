@@ -8409,8 +8409,6 @@ async function renderSkills() {
         {
           removed_mcp_names: llmToolsState.removed_mcp_names,
           role_mode: resp.role_mode,
-          wire_policy_effective: !!resp.wire_policy_effective,
-          policy_keys: resp.policy_keys,
           skipped_public: resp.skipped_public || [],
           skipped_expert: resp.skipped_expert || [],
         },

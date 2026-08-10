@@ -172,46 +172,31 @@ class AdminChatStreamAsyncTaskTests(unittest.TestCase):
         payload = json.loads(str(task.payload or "{}"))
         self.assertEqual(str(payload.get("selected_specialist") or ""), "generalist")
 
-    def test_user_mode_always_clears_plan_agent_v2_flag(self) -> None:
-        """Plan mode removed: POST /user-mode always keeps AIA_EXPERT_PLAN_AGENT_V2_ENABLED=0."""
+    def test_user_mode_roundtrip_without_legacy_fields(self) -> None:
         token = self._login()
         headers = {
             "authorization": f"Bearer {token}",
             "accept": "application/json",
             "content-type": "application/json",
         }
-        r2 = self.client.post(
+        r = self.client.post(
             "/admin/api/chat/user-mode",
             headers=headers,
             json={
                 "interaction_mode": "expert",
                 "specialist": "generalist",
-                "confirm_strategy": "strict",
+                "confirm_strategy": "auto",
                 "plan_agent_version": "v2",
             },
         )
-        self.assertEqual(r2.status_code, 200)
-        body2 = r2.json()
-        self.assertTrue(body2.get("ok"), body2)
-        self.assertFalse(body2.get("plan_agent_v2_globally_enabled"), body2)
-        self.assertEqual(str(body2.get("plan_agent_version") or ""), "v1")
-        self.assertEqual(str(self.store.get_setting("AIA_EXPERT_PLAN_AGENT_V2_ENABLED") or "").strip(), "0")
-
-        r1 = self.client.post(
-            "/admin/api/chat/user-mode",
-            headers=headers,
-            json={
-                "interaction_mode": "expert",
-                "specialist": "generalist",
-                "confirm_strategy": "strict",
-                "plan_agent_version": "v1",
-            },
-        )
-        self.assertEqual(r1.status_code, 200)
-        body1 = r1.json()
-        self.assertTrue(body1.get("ok"), body1)
-        self.assertFalse(body1.get("plan_agent_v2_globally_enabled"), body1)
-        self.assertEqual(str(self.store.get_setting("AIA_EXPERT_PLAN_AGENT_V2_ENABLED") or "").strip(), "0")
+        self.assertEqual(r.status_code, 200)
+        body = r.json()
+        self.assertTrue(body.get("ok"), body)
+        self.assertEqual(str(body.get("interaction_mode") or ""), "expert")
+        self.assertEqual(str(body.get("specialist") or ""), "generalist")
+        self.assertNotIn("confirm_strategy", body)
+        self.assertNotIn("plan_agent_version", body)
+        self.assertNotIn("plan_agent_v2_globally_enabled", body)
 
     def test_session_mode_setting_roundtrip(self) -> None:
         token = self._login()
@@ -226,8 +211,6 @@ class AdminChatStreamAsyncTaskTests(unittest.TestCase):
             json={
                 "interaction_mode": "expert",
                 "specialist": "generalist",
-                "confirm_strategy": "auto",
-                "plan_agent_version": "v1",
             },
         )
         resp1 = self.client.post(
@@ -242,7 +225,8 @@ class AdminChatStreamAsyncTaskTests(unittest.TestCase):
         # Session POST ignores interaction/specialist; user menu still has generalist.
         self.assertEqual(str(body1.get("specialist") or ""), "generalist")
         self.assertEqual(str(body1.get("memory_mode") or ""), "store_only")
-        self.assertEqual(str(body1.get("confirm_strategy") or ""), "strict")
+        self.assertNotIn("confirm_strategy", body1)
+        self.assertNotIn("plan_agent_version", body1)
 
         resp2 = self.client.get(
             f"/admin/api/chat/sessions/{self.session_id}/mode",
@@ -254,7 +238,8 @@ class AdminChatStreamAsyncTaskTests(unittest.TestCase):
         self.assertEqual(str(body2.get("interaction_mode") or ""), "expert")
         self.assertEqual(str(body2.get("specialist") or ""), "generalist")
         self.assertEqual(str(body2.get("memory_mode") or ""), "store_only")
-        self.assertEqual(str(body2.get("confirm_strategy") or ""), "strict")
+        self.assertNotIn("confirm_strategy", body2)
+        self.assertNotIn("plan_agent_version", body2)
 
     def test_messages_use_session_mode_when_payload_omits_mode(self) -> None:
         token = self._login()
@@ -269,8 +254,6 @@ class AdminChatStreamAsyncTaskTests(unittest.TestCase):
             json={
                 "interaction_mode": "expert",
                 "specialist": "ops",
-                "confirm_strategy": "strict",
-                "plan_agent_version": "v1",
             },
         )
         _ = self.client.post(
@@ -308,8 +291,6 @@ class AdminChatStreamAsyncTaskTests(unittest.TestCase):
             json={
                 "interaction_mode": "expert",
                 "specialist": "ops",
-                "confirm_strategy": "strict",
-                "plan_agent_version": "v1",
             },
         )
         self.assertEqual(pref.status_code, 200)
@@ -336,7 +317,8 @@ class AdminChatStreamAsyncTaskTests(unittest.TestCase):
         self.assertEqual(str(mode_body.get("specialist") or ""), "ops")
         self.assertEqual(str(mode_body.get("memory_mode") or ""), "default")
         self.assertEqual(str(mode_body.get("execution_mode") or ""), "agent")
-        self.assertEqual(str(mode_body.get("confirm_strategy") or ""), "strict")
+        self.assertNotIn("confirm_strategy", mode_body)
+        self.assertNotIn("plan_agent_version", mode_body)
         gm = mode_body.get("global_menu") if isinstance(mode_body.get("global_menu"), dict) else {}
         self.assertEqual(str(gm.get("interaction_mode") or ""), "expert")
         self.assertEqual(str(gm.get("specialist") or ""), "ops")
@@ -369,7 +351,7 @@ class AdminChatStreamAsyncTaskTests(unittest.TestCase):
         self.assertEqual(str(mode_body.get("interaction_mode") or ""), "expert")
         self.assertEqual(str(mode_body.get("specialist") or ""), "generalist")
         self.assertEqual(str(mode_body.get("memory_mode") or ""), "default")
-        self.assertEqual(str(mode_body.get("confirm_strategy") or ""), "strict")
+        self.assertNotIn("confirm_strategy", mode_body)
 
     def test_admin_dynamic_expert_stats_endpoint(self) -> None:
         token = self._login()

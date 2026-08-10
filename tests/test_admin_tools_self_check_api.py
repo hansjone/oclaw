@@ -52,14 +52,15 @@ class AdminToolsSelfCheckApiTests(unittest.TestCase):
         summary = dict(body.get("summary") or {})
         self.assertIn("total_internal_tools", summary)
         self.assertIn("total_wired_tools", summary)
-        self.assertIn("total_perm_ban_9999", summary)
+        self.assertNotIn("total_perm_ban_9999", summary)
         items = list(body.get("items") or [])
         self.assertTrue(items)
         one = dict(items[0] if items else {})
         self.assertIn("role", one)
         self.assertIn("role_mode", one)
         self.assertIn("wired_count", one)
-        self.assertIn("policy_perm_ban_9999", one)
+        self.assertNotIn("policy_perm_ban_9999", one)
+        self.assertNotIn("wire_policy_effective", one)
 
 
 if __name__ == "__main__":

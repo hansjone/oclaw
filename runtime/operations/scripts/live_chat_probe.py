@@ -210,7 +210,7 @@ def main() -> int:
             print("session/mode", gj, file=sys.stderr)
             return 1
         print("\n--- 当前会话模式（将原样带入 POST） ---")
-        print(json.dumps({k: gj.get(k) for k in ("interaction_mode", "specialist", "memory_mode", "execution_mode", "confirm_strategy", "plan_agent_version") if k in gj}, ensure_ascii=False))
+        print(json.dumps({k: gj.get(k) for k in ("interaction_mode", "specialist", "memory_mode", "execution_mode") if k in gj}, ensure_ascii=False))
 
         payload = {
             "text": str(args.text),

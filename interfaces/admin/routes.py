@@ -612,9 +612,7 @@ def build_admin_router() -> APIRouter:
                     "removed_total": len(llm_plan.removed_names),
                     "removed_mcp_total": len(llm_plan.removed_mcp_names),
                     "changed_total": len(llm_plan.changed_names),
-                    "policy_perm_ban_9999": 0,
                     "mcp_enabled": bool(llm_plan.mcp_enabled),
-                    "wire_policy_effective": False,
                 }
             )
 
@@ -625,7 +623,6 @@ def build_admin_router() -> APIRouter:
             "summary": {
                 "total_internal_tools": total_internal,
                 "total_wired_tools": total_wired,
-                "total_perm_ban_9999": 0,
             },
             "items": items,
         }
@@ -665,8 +662,6 @@ def build_admin_router() -> APIRouter:
             "max_json_bytes": plan.max_json_bytes,
             "mcp_enabled": plan.mcp_enabled,
             "role_mode": plan.role_mode,
-            "wire_policy_effective": plan.wire_policy_effective,
-            "policy_keys": plan.policy_keys,
             "raw_count": len(plan.tools_raw),
             "wired_count": len(plan.tools_wired),
             "removed_mcp_names": plan.removed_mcp_names,
