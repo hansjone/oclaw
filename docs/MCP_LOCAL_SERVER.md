@@ -187,59 +187,15 @@ for raw in sys.stdin:
 - 在 **【4】已安装 MCP 服务** 使用 **Export JSON (download)**，可下载当前库中**全部**已安装 MCP 的可重装 JSON（`servers` 包 + `exported_at`）。
 - 每次 **安装、重装、卸载且删除库记录、Delete** 成功后，会刷新 **`oclaw/_local/mcp_registry_migrated.json`**（与导出内容同结构，便于换库/换机后把文件粘回 **Install from JSON** 或 `python scripts/seed_mcp_registry.py path/to/file.json` 注意 seed 会跑 npm/pypi 安装步骤，与 `dry_run` 等字段一致）。该文件建议加入 `.gitignore`（如未忽略），避免本机差异被误提交；密钥仍放在 `oclaw/_local/mcp_local.env` 等环境变量，不在此 JSON 中。
 
-### 3.3 MCP 工具线侧策略（上送压缩与惩罚）
+### 3.3 MCP 工具可见性（仅绑定）
 
-在管理台 **Plugins（插件）** 页中的 **「线侧策略」** 折叠区块（**【6】全局参数**、**【7】已安装工具**）可配置发往 LLM 的 OpenAI 格式 `tools[]` 的**分层压缩**、**全局闲置惩罚**，以及**按完整工具名** `mcp__{server_id}__{tool_name}` 的策略（与模型 `base_url` 解耦时，将 **wire_policy** 设为 `always`）。**【7】** 中每个工具的等级为**数字输入框**（任意整数 1–9998；留空表示未配置；0 与留空语义不同，见下表）。
+线侧「打压」策略（分层压缩 / 闲置惩罚 / 9999 永禁 / role_mode）**已移除**。
 
-**【7】表格筛选与专家列（管理台）**
+发给 LLM 的 MCP 工具范围只由 **专家 ↔ MCP server 绑定** 决定：
 
-- 表头**第二行**为各列筛选输入（子串匹配，不区分大小写）：`server`、`tool`、`wire_name`、**专家**、`count`（上下界）、`last_ts`、惩罚/解封说明、策略**等级**（上下界）。分页条数按**筛选后**结果计算。
-- **专家**列由本页当前 **MCP 专家绑定草稿**（`mapping`）与后端返回的 `available_specialists` 合并推导：某 `server_id` 出现在哪些专家的绑定列表中，即显示为逗号分隔的专家 id；可按专家子串筛选。勾选「仅已勾选」时只显示当前勾选的行（勾选集合在筛选、翻页间保留）。
-- 同页 **【8】专家 MCP 绑定看板（自动）**：按当前草稿与**已安装 MCP** 各服务的 `tools` 列表，汇总每个专家绑定的 **MCP 个数** 与 **tool 条数**（各已绑定 server 的 `tools` 长度之和）；专家集合随 `available_specialists` 与 `mapping` 中的键自动扩展，无需写死。
-- **【9】MCP 专家绑定（编辑）** 为原绑定编辑区（勾选、反向视图、保存）；与【8】看板联动，改绑定后看板即时刷新（无需单独保存看板）。
-
-**持久化（SQLite `app_setting`）**
-
-| 键 | 含义 |
-| --- | --- |
-| `mcp_tool_wire_admin_config` | JSON：全局参数 + `wire_policy`（`inherit` / `always` / `never`）、`penalty_disable` 等 |
-| `mcp_tool_wire_tool_policies` | JSON：`{ "mcp__sid__tool": 等级 }` |
-| `mcp_tool_wire_penalty_state` | JSON：各工具惩罚状态机（`phase`、`omit_until`、`wave_ts`、`kind`），由运行时维护，一般无需手改 |
-
-**`wire_policy`**
-
-- `inherit`：与原先一致，默认在 DashScope 兼容 URL 上启用线侧策略；其它环境变量 `OPS_MCP_WIRE_*` 仍可作为默认值来源。
-- `always`：**不依赖 URL**，始终启用分层与惩罚逻辑（适合非 DashScope 网关也要控 payload）。
-- `never`：关闭分层/惩罚逻辑；**等级 `9999` 永久封禁仍会过滤该工具**（不上送）。
-
-**按工具等级（`mcp_tool_wire_tool_policies`）**
-
-| 配置 | 库中是否存在键 | 行为 |
-| --- | --- | --- |
-| **未配置**（管理台留空 / `GET` 中 `policy_level` 为 `null`、`policy_in_db` 为 `false`） | 否 | **自动走全局**：参与用量排名与分层压缩；适用**全局**闲置小时与罚时长；可被 **Top N 全量**豁免全局闲置惩罚。新安装 MCP 在 **Sync Tools** 后出现新 `wire_name`，默认即为此状态，无需手工登记。 |
-| **显式 `0`** | 是 | **不参与**全局闲置 omission；仍参与用量分层。与「未配置」不同。 |
-| **显式 `1`～`9998`** | 是 | 与 Top N **无关**：距上次成功调用超过 **N×10 分钟** 视为闲置，进入罚时 **N×10 分钟** 的上送 omission；罚满后需再次闲置达到阈值才会再罚（状态与 `last_ts` / `kind` 对齐）。 |
-| **显式 `9999`** | 是 | **永久**从线侧 `tools[]` 中移除（彻底封禁）。 |
-
-**生效优先级（同一工具上的概念顺序，便于排障）**
-
-1. **`9999` 永久封禁**（若已写入 `mcp_tool_wire_tool_policies`）：在组装 `tools[]` 的较早阶段即剔除，不进入后续分层与动态惩罚状态机。  
-2. **显式 `1`～`9998`**：走按工具闲置/罚分钟逻辑，**不享受** Top N 对「全局惩罚」的豁免。  
-3. **显式 `0`**：跳过全局闲置 omission，仍走压缩档位。  
-4. **未配置**：走全局线侧逻辑（含全局闲置与 Top N 豁免等），由 `prepare_openai_tools_for_llm_api` 与 `mcp_tool_wire_admin_config` / 环境变量共同决定。
-
-`wire_policy=never` 时关闭分层与动态惩罚，但 **`9999` 仍会过滤** 对应工具。
-
-全局闲置小时、罚时长（分钟）、Top N 全量、medium 档位等，在 **【6】** 中可调；未写入 `app_setting` 的项继续沿用环境变量（见仓库根 `data/mcp_local.env.example` 中 `OPS_MCP_WIRE_*`）。
-
-**Admin HTTP API**（需 `admin:tenant:write`，与 MCP 安装类接口一致）
-
-- `GET /admin/api/mcp/tool-wire` — 返回合并后的 `config`、当前 `policies`、`penalty_state`，以及已安装 MCP 工具列表（每条含 `policy_level`：`null` 表示未在库中配置，`policy_in_db` 标明是否持久化过）及惩罚/解封说明。
-- `POST /admin/api/mcp/tool-wire/config` — 保存全局参数（部分字段可增量合并）。
-- `POST /admin/api/mcp/tool-wire/policies` — body：`{ "policies": { "mcp__...": 整数等级 }, "clears": ["mcp__...", ...]（可选） }`。先按 `clears` 从已存策略中**删除键**（用于管理台留空后恢复「未配置」），再合并 `policies`。
-- `POST /admin/api/mcp/tool-wire/policies/batch` — body：`{ "level": 等级, "wire_names": ["mcp__...", ...] }`，批量写入策略。
-
-实现代码：`oclaw/platform/llm/tool_wire_policy.py`；在发 Chat Completions 前由 `prepare_openai_tools_for_llm_api` 应用。
+- 管理台 Plugins：**【6】专家 MCP 绑定看板**、**【7】MCP 专家绑定（编辑）**
+- 持久化键：`mcp_specialist_server_binding`（及粗粒度兜底 `mcp_allowed_specialists` / `AIA_MCP_SPECIALISTS`）
+- 运行时：`materialize_mcp_tools_for_specialist`；上送前仅做 schema complete 与可选 JSON 体积压缩（`prepare_openai_tools_for_llm_api`）
 
 ---
 

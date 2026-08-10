@@ -584,12 +584,10 @@ def build_admin_router() -> APIRouter:
         ctx = _resolve_auth(store, authorization)
         _require_permission(ctx, "admin:tenant:write")
 
-        from svc.llm.tool_wire_policy import load_role_mode_for_role, load_tool_policies_dict_for_role
         from runtime.tools.exposure_plan import build_internal_tool_specs, build_llm_tools_plan
 
         roles = _ordered_roles()
         items: list[dict[str, Any]] = []
-        total_perm_ban = 0
         total_wired = 0
         total_internal = 0
         for role in roles:
@@ -602,15 +600,12 @@ def build_admin_router() -> APIRouter:
                 include_mcp=True,
                 preview_internal=True,
             )
-            policies = load_tool_policies_dict_for_role(store, role=role)
-            perm_ban = len([k for k, v in policies.items() if str(k).startswith("mcp__") and int(v) == 9999])
-            total_perm_ban += perm_ban
             total_wired += len(llm_plan.tools_wired)
             total_internal += len(internal_specs)
             items.append(
                 {
                     "role": role,
-                    "role_mode": load_role_mode_for_role(store, role=role),
+                    "role_mode": "unrestricted",
                     "internal_count": len(internal_specs),
                     "internal_public_count": int(internal_diag.get("public_count") or 0),
                     "internal_expert_count": int(internal_diag.get("expert_count") or 0),
@@ -619,9 +614,9 @@ def build_admin_router() -> APIRouter:
                     "removed_total": len(llm_plan.removed_names),
                     "removed_mcp_total": len(llm_plan.removed_mcp_names),
                     "changed_total": len(llm_plan.changed_names),
-                    "policy_perm_ban_9999": perm_ban,
+                    "policy_perm_ban_9999": 0,
                     "mcp_enabled": bool(llm_plan.mcp_enabled),
-                    "wire_policy_effective": bool(llm_plan.wire_policy_effective),
+                    "wire_policy_effective": False,
                 }
             )
 
@@ -632,7 +627,7 @@ def build_admin_router() -> APIRouter:
             "summary": {
                 "total_internal_tools": total_internal,
                 "total_wired_tools": total_wired,
-                "total_perm_ban_9999": total_perm_ban,
+                "total_perm_ban_9999": 0,
             },
             "items": items,
         }
@@ -644,7 +639,7 @@ def build_admin_router() -> APIRouter:
         max_json_bytes: int | None = Query(default=None),
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
-        """Preview the final tools injected to LLM for a role (internal + MCP + wire policy)."""
+        """Preview the final tools injected to LLM for a role (internal + MCP binding)."""
         store = get_assistant_store()
         ctx = _resolve_auth(store, authorization)
         _require_permission(ctx, "admin:tenant:write")
@@ -3100,283 +3095,6 @@ def build_admin_router() -> APIRouter:
             "summary": store.list_mcp_tool_usage_summary(limit=limit),
             "calls": store.list_mcp_tool_call_logs(server_id=server_id, limit=limit),
         }
-
-    @router.get("/admin/api/mcp/tool-wire")
-    def api_mcp_tool_wire_get(
-        role: str | None = Query(default=None),
-        authorization: str | None = Header(default=None),
-    ) -> dict[str, Any]:
-        store = get_assistant_store()
-        ctx = _resolve_auth(store, authorization)
-        _require_permission(ctx, "admin:tenant:write")
-        from svc.llm.tool_wire_policy import build_tool_wire_snapshot
-
-        return build_tool_wire_snapshot(store, role=str(role or "").strip().lower() or None)
-
-    @router.post("/admin/api/mcp/tool-wire/config")
-    def api_mcp_tool_wire_config_save(
-        payload: dict[str, Any] | None = Body(default=None),
-        authorization: str | None = Header(default=None),
-    ) -> dict[str, Any]:
-        from svc.llm.tool_wire_policy import SETTINGS_KEY_ADMIN_CONFIG, load_merged_admin_config
-
-        payload = payload or {}
-        store = get_assistant_store()
-        ctx = _resolve_auth(store, authorization)
-        _require_permission(ctx, "admin:tenant:write")
-        raw = store.get_setting(SETTINGS_KEY_ADMIN_CONFIG)
-        cur: dict[str, Any] = {}
-        if raw:
-            try:
-                cur = json.loads(raw) if isinstance(raw, str) else {}
-            except Exception:
-                cur = {}
-        if not isinstance(cur, dict):
-            cur = {}
-        if "wire_policy" in payload:
-            wp = str(payload.get("wire_policy") or "").strip().lower()
-            if wp in ("inherit", "always", "never"):
-                cur["wire_policy"] = wp
-        if "top_n_full" in payload:
-            cur["top_n_full"] = max(3, min(80, int(payload.get("top_n_full") or 20)))
-        if "stale_hours" in payload:
-            cur["stale_hours"] = max(0.25, min(720.0, float(payload.get("stale_hours") or 3)))
-        if "penalty_minutes" in payload:
-            cur["penalty_minutes"] = max(1.0, min(24 * 60, float(payload.get("penalty_minutes") or 30)))
-        if "medium_rank_start" in payload:
-            cur["medium_rank_start"] = int(payload.get("medium_rank_start") or 21)
-        if "medium_rank_end" in payload:
-            cur["medium_rank_end"] = int(payload.get("medium_rank_end") or 50)
-        if "medium_desc_chars" in payload:
-            cur["medium_desc_chars"] = max(80, min(4000, int(payload.get("medium_desc_chars") or 520)))
-        if "minimal_desc_cap" in payload:
-            cur["minimal_desc_cap"] = max(0, min(2000, int(payload.get("minimal_desc_cap") or 80)))
-        if "penalty_disable" in payload:
-            cur["penalty_disable"] = bool(payload.get("penalty_disable"))
-        store.set_setting(SETTINGS_KEY_ADMIN_CONFIG, json.dumps(cur, ensure_ascii=False))
-        store.add_admin_audit_log(
-            actor_tenant_id=ctx["tenant_id"],
-            actor_user_id=ctx["user_id"],
-            action="mcp_tool_wire_config_update",
-            target_type="app_setting",
-            target_id=SETTINGS_KEY_ADMIN_CONFIG,
-            status="ok",
-            detail={"keys": list(cur.keys())},
-        )
-        return {"ok": True, "config": load_merged_admin_config(store)}
-
-    @router.post("/admin/api/mcp/tool-wire/role-mode")
-    def api_mcp_tool_wire_role_mode_save(
-        payload: dict[str, Any] | None = Body(default=None),
-        authorization: str | None = Header(default=None),
-    ) -> dict[str, Any]:
-        from svc.llm.tool_wire_policy import SETTINGS_KEY_ROLE_MODE_BY_ROLE
-
-        payload = payload or {}
-        store = get_assistant_store()
-        ctx = _resolve_auth(store, authorization)
-        _require_permission(ctx, "admin:tenant:write")
-        role = str(payload.get("role") or "").strip().lower()
-        if not role:
-            raise HTTPException(status_code=400, detail="role_required")
-        valid_roles = set(_ordered_mcp_roles())
-        if role not in valid_roles:
-            raise HTTPException(status_code=400, detail="invalid_role")
-        mode = str(payload.get("mode") or "").strip().lower()
-        if mode not in {"restricted", "unrestricted", "forbidden"}:
-            raise HTTPException(status_code=400, detail="invalid_mode")
-        raw = str(store.get_setting(SETTINGS_KEY_ROLE_MODE_BY_ROLE) or "").strip() or "{}"
-        try:
-            obj = json.loads(raw)
-        except Exception:
-            obj = {}
-        if not isinstance(obj, dict):
-            obj = {}
-        obj[role] = mode
-        store.set_setting(SETTINGS_KEY_ROLE_MODE_BY_ROLE, json.dumps(obj, ensure_ascii=False))
-        store.add_admin_audit_log(
-            actor_tenant_id=ctx["tenant_id"],
-            actor_user_id=ctx["user_id"],
-            action="mcp_tool_wire_role_mode_update",
-            target_type="app_setting",
-            target_id=f"{SETTINGS_KEY_ROLE_MODE_BY_ROLE}:{role}",
-            status="ok",
-            detail={"role": role, "mode": mode},
-        )
-        return {"ok": True, "role": role, "mode": mode}
-
-    @router.post("/admin/api/mcp/tool-wire/penalty/reset")
-    def api_mcp_tool_wire_penalty_reset(
-        role: str | None = Query(default=None),
-        authorization: str | None = Header(default=None),
-    ) -> dict[str, Any]:
-        from svc.llm.tool_wire_policy import SETTINGS_KEY_PENALTY_STATE, SETTINGS_KEY_PENALTY_STATE_BY_ROLE
-
-        store = get_assistant_store()
-        ctx = _resolve_auth(store, authorization)
-        _require_permission(ctx, "admin:tenant:write")
-        r = str(role or "").strip().lower()
-        if not r:
-            store.set_setting(SETTINGS_KEY_PENALTY_STATE, "{}")
-            target_id = SETTINGS_KEY_PENALTY_STATE
-        else:
-            # Reset only one role's penalty bucket.
-            raw = str(store.get_setting(SETTINGS_KEY_PENALTY_STATE_BY_ROLE) or "").strip() or "{}"
-            try:
-                obj = json.loads(raw)
-            except Exception:
-                obj = {}
-            if not isinstance(obj, dict):
-                obj = {}
-            obj[r] = {}
-            store.set_setting(SETTINGS_KEY_PENALTY_STATE_BY_ROLE, json.dumps(obj, ensure_ascii=False))
-            target_id = f"{SETTINGS_KEY_PENALTY_STATE_BY_ROLE}:{r}"
-        store.add_admin_audit_log(
-            actor_tenant_id=ctx["tenant_id"],
-            actor_user_id=ctx["user_id"],
-            action="mcp_tool_wire_penalty_reset",
-            target_type="app_setting",
-            target_id=target_id,
-            status="ok",
-            detail={"reset": True, "role": r},
-        )
-        return {"ok": True, "penalty_state": {}, "role": r}
-
-    @router.post("/admin/api/mcp/tool-wire/policies")
-    def api_mcp_tool_wire_policies_save(
-        payload: dict[str, Any] | None = Body(default=None),
-        authorization: str | None = Header(default=None),
-    ) -> dict[str, Any]:
-        from svc.llm.tool_wire_policy import (
-            SETTINGS_KEY_TOOL_POLICIES,
-            SETTINGS_KEY_TOOL_POLICIES_BY_ROLE,
-            load_tool_policies_dict_for_role,
-        )
-
-        payload = payload or {}
-        store = get_assistant_store()
-        ctx = _resolve_auth(store, authorization)
-        _require_permission(ctx, "admin:tenant:write")
-        role = str(payload.get("role") or "").strip().lower()
-        pol_in = payload.get("policies")
-        if not isinstance(pol_in, dict):
-            raise HTTPException(status_code=400, detail="policies must be an object")
-        merged = dict(load_tool_policies_dict_for_role(store, role=role or None))
-
-        def _coerce_lv(v: Any) -> int | None:
-            try:
-                n = int(v)
-            except (TypeError, ValueError):
-                return None
-            if n == 9999:
-                return 9999
-            if n <= 0:
-                return 0
-            return min(n, 9998)
-
-        clears = payload.get("clears")
-        if isinstance(clears, list):
-            for w in clears:
-                wn = str(w or "").strip()
-                if wn.startswith("mcp__"):
-                    merged.pop(wn, None)
-        for k, v in pol_in.items():
-            wn = str(k or "").strip()
-            if not wn.startswith("mcp__"):
-                continue
-            co = _coerce_lv(v)
-            if co is None:
-                continue
-            merged[wn] = co
-        if not role:
-            store.set_setting(SETTINGS_KEY_TOOL_POLICIES, json.dumps(merged, ensure_ascii=False))
-            target_id = SETTINGS_KEY_TOOL_POLICIES
-        else:
-            raw = str(store.get_setting(SETTINGS_KEY_TOOL_POLICIES_BY_ROLE) or "").strip() or "{}"
-            try:
-                outer = json.loads(raw)
-            except Exception:
-                outer = {}
-            if not isinstance(outer, dict):
-                outer = {}
-            outer[role] = merged
-            store.set_setting(SETTINGS_KEY_TOOL_POLICIES_BY_ROLE, json.dumps(outer, ensure_ascii=False))
-            target_id = f"{SETTINGS_KEY_TOOL_POLICIES_BY_ROLE}:{role}"
-        store.add_admin_audit_log(
-            actor_tenant_id=ctx["tenant_id"],
-            actor_user_id=ctx["user_id"],
-            action="mcp_tool_wire_policies_update",
-            target_type="app_setting",
-            target_id=target_id,
-            status="ok",
-            detail={"count": len(merged), "role": role},
-        )
-        return {"ok": True, "policies": merged, "role": role}
-
-    @router.post("/admin/api/mcp/tool-wire/policies/batch")
-    def api_mcp_tool_wire_policies_batch(
-        payload: dict[str, Any] | None = Body(default=None),
-        authorization: str | None = Header(default=None),
-    ) -> dict[str, Any]:
-        from svc.llm.tool_wire_policy import (
-            SETTINGS_KEY_TOOL_POLICIES,
-            SETTINGS_KEY_TOOL_POLICIES_BY_ROLE,
-            load_tool_policies_dict_for_role,
-        )
-
-        payload = payload or {}
-        store = get_assistant_store()
-        ctx = _resolve_auth(store, authorization)
-        _require_permission(ctx, "admin:tenant:write")
-        try:
-            lv = int(payload.get("level"))
-        except (TypeError, ValueError):
-            raise HTTPException(status_code=400, detail="level must be int")
-        if lv != 9999 and (lv < 0 or lv > 9998):
-            raise HTTPException(status_code=400, detail="invalid level")
-        names = payload.get("wire_names")
-        if not isinstance(names, list) or not names:
-            raise HTTPException(status_code=400, detail="wire_names must be non-empty array")
-        role = str(payload.get("role") or "").strip().lower()
-        if role:
-            valid_roles = set(_ordered_mcp_roles())
-            if role not in valid_roles:
-                raise HTTPException(status_code=400, detail="invalid_role")
-        merged = dict(load_tool_policies_dict_for_role(store, role=role or None))
-        for wn in names:
-            s = str(wn or "").strip()
-            if not s.startswith("mcp__"):
-                continue
-            if lv == 9999:
-                merged[s] = 9999
-            elif lv <= 0:
-                merged[s] = 0
-            else:
-                merged[s] = min(lv, 9998)
-        if not role:
-            store.set_setting(SETTINGS_KEY_TOOL_POLICIES, json.dumps(merged, ensure_ascii=False))
-            target_id = SETTINGS_KEY_TOOL_POLICIES
-        else:
-            raw = str(store.get_setting(SETTINGS_KEY_TOOL_POLICIES_BY_ROLE) or "").strip() or "{}"
-            try:
-                outer = json.loads(raw)
-            except Exception:
-                outer = {}
-            if not isinstance(outer, dict):
-                outer = {}
-            outer[role] = merged
-            store.set_setting(SETTINGS_KEY_TOOL_POLICIES_BY_ROLE, json.dumps(outer, ensure_ascii=False))
-            target_id = f"{SETTINGS_KEY_TOOL_POLICIES_BY_ROLE}:{role}"
-        store.add_admin_audit_log(
-            actor_tenant_id=ctx["tenant_id"],
-            actor_user_id=ctx["user_id"],
-            action="mcp_tool_wire_policies_batch",
-            target_type="app_setting",
-            target_id=target_id,
-            status="ok",
-            detail={"level": lv, "n": len(names), "role": role},
-        )
-        return {"ok": True, "policies": merged, "role": role}
 
     @router.get("/admin/api/mcp/market/search")
     def api_mcp_market_search(

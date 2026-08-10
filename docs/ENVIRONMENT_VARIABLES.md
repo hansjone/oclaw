@@ -239,50 +239,7 @@
   - 作用：追加给 filesystem MCP 的根目录
   - 生效：`oclaw/tools/mcp/filesystem_argv.py`
 
-- `AIA_MCP_WIRE_USAGE_POLICY`
-  - 默认：空（按 base_url 继承）
-  - 作用：是否启用 MCP 工具线侧分层策略
-  - 生效：`oclaw/platform/llm/tool_wire_policy.py`
-
-- `AIA_MCP_WIRE_PENALTY_DISABLE`
-  - 默认：`0`
-  - 作用：禁用线侧陈旧惩罚
-  - 生效：`oclaw/platform/llm/tool_wire_policy.py`
-
-- `AIA_MCP_WIRE_TOP_N_FULL`
-  - 默认：`20`
-  - 作用：全量上送工具数量
-  - 生效：`oclaw/platform/llm/tool_wire_policy.py`
-
-- `AIA_MCP_WIRE_STALE_HOURS`
-  - 默认：`3`
-  - 作用：陈旧判定小时阈值
-  - 生效：`oclaw/platform/llm/tool_wire_policy.py`
-
-- `AIA_MCP_WIRE_PENALTY_MINUTES`
-  - 默认：`30`
-  - 作用：惩罚窗口分钟数
-  - 生效：`oclaw/platform/llm/tool_wire_policy.py`
-
-- `AIA_MCP_WIRE_MEDIUM_RANK_START`
-  - 默认：`21`
-  - 作用：中等层起始排名
-  - 生效：`oclaw/platform/llm/tool_wire_policy.py`
-
-- `AIA_MCP_WIRE_MEDIUM_RANK_END`
-  - 默认：`50`
-  - 作用：中等层结束排名
-  - 生效：`oclaw/platform/llm/tool_wire_policy.py`
-
-- `AIA_MCP_WIRE_MEDIUM_DESC_CHARS`
-  - 默认：`520`
-  - 作用：中等层描述截断长度
-  - 生效：`oclaw/platform/llm/tool_wire_policy.py`
-
-- `AIA_MCP_WIRE_MINIMAL_DESC_CAP`
-  - 默认：`80`
-  - 作用：最小层描述长度
-  - 生效：`oclaw/platform/llm/tool_wire_policy.py`
+> 历史 `AIA_MCP_WIRE_*`（线侧分层/惩罚）环境变量已废弃；MCP 工具可见性仅由专家绑定控制。
 
 ## LLM 工具载荷与模型兼容
 

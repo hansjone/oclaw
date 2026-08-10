@@ -5,13 +5,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from svc.llm.tool_schema import default_max_openai_tools_json_bytes
-from svc.llm.tool_wire_policy import (
-    load_merged_admin_config,
-    load_role_mode_for_role,
-    load_tool_policies_dict_for_role,
-    prepare_openai_tools_for_llm_api,
-    wire_graduation_effective,
-)
+from svc.llm.tool_wire_policy import prepare_openai_tools_for_llm_api
 from runtime.tools.base import ToolSpec
 from runtime.tools.catalog import _is_truthy
 from runtime.tools.expert_registry import materialize_tools_for_expert, preview_expert_tools
@@ -174,11 +168,7 @@ def build_llm_tools_plan(
     else:
         raw_openai_tools = list(raw_openai_tools_override)
 
-    admin_cfg = load_merged_admin_config(store)
-    role_mode = load_role_mode_for_role(store, role=r)
-    policies = load_tool_policies_dict_for_role(store, role=r)
-    wire_effective = wire_graduation_effective(bu, admin_cfg) and role_mode == "restricted"
-
+    # Wire suppression removed: only schema complete + optional JSON size shrink.
     wired_openai_tools = prepare_openai_tools_for_llm_api(
         raw_openai_tools,
         base_url=bu,
@@ -195,7 +185,7 @@ def build_llm_tools_plan(
     added = sorted([n for n in wired_set if n and n not in raw_set])
     removed_mcp = [n for n in removed if n.startswith("mcp__")]
 
-    # changed = same tool name but payload differs
+    # changed = same tool name but payload differs (e.g. shrink shortened descriptions)
     def _map_by_name(tools: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
         m: dict[str, dict[str, Any]] = {}
         for ent in tools or []:
@@ -221,9 +211,9 @@ def build_llm_tools_plan(
         base_url=bu,
         max_json_bytes=cap,
         mcp_enabled=mcp_enabled,
-        role_mode=str(role_mode or "restricted"),
-        wire_policy_effective=bool(wire_effective),
-        policy_keys=len(policies),
+        role_mode="unrestricted",
+        wire_policy_effective=False,
+        policy_keys=0,
         public_risk_gate_allow_high=bool(diag_internal.get("public_risk_gate_allow_high")),
         public_blocked_high_risk_tools=list(diag_internal.get("public_blocked_high_risk_tools") or []),
         skipped_public=list(diag_internal.get("skipped_public") or []),
