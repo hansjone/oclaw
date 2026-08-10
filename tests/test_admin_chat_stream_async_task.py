@@ -194,6 +194,7 @@ class AdminChatStreamAsyncTaskTests(unittest.TestCase):
         body2 = r2.json()
         self.assertTrue(body2.get("ok"), body2)
         self.assertFalse(body2.get("plan_agent_v2_globally_enabled"), body2)
+        self.assertEqual(str(body2.get("plan_agent_version") or ""), "v1")
         self.assertEqual(str(self.store.get_setting("AIA_EXPERT_PLAN_AGENT_V2_ENABLED") or "").strip(), "0")
 
         r1 = self.client.post(
