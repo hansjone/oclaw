@@ -690,7 +690,7 @@ async function _buildAggregatedAssistantBubble(tsIso, items) {
   }
   const hasVisible =
     !!inner.querySelector(".chat-msg__md, .chat-msg__reasoning, .chat-msg__wiki") ||
-    !!inner.querySelector(".chat-att-wrap, img.chat-att-img, a.chat-att-ref__link, .chat-att-chip") ||
+    !!inner.querySelector(".chat-att-wrap, img.chat-att-img, a.chat-att-ref__link, a.chat-att-ref__action, .chat-att-chip") ||
     String(inner.textContent || "").trim().length > 0;
   if (!hasVisible) {
     inner.appendChild(el("div", { class: "muted", text: t("chat.tools.hidden") }));
@@ -1442,6 +1442,19 @@ function replaceSessionUrl(sessionId) {
   history.replaceState(null, "", path + q);
 }
 
+function withTimeout(promise, ms, label) {
+  let timer = null;
+  const timeoutMs = Math.max(200, Number(ms) || 0);
+  return Promise.race([
+    Promise.resolve(promise),
+    new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error(label || `timeout:${timeoutMs}`)), timeoutMs);
+    }),
+  ]).finally(() => {
+    if (timer) clearTimeout(timer);
+  });
+}
+
 async function apiGet(path) {
   const token = localStorage.getItem(AUTH_TOKEN_KEY) || "";
   const headers = { accept: "application/json" };
@@ -1533,6 +1546,160 @@ function escapeHtml(s) {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
+}
+
+/** Pretty-print channel session titles like `whatsapp|AI nms · Oliver · wa-default+86…@s.whatsapp.net`. */
+function formatChatSessionTitle(raw, peerNameHint) {
+  const full = String(raw || "").trim();
+  const badgeMap = {
+    whatsapp: "WA",
+    wechat: "WX",
+    weixin: "WX",
+    wecom: "WC",
+    telegram: "TG",
+    discord: "DC",
+    slack: "SL",
+    local: "Local",
+  };
+  if (!full) {
+    return { channel: "local", badge: badgeMap.local, label: "—", sublabel: "", full: "" };
+  }
+  const m = full.match(/^(whatsapp|wechat|weixin|wecom|telegram|discord|slack)\|(.+)$/i);
+  if (!m) {
+    return { channel: "local", badge: badgeMap.local, label: full, sublabel: "", full };
+  }
+  const channel = String(m[1] || "").toLowerCase();
+  const rest = String(m[2] || "").trim();
+  const segments = rest
+    .split(/\s*·\s*/)
+    .map((s) => String(s || "").trim())
+    .filter(Boolean);
+
+  const isTech = (s) => /[+]/.test(s) || /@/.test(s) || /^wa-default/i.test(s);
+  let techIdx = -1;
+  for (let i = 0; i < segments.length; i += 1) {
+    if (isTech(segments[i])) techIdx = i;
+  }
+  let labels = [];
+  let tech = rest;
+  if (techIdx >= 0) {
+    labels = segments.slice(0, techIdx);
+    tech = segments.slice(techIdx).join(" · ");
+  } else if (segments.length > 1) {
+    labels = segments.slice(0, -1);
+    tech = segments[segments.length - 1] || "";
+  }
+
+  // Legacy titles buried group name after the JID: account+jid@domain+GroupName
+  let techBody = String(tech || "").replace(/^wa-default\+/i, "");
+  const plusParts = techBody.split("+").map((s) => String(s || "").trim()).filter(Boolean);
+  const idParts = [];
+  const legacyNames = [];
+  for (const p of plusParts) {
+    if (p.includes("@") || /^[0-9]{8,}$/.test(p) || /^[0-9a-f]{16,}$/i.test(p)) idParts.push(p);
+    else legacyNames.push(p);
+  }
+  for (let i = legacyNames.length - 1; i >= 0; i -= 1) {
+    const n = legacyNames[i];
+    if (n && !labels.includes(n)) labels.unshift(n); // group name first
+  }
+  let idRaw = idParts.join("+") || (legacyNames.length ? "" : techBody);
+  let idShort = idRaw
+    .replace(/@s\.whatsapp\.net$/i, "")
+    .replace(/@g\.us$/i, "")
+    .replace(/@lid$/i, "")
+    .replace(/@im\.bot[^\s]*/i, "")
+    .replace(/@[^\s]+$/i, "");
+  if (/^[0-9a-f]{20,}$/i.test(idShort)) idShort = `${idShort.slice(0, 8)}…`;
+  else if (idShort.length > 18) idShort = `${idShort.slice(0, 16)}…`;
+
+  const hint = String(peerNameHint || "").trim();
+  if (hint && !labels.some((l) => l.toLowerCase() === hint.toLowerCase())) {
+    // Prefer keeping server-provided group/nick labels; append contact hint when useful.
+    if (!labels.length) labels.push(hint);
+    else if (labels.length === 1 && labels[0] !== hint) labels.push(hint);
+  }
+
+  const badge = badgeMap[channel] || channel.slice(0, 2).toUpperCase();
+  let label = "";
+  if (labels.length) {
+    label = labels.join(" · ");
+    // DM / unknown: single nick still benefits from a short id.
+    if (labels.length === 1 && idShort && labels[0] === hint) {
+      label = `${labels[0]} · ${idShort}`;
+    }
+  } else {
+    label = idShort || full;
+  }
+  return {
+    channel,
+    badge,
+    label,
+    sublabel: "",
+    full,
+    idKey: idRaw || techBody,
+  };
+}
+
+function _peerNameLookupKeys(title, pretty) {
+  const keys = [];
+  const push = (v) => {
+    const s = String(v || "").trim().toLowerCase();
+    if (s) keys.push(s);
+  };
+  push(pretty && pretty.idKey);
+  const raw = String(title || "");
+  const m = raw.match(/^(whatsapp|wechat|weixin|wecom)\|(.+)$/i);
+  if (m) {
+    let body = String(m[2] || "");
+    const segs = body.split(/\s*·\s*/).map((s) => String(s || "").trim()).filter(Boolean);
+    let tech = body;
+    for (let i = segs.length - 1; i >= 0; i -= 1) {
+      if (/[+]/.test(segs[i]) || /@/.test(segs[i]) || /^wa-default/i.test(segs[i])) {
+        tech = segs[i];
+        break;
+      }
+    }
+    push(tech);
+    push(tech.replace(/^wa-default\+/i, ""));
+    const noAt = tech.replace(/@.*$/, "");
+    push(noAt);
+    push(noAt.replace(/^wa-default\+/i, ""));
+    // Drop trailing +GroupName legacy suffix for contact id matching.
+    const core = noAt.replace(/^wa-default\+/i, "").split("+")[0] || "";
+    push(core);
+    push(core.replace(/\D/g, ""));
+  }
+  return keys;
+}
+
+let _channelPeerNameMap = new Map();
+
+function lookupChannelPeerName(title, pretty) {
+  for (const k of _peerNameLookupKeys(title, pretty)) {
+    const hit = _channelPeerNameMap.get(k);
+    if (hit) return hit;
+  }
+  return "";
+}
+
+async function refreshChannelPeerNameMap() {
+  const next = new Map();
+  try {
+    const r = await apiGet("/admin/api/whatsapp/access");
+    const contacts = Array.isArray(r && r.contacts) ? r.contacts : [];
+    for (const c of contacts) {
+      const name = String((c && c.push_name) || "").trim();
+      if (!name) continue;
+      const eid = String((c && c.external_user_id) || "").trim();
+      const phone = String((c && c.phone) || "").trim();
+      for (const raw of [eid, phone, eid.replace(/@.*$/, ""), phone.replace(/\D/g, "")]) {
+        const k = String(raw || "").trim().toLowerCase();
+        if (k) next.set(k, name);
+      }
+    }
+  } catch (_) {}
+  _channelPeerNameMap = next;
 }
 
 let _chatLightboxKeyHandler = null;
@@ -2677,15 +2844,16 @@ async function renderAttachmentsEl(raw) {
     const bytes = Number(att.bytes || 0);
     const sizeLabel = bytes > 0 ? `${Math.round((bytes / 1024) * 10) / 10} KB` : "";
     const card = el("div", { class: "chat-att-ref" });
+    if (aid) card.title = `id: ${aid}`;
     card.appendChild(el("div", { class: "chat-att-ref__name", text: name }));
     card.appendChild(el("div", { class: "chat-att-ref__meta", text: `${typ} · ${mime}${sizeLabel ? ` · ${sizeLabel}` : ""}` }));
-    if (aid) card.appendChild(el("div", { class: "chat-att-ref__meta", text: `id: ${aid.slice(0, 16)}...` }));
+    const actions = el("div", { class: "chat-att-ref__actions" });
     if (aid) {
       const url = await fetchAttachmentBlobUrl(aid);
       if (url) {
-        card.appendChild(
+        actions.appendChild(
           el("a", {
-            class: "chat-att-ref__link",
+            class: "chat-att-ref__action",
             href: url,
             target: "_blank",
             rel: "noopener noreferrer",
@@ -2715,9 +2883,9 @@ async function renderAttachmentsEl(raw) {
             src: remote,
           }),
         );
-        card.appendChild(
+        actions.appendChild(
           el("a", {
-            class: "chat-att-ref__link",
+            class: "chat-att-ref__action",
             href: remote,
             target: "_blank",
             rel: "noopener noreferrer",
@@ -2730,7 +2898,7 @@ async function renderAttachmentsEl(raw) {
     if (canPreviewText) {
       const preview = el("button", {
         type: "button",
-        class: "chat-att-ref__btn",
+        class: "chat-att-ref__action",
         text: t("chat.attachment.preview"),
       });
       const pre = el("pre", { class: "chat-att-ref__preview" });
@@ -2753,8 +2921,11 @@ async function renderAttachmentsEl(raw) {
           preview.textContent = t("chat.attachment.preview");
         }
       });
-      card.appendChild(preview);
+      actions.appendChild(preview);
+      card.appendChild(actions);
       card.appendChild(pre);
+    } else if (actions.childNodes.length) {
+      card.appendChild(actions);
     }
     return card;
   };
@@ -2804,7 +2975,7 @@ async function renderAttachmentsEl(raw) {
             if (!parent) return;
             parent.replaceChild(
               el("a", {
-                class: "chat-att-ref__link",
+                class: "chat-att-ref__action",
                 href: src,
                 target: "_blank",
                 rel: "noopener noreferrer",
@@ -2969,11 +3140,126 @@ function syncAuthUserLabel() {
     .trim()
     .toLowerCase() === "administrator";
   if (!name) return;
+  const openUserMenu = (anchorEl) => {
+    clearChatPageBlockers();
+    const items = [
+      el("button", {
+        type: "button",
+        class: "chat-sess-menu-item",
+        "data-menu-action": "profile",
+        text: t("chat.myProfile"),
+      }),
+      el("button", {
+        type: "button",
+        class: "chat-sess-menu-item",
+        "data-menu-action": "jobs",
+        text: t("chat.jobs"),
+      }),
+    ];
+    items.push(el("div", { class: "chat-sess-menu-sep" }));
+    items.push(
+      el("div", { class: "muted u-menu-label", text: t("theme.label") }),
+    );
+    const themeSelMenu = el("select", {
+      class: "input u-menu-select",
+    });
+    try {
+      (window.OclawAdminTheme && window.OclawAdminTheme.THEMES ? window.OclawAdminTheme.THEMES : ["netx"]).forEach((tid) => {
+        themeSelMenu.appendChild(el("option", { value: tid, text: t(`theme.${tid}`) }));
+      });
+      themeSelMenu.value = window.OclawAdminTheme ? window.OclawAdminTheme.currentAdminTheme() : "netx";
+    } catch (_) {}
+    themeSelMenu.addEventListener("change", () => {
+      try {
+        if (window.OclawAdminTheme) window.OclawAdminTheme.persistAdminTheme(themeSelMenu.value);
+      } catch (_) {}
+    });
+    items.push(themeSelMenu);
+    const bridge = window.__chatUserMenuPrefs;
+    if (bridge && typeof bridge === "object") {
+      items.push(el("div", { class: "chat-sess-menu-sep" }));
+      items.push(el("div", { class: "muted u-menu-label", text: t("chat.modeLabel") }));
+      const modeSel = el("select", { class: "input u-menu-select" });
+      try {
+        const rows = Array.isArray(bridge.getModeOptions && bridge.getModeOptions()) ? bridge.getModeOptions() : [];
+        rows.forEach((r) => modeSel.appendChild(el("option", { value: String(r.value || ""), text: String(r.label || r.value || "") })));
+        modeSel.value = String((bridge.getModeValue && bridge.getModeValue()) || "");
+      } catch (_) {}
+      modeSel.addEventListener("change", async () => {
+        const v = modeSel.value;
+        try {
+          modeSel.disabled = true;
+          if (bridge.setModeValue) await bridge.setModeValue(v);
+        } catch (_) {
+          // errors are surfaced by saveUserGlobalModePreference()
+        } finally {
+          modeSel.disabled = false;
+        }
+      });
+      items.push(modeSel);
+      const reasonWrap = el("label", { class: "switch-wrap u-switch-menu" }, [
+        el("input", { type: "checkbox", class: "switch-input" }),
+        el("span", { class: "switch-slider" }),
+        el("span", { class: "muted", text: t("chat.tools") }),
+      ]);
+      const reasonCb = reasonWrap.querySelector("input.switch-input");
+      try {
+        reasonCb.checked = !!(bridge.getReasoningVisible && bridge.getReasoningVisible());
+      } catch (_) {}
+      reasonCb.addEventListener("change", () => {
+        try {
+          Promise.resolve(bridge.setReasoningVisible && bridge.setReasoningVisible(!!reasonCb.checked)).catch(() => {});
+        } catch (_) {}
+      });
+      items.push(reasonWrap);
+    }
+    items.push(el("div", { class: "chat-sess-menu-sep" }));
+    items.push(
+      el("button", {
+        type: "button",
+        class: "chat-sess-menu-item",
+        "data-menu-action": "lang",
+        text: t("lang.switch"),
+      }),
+    );
+    items.push(el("div", { class: "chat-sess-menu-sep" }));
+    items.push(
+      el("button", {
+        type: "button",
+        class: "chat-sess-menu-item",
+        "data-menu-action": "logout",
+        text: t("auth.logout"),
+      }),
+    );
+    const menu = el("div", {
+      class: "chat-sess-menu-pop u-pop-menu",
+    }, items);
+    // Inline position/z-index: chat.html used to override class z-index below the scrim.
+    menu.style.position = "fixed";
+    menu.style.zIndex = "300";
+    const rect = (anchorEl || moreBtn).getBoundingClientRect();
+    attachChatMenuDismiss(menu);
+    const mrect = menu.getBoundingClientRect();
+    const pad = 8;
+    let left = rect.left;
+    let top = rect.bottom + 4;
+    if (top + mrect.height > window.innerHeight - pad) {
+      top = rect.top - 4 - mrect.height;
+    }
+    left = Math.max(pad, Math.min(left, window.innerWidth - pad - mrect.width));
+    top = Math.max(pad, Math.min(top, window.innerHeight - pad - mrect.height));
+    menu.style.left = `${left}px`;
+    menu.style.top = `${top}px`;
+  };
   const nameBtn = el("button", {
     type: "button",
     class: "chat-sess-btn",
     text: name,
     title: name,
+    onclick: (ev) => {
+      ev.stopPropagation();
+      openUserMenu(ev.currentTarget);
+    },
   });
   const moreBtn = el("button", {
     type: "button",
@@ -2982,112 +3268,7 @@ function syncAuthUserLabel() {
     title: t("chat.sessionMenu"),
     onclick: (ev) => {
       ev.stopPropagation();
-      clearChatPageBlockers();
-      const items = [
-        el("button", {
-          type: "button",
-          class: "chat-sess-menu-item",
-          "data-menu-action": "profile",
-          text: t("chat.myProfile"),
-        }),
-        el("button", {
-          type: "button",
-          class: "chat-sess-menu-item",
-          "data-menu-action": "jobs",
-          text: t("chat.jobs"),
-        }),
-      ];
-      items.push(el("div", { class: "chat-sess-menu-sep" }));
-      items.push(
-        el("div", { class: "muted u-menu-label", text: t("theme.label") }),
-      );
-      const themeSelMenu = el("select", {
-        class: "input u-menu-select",
-      });
-      try {
-        (window.OclawAdminTheme && window.OclawAdminTheme.THEMES ? window.OclawAdminTheme.THEMES : ["netx"]).forEach((tid) => {
-          themeSelMenu.appendChild(el("option", { value: tid, text: t(`theme.${tid}`) }));
-        });
-        themeSelMenu.value = window.OclawAdminTheme ? window.OclawAdminTheme.currentAdminTheme() : "netx";
-      } catch (_) {}
-      themeSelMenu.addEventListener("change", () => {
-        try {
-          if (window.OclawAdminTheme) window.OclawAdminTheme.persistAdminTheme(themeSelMenu.value);
-        } catch (_) {}
-      });
-      items.push(themeSelMenu);
-      const bridge = window.__chatUserMenuPrefs;
-      if (bridge && typeof bridge === "object") {
-        items.push(el("div", { class: "chat-sess-menu-sep" }));
-        items.push(el("div", { class: "muted u-menu-label", text: t("chat.modeLabel") }));
-        const modeSel = el("select", { class: "input u-menu-select" });
-        try {
-          const rows = Array.isArray(bridge.getModeOptions && bridge.getModeOptions()) ? bridge.getModeOptions() : [];
-          rows.forEach((r) => modeSel.appendChild(el("option", { value: String(r.value || ""), text: String(r.label || r.value || "") })));
-          modeSel.value = String((bridge.getModeValue && bridge.getModeValue()) || "");
-        } catch (_) {}
-        modeSel.addEventListener("change", async () => {
-          const v = modeSel.value;
-          try {
-            modeSel.disabled = true;
-            if (bridge.setModeValue) await bridge.setModeValue(v);
-          } catch (_) {
-            // errors are surfaced by saveUserGlobalModePreference()
-          } finally {
-            modeSel.disabled = false;
-          }
-        });
-        items.push(modeSel);
-        const reasonWrap = el("label", { class: "switch-wrap u-switch-menu" }, [
-          el("input", { type: "checkbox", class: "switch-input" }),
-          el("span", { class: "switch-slider" }),
-          el("span", { class: "muted", text: t("chat.tools") }),
-        ]);
-        const reasonCb = reasonWrap.querySelector("input.switch-input");
-        try {
-          reasonCb.checked = !!(bridge.getReasoningVisible && bridge.getReasoningVisible());
-        } catch (_) {}
-        reasonCb.addEventListener("change", () => {
-          try {
-            Promise.resolve(bridge.setReasoningVisible && bridge.setReasoningVisible(!!reasonCb.checked)).catch(() => {});
-          } catch (_) {}
-        });
-        items.push(reasonWrap);
-      }
-      items.push(el("div", { class: "chat-sess-menu-sep" }));
-      items.push(
-        el("button", {
-          type: "button",
-          class: "chat-sess-menu-item",
-          "data-menu-action": "lang",
-          text: t("lang.switch"),
-        }),
-      );
-      items.push(el("div", { class: "chat-sess-menu-sep" }));
-      items.push(
-        el("button", {
-          type: "button",
-          class: "chat-sess-menu-item",
-          "data-menu-action": "logout",
-          text: t("auth.logout"),
-        }),
-      );
-      const menu = el("div", {
-        class: "chat-sess-menu-pop u-pop-menu",
-      }, items);
-      const rect = moreBtn.getBoundingClientRect();
-      attachChatMenuDismiss(menu);
-      const mrect = menu.getBoundingClientRect();
-      const pad = 8;
-      let left = rect.left;
-      let top = rect.bottom + 4;
-      if (top + mrect.height > window.innerHeight - pad) {
-        top = rect.top - 4 - mrect.height;
-      }
-      left = Math.max(pad, Math.min(left, window.innerWidth - pad - mrect.width));
-      top = Math.max(pad, Math.min(top, window.innerHeight - pad - mrect.height));
-      menu.style.left = `${left}px`;
-      menu.style.top = `${top}px`;
+      openUserMenu(ev.currentTarget);
     },
   });
   const row = el("div", { class: "chat-user-row" }, [nameBtn, moreBtn]);
@@ -3293,7 +3474,7 @@ async function renderChatUi() {
   let globalMenuModeValue = String(localStorage.getItem(CHAT_USER_MENU_MODE_KEY) || MAIN_MODE_VALUE).toLowerCase();
   if (globalMenuModeValue === "comprehensive" || globalMenuModeValue === "main") globalMenuModeValue = MAIN_MODE_VALUE;
   const modelSelect = el("select", {
-    class: "input u-select-mode",
+    class: "chat-composer-chip chat-composer-chip--select",
     title: t("chat.activeModelLabel"),
   });
   let modelSelectNameToId = new Map();
@@ -3566,41 +3747,42 @@ async function renderChatUi() {
   };
   await refreshActiveModelText();
   refreshExecUi();
-  const composerMetaBar = el("div", { class: "row u-gap-8 u-composer-meta" }, [
+  const compressBtn = el("button", {
+    type: "button",
+    class: "chat-composer-chip",
+    text: t("chat.compressHistory"),
+    onclick: async () => {
+      const sid = String(activeId || "");
+      if (!sid) return;
+      if (!(await confirmChatAction(t("chat.compressHistoryPrompt")))) return;
+      try {
+        const resp = await apiPost(`/admin/api/chat/sessions/${encodeURIComponent(sid)}/compress-history`, {});
+        const r = resp && resp.result ? resp.result : {};
+        if (!resp || !resp.ok) {
+          const err = String((resp && (resp.error || resp.detail)) || "failed");
+          showToast(t("chat.compressHistoryFail", { error: err.slice(0, 180) }), { kind: "error", ttlMs: 6500 });
+          return;
+        }
+        showToast(
+          t("chat.compressHistoryOk", {
+            scanned: String(Number(r.scanned_tool_messages || 0)),
+            rewritten: String(Number(r.rewritten_all_tool_messages || 0)),
+            compacted: String(Number(r.compacted_tool_messages || 0)),
+            skipped: String(Number(r.skipped_already_guarded || 0)),
+          }),
+          { kind: "info", ttlMs: 6500 },
+        );
+        // Reload messages so UI reflects compacted history.
+        loadMessagesForActive().catch(() => {});
+      } catch (e) {
+        showToast(t("chat.compressHistoryFail", { error: String(e || "failed").slice(0, 180) }), { kind: "error", ttlMs: 6500 });
+      }
+    },
+  });
+  const composerMetaBar = el("div", { class: "chat-composer-meta" }, [
     execSelectWrap,
     modelSelect,
-    el("button", {
-      type: "button",
-      class: "btn u-btn-compact",
-      text: t("chat.compressHistory"),
-      onclick: async () => {
-        const sid = String(activeId || "");
-        if (!sid) return;
-        if (!(await confirmChatAction(t("chat.compressHistoryPrompt")))) return;
-        try {
-          const resp = await apiPost(`/admin/api/chat/sessions/${encodeURIComponent(sid)}/compress-history`, {});
-          const r = resp && resp.result ? resp.result : {};
-          if (!resp || !resp.ok) {
-            const err = String((resp && (resp.error || resp.detail)) || "failed");
-            showToast(t("chat.compressHistoryFail", { error: err.slice(0, 180) }), { kind: "error", ttlMs: 6500 });
-            return;
-          }
-          showToast(
-            t("chat.compressHistoryOk", {
-              scanned: String(Number(r.scanned_tool_messages || 0)),
-              rewritten: String(Number(r.rewritten_all_tool_messages || 0)),
-              compacted: String(Number(r.compacted_tool_messages || 0)),
-              skipped: String(Number(r.skipped_already_guarded || 0)),
-            }),
-            { kind: "info", ttlMs: 6500 },
-          );
-          // Reload messages so UI reflects compacted history.
-          loadMessagesForActive().catch(() => {});
-        } catch (e) {
-          showToast(t("chat.compressHistoryFail", { error: String(e || "failed").slice(0, 180) }), { kind: "error", ttlMs: 6500 });
-        }
-      },
-    }),
+    compressBtn,
   ]);
 
   const fitComposerTextarea = () => {
@@ -3958,20 +4140,44 @@ async function renderChatUi() {
     for (const s of sessions) {
       const sid = String(s.id || "");
       const title = String(s.title || sid || "");
+      const peerHint = String(s.peer_name || s.peer_display_name || "").trim();
+      let pretty = formatChatSessionTitle(title, peerHint);
+      if (!pretty.sublabel && pretty.channel) {
+        const looked = lookupChannelPeerName(title, pretty);
+        if (looked) pretty = formatChatSessionTitle(title, looked);
+      }
       const row = el("div", { class: "chat-sess-row" + (idsMatch(activeId, sid) ? " chat-sess-row--active" : "") });
-      const btn = el("button", {
-        class: "chat-sess-btn" + (idsMatch(activeId, sid) ? " chat-sess-btn--active" : ""),
-        text: title,
-        onclick: () => {
-          activeId = sid;
-          replaceSessionUrl(sid);
-          paintSessions();
-          Promise.all([loadMessagesForActive(), loadSessionModePreference()]).catch((e) => {
-            statusBar.textContent = `${t("chat.error")}: ${String(e)}`;
-          });
-          startWikiPoller();
+      const btnChildren = [];
+      if (pretty.badge) {
+        btnChildren.push(
+          el("span", {
+            class: `chat-sess-badge chat-sess-badge--${pretty.channel || "other"}`,
+            text: pretty.badge,
+          }),
+        );
+      }
+      const labelKids = [el("span", { class: "chat-sess-btn__name", text: pretty.label })];
+      if (pretty.sublabel) {
+        labelKids.push(el("span", { class: "chat-sess-btn__id", text: pretty.sublabel }));
+      }
+      btnChildren.push(el("span", { class: "chat-sess-btn__label" }, labelKids));
+      const btn = el(
+        "button",
+        {
+          class: "chat-sess-btn" + (idsMatch(activeId, sid) ? " chat-sess-btn--active" : ""),
+          title: pretty.full || title,
+          onclick: () => {
+            activeId = sid;
+            replaceSessionUrl(sid);
+            paintSessions();
+            Promise.all([loadMessagesForActive(), loadSessionModePreference()]).catch((e) => {
+              statusBar.textContent = `${t("chat.error")}: ${String(e)}`;
+            });
+            startWikiPoller();
+          },
         },
-      });
+        btnChildren,
+      );
       const more = el("button", {
         type: "button",
         class: "chat-sess-more" + (idsMatch(activeId, sid) ? " chat-sess-more--active" : ""),
@@ -4106,6 +4312,7 @@ async function renderChatUi() {
   };
 
   const reloadSessionsOnly = async () => {
+    await refreshChannelPeerNameMap().catch(() => {});
     const resp = await apiGet(`/admin/api/chat/sessions?limit=${PAGE_SIZE}&offset=0`);
     sessions = Array.isArray(resp.sessions) ? resp.sessions : [];
     sessionTotal = intOr(resp.total, sessions.length);
@@ -4114,6 +4321,7 @@ async function renderChatUi() {
 
   const refreshSessions = async () => {
     statusBar.textContent = t("chat.loading");
+    await refreshChannelPeerNameMap().catch(() => {});
     const resp = await apiGet(`/admin/api/chat/sessions?limit=${PAGE_SIZE}&offset=0`);
     sessions = Array.isArray(resp.sessions) ? resp.sessions : [];
     sessionTotal = intOr(resp.total, sessions.length);
@@ -5709,15 +5917,19 @@ async function boot() {
     localStorage.removeItem(AUTH_SESSION_KEY);
     authSession = null;
     try {
-      await apiPost("/admin/api/auth/bootstrap", {});
+      await withTimeout(apiPost("/admin/api/auth/bootstrap", {}), 2500, "auth_bootstrap_timeout");
     } catch (_) {}
     mount(await renderLogin());
     applyI18nStatic();
     syncAuthUserLabel();
     return;
   }
-  await syncLangFromServer();
-  await loadMeProfile();
+  try {
+    await withTimeout(syncLangFromServer(), 2500, "ui_lang_timeout");
+  } catch (_) {}
+  try {
+    await withTimeout(loadMeProfile(), 2500, "me_profile_timeout");
+  } catch (_) {}
   try {
     mount(await renderChatUi());
   } catch (err) {

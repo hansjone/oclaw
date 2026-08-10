@@ -95,7 +95,7 @@
           <div id="topTitle" class="topbar__title">Runtime</div>
           <div class="topbar__actions">
             <span id="authUser" class="muted"></span>
-            <label class="admin-theme-wrap u-inline-flex u-row-center">
+            <label class="admin-theme-wrap">
               <span class="muted u-fs-12" data-i18n="theme.label">配色</span>
               <select id="adminThemeSelect" class="input input--compact u-theme-select" aria-label="theme">
                 <option value="netx" data-i18n="theme.netx">NetX</option>
@@ -108,10 +108,10 @@
                 <option value="light" data-i18n="theme.light">Light</option>
               </select>
             </label>
-            <a id="btnBackChat" class="btn" data-i18n="nav.chat" href="chat">对话</a>
-            <button id="btnLogout" class="btn" data-i18n="auth.logout">退出登录</button>
-            <button id="btnLang" class="btn">中文</button>
-            <button id="btnRefresh" class="btn" data-i18n="action.refresh">刷新</button>
+            <a id="btnBackChat" class="btn btn--primary" data-i18n="nav.chat" href="chat">对话</a>
+            <button id="btnLogout" class="btn btn--ghost" type="button" data-i18n="auth.logout">退出登录</button>
+            <button id="btnLang" class="btn btn--ghost" type="button">中文</button>
+            <button id="btnRefresh" class="btn btn--ghost" type="button" data-i18n="action.refresh">刷新</button>
           </div>
         </header>
         <section id="content" class="content">

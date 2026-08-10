@@ -495,13 +495,13 @@ def _extract_group_name(inbound: Any) -> str:
             cands.append(str(v).strip())
     raw = inbound.metadata.get("raw")
     if isinstance(raw, dict):
-        for key in ("chat_name", "group_name", "room_name", "conversation_name", "chatname"):
+        for key in ("chat_name", "group_name", "room_name", "conversation_name", "chatname", "subject"):
             v = raw.get(key)
             if v is not None:
                 cands.append(str(v).strip())
         chat_obj = raw.get("chat")
         if isinstance(chat_obj, dict):
-            for key in ("name", "chat_name", "group_name"):
+            for key in ("name", "chat_name", "group_name", "subject"):
                 v = chat_obj.get(key)
                 if v is not None:
                     cands.append(str(v).strip())
@@ -511,16 +511,74 @@ def _extract_group_name(inbound: Any) -> str:
     return ""
 
 
-def _build_wecom_session_title(*, account_name: str, external_user_id: str, is_group: bool, group_name: str) -> str:
+def _lookup_known_whatsapp_group_name(store: Any, *, account_id: str, group_jid: str) -> str:
+    jid = str(group_jid or "").strip()
+    if not jid or not hasattr(store, "list_whatsapp_known_groups"):
+        return ""
+    try:
+        import os
+
+        tid = str(os.getenv("OCLAW_DEFAULT_TENANT_ID") or "default")
+        rows = store.list_whatsapp_known_groups(tenant_id=tid, account_id=str(account_id or "").strip() or None)
+    except Exception:
+        return ""
+    for row in rows or []:
+        if not isinstance(row, dict):
+            continue
+        if str(row.get("group_jid") or "").strip() == jid:
+            name = str(row.get("group_name") or "").strip()
+            if name:
+                return name
+    return ""
+
+
+def _resolve_inbound_group_name(store: Any, inbound: Any, *, account_id: str) -> str:
+    name = _extract_group_name(inbound)
+    if name:
+        return name
+    if not bool(getattr(inbound, "is_group", False)):
+        return ""
+    chat_id = str(getattr(inbound, "external_chat_id", "") or "").strip()
+    ch = str(getattr(inbound, "channel", "") or "").strip().lower()
+    if ch == "whatsapp" and chat_id:
+        known = _lookup_known_whatsapp_group_name(store, account_id=account_id, group_jid=chat_id)
+        if known:
+            return known
+    # Last-resort readable hint from group JID (still better than sender phone only).
+    if chat_id and "@" in chat_id and chat_id.lower().endswith("@g.us"):
+        return chat_id.split("@", 1)[0] or ""
+    return ""
+
+
+def _build_wecom_session_title(
+    *,
+    account_name: str,
+    external_user_id: str,
+    is_group: bool,
+    group_name: str,
+    display_name: str = "",
+) -> str:
     base = f"{str(account_name or '').strip() or 'WeCom'}+{str(external_user_id or '').strip() or 'unknown'}"
     if is_group and str(group_name or "").strip():
         body = f"{base}+{str(group_name).strip()}"
     else:
         body = base
+    nick = str(display_name or "").strip()
+    eid = str(external_user_id or "").strip()
+    if nick and nick != eid and nick.lower() not in body.lower():
+        body = f"{nick} · {body}"
     return f"wechat|{body}"
 
 
-def _build_channel_session_title(*, channel: str, account_name: str, external_user_id: str, is_group: bool, group_name: str) -> str:
+def _build_channel_session_title(
+    *,
+    channel: str,
+    account_name: str,
+    external_user_id: str,
+    is_group: bool,
+    group_name: str,
+    display_name: str = "",
+) -> str:
     ch = str(channel or "").strip().lower() or "channel"
     if ch == "wecom":
         return _build_wecom_session_title(
@@ -528,9 +586,24 @@ def _build_channel_session_title(*, channel: str, account_name: str, external_us
             external_user_id=external_user_id,
             is_group=is_group,
             group_name=group_name,
+            display_name=display_name,
         )
-    base = f"{str(account_name or '').strip() or ch}+{str(external_user_id or '').strip() or 'unknown'}"
-    body = f"{base}+{str(group_name or '').strip()}" if is_group and str(group_name or "").strip() else base
+    eid = str(external_user_id or "").strip() or "unknown"
+    base = f"{str(account_name or '').strip() or ch}+{eid}"
+    gname = str(group_name or "").strip()
+    nick = str(display_name or "").strip()
+    # Put human labels *before* the technical account+id body so UI parsers
+    # (and humans) can see which WhatsApp group a per-sender session belongs to.
+    # Legacy form `account+jid+groupName` buried the group after @domain and got stripped.
+    labels: list[str] = []
+    if is_group and gname and gname != eid and gname.lower() not in base.lower():
+        g_label = gname
+        if gname.isdigit() and len(gname) > 14:
+            g_label = f"{gname[:12]}…"
+        labels.append(g_label)
+    if nick and nick != eid and nick != gname and nick.lower() not in base.lower():
+        labels.append(nick)
+    body = f"{' · '.join(labels)} · {base}" if labels else base
     return f"{ch}|{body}"
 
 
@@ -1208,7 +1281,7 @@ def process_inbound_payload(payload: dict[str, Any]) -> dict[str, Any]:
             user_id = str(ident.get("user_id") or "")
             role = str(ident.get("role") or "member")
             account_name = str(account.get("name") or "").strip() or account_id
-            group_name = _extract_group_name(inbound)
+            group_name = _resolve_inbound_group_name(store, inbound, account_id=account_id)
             session_external_user_id = session_user_key(
                 is_group=inbound.is_group,
                 external_user_id=inbound.external_user_id,
@@ -1221,20 +1294,61 @@ def process_inbound_payload(payload: dict[str, Any]) -> dict[str, Any]:
                 group_name=group_name,
                 external_chat_id=inbound.external_chat_id,
             )
+            inbound_meta = inbound.metadata if isinstance(inbound.metadata, dict) else {}
+            peer_display_name = str(
+                inbound_meta.get("push_name")
+                or inbound_meta.get("pushName")
+                or inbound_meta.get("display_name")
+                or inbound_meta.get("displayName")
+                or ""
+            ).strip()
+            if not peer_display_name and isinstance(inbound_meta.get("raw"), dict):
+                raw_meta = inbound_meta.get("raw") or {}
+                peer_display_name = str(
+                    raw_meta.get("pushName")
+                    or raw_meta.get("push_name")
+                    or raw_meta.get("displayName")
+                    or raw_meta.get("display_name")
+                    or ""
+                ).strip()
+            session_title = _build_channel_session_title(
+                channel=inbound.channel,
+                account_name=account_name,
+                external_user_id=title_user_label,
+                is_group=inbound.is_group,
+                group_name=group_name,
+                display_name=peer_display_name,
+            )
             session_id = store.get_or_create_channel_session_v2(
                 tenant_id=tenant_id,
                 channel=inbound.channel,
                 account_id=account_id,
                 external_user_id=session_external_user_id,
                 external_chat_id=inbound.external_chat_id,
-                session_title=_build_channel_session_title(
-                    channel=inbound.channel,
-                    account_name=account_name,
-                    external_user_id=title_user_label,
-                    is_group=inbound.is_group,
-                    group_name=group_name,
-                ),
+                session_title=session_title,
             )
+            # Refresh list title when we learn group name and/or peer nickname later.
+            try:
+                cur = store.get_session(str(session_id)) if hasattr(store, "get_session") else None
+                cur_title = str((cur or {}).get("title") if isinstance(cur, dict) else getattr(cur, "title", "") or "")
+                richer = False
+                if session_title and cur_title and session_title != cur_title:
+                    if group_name and group_name not in cur_title and group_name in session_title:
+                        richer = True
+                    elif peer_display_name and " · " in session_title and (
+                        " · " not in cur_title or peer_display_name.lower() not in cur_title.lower()
+                    ):
+                        richer = True
+                    elif inbound.is_group and " · " in session_title and "+" in cur_title and " · " not in cur_title:
+                        # Migrate legacy `account+jid+group` titles to the readable prefix form.
+                        richer = True
+                if richer:
+                    if hasattr(store, "rename_session"):
+                        store.rename_session(str(session_id), session_title[:120])
+                    elif hasattr(store, "rename_chat_session"):
+                        store.rename_chat_session(session_id=str(session_id), title=session_title[:120])
+            except Exception:
+                pass
             channel_session_id = str(session_id)
             from runtime.application.gateway.channel_session_owner import (
                 assign_channel_session_to_account_owner,

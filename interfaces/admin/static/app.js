@@ -52,6 +52,18 @@ const I18N = {
     "scheduledJobs.editTitle": "编辑任务",
     "scheduledJobs.updated": "已保存",
     "scheduledJobs.cancel": "取消",
+    "scheduledJobs.fieldName": "名称",
+    "scheduledJobs.fieldSchedule": "计划",
+    "scheduledJobs.fieldKind": "类型",
+    "scheduledJobs.fieldExpr": "表达式",
+    "scheduledJobs.fieldPrompt": "提示词",
+    "scheduledJobs.fieldSpecialist": "专家",
+    "scheduledJobs.fieldWhatsapp": "WhatsApp chat_id",
+    "scheduledJobs.phName": "任务名称",
+    "scheduledJobs.phExpr": "cron / ISO 时间 / 秒数",
+    "scheduledJobs.phPrompt": "到期时要执行的提示词",
+    "scheduledJobs.phSpecialist": "例如 generalist",
+    "scheduledJobs.phWhatsapp": "可选，群或私聊 chat_id",
     "scheduledJobs.runHistory": "运行记录",
     "scheduledJobs.runHistoryHint": "最近运行（自动刷新）",
     "scheduledJobs.noRuns": "暂无运行记录",
@@ -535,6 +547,18 @@ const I18N = {
     "scheduledJobs.editTitle": "Edit job",
     "scheduledJobs.updated": "Saved.",
     "scheduledJobs.cancel": "Cancel",
+    "scheduledJobs.fieldName": "Name",
+    "scheduledJobs.fieldSchedule": "Schedule",
+    "scheduledJobs.fieldKind": "Kind",
+    "scheduledJobs.fieldExpr": "Expression",
+    "scheduledJobs.fieldPrompt": "Prompt",
+    "scheduledJobs.fieldSpecialist": "Specialist",
+    "scheduledJobs.fieldWhatsapp": "WhatsApp chat_id",
+    "scheduledJobs.phName": "Job name",
+    "scheduledJobs.phExpr": "cron / ISO time / seconds",
+    "scheduledJobs.phPrompt": "Prompt to run when due",
+    "scheduledJobs.phSpecialist": "e.g. generalist",
+    "scheduledJobs.phWhatsapp": "Optional group or DM chat_id",
     "scheduledJobs.runHistory": "Run history",
     "scheduledJobs.runHistoryHint": "Recent runs (auto refresh)",
     "scheduledJobs.noRuns": "No runs yet",
@@ -1518,15 +1542,28 @@ function renderPageShell(opts = {}, children = []) {
 }
 
 function renderSectionCard(title, subtitle, bodyNodes = [], opts = {}) {
-  const nodes = [el("div", { class: "card__title", text: title })];
-  if (subtitle) nodes.push(el("div", { class: "muted", text: subtitle }));
+  const headlineKids = [el("div", { class: "card__title", text: title })];
+  if (subtitle) headlineKids.push(el("div", { class: "card__subtitle muted", text: subtitle }));
+  const headKids = [el("div", { class: "card__headline" }, headlineKids)];
   if (Array.isArray(opts.actions) && opts.actions.length) {
-    nodes.push(el("div", { class: "row section-card__actions" }, opts.actions));
+    headKids.push(el("div", { class: "card__actions row" }, opts.actions));
   }
+  const nodes = [el("div", { class: "card__head" }, headKids)];
   bodyNodes.filter(Boolean).forEach((node) => nodes.push(node));
   const attrs = { class: "card section-card" };
   if (opts.id) attrs.id = String(opts.id);
   return el("div", attrs, nodes);
+}
+
+function renderMetaChips(entries) {
+  const items = [];
+  const src = entries && typeof entries === "object" ? entries : {};
+  Object.keys(src).forEach((k) => {
+    const v = src[k];
+    if (v == null || v === "") return;
+    items.push(el("span", { class: "meta-chip", text: `${k}=${v}` }));
+  });
+  return el("div", { class: "meta-line" }, items.length ? items : [el("span", { class: "muted", text: "—" })]);
 }
 
 function shortText(v, maxLen = 200) {
@@ -1579,8 +1616,6 @@ function markPrewarmReminder(reason) {
 
 async function renderStack() {
   const results = await Promise.allSettled([
-    apiGetNoHang("/admin/api/stack/status"),
-    apiGetNoHang("/admin/api/runtime/anomalies"),
     apiGetNoHang("/admin/api/runtime/scan-artifacts"),
     apiGetNoHang("/admin/api/runtime/prewarm/status"),
     apiGetNoHang("/admin/api/runtime/prewarm/prompts?role=generalist"),
@@ -1590,64 +1625,22 @@ async function renderStack() {
     apiGetNoHang("/admin/api/whatsapp/groups?tenant_id=default"),
     apiGetNoHang("/admin/api/whatsapp/access?tenant_id=default"),
   ]);
-  const st = results[0].status === "fulfilled" ? results[0].value : null;
-  const anomaliesResp = results[1].status === "fulfilled" ? results[1].value : null;
-  const scanResp = results[2].status === "fulfilled" ? results[2].value : null;
-  const prewarmStatusResp = results[3].status === "fulfilled" ? results[3].value : null;
-  const prewarmPromptsResp = results[4].status === "fulfilled" ? results[4].value : null;
-  const channelSpecResp = results[5].status === "fulfilled" ? results[5].value : null;
-  const weixinDispatchResp = results[6].status === "fulfilled" ? results[6].value : null;
-  const whatsappDispatchResp = results[7].status === "fulfilled" ? results[7].value : null;
-  const whatsappGroupsResp = results[8].status === "fulfilled" ? results[8].value : null;
-  const whatsappAccessResp = results[9].status === "fulfilled" ? results[9].value : null;
+  const scanResp = results[0].status === "fulfilled" ? results[0].value : null;
+  const prewarmStatusResp = results[1].status === "fulfilled" ? results[1].value : null;
+  const prewarmPromptsResp = results[2].status === "fulfilled" ? results[2].value : null;
+  const channelSpecResp = results[3].status === "fulfilled" ? results[3].value : null;
+  const weixinDispatchResp = results[4].status === "fulfilled" ? results[4].value : null;
+  const whatsappDispatchResp = results[5].status === "fulfilled" ? results[5].value : null;
+  const whatsappGroupsResp = results[6].status === "fulfilled" ? results[6].value : null;
+  const whatsappAccessResp = results[7].status === "fulfilled" ? results[7].value : null;
 
   // If auth failed (401), show a gentle message instead of an infinite spinner.
-  if (!st) {
+  if (!channelSpecResp && !weixinDispatchResp && !prewarmStatusResp) {
     return el("div", { class: "card" }, [
       el("div", { class: "card__title", text: t("title.stack") || "Stack" }),
       el("div", { class: "muted", text: currentLang === "zh" ? "未登录或会话已过期，请重新登录。" : "Not logged in or session expired. Please log in again." }),
     ]);
   }
-  const requiredServices = ["gateway", "channel:wecom"];
-  const runningNames = new Set(
-    (Array.isArray(st.items) ? st.items : [])
-      .filter((x) => Boolean(x && x.running))
-      .map((x) => String(x.name || "")),
-  );
-  const missingRequired = requiredServices.filter((n) => !runningNames.has(n));
-  const items = (st.items || []).flatMap((x) => {
-    const name = String((x && x.name) || "");
-    const running = Boolean(x && x.running);
-    const allPids = Array.isArray(x && x.all_pids) ? x.all_pids.map((v) => String(v || "").trim()).filter(Boolean) : [];
-    const primary = String((x && x.pid) || "").trim();
-    const pidPorts = (x && x.pid_ports && typeof x.pid_ports === "object") ? x.pid_ports : {};
-    const pidRunning = (x && x.pid_running && typeof x.pid_running === "object") ? x.pid_running : {};
-    const rows = allPids.length ? allPids : (primary ? [primary] : []);
-    return rows.map((pid) => {
-      const ports = Array.isArray(pidPorts[pid]) ? pidPorts[pid].map((v) => String(v || "").trim()).filter(Boolean) : [];
-      const isPrimary = primary && pid === primary;
-      const isRunning = Boolean(pidRunning[pid]);
-      return el("tr", {}, [
-        el("td", {}, [
-          el("div", { text: pid || "-" }),
-          isPrimary ? el("div", { class: "muted", text: "primary" }) : el("span"),
-        ]),
-        el("td", { text: name }),
-        el("td", { text: ports.length ? ports.join(", ") : "-" }),
-        el("td", {}, [
-          el("span", { class: "badge " + (isRunning ? "badge--ok" : "badge--bad"), text: isRunning ? t("status.running") : t("status.stopped") }),
-        ]),
-      ]);
-    });
-  });
-  const btnUp = el("button", { class: "btn btn--primary", text: t("stack.up"), onclick: async () => {
-    await apiPost("/admin/api/stack/up", { channel: "wecom" });
-    router();
-  }});
-  const btnDown = el("button", { class: "btn btn--danger", text: t("stack.down"), onclick: async () => {
-    await apiPost("/admin/api/stack/down", {});
-    router();
-  }});
   const availableDispatchSpecialists = Array.isArray(channelSpecResp && channelSpecResp.available_specialists) && channelSpecResp.available_specialists.length
     ? channelSpecResp.available_specialists.map((x) => String(x || "").trim()).filter(Boolean)
     : ["generalist"];
@@ -1663,7 +1656,11 @@ async function renderStack() {
       el("option", { value: "zh", text: currentLang === "zh" ? "中文" : "Chinese", selected: curLang === "zh" ? "selected" : undefined }),
       el("option", { value: "en", text: currentLang === "zh" ? "英文" : "English", selected: curLang === "en" ? "selected" : undefined }),
     ]);
-    const status = el("div", { class: "muted", text: `mode=${curMode} specialist=${curSpecialist} lang=${curLang}` });
+    const status = renderMetaChips({ mode: curMode, specialist: curSpecialist, lang: curLang });
+    const paintStatus = (obj) => {
+      const fresh = renderMetaChips(obj);
+      status.replaceChildren(...Array.from(fresh.childNodes));
+    };
     const saveExpertBtn = el("button", {
       class: "btn btn--primary",
       text: currentLang === "zh" ? "绑定专家" : "Bind specialist",
@@ -1675,20 +1672,35 @@ async function renderStack() {
           specialist,
           lang,
         });
-        status.textContent = `mode=${String(resp.interaction_mode || "expert")} specialist=${String(resp.specialist || specialist)} lang=${String(resp.lang || lang)}`;
+        paintStatus({
+          mode: String(resp.interaction_mode || "expert"),
+          specialist: String(resp.specialist || specialist),
+          lang: String(resp.lang || lang),
+        });
       },
     });
     return el("div", { class: "card" }, [
-      el("div", { class: "card__title", text: title }),
-      el("div", { class: "row" }, [
-        el("label", { text: currentLang === "zh" ? "专家" : "Specialist" }),
-        specialistSel,
-        el("label", { text: currentLang === "zh" ? "语言" : "Lang" }),
-        langSel,
-        saveExpertBtn,
+      el("div", { class: "card__head" }, [
+        el("div", { class: "card__headline" }, [
+          el("div", { class: "card__title", text: title }),
+          el("div", {
+            class: "card__subtitle",
+            text: currentLang === "zh" ? "通道统一走专家模式；选择默认专家即可。" : "Channels are expert-only; pick the default specialist.",
+          }),
+        ]),
+      ]),
+      el("div", { class: "form-inline" }, [
+        el("div", { class: "form-inline__field" }, [
+          el("label", { text: currentLang === "zh" ? "专家" : "Specialist" }),
+          specialistSel,
+        ]),
+        el("div", { class: "form-inline__field" }, [
+          el("label", { text: currentLang === "zh" ? "语言" : "Lang" }),
+          langSel,
+        ]),
+        el("div", { class: "form-inline__actions" }, [saveExpertBtn]),
       ]),
       status,
-      el("div", { class: "muted", text: currentLang === "zh" ? "通道统一走专家模式；选择默认专家即可。" : "Channels are expert-only; pick the default specialist." }),
     ]);
   };
   const weixinDispatchCard = createChannelDispatchCard("weixin", "Weixin dispatch", weixinDispatchResp || {});
@@ -1753,9 +1765,14 @@ async function renderStack() {
     else if (lt === "whitelist") waCounts.whitelist += 1;
     else if (lt === "blacklist") waCounts.blacklist += 1;
   });
-  const waAccessStatus = el("div", {
-    class: "muted",
-    text: `mode=${String(waAccessCfg.access_mode || "blacklist")} lang=${String(waAccessCfg.lang || "en")} admin=${waCounts.admin} whitelist=${waCounts.whitelist} blacklist=${waCounts.blacklist} pending=${waPending.length} denied=${waDenied.length}`,
+  const waAccessStatus = renderMetaChips({
+    mode: String(waAccessCfg.access_mode || "blacklist"),
+    lang: String(waAccessCfg.lang || "en"),
+    admin: waCounts.admin,
+    whitelist: waCounts.whitelist,
+    blacklist: waCounts.blacklist,
+    pending: waPending.length,
+    denied: waDenied.length,
   });
   const waContactFilterSel = el("select", { class: "input" }, [
     el("option", { value: "all", text: currentLang === "zh" ? "全部" : "All" }),
@@ -1979,156 +1996,177 @@ async function renderStack() {
     ]);
   });
   const whatsappAccessCard = el("div", { class: "card" }, [
-    el("div", { class: "card__title", text: currentLang === "zh" ? "WhatsApp 访问控制" : "WhatsApp access control" }),
-    el("div", { class: "muted", text: currentLang === "zh" ? "默认黑名单模式：未授权用户进入待审批；拒绝后进入黑名单/已拒绝列表，可一键加白名单。" : "Default blacklist mode: unauthorized users go to Pending; denied users go to blacklist/denied list and can be whitelisted." }),
-    el("div", { class: "row" }, [
-      el("label", { text: currentLang === "zh" ? "模式" : "Mode" }),
-      waAccessModeSel,
-      el("label", { text: currentLang === "zh" ? "提示语言" : "Message lang" }),
-      waAccessLangSel,
-      el("button", {
-        class: "btn btn--primary",
-        text: currentLang === "zh" ? "保存配置" : "Save config",
-        onclick: async () => {
-          const resp = await apiPost("/admin/api/whatsapp/access/config", {
-            tenant_id: "default",
-            access_mode: String(waAccessModeSel.value || "blacklist"),
-            lang: String(waAccessLangSel.value || "en"),
-          });
-          const cfg = (resp && resp.config) || {};
-          waAccessStatus.textContent = `mode=${String(cfg.access_mode || "blacklist")} lang=${String(cfg.lang || "en")}`;
-        },
-      }),
+    el("div", { class: "card__head" }, [
+      el("div", { class: "card__headline" }, [
+        el("div", { class: "card__title", text: currentLang === "zh" ? "WhatsApp 访问控制" : "WhatsApp access control" }),
+        el("div", {
+          class: "card__subtitle",
+          text: currentLang === "zh" ? "默认黑名单模式：未授权用户进入待审批；拒绝后进入黑名单/已拒绝列表，可一键加白名单。" : "Default blacklist mode: unauthorized users go to Pending; denied users go to blacklist/denied list and can be whitelisted.",
+        }),
+      ]),
+    ]),
+    el("div", { class: "form-inline" }, [
+      el("div", { class: "form-inline__field" }, [
+        el("label", { text: currentLang === "zh" ? "模式" : "Mode" }),
+        waAccessModeSel,
+      ]),
+      el("div", { class: "form-inline__field" }, [
+        el("label", { text: currentLang === "zh" ? "提示语言" : "Message lang" }),
+        waAccessLangSel,
+      ]),
+      el("div", { class: "form-inline__actions" }, [
+        el("button", {
+          class: "btn btn--primary",
+          text: currentLang === "zh" ? "保存配置" : "Save config",
+          onclick: async () => {
+            const resp = await apiPost("/admin/api/whatsapp/access/config", {
+              tenant_id: "default",
+              access_mode: String(waAccessModeSel.value || "blacklist"),
+              lang: String(waAccessLangSel.value || "en"),
+            });
+            const cfg = (resp && resp.config) || {};
+            waAccessStatus.replaceChildren(
+              ...Array.from(
+                renderMetaChips({
+                  mode: String(cfg.access_mode || "blacklist"),
+                  lang: String(cfg.lang || "en"),
+                  admin: waCounts.admin,
+                  whitelist: waCounts.whitelist,
+                  blacklist: waCounts.blacklist,
+                  pending: waPending.length,
+                  denied: waDenied.length,
+                }).childNodes,
+              ),
+            );
+          },
+        }),
+      ]),
     ]),
     waAccessStatus,
-    el("div", { class: "row" }, [
-      el("label", { text: currentLang === "zh" ? "筛选" : "Filter" }),
-      waContactFilterSel,
+    el("div", { class: "form-inline" }, [
+      el("div", { class: "form-inline__field" }, [
+        el("label", { text: currentLang === "zh" ? "筛选" : "Filter" }),
+        waContactFilterSel,
+      ]),
     ]),
-    el("div", { class: "row" }, [waPendingPickSel]),
-    el("div", { class: "row" }, [waContactPhoneInput, waContactNameInput, waContactTypeSel]),
-    el("div", { class: "row" }, [
-      el("button", {
-        class: "btn",
-        text: currentLang === "zh" ? "添加联系人" : "Add contact",
-        onclick: async () => {
-          const phone = String(waContactPhoneInput.value || "").trim();
-          if (!phone) return;
-          try {
-            const resp = await apiPost("/admin/api/whatsapp/access/contacts", {
-              phone,
-              push_name: String(waContactNameInput.value || "").trim(),
-              list_type: String(waContactTypeSel.value || "whitelist"),
-            });
-            if (!resp || resp.ok === false) {
-              window.alert(String((resp && resp.error) || (currentLang === "zh" ? "添加失败" : "Add failed")));
-              return;
+    el("div", { class: "form-inline" }, [
+      el("div", { class: "form-inline__field form-inline__field--wide" }, [waPendingPickSel]),
+    ]),
+    el("div", { class: "form-inline" }, [
+      el("div", { class: "form-inline__field" }, [waContactPhoneInput]),
+      el("div", { class: "form-inline__field" }, [waContactNameInput]),
+      el("div", { class: "form-inline__field" }, [waContactTypeSel]),
+      el("div", { class: "form-inline__actions" }, [
+        el("button", {
+          class: "btn",
+          text: currentLang === "zh" ? "添加联系人" : "Add contact",
+          onclick: async () => {
+            const phone = String(waContactPhoneInput.value || "").trim();
+            if (!phone) return;
+            try {
+              const resp = await apiPost("/admin/api/whatsapp/access/contacts", {
+                phone,
+                push_name: String(waContactNameInput.value || "").trim(),
+                list_type: String(waContactTypeSel.value || "whitelist"),
+              });
+              if (!resp || resp.ok === false) {
+                window.alert(String((resp && resp.error) || (currentLang === "zh" ? "添加失败" : "Add failed")));
+                return;
+              }
+              router();
+            } catch (err) {
+              window.alert(String(err));
             }
-            router();
-          } catch (err) {
-            window.alert(String(err));
-          }
-        },
-      }),
+          },
+        }),
+      ]),
     ]),
-    el("table", { class: "table" }, [
-      el("thead", {}, [el("tr", {}, [
-        el("th", { text: currentLang === "zh" ? "类型" : "Type" }),
-        el("th", { text: currentLang === "zh" ? "名称" : "Name" }),
-        el("th", { text: currentLang === "zh" ? "电话" : "Phone" }),
-        el("th", { text: currentLang === "zh" ? "操作" : "Action" }),
-      ])]),
-      waContactsTbody,
+    el("div", { class: "table-wrap" }, [
+      el("table", { class: "table" }, [
+        el("thead", {}, [el("tr", {}, [
+          el("th", { text: currentLang === "zh" ? "类型" : "Type" }),
+          el("th", { text: currentLang === "zh" ? "名称" : "Name" }),
+          el("th", { text: currentLang === "zh" ? "电话" : "Phone" }),
+          el("th", { text: currentLang === "zh" ? "操作" : "Action" }),
+        ])]),
+        waContactsTbody,
+      ]),
     ]),
     el("div", { class: "card__title", text: currentLang === "zh" ? "待审批请求" : "Pending requests" }),
-    el("table", { class: "table" }, [
-      el("thead", {}, [el("tr", {}, [
-        el("th", { text: currentLang === "zh" ? "名称" : "Name" }),
-        el("th", { text: currentLang === "zh" ? "电话" : "Phone" }),
-        el("th", { text: "JID" }),
-        el("th", { text: currentLang === "zh" ? "消息" : "Message" }),
-        el("th", { text: currentLang === "zh" ? "时间" : "Time" }),
-        el("th", { text: currentLang === "zh" ? "操作" : "Action" }),
-      ])]),
-      el("tbody", {}, waPendingRows.length ? waPendingRows : [el("tr", {}, [el("td", { colspan: "6", text: currentLang === "zh" ? "无待审批" : "None" })])]),
+    el("div", { class: "table-wrap" }, [
+      el("table", { class: "table" }, [
+        el("thead", {}, [el("tr", {}, [
+          el("th", { text: currentLang === "zh" ? "名称" : "Name" }),
+          el("th", { text: currentLang === "zh" ? "电话" : "Phone" }),
+          el("th", { text: "JID" }),
+          el("th", { text: currentLang === "zh" ? "消息" : "Message" }),
+          el("th", { text: currentLang === "zh" ? "时间" : "Time" }),
+          el("th", { text: currentLang === "zh" ? "操作" : "Action" }),
+        ])]),
+        el("tbody", {}, waPendingRows.length ? waPendingRows : [el("tr", {}, [el("td", { colspan: "6", text: currentLang === "zh" ? "无待审批" : "None" })])]),
+      ]),
     ]),
     el("div", { class: "card__title", text: currentLang === "zh" ? "已拒绝 / 黑名单记录" : "Denied / blacklist records" }),
-    el("div", { class: "muted", text: currentLang === "zh" ? "点「拒绝」后用户会进入黑名单联系人，并保留在此列表；可一键加白名单恢复访问。" : "Denied users are blacklisted and listed here; use Whitelist to restore access." }),
-    el("table", { class: "table" }, [
-      el("thead", {}, [el("tr", {}, [
-        el("th", { text: currentLang === "zh" ? "名称" : "Name" }),
-        el("th", { text: currentLang === "zh" ? "电话" : "Phone" }),
-        el("th", { text: currentLang === "zh" ? "消息" : "Message" }),
-        el("th", { text: currentLang === "zh" ? "拒绝时间" : "Denied at" }),
-        el("th", { text: currentLang === "zh" ? "操作" : "Action" }),
-      ])]),
-      el("tbody", {}, waDeniedRows.length ? waDeniedRows : [el("tr", {}, [el("td", { colspan: "5", text: currentLang === "zh" ? "无已拒绝记录" : "None" })])]),
+    el("div", { class: "card__hint", text: currentLang === "zh" ? "点「拒绝」后用户会进入黑名单联系人，并保留在此列表；可一键加白名单恢复访问。" : "Denied users are blacklisted and listed here; use Whitelist to restore access." }),
+    el("div", { class: "table-wrap" }, [
+      el("table", { class: "table" }, [
+        el("thead", {}, [el("tr", {}, [
+          el("th", { text: currentLang === "zh" ? "名称" : "Name" }),
+          el("th", { text: currentLang === "zh" ? "电话" : "Phone" }),
+          el("th", { text: currentLang === "zh" ? "消息" : "Message" }),
+          el("th", { text: currentLang === "zh" ? "拒绝时间" : "Denied at" }),
+          el("th", { text: currentLang === "zh" ? "操作" : "Action" }),
+        ])]),
+        el("tbody", {}, waDeniedRows.length ? waDeniedRows : [el("tr", {}, [el("td", { colspan: "5", text: currentLang === "zh" ? "无已拒绝记录" : "None" })])]),
+      ]),
     ]),
   ]);
   const whatsappAlertBindingCard = el("div", { class: "card" }, [
-    el("div", { class: "card__title", text: currentLang === "zh" ? "WhatsApp 告警群绑定" : "WhatsApp alert group" }),
-    el("div", { class: "muted", text: currentLang === "zh" ? "NetX 关键告警将推送到此群；与 Chat 会话删除无关。" : "NetX key alerts go to this group; independent of chat sessions." }),
-    el("div", { class: "row" }, [waGroupSel]),
-    el("div", { class: "row" }, [
-      el("button", {
-        class: "btn btn--primary",
-        text: currentLang === "zh" ? "保存绑定" : "Save binding",
-        onclick: async () => {
-          const group_jid = String(waGroupSel.value || "").trim();
-          if (!group_jid) return;
-          const picked = waGroups.find((g) => String((g && g.group_jid) || "").trim() === group_jid) || {};
-          const resp = await apiPost("/admin/api/whatsapp/alert-binding", {
-            tenant_id: "default",
-            group_jid,
-            group_name: String((picked && picked.group_name) || ""),
-            enabled: true,
-          });
-          const b = (resp && resp.binding) || {};
-          waBindingStatus.textContent = b.group_jid
-            ? `binding=${b.group_jid} enabled=${Boolean(b.enabled)}`
-            : (currentLang === "zh" ? "绑定失败" : "Bind failed");
-        },
-      }),
-      el("button", {
-        class: "btn",
-        text: currentLang === "zh" ? "测试推送" : "Test push",
-        onclick: async () => {
-          const resp = await apiPost("/admin/api/whatsapp/alert-binding/test", { tenant_id: "default" });
-          waBindingStatus.textContent = resp && resp.ok
-            ? `test ok outbound_id=${String(resp.outbound_id || "")}`
-            : `test failed: ${String((resp && resp.error) || "unknown")}`;
-        },
-      }),
+    el("div", { class: "card__head" }, [
+      el("div", { class: "card__headline" }, [
+        el("div", { class: "card__title", text: currentLang === "zh" ? "WhatsApp 告警群绑定" : "WhatsApp alert group" }),
+        el("div", {
+          class: "card__subtitle",
+          text: currentLang === "zh" ? "NetX 关键告警将推送到此群；与 Chat 会话删除无关。" : "NetX key alerts go to this group; independent of chat sessions.",
+        }),
+      ]),
+    ]),
+    el("div", { class: "form-inline" }, [
+      el("div", { class: "form-inline__field form-inline__field--wide" }, [waGroupSel]),
+      el("div", { class: "form-inline__actions" }, [
+        el("button", {
+          class: "btn btn--primary",
+          text: currentLang === "zh" ? "保存绑定" : "Save binding",
+          onclick: async () => {
+            const group_jid = String(waGroupSel.value || "").trim();
+            if (!group_jid) return;
+            const picked = waGroups.find((g) => String((g && g.group_jid) || "").trim() === group_jid) || {};
+            const resp = await apiPost("/admin/api/whatsapp/alert-binding", {
+              tenant_id: "default",
+              group_jid,
+              group_name: String((picked && picked.group_name) || ""),
+              enabled: true,
+            });
+            const b = (resp && resp.binding) || {};
+            waBindingStatus.textContent = b.group_jid
+              ? `binding=${b.group_jid} enabled=${Boolean(b.enabled)}`
+              : (currentLang === "zh" ? "绑定失败" : "Bind failed");
+          },
+        }),
+        el("button", {
+          class: "btn",
+          text: currentLang === "zh" ? "测试推送" : "Test push",
+          onclick: async () => {
+            const resp = await apiPost("/admin/api/whatsapp/alert-binding/test", { tenant_id: "default" });
+            waBindingStatus.textContent = resp && resp.ok
+              ? `test ok outbound_id=${String(resp.outbound_id || "")}`
+              : `test failed: ${String((resp && resp.error) || "unknown")}`;
+          },
+        }),
+      ]),
     ]),
     waBindingStatus,
   ]);
-  const cleanupStatus = el("div", { class: "muted", text: "" });
-  const btnCleanup = el("button", { class: "btn btn--danger", text: t("stack.cleanup"), onclick: async () => {
-    const resp = await apiPost("/admin/api/runtime/cleanup", {});
-    const killed = Array.isArray(resp.killed) ? resp.killed : [];
-    const total = killed.reduce((acc, x) => acc + ((x && Array.isArray(x.killed_pids)) ? x.killed_pids.length : 0), 0);
-    cleanupStatus.textContent = total > 0 ? tf("stack.cleanupDone", { count: total }) : t("stack.cleanupNone");
-    router();
-  }});
-  const alerts = Array.isArray(anomaliesResp.items) ? anomaliesResp.items : [];
-  const mustCleanup = Boolean(anomaliesResp.must_cleanup);
-  const mergedAlerts = missingRequired.length
-    ? []
-    : alerts.filter((a) => {
-        const typ = String((a && a.type) || "");
-        return typ !== "duplicate_process_ambiguous";
-      });
-  if (missingRequired.length) {
-    mergedAlerts.unshift({
-      severity: "critical",
-      message: tf("stack.missingServices", { services: missingRequired.join(", ") }),
-    });
-  }
-  const alertRows = mergedAlerts.length
-    ? mergedAlerts.map((a) => el("li", {
-        text: `[${String(a.severity || "info").toUpperCase()}] ${String(a.message || "")}`,
-      }))
-    : [el("li", { text: t("stack.noAlerts") })];
   const scanItems = Array.isArray(scanResp && scanResp.items) ? scanResp.items : [];
   const scanDir = String((scanResp && scanResp.dir) || "");
   const scanStatus = el("div", { class: "muted", text: "" });
@@ -2269,88 +2307,92 @@ async function renderStack() {
     renderPromptCards(resp);
   });
   renderPromptCards(prewarmPromptsResp);
-  return el("div", {}, [
-    el("div", { class: "card" }, [
-      el("div", { class: "card__title", text: t("stack.alerts") }),
-      (mustCleanup || missingRequired.length)
-        ? el("div", {
-            class: "alert alert--critical",
-            text: missingRequired.length ? t("stack.missingRequired") : t("stack.mustCleanup"),
-          })
-        : el("div", { class: "muted", text: t("stack.noAlerts") }),
-      el("ul", { class: "alert-list" }, alertRows),
-      missingRequired.length ? el("div", { class: "muted", text: t("stack.missingRequired") }) : el("div", { class: "row" }, [btnCleanup]),
-      cleanupStatus,
+  return el("div", { class: "page-shell" }, [
+    el("div", { class: "page-grid page-grid--two" }, [
+      weixinDispatchCard,
+      whatsappDispatchCard,
     ]),
-    el("div", { class: "card" }, [
-      el("div", { class: "card__title", text: t("stack.title") }),
-      el("div", { class: "row" }, [btnUp, btnDown]),
-      el("div", { class: "u-h-10" }),
-      el("table", { class: "table" }, [
-        el("thead", {}, [el("tr", {}, [el("th", { text: t("table.pid") }), el("th", { text: t("table.service") }), el("th", { text: "端口" }), el("th", { text: t("table.status") })])]),
-        el("tbody", {}, items),
-      ]),
-    ]),
-    weixinDispatchCard,
-    whatsappDispatchCard,
     whatsappAccessCard,
     whatsappAlertBindingCard,
     el("div", { class: "card" }, [
-      el("div", { class: "card__title", text: currentLang === "zh" ? "提示词/工具预热" : "Prompt/Tool Prewarm" }),
-      el("div", { class: "muted", text: prewarmSummary }),
-      runtimePrewarmReminder ? el("div", { class: "alert alert--warning", text: runtimePrewarmReminder }) : el("span"),
+      el("div", { class: "card__head" }, [
+        el("div", { class: "card__headline" }, [
+          el("div", { class: "card__title", text: currentLang === "zh" ? "提示词/工具预热" : "Prompt/Tool Prewarm" }),
+          el("div", { class: "card__subtitle", text: prewarmSummary }),
+        ]),
+        el("div", { class: "card__actions" }, [btnPrewarm]),
+      ]),
+      runtimePrewarmReminder ? el("div", { class: "alert alert--warning", text: runtimePrewarmReminder }) : null,
       el(
         "div",
         {
-          class: "muted",
+          class: "card__hint",
           text:
             currentLang === "zh"
               ? "任何 skill/tool/角色/提示词变更后，请立即预热；复杂变更可直接重启。系统每10分钟自动异步预热一次。"
               : "After any skill/tool/role/prompt change, run prewarm immediately; restart for complex changes. System also auto-prewarms every 10 minutes.",
         },
       ),
-      el("div", { class: "row" }, [btnPrewarm]),
       prewarmStatus,
-    ]),
+    ].filter(Boolean)),
     el("div", { class: "card" }, [
       el("div", { class: "card__title", text: currentLang === "zh" ? "预热历史（最近20次）" : "Prewarm History (latest 20)" }),
-      el("table", { class: "table" }, [
-        el("thead", {}, [el("tr", {}, [
-          el("th", { text: "finished_at" }),
-          el("th", { text: "reason" }),
-          el("th", { text: "ok" }),
-          el("th", { text: "elapsed_ms" }),
-          el("th", { text: "error" }),
-        ])]),
-        el("tbody", {}, historyRows),
+      el("div", { class: "table-wrap" }, [
+        el("table", { class: "table" }, [
+          el("thead", {}, [el("tr", {}, [
+            el("th", { text: "finished_at" }),
+            el("th", { text: "reason" }),
+            el("th", { text: "ok" }),
+            el("th", { text: "elapsed_ms" }),
+            el("th", { text: "error" }),
+          ])]),
+          el("tbody", {}, historyRows),
+        ]),
       ]),
     ]),
     el("div", { class: "card" }, [
-      el("div", { class: "card__title", text: currentLang === "zh" ? "预热后提示词（按专家）" : "Prewarmed Prompts by Role" }),
-      el("div", { class: "muted", text: currentLang === "zh" ? "展示各专家预热后的提示词内容。" : "Shows prewarmed prompt content for specialists." }),
-      el("div", { class: "row" }, [
-        el("label", { text: currentLang === "zh" ? "角色筛选" : "Role filter" }),
-        promptsRoleSelect,
-        btnReloadPrompts,
+      el("div", { class: "card__head" }, [
+        el("div", { class: "card__headline" }, [
+          el("div", { class: "card__title", text: currentLang === "zh" ? "预热后提示词（按专家）" : "Prewarmed Prompts by Role" }),
+          el("div", {
+            class: "card__subtitle",
+            text: currentLang === "zh" ? "展示各专家预热后的提示词内容。" : "Shows prewarmed prompt content for specialists.",
+          }),
+        ]),
+      ]),
+      el("div", { class: "form-inline" }, [
+        el("div", { class: "form-inline__field" }, [
+          el("label", { text: currentLang === "zh" ? "角色筛选" : "Role filter" }),
+          promptsRoleSelect,
+        ]),
+        el("div", { class: "form-inline__actions" }, [btnReloadPrompts]),
       ]),
       promptsSectionBody,
     ]),
     el("div", { class: "card" }, [
-      el("div", { class: "card__title", text: "扫描缓存文件" }),
-      el("div", { class: "muted", text: scanDir || "-" }),
-      el("div", { class: "muted", text: "仅清理 history_entries_*.json 与 state_scan_*.json" }),
-      el("div", { class: "row" }, [
-        el("label", { text: "keep_latest" }),
-        keepLatestInput,
-        el("label", { text: "max_age_days" }),
-        maxAgeDaysInput,
-        btnPruneScan,
-        btnCleanScan,
+      el("div", { class: "card__head" }, [
+        el("div", { class: "card__headline" }, [
+          el("div", { class: "card__title", text: "扫描缓存文件" }),
+          el("div", { class: "card__subtitle", text: `${scanDir || "-"} · 仅清理 history_entries_*.json 与 state_scan_*.json` }),
+        ]),
+      ]),
+      el("div", { class: "form-inline" }, [
+        el("div", { class: "form-inline__field" }, [
+          el("label", { text: "keep_latest" }),
+          keepLatestInput,
+        ]),
+        el("div", { class: "form-inline__field" }, [
+          el("label", { text: "max_age_days" }),
+          maxAgeDaysInput,
+        ]),
+        el("div", { class: "form-inline__actions" }, [btnPruneScan, btnCleanScan]),
       ]),
       scanStatus,
-      el("table", { class: "table" }, [
-        el("thead", {}, [el("tr", {}, [el("th", { text: "name" }), el("th", { text: "bytes" }), el("th", { text: "modified_at" })])]),
-        el("tbody", {}, scanRows),
+      el("div", { class: "table-wrap" }, [
+        el("table", { class: "table" }, [
+          el("thead", {}, [el("tr", {}, [el("th", { text: "name" }), el("th", { text: "bytes" }), el("th", { text: "modified_at" })])]),
+          el("tbody", {}, scanRows),
+        ]),
       ]),
     ]),
   ]);
@@ -4135,7 +4177,7 @@ async function renderModels() {
       secretsCard.style.display = "none";
       return;
     }
-    secretsCard.style.display = "";
+    secretsCard.style.display = "block";
     if (!canMigrate) {
       secretsMigrateBtn.disabled = true;
       secretsStatusMsg.textContent = t("secrets.migrateForbidden");
@@ -4478,7 +4520,7 @@ async function renderModels() {
 
     modelsGrantsLinkRow.innerHTML = "";
     if (state.can_manage_llm_grants) {
-      modelsGrantsLinkRow.style.display = "";
+      modelsGrantsLinkRow.style.display = "block";
       modelsGrantsLinkRow.appendChild(el("span", { text: `${t("models.grantsNavHint")} ` }));
       modelsGrantsLinkRow.appendChild(el("a", { href: "#/api-grants", text: t("models.linkApiGrants") }));
     } else {
@@ -5908,13 +5950,13 @@ async function renderPlugins() {
     healthBtn.className = "chat-sess-menu-item";
     syncBtn.className = "chat-sess-menu-item";
     const actionMenuBtn = el("button", {
-      class: "chat-sess-more u-overlay-fixed",
+      class: "chat-sess-more",
       text: "⋯",
       title: "MCP actions",
       onclick: (ev) => {
         ev.stopPropagation();
         closeMcpActionMenu();
-        const menu = el("div", { class: "chat-sess-menu-pop" }, [
+        const menu = el("div", { class: "chat-sess-menu-pop u-overlay-fixed" }, [
           toggleBtn,
           healthBtn,
           syncBtn,
@@ -8757,13 +8799,13 @@ async function renderSkills() {
         },
       });
       const actionMenuBtn = el("button", {
-        class: "chat-sess-more u-overlay-fixed",
+        class: "chat-sess-more",
         text: "⋯",
         title: "Skill actions",
         onclick: (ev) => {
           ev.stopPropagation();
           closeSkillActionMenu();
-          const menu = el("div", { class: "chat-sess-menu-pop" }, [
+          const menu = el("div", { class: "chat-sess-menu-pop u-overlay-fixed" }, [
             toggleBtn,
             testRunBtn,
             repairDepsBtn,
@@ -9115,7 +9157,7 @@ async function renderScheduledJobs() {
     scheduledJobMenuEl = null;
   };
 
-  const status = el("select", {}, [
+  const status = el("select", { class: "input input--compact" }, [
     el("option", { value: "", text: t("scheduledJobs.all") }),
     el("option", { value: "active", text: t("scheduledJobs.statusActive") }),
     el("option", { value: "paused", text: t("scheduledJobs.statusPaused") }),
@@ -9124,18 +9166,24 @@ async function renderScheduledJobs() {
   const runsBox = el("pre", { class: "code", style: "max-height:220px;overflow:auto;white-space:pre-wrap;" });
   const msg = el("div", { class: "muted", text: "" });
 
+  const field = (label, control, wide) =>
+    el("div", { class: wide ? "form-field form-field--full" : "form-field" }, [
+      el("label", { class: "form-field__label", text: label }),
+      control,
+    ]);
+
   const editModal = el("div", { class: "session-monitor-modal u-hidden" });
   const editTitle = el("div", { class: "card__title", text: t("scheduledJobs.editTitle") });
-  const editNameInput = el("input", { class: "input", placeholder: "name" });
-  const editKindInput = el("select", {}, [
+  const editNameInput = el("input", { class: "input", placeholder: t("scheduledJobs.phName") });
+  const editKindInput = el("select", { class: "input" }, [
     el("option", { value: "cron", text: "cron" }),
     el("option", { value: "once", text: "once" }),
     el("option", { value: "interval", text: "interval" }),
   ]);
-  const editExprInput = el("input", { class: "input", placeholder: "schedule_expr (cron / ISO / seconds)" });
-  const editPromptInput = el("textarea", { class: "input", rows: "4", placeholder: "prompt_text" });
-  const editSpecialistInput = el("input", { class: "input", placeholder: "specialist" });
-  const editWaChatInput = el("input", { class: "input", placeholder: "whatsapp chat_id (optional)" });
+  const editExprInput = el("input", { class: "input", placeholder: t("scheduledJobs.phExpr") });
+  const editPromptInput = el("textarea", { class: "input", rows: "5", placeholder: t("scheduledJobs.phPrompt") });
+  const editSpecialistInput = el("input", { class: "input", placeholder: t("scheduledJobs.phSpecialist") });
+  const editWaChatInput = el("input", { class: "input", placeholder: t("scheduledJobs.phWhatsapp") });
   const editWeixinInfo = el("div", { class: "muted", text: "" });
   const closeEditModal = () => {
     editingJob = null;
@@ -9194,14 +9242,21 @@ async function renderScheduledJobs() {
   const editModalCard = el("div", { class: "card session-monitor-modal__card", style: "width:min(640px,96vw);" }, [
     editTitle,
     editWeixinInfo,
-    editNameInput,
-    el("div", { class: "row u-gap-8" }, [editKindInput, editExprInput]),
-    editPromptInput,
-    editSpecialistInput,
-    editWaChatInput,
-    el("div", { class: "row u-row-end" }, [
-      el("button", { class: "btn", text: t("scheduledJobs.cancel"), onclick: closeEditModal }),
-      editSaveBtn,
+    el("div", { class: "form-stack" }, [
+      field(t("scheduledJobs.fieldName"), editNameInput, true),
+      el("div", { class: "form-grid" }, [
+        field(t("scheduledJobs.fieldKind"), editKindInput),
+        field(t("scheduledJobs.fieldExpr"), editExprInput),
+      ]),
+      field(t("scheduledJobs.fieldPrompt"), editPromptInput, true),
+      el("div", { class: "form-grid" }, [
+        field(t("scheduledJobs.fieldSpecialist"), editSpecialistInput),
+        field(t("scheduledJobs.fieldWhatsapp"), editWaChatInput),
+      ]),
+      el("div", { class: "form-actions" }, [
+        el("button", { class: "btn", text: t("scheduledJobs.cancel"), onclick: closeEditModal }),
+        editSaveBtn,
+      ]),
     ]),
   ]);
   editModal.appendChild(editModalCard);
@@ -9235,13 +9290,13 @@ async function renderScheduledJobs() {
     for (const job of resp.items || []) {
       const jobId = String(job.id || "");
       const btnMore = el("button", {
-        class: "chat-sess-more u-overlay-fixed",
+        class: "chat-sess-more",
         text: "⋯",
         title: t("scheduledJobs.menuTitle"),
         onclick: (ev) => {
           ev.stopPropagation();
           closeScheduledJobMenu();
-          const menu = el("div", { class: "chat-sess-menu-pop" }, [
+          const menu = el("div", { class: "chat-sess-menu-pop u-overlay-fixed" }, [
             el("button", {
               class: "chat-sess-menu-item",
               text: t("scheduledJobs.viewRuns"),
@@ -9353,16 +9408,16 @@ async function renderScheduledJobs() {
     await loadLatestRuns(resp.items || []);
   }
 
-  const nameInput = el("input", { class: "input", placeholder: "name" });
-  const kindInput = el("select", {}, [
+  const nameInput = el("input", { class: "input", placeholder: t("scheduledJobs.phName") });
+  const kindInput = el("select", { class: "input" }, [
     el("option", { value: "cron", text: "cron" }),
     el("option", { value: "once", text: "once" }),
     el("option", { value: "interval", text: "interval" }),
   ]);
-  const exprInput = el("input", { class: "input", placeholder: "schedule_expr (cron / ISO / seconds)" });
-  const promptInput = el("textarea", { class: "input", rows: "3", placeholder: "prompt_text" });
-  const specialistInput = el("input", { class: "input", placeholder: "specialist", value: "generalist" });
-  const waChatInput = el("input", { class: "input", placeholder: "whatsapp chat_id (optional)" });
+  const exprInput = el("input", { class: "input", placeholder: t("scheduledJobs.phExpr") });
+  const promptInput = el("textarea", { class: "input", rows: "5", placeholder: t("scheduledJobs.phPrompt") });
+  const specialistInput = el("input", { class: "input", placeholder: t("scheduledJobs.phSpecialist"), value: "generalist" });
+  const waChatInput = el("input", { class: "input", placeholder: t("scheduledJobs.phWhatsapp") });
   const weixinInfo = el("div", { class: "muted", text: "" });
 
   async function loadMeta() {
@@ -9379,27 +9434,36 @@ async function renderScheduledJobs() {
   const createCardChildren = [
     el("div", { class: "card__title", text: t("scheduledJobs.createTitle") }),
     weixinInfo,
-    nameInput,
-    el("div", { class: "row u-gap-8" }, [kindInput, exprInput]),
-    promptInput,
-    specialistInput,
-    waChatInput,
-    el("button", {
-      class: "btn btn--primary",
-      text: t("scheduledJobs.create"),
-      onclick: async () => {
-        await apiPost("/admin/api/scheduled-jobs", {
-          name: nameInput.value,
-          schedule_kind: kindInput.value,
-          schedule_expr: exprInput.value,
-          prompt_text: promptInput.value,
-          specialist: specialistInput.value,
-          whatsapp_chat_id: waChatInput.value,
-          delivery: buildScheduledJobDeliveryPayload(null, waChatInput.value),
-        });
-        await loadJobs();
-      },
-    }),
+    el("div", { class: "form-stack" }, [
+      field(t("scheduledJobs.fieldName"), nameInput, true),
+      el("div", { class: "form-grid" }, [
+        field(t("scheduledJobs.fieldKind"), kindInput),
+        field(t("scheduledJobs.fieldExpr"), exprInput),
+      ]),
+      field(t("scheduledJobs.fieldPrompt"), promptInput, true),
+      el("div", { class: "form-grid" }, [
+        field(t("scheduledJobs.fieldSpecialist"), specialistInput),
+        field(t("scheduledJobs.fieldWhatsapp"), waChatInput),
+      ]),
+      el("div", { class: "form-actions" }, [
+        el("button", {
+          class: "btn btn--primary",
+          text: t("scheduledJobs.create"),
+          onclick: async () => {
+            await apiPost("/admin/api/scheduled-jobs", {
+              name: nameInput.value,
+              schedule_kind: kindInput.value,
+              schedule_expr: exprInput.value,
+              prompt_text: promptInput.value,
+              specialist: specialistInput.value,
+              whatsapp_chat_id: waChatInput.value,
+              delivery: buildScheduledJobDeliveryPayload(null, waChatInput.value),
+            });
+            await loadJobs();
+          },
+        }),
+      ]),
+    ]),
   ];
 
   return el("div", {}, [

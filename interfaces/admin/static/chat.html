@@ -51,18 +51,19 @@
         display: flex;
         align-items: stretch;
         gap: 0;
-        margin-bottom: 4px;
+        margin-bottom: 2px;
+        min-height: 40px;
         border: 1px solid transparent;
-        border-radius: 0;
+        border-radius: 8px;
         background: transparent;
       }
       .chat-sess-row:hover {
         background: var(--chat-sess-hover-bg, rgba(255, 255, 255, 0.05));
-        border-color: var(--chat-sess-border, rgba(255, 255, 255, 0.09));
+        border-color: transparent;
       }
       .chat-sess-row--active {
-        background: var(--chat-sess-active-bg, rgba(255, 255, 255, 0.062));
-        border-color: rgba(255, 255, 255, 0.08);
+        background: var(--chat-sess-active-bg, rgba(148, 163, 184, 0.12));
+        border-color: transparent;
       }
       .chat-sess-row .chat-sess-btn {
         flex: 1;
@@ -117,7 +118,8 @@
         background: transparent;
       }
       .chat-sess-menu-pop {
-        z-index: 200;
+        /* Must stay above .u-overlay-scrim (250) or menu clicks hit the transparent scrim. */
+        z-index: 300;
         background: var(--ds-panel, var(--ds-surface, #222));
         border: 1px solid var(--ds-border, rgba(255, 255, 255, 0.12));
         border-radius: 8px;
@@ -260,16 +262,16 @@
         opacity: 0.9;
       }
       .chat-att-ref {
-        min-width: 180px;
-        max-width: 260px;
+        min-width: 200px;
+        max-width: 280px;
         border: 1px solid var(--ds-border, rgba(255, 255, 255, 0.14));
-        border-radius: 8px;
-        background: rgba(255, 255, 255, 0.03);
-        padding: 8px 10px;
+        border-radius: 10px;
+        background: rgba(255, 255, 255, 0.04);
+        padding: 10px 12px;
         box-sizing: border-box;
       }
       .chat-att-ref__name {
-        font-size: 12px;
+        font-size: 13px;
         font-weight: 600;
         line-height: 1.35;
         margin-bottom: 4px;
@@ -281,32 +283,42 @@
         opacity: 0.75;
         word-break: break-all;
       }
-      .chat-att-ref__link {
-        display: inline-block;
-        margin-top: 6px;
-        font-size: 12px;
-        color: var(--ds-accent, #5eb3ff);
-        text-decoration: none;
+      .chat-att-ref__actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin-top: 10px;
       }
-      .chat-att-ref__link:hover {
-        text-decoration: underline;
-      }
+      .chat-att-ref__action,
+      .chat-att-ref__link,
       .chat-att-ref__btn {
-        margin-top: 6px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        margin: 0;
         border: 1px solid var(--ds-border, rgba(255, 255, 255, 0.14));
-        background: rgba(255, 255, 255, 0.04);
-        color: inherit;
+        background: rgba(255, 255, 255, 0.05);
+        color: var(--ds-text, #e8e8e8);
         border-radius: 6px;
         font-size: 12px;
+        font-weight: 500;
         line-height: 1.2;
-        padding: 4px 8px;
+        padding: 4px 9px;
+        text-decoration: none;
         cursor: pointer;
       }
+      .chat-att-ref__action:hover,
+      .chat-att-ref__link:hover,
       .chat-att-ref__btn:hover {
-        background: rgba(255, 255, 255, 0.08);
+        background: rgba(255, 255, 255, 0.09);
+        text-decoration: none;
+      }
+      .chat-att-ref__action:disabled {
+        opacity: 0.55;
+        cursor: not-allowed;
       }
       .chat-att-ref__preview {
-        margin: 6px 0 0;
+        margin: 8px 0 0;
         padding: 8px;
         border-radius: 6px;
         border: 1px solid var(--ds-border, rgba(255, 255, 255, 0.14));
@@ -321,10 +333,64 @@
       .chat-att-ref__preview:empty {
         display: none;
       }
+      .chat-composer-meta {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 8px;
+        padding: 2px 4px 8px;
+      }
+      .chat-composer-chip,
+      .chat-composer-chip--select {
+        appearance: none;
+        -webkit-appearance: none;
+        height: 30px;
+        min-height: 30px;
+        max-height: 30px;
+        padding: 0 12px;
+        border-radius: 999px;
+        border: 1px solid var(--ds-border, rgba(148, 163, 184, 0.28));
+        background-color: var(--ds-surface-2, #152033);
+        color: var(--ds-text, #e2e8f0);
+        font-size: 12px;
+        font-weight: 500;
+        line-height: 1;
+        box-sizing: border-box;
+        cursor: pointer;
+      }
+      .chat-composer-chip--select {
+        min-width: 148px;
+        max-width: 240px;
+        padding-right: 28px;
+        background-color: var(--ds-surface-2, #152033);
+        background-image:
+          linear-gradient(45deg, transparent 50%, var(--ds-text-muted, rgba(148, 163, 184, 0.85)) 50%),
+          linear-gradient(135deg, var(--ds-text-muted, rgba(148, 163, 184, 0.85)) 50%, transparent 50%);
+        background-position:
+          calc(100% - 14px) calc(50% - 2px),
+          calc(100% - 9px) calc(50% - 2px);
+        background-size: 5px 5px, 5px 5px;
+        background-repeat: no-repeat;
+      }
+      .chat-composer-chip--select option {
+        background-color: var(--ds-surface, #0f172a);
+        color: var(--ds-text, #e2e8f0);
+      }
+      .chat-composer-chip:hover,
+      .chat-composer-chip--select:hover {
+        background-color: var(--ds-menu-hover-bg, rgba(148, 163, 184, 0.16));
+        border-color: var(--ds-accent-border, rgba(94, 179, 255, 0.35));
+      }
+      .chat-composer-chip:focus-visible,
+      .chat-composer-chip--select:focus-visible {
+        outline: none;
+        border-color: var(--ds-accent-border-strong, rgba(94, 179, 255, 0.5));
+        box-shadow: 0 0 0 2px var(--ds-accent-soft, rgba(94, 179, 255, 0.2));
+      }
       .chat-composer-shell {
         border-radius: 12px;
-        border: 1px solid var(--ds-border, rgba(255, 255, 255, 0.12));
-        background: rgba(0, 0, 0, 0.35);
+        border: 1px solid var(--ds-border, rgba(148, 163, 184, 0.18));
+        background: var(--ds-composer-shell-bg, rgba(0, 0, 0, 0.28));
         padding: 6px 8px 6px 6px;
       }
       .chat-composer-shell--busy .chat-composer__field {
@@ -349,7 +415,7 @@
         max-width: 100%;
         padding: 2px 8px 2px 10px;
         border-radius: 999px;
-        background: rgba(255, 255, 255, 0.08);
+        background: var(--ds-menu-hover-bg, rgba(148, 163, 184, 0.12));
         font-size: 11px;
       }
       .chat-pending-row .muted {
@@ -373,7 +439,7 @@
       }
       .chat-pending-row .chat-pending-remove:hover {
         opacity: 1;
-        background: rgba(255, 255, 255, 0.12);
+        background: var(--ds-menu-hover-bg, rgba(148, 163, 184, 0.16));
       }
       .chat-composer-row {
         display: flex;
@@ -390,15 +456,15 @@
         border: none;
         border-radius: 10px;
         background: transparent;
-        color: var(--ds-text-muted, rgba(232, 232, 232, 0.75));
+        color: var(--ds-text-muted, rgba(148, 163, 184, 0.85));
         cursor: pointer;
         display: flex;
         align-items: center;
         justify-content: center;
       }
       .chat-composer-iconbtn:hover {
-        background: rgba(255, 255, 255, 0.08);
-        color: var(--ds-text, #e8e8e8);
+        background: var(--ds-menu-hover-bg, rgba(148, 163, 184, 0.12));
+        color: var(--ds-text, #e2e8f0);
       }
       .chat-composer-iconbtn:focus-visible {
         outline: 1px solid var(--chat-sess-border, rgba(255, 255, 255, 0.25));
@@ -677,22 +743,35 @@
         white-space: pre-wrap;
       }
     </style>
-    <!-- Load markdown/mermaid helpers before chat.js (avoid raw ``` fences render). -->
-    <script defer src="https://cdn.jsdelivr.net/npm/marked@11.1.1/marked.min.js" crossorigin="anonymous"></script>
-    <script defer src="https://cdn.jsdelivr.net/npm/dompurify@3.0.8/dist/purify.min.js" crossorigin="anonymous"></script>
-    <script
-      defer
-      src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"
-      crossorigin="anonymous"
-      onload="(function(){try{ if (window.__oclawHydrateMermaidAll) window.__oclawHydrateMermaidAll(); }catch(e){}})()"
-    ></script>
-    <!-- Cache-bust for desktop webview: avoid stale chat.js -->
+    <!-- Local markdown helpers (vendored; no CDN). Load marked/purify before chat.js. -->
+    <script defer src="/admin/assets/vendor/marked.min.js"></script>
+    <script defer src="/admin/assets/vendor/purify.min.js"></script>
     <script defer src="/admin/assets/admin-theme.js"></script>
     <script
       defer
-      src="/admin/assets/chat.js?v=20260626-1"
+      src="/admin/assets/chat.js?v=20260811-vendor"
       onerror="(function(){var s=document.getElementById('chat-boot-splash');if(s){s.querySelector('.chat-boot-splash__title span:last-child').textContent='无法加载 chat.js';s.querySelector('.chat-boot-splash__muted').textContent='请确认网关已启动且 /admin/assets/chat.js 可访问。';}})()"
     ></script>
+    <!-- Mermaid is larger; load after chat.js so login is not delayed by parse. -->
+    <script
+      defer
+      src="/admin/assets/vendor/mermaid.min.js"
+      onload="(function(){try{ if (window.__oclawHydrateMermaidAll) window.__oclawHydrateMermaidAll(); }catch(e){}})()"
+    ></script>
+    <script>
+      (function () {
+        setTimeout(function () {
+          var s = document.getElementById("chat-boot-splash");
+          if (!s || !document.body.contains(s)) return;
+          var title = s.querySelector(".chat-boot-splash__title span:last-child");
+          var muted = s.querySelector(".chat-boot-splash__muted");
+          if (title) title.textContent = "加载仍在进行…";
+          if (muted) {
+            muted.textContent = "若超过数秒仍无登录框，请确认网关已启动后刷新。桌面端可查看 desktop.log / backend.log。";
+          }
+        }, 4000);
+      })();
+    </script>
   </head>
   <body class="theme-ds-body chat-standalone-page">
     <div id="app">
@@ -700,10 +779,10 @@
         <div class="chat-boot-splash__card">
           <div class="chat-boot-splash__title">
             <span class="chat-boot-splash__spinner" aria-hidden="true"></span>
-            <span>正在加载登录界面…</span>
+            <span>正在加载…</span>
           </div>
           <div class="chat-boot-splash__muted">
-            若长时间停留在此，请检查网络或稍后重试；桌面端可查看日志目录中的 desktop.log / backend.log。
+            正在启动本地界面；若长时间停留，请确认网关已启动。桌面端可查看 desktop.log / backend.log。
           </div>
         </div>
       </div>
