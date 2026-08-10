@@ -1104,6 +1104,55 @@ def build_admin_router() -> APIRouter:
             "max_age_days": int(max_age_days),
         }
 
+    @router.post("/admin/api/runtime/sqlite-retention/prune")
+    def api_runtime_sqlite_retention_prune(
+        payload: dict[str, Any] | None = Body(default=None),
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        """Dry-run or apply retention prune for tool/trace/outbound noise.
+
+        Body:
+          keep_days (default 30), dry_run (default true), vacuum (default false),
+          include_scheduled_runs (default false), include_outbound (default true).
+        Apply requires dry_run=false and confirm=true.
+        """
+        from svc.persistence.sqlite_retention import prune_sqlite_retention
+
+        body = payload or {}
+        store = get_assistant_store()
+        ctx = _resolve_auth(store, authorization)
+        _require_permission(ctx, "admin:runtime:write")
+        try:
+            keep_days = int(body.get("keep_days", 30))
+        except Exception:
+            keep_days = 30
+        dry_run = body.get("dry_run", True)
+        if isinstance(dry_run, str):
+            dry_run = dry_run.strip().lower() not in {"0", "false", "no", "off"}
+        else:
+            dry_run = bool(dry_run)
+        vacuum = bool(body.get("vacuum", False))
+        include_scheduled_runs = bool(body.get("include_scheduled_runs", False))
+        include_outbound = body.get("include_outbound", True)
+        if isinstance(include_outbound, str):
+            include_outbound = include_outbound.strip().lower() not in {"0", "false", "no", "off"}
+        else:
+            include_outbound = bool(include_outbound)
+        if not dry_run and not bool(body.get("confirm", False)):
+            return {
+                "ok": False,
+                "error": "confirm_required",
+                "hint": "Set dry_run=false and confirm=true to delete. Prefer dry_run first.",
+            }
+        return prune_sqlite_retention(
+            store,
+            keep_days=keep_days,
+            dry_run=dry_run,
+            vacuum=vacuum and not dry_run,
+            include_outbound_sent=include_outbound,
+            include_scheduled_runs=include_scheduled_runs,
+        )
+
     @router.get("/admin/api/tenants")
     def api_tenants(
         scope: str | None = Query(default=None),
