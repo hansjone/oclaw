@@ -40,14 +40,15 @@
 
 ## netx 明细与统计
 
-每轮对话 **system 末尾会自动附带当前 UME 告警运行锚点**（最近一次 `alarms_current` 同步状态），用于快速判断数据新鲜度。涉及告警/统计时仍应用工具拉明细。
+每轮对话 **system 末尾会自动附带当前 UME 告警运行锚点**（最近一次 `alarms_current` 同步状态），用于快速判断数据新鲜度。涉及告警/统计时仍应用工具拉明细；并核对 diagnostics/aggregate 的 `meta.last_seen_min/max`。
 
 - 默认 UME 当前告警；不依赖 Excel 导入 `batch_id`。
-- **MCP（12 个工具，`server_id=netx`）**：
+- **MCP（14 个工具，`server_id=netx`）**：
   - UME 告警：`mcp__netx__queryUmeAlarms`、`mcp__netx__aggregateUmeAlarms`、`mcp__netx__runUmeDiagnostics`
   - UME 网元：`mcp__netx__queryUmeNeInventory`、`mcp__netx__getUmeNe`
   - UME 深查：`mcp__netx__queryUmeAlarmsRaw`、`mcp__netx__aggregateUmeAlarmsRaw`、`mcp__netx__listUmeAlarmFields`、`mcp__netx__sqlQueryUme`
-  - 纳管网元 CLI：`mcp__netx__listManagedNe`、`mcp__netx__getManagedNe`、`mcp__netx__execManagedNe`
+  - 拓扑排障：`mcp__netx__findTopologyPaths`（告警 `ne_id` → 最短路径）
+  - 纳管网元 CLI：`mcp__netx__listManagedNe`、`mcp__netx__getManagedNe`、`mcp__netx__execManagedNe`、`mcp__netx__listCliTargets`
 
 ## netx 纳管网元（登录设备查 CLI）
 

@@ -1,101 +1,67 @@
 # Ops Netx UME 快速参考
 
-## 1) 当前告警明细（轻量入口）
+## 0) 数据新鲜度（必做）
 
-- 工具：`netx_query_ume_alarms`
-- 常用参数：
-  - `severity`, `ne_id`, `keyword`, `page`, `page_size`
-- 建议：
-  - 推荐 `page_size=50`
-  - 默认只看前 1 页（必要时最多 2 页），不要无脑翻页拉全量
+- `runUmeDiagnostics` / `aggregateUmeAlarms` → `meta.last_seen_min` / `last_seen_max`
+- 快照数据：时间窗落在 min~max 内；**不要**默认 `now()-30 minutes`
 
-## 2) 原始明细（字段可控，推荐用于证据输出）
+## 1) 当前告警明细（轻量）
 
-- 工具：`netx_query_ume_alarms_raw`
-- 推荐流程：
-  - 先调用 `netx_list_ume_alarm_fields` 获取字段清单
-  - 再用 `select_fields` 控制返回字段，减少输出体积
-- 字段集预设（推荐优先用 preset，避免手写字段列表）：
-  - `field_preset=brief`：轻量概览（严重度/事件/最近时间/网元显示）
-  - `field_preset=evidence`：证据输出（含 object/cause/时间/网元状态）
-  - `field_preset=ne_debug`：定位网元信息缺失或状态异常
-- `select_fields` 示例：
-  - `alarm_alarm_key`
-  - `alarm_perceived_severity`
-  - `alarm_last_seen_at`
-  - `alarm_host_name`（告警表已冗余的网元主机名，**对外展示主键，放首列**）
-  - `ne_host_name`（与上同义，优先 `alarm_host_name`）
-  - `ne_user_label`
-  - `ne_ip_address`
-- **禁止**在用户可见输出中只列 `alarm_ne_id`；需要网元身份时必须带 `ne_host_name` 或先联查网元表。
+- 工具：`queryUmeAlarms`
+- 参数：`severity`, `host_name`, `ne_id`(仅过滤), `keyword`, `time_from`, `time_to`, `page`, `page_size`
+- 建议：`page_size=50`；默认最多 2 页
 
-## 3) 动态聚合（非 SQL）
+## 2) 原始明细（证据）
 
-- 工具：`netx_aggregate_ume_alarms_raw`
-- 常用分组：
-  - `group_by=alarm_perceived_severity`
-  - `group_by=alarm_host_name` 或 `group_by=ne_host_name`（网元主键；勿用 `alarm_ne_id` / `ne_ne_id`）
-  - `group_by=alarm_event_type`
-  - `group_by=ne_connection_status`
-  - `group_by=alarm_perceived_severity, group_by2=ne_host_name`
-- 建议：
-  - 推荐 `limit=200`
+- 工具：`queryUmeAlarmsRaw`
+- 先 `listUmeAlarmFields`（可选）
+- `field_preset`：`brief` / `evidence` / `ne_debug`
+- 展示主键：`alarm_host_name`（首列）
 
-## 4) 诊断摘要
+## 3) 聚合
 
-- 工具：`netx_run_ume_diagnostics`
-- 用途：在深挖前先快速形成“概览简报”（严重度、Top 网元、Top 事件类型等）
+- `aggregateUmeAlarms`：`severity`(可选，如 critical)、`top_ne`(默认50)、`exclude_missing_host`(默认true)、`time_from`/`time_to`
+  - 高危 Top：`severity=critical`；看 `by_ne_missing`；Top 默认不含 missing
+- `aggregateUmeAlarmsRaw`：`group_by=alarm_host_name` 等；按 host 分组时默认排除 missing（`by_ne_missing`）
 
-## 4b) 网元清单与详情
+## 4) 诊断
 
-- 工具：`netx_query_ume_ne_inventory` — 对应 netx `GET /v1/ume/inventory/ne`
-  - 参数：`keyword`（可选，匹配 ne_id/ne_name/user_label/ip_address/**host_name**）、`page`、`page_size`（最大 500）
-- 工具：`netx_get_ume_ne` — `GET /v1/ume/inventory/ne/{ne_id}`
-  - 参数：`ne_id`（UUID，与清单字段一致）
-- 与告警 raw 中的 `ne_*` 字段互补：需要 UME 原始 JSON 时用 `netx_get_ume_ne` 的 `raw_json`。
+- `runUmeDiagnostics`
+- `top_event_types`：事件类型
+- `top_alarm_codes`：UME `alarmCode`（有则）
+- `top_ne`：已排除 missing host
+- `meta.last_seen_*`：新鲜度
 
-## 5) SQL 深度分析（受限）
+## 4b) 网元清单
 
-- 工具：`netx_sql_query_ume`
-- 约束：
-  - 仅允许 SELECT
-  - 仅允许表：`ume_alarms_current` / `ume_inventory_ne`
-  - 重查询务必设置 `statement_timeout_ms`
-  - 除非只是 `count(*)`，否则建议带时间窗（例如 `last_seen_at >= now() - interval '30 minutes'`）
-- 示例（全量聚合，谨慎使用）：
+- `queryUmeNeInventory(keyword=…)`
+- `getUmeNe(ne_id=UUID)` — 仅内部关联 / raw_json
+
+## 4c) 拓扑路径（告警关联）
+
+- `findTopologyPaths`
+  - `from_ume_ne_id` + `to_ume_ne_id`（来自告警 `ne_id`）
+  - 或 managed 侧 `from_managed_ne_id` / `to_managed_ne_id`
+  - 默认 `detail=summary`：看 `paths[].label`（含端口）与精简 nodes/edges；需要 attrs 时再 `detail=full`
+- 返回最短路径优先；0 条路径也要说明，再考虑 CLI
+
+## 5) SQL
+
+- `sqlQueryUme`；表：`ume_alarms_current` / `ume_inventory_ne`
+- `statement_timeout_ms=8000`
+- 时间窗相对 `meta.last_seen_max`，示例：
 ```sql
-select
-  coalesce(nullif(trim(ne.host_name), ''), ne.user_label, ne.ne_name, '(host_name missing)') as ne_name,
-  count(*) as alarm_count
+select coalesce(nullif(trim(a.host_name), ''), '(host_name missing)') as host_name,
+       count(*) as alarm_count
 from ume_alarms_current a
-left join ume_inventory_ne ne on ne.ne_id = a.ne_id
-group by coalesce(nullif(trim(ne.host_name), ''), ne.user_label, ne.ne_name, '(host_name missing)')
-order by alarm_count desc
-```
-
-- 示例（推荐：带时间窗 + 超时）：
-  - `statement_timeout_ms=8000`
-```sql
-select
-  coalesce(nullif(trim(ne.host_name), ''), ne.user_label, ne.ne_name, '(host_name missing)') as ne_name,
-  count(*) as alarm_count
-from ume_alarms_current a
-left join ume_inventory_ne ne on ne.ne_id = a.ne_id
-where a.last_seen_at >= now() - interval '30 minutes'
-group by coalesce(nullif(trim(ne.host_name), ''), ne.user_label, ne.ne_name, '(host_name missing)')
-order by alarm_count desc
-```
-
-- 示例（推荐：带时间窗 + 严重度过滤，现场最常用）：
-  - `statement_timeout_ms=8000`
-```sql
-select
-  coalesce(nullif(trim(ne.host_name), ''), ne.user_label, ne.ne_name, '(host_name missing)') as ne_name,
-  count(*) as alarm_count
-from ume_alarms_current a
-left join ume_inventory_ne ne on ne.ne_id = a.ne_id
-where a.last_seen_at >= now() - interval '30 minutes'
+where a.last_seen_at >= timestamp '2026-08-07 00:00:00'
   and lower(coalesce(a.perceived_severity, '')) in ('critical','major')
-group by coalesce(nullif(trim(ne.host_name), ''), ne.user_label, ne.ne_name, '(host_name missing)')
+group by 1
 order by alarm_count desc
+limit 50
 ```
+
+## 6) 登设备
+
+- 见 `ops-netx-managed-ne-playbook`
+- UME `ne_id` → `listCliTargets` / `execManagedNe(ume_ne_id=…)`（需已配 UME→CLI）

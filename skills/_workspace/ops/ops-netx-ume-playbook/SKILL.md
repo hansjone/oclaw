@@ -1,6 +1,6 @@
 ---
 name: ops-netx-ume-playbook
-description: 面向 ops 专家的 netx UME 运维作业手册。覆盖告警查询/聚合/诊断、网元清单与单网元详情、raw 字段过滤与 UME 只读 SQL。
+description: 面向 ops 专家的 netx UME 运维作业手册。覆盖告警查询/聚合/诊断、网元清单与单网元详情、raw 字段过滤、UME 只读 SQL、以及告警关联拓扑路径。
 ---
 
 # Ops Netx UME 作业手册
@@ -9,88 +9,77 @@ description: 面向 ops 专家的 netx UME 运维作业手册。覆盖告警查�
 
 凡是涉及 netx/UME **告警**或 **网元信息** 的 ops 请求，必须优先加载并遵循本技能。
 
+## MCP 工具名（强制）
+
+使用 Cursor / oclaw MCP 时，工具名为 **camelCase**（`server_id=netx`）：
+
+| 用途 | MCP 工具 |
+|------|----------|
+| 告警列表 | `queryUmeAlarms` |
+| 告警聚合 | `aggregateUmeAlarms` |
+| 诊断摘要 | `runUmeDiagnostics` |
+| 网元清单 | `queryUmeNeInventory` |
+| 网元详情 | `getUmeNe` |
+| 字段清单 | `listUmeAlarmFields` |
+| 原始明细 | `queryUmeAlarmsRaw` |
+| 动态聚合 | `aggregateUmeAlarmsRaw` |
+| SQL | `sqlQueryUme` |
+| 拓扑路径 | `findTopologyPaths` |
+| 纳管/CLI（另册） | `listManagedNe` / `getManagedNe` / `execManagedNe` / `listCliTargets` |
+
+旧名 `netx_query_ume_alarms` 等仅在 `OCLAW_NETX_BUILTIN_TOOLS=1` 时可用；**优先 MCP**。
+
 ## 工具选择顺序
 
-1. 基础视图（先看整体）：
-   - `netx_query_ume_alarms`
-   - `netx_aggregate_ume_alarms`
-   - `netx_run_ume_diagnostics`
-2. 字段感知深查（需要细节）：
-   - `netx_list_ume_alarm_fields`
-   - `netx_query_ume_alarms_raw`（优先使用 `select_fields` 控制返回字段）
-3. 自定义聚合（非 SQL）：
-   - `netx_aggregate_ume_alarms_raw`（`group_by`，可选 `group_by2`）
-4. 高级分析（SQL）：
-   - `netx_sql_query_ume`（仅 SELECT、仅 UME 表；重查询建议设置 `statement_timeout_ms`）
-5. **网元（inventory，与 netx「网元清单」同源）**：
-   - 列表/搜索：`netx_query_ume_ne_inventory`（`keyword` + 分页）
-   - 单条详情（含 `raw_json`）：`netx_get_ume_ne`（`ne_id` = UUID）
+1. **新鲜度（先做）**：`runUmeDiagnostics` 或 `aggregateUmeAlarms` → 看 `meta.last_seen_min` / `last_seen_max`。  
+   - 若最大值远早于「现在」，按 **快照数据** 处理：时间窗用数据范围内的日期，禁止套 `now()-30 minutes`。
+2. 基础视图：`aggregateUmeAlarms` + `runUmeDiagnostics`；样本用 `queryUmeAlarms`（默认 1 页）。
+3. 证据明细：`listUmeAlarmFields` → `queryUmeAlarmsRaw`（`field_preset=evidence` / `select_fields`）。
+4. 自定义聚合：`aggregateUmeAlarmsRaw`（`group_by=alarm_host_name` 等）。
+5. SQL：`sqlQueryUme`（仅 SELECT；设 `statement_timeout_ms`）。
+6. **告警关联拓扑**：两台相关网元取 `ne_id` → `findTopologyPaths`（最短路径优先）。
+7. **登设备查 CLI**：见 `ops-netx-managed-ne-playbook`（`listCliTargets` / `execManagedNe`）。
 
-## 快速决策树（强推荐）
+## 快速决策树
 
-- **只需要整体态势 / Top 风险 / 快速简报**：
-  - 先 `netx_aggregate_ume_alarms` + `netx_run_ume_diagnostics`
-  - 必要时再用 `netx_query_ume_alarms` 看前 1 页做样本核对
-- **需要“可引用证据”的具体告警明细**：
-  - 先 `netx_list_ume_alarm_fields`
-  - 再 `netx_query_ume_alarms_raw`，并用 `select_fields` 只取必要字段
-- **需要按任意字段做统计（但不想写 SQL）**：
-  - `netx_aggregate_ume_alarms_raw`（`group_by` / `group_by2`）
-- **需要复杂条件 / 自定义计算 / 多条件关联**：
-  - `netx_sql_query_ume`（必须过滤 + `statement_timeout_ms`）
-- **查网元是谁、IP/标签、在线状态、或核对告警里的 ne_id**：
-  - 先 `netx_query_ume_ne_inventory`（`keyword` 可填名称、主机名、标签、IP 或 UUID 片段）
-  - 需要完整字段与 `raw_json` 时再 `netx_get_ume_ne`
+- **整体态势 / Top 风险**：`runUmeDiagnostics` + `aggregateUmeAlarms`（默认已排除 missing host；看 `by_ne_missing`）。
+  - 高危 Top-N：`aggregateUmeAlarms(severity=critical, top_ne=10)`，勿只看总量 Top。
+- **时间收敛**：`queryUmeAlarms` / `aggregateUmeAlarms` / raw 均支持 `time_from`/`time_to`（语义=`last_seen_at`）。先看 freshness，再填时间窗。
+- **可引用证据**：`queryUmeAlarmsRaw` + `field_preset=evidence`。
+- **任意字段统计**：`aggregateUmeAlarmsRaw`（按 host 分组时默认排除 missing；看 `by_ne_missing`）。
+- **复杂条件**：`sqlQueryUme`。
+- **critical 口类/光路类告警**：抽 1–2 个 `ne_id` → `findTopologyPaths`（默认 `detail=summary`，看 `paths[].label`）→ 再决定是否 CLI。
+- **查网元身份**：`queryUmeNeInventory(keyword=host_name)`；完整 `raw_json` 用 `getUmeNe`。
 
 ## 约束与护栏
 
-- 优先使用非 SQL 工具；仅当工具参数无法表达需求时再用 SQL。
-- 默认过滤优先级（先收敛再扩展）：
-  - 首选：`severity`（先把问题缩小到 critical/major 等）
-  - 其次：`keyword`（网元名/标签/IP/对象名/告警关键字）
-  - 再次：`time_from/time_to`（按 `last_seen_at` 限定时间窗）
-  - 最后：`event_type` 或 `ne_id`（当你明确知道要锁定事件类型/网元时）
-- 禁止“为了凑全量而无脑翻页”：
-  - `netx_query_ume_alarms` 默认只看前 1 页（必要时最多 2 页）
-  - 如需更多数据，必须先明确过滤条件（`severity/ne_id/keyword/time_from/time_to/event_type` 等）或改用聚合/SQL
-- 控制响应体积：
-  - 默认 `page_size=50`（除非明确需要更多，否则不要上来就拉满 500）
-  - 动态聚合默认 `limit=200`
-  - 合理设置 `page_size`
-  - raw 查询尽量传 `select_fields`；或使用 `field_preset=brief/evidence/ne_debug`
-  - 先加过滤条件，再增大分页范围
-- 时间窗过滤默认基于 `last_seen_at` 语义，除非需求明确要求其它口径。
-- 若数据新鲜度不明确，先查看 runtime 锚点状态，再下结论。
-- SQL 使用规则（`netx_sql_query_ume`）：
-  - 建议总是设置 `statement_timeout_ms`（例如 3000~10000）
-  - 推荐默认从 `statement_timeout_ms=8000` 开始
-  - 除非只是 `count(*)`，否则应包含过滤条件（至少时间窗或 `ne_id`/严重度过滤），避免全表扫描
+- 优先非 SQL；参数表达不了再用 SQL。
+- 过滤优先级：`severity` → `keyword`/`host_name` → `time_from/time_to` → `event_type`/`ne_id`。
+- 禁止无脑翻页：列表默认 ≤2 页；扩大前必须先过滤。
+- 体积：`page_size` 默认 50；聚合 `top_ne` 默认 50；raw 用 preset；动态聚合 `limit≤200`。
+- **Top 网元**：默认忽略 `(host_name missing)`；结论中说明 missing 数量，勿把 UUID/`unknown`/空串当网元名。
+- SQL：建议 `statement_timeout_ms=8000`；非 `count(*)` 应带过滤；时间窗相对 **数据新鲜度**，不是盲目 `now()`。
+- `WITH` CTE 可用；**禁止** `WITH RECURSIVE`。
 
 ## 输出约定
 
-- 输出必须包含：
-  - 简明结论
-  - 证据依据（工具输出）
-  - 可执行下一步
-- 没有工具证据时，不得臆测告警事实。
-- **用户用英文提问时（强制）**：回复中**不得出现任何汉字**；工具里的中文告警字段（原因、对象名、描述等）必须先**译成英文**再写入表格或正文，禁止原样粘贴；网元名用 `host_name`，协议类维度用英文类别名（Other/Clock/…）。
+- 结论 + 工具证据 + 可执行下一步。
+- 无工具证据不得臆测告警事实。
+- 英文提问：回复不得含汉字；工具中文字段须译成英文。
 
 ### 网元展示：以 host_name 为主键（强制）
 
-- **告警/统计里标识网元时，主键永远是 `host_name`**（主机名），不是 `ne_id`。表格第一列、Top 网元、分组键、结论里的网元名都用它。
-- **优先数据源**（同步时已写入告警表）：
-  - `netx_query_ume_alarms` → 字段 **`host_name`**
-  - `netx_query_ume_alarms_raw` → **`alarm_host_name`**（`select_fields` / `brief` / `evidence` 预设已包含）
-  - 聚合 → `group_by=alarm_host_name` 或 `group_by=ne_host_name`
-- **禁止**对用户展示裸 `ne_id` / `alarm_ne_id`；`ne_id` 仅作查询参数。
-- `host_name` 为空时：用 `user_label` / `ne_name` 并注明缺失；仍不得退回 UUID。
-- 仅当列表接口缺 `host_name` 时再 `netx_get_ume_ne` / 网元清单 / SQL JOIN 补全。
+- 表格首列、Top、分组键、结论中的网元名 = **`host_name`**。
+- 来源：`queryUmeAlarms.host_name` / raw `alarm_host_name` / 聚合 `alarm_host_name`。
+- **禁止**对用户展示裸 `ne_id`；`ne_id` 仅作过滤与 `findTopologyPaths` 入参。
+- host 缺失时用 `user_label`，并标注「host_name 缺失」；仍不得退回 UUID。
 
 ## 推荐分析模式
 
-- 高风险网元：`netx_aggregate_ume_alarms_raw` + `group_by=alarm_host_name`（首选）或 `ne_host_name` + 严重度过滤；勿按 `alarm_ne_id` 分组对外展示。
-- 严重度分布：`group_by=alarm_perceived_severity`。
-- 事件趋势切片：raw 查询中组合 `time_from/time_to` + `event_type`。
+- 高风险网元：`aggregateUmeAlarmsRaw` + `group_by=alarm_host_name` + `severity`。
+- 严重度：`aggregateUmeAlarms` 或 `group_by=alarm_perceived_severity`。
+- 事件类型：看 diagnostics `top_event_types`；真正告警码看 `top_alarm_codes`（UME `alarmCode`）。
+- 关联路径：critical Port down / LOS → `findTopologyPaths(from_ume_ne_id, to_ume_ne_id)`。
 
 ## 参考模板
 
