@@ -6170,6 +6170,174 @@ async function renderPlugins() {
   repaintUsageCalls();
   const usageSummaryPager = pluginsPagerBar(usageSummaryTotalHolder, usageSummaryPageRef, repaintUsageSummary);
   const usageCallsPager = pluginsPagerBar(usageCallsTotalHolder, usageCallsPageRef, repaintUsageCalls);
+  const foldToolPolicy = pluginsFold(`【1】工具策略与已注册插件（${pluginCatalog.length}）`, [
+    el("div", { class: "muted", text: "Tool policy（并发 / 轮次 / MCP·插件开关）与 Python 工具插件表" }),
+    el("div", { class: "row" }, [
+      el("label", { text: "Turn max tool workers (1-32)" }),
+      turnMaxWorkersInput,
+    ]),
+    el("div", { class: "row" }, [
+      el("label", { text: "Turn max tool rounds (1-300)" }),
+      turnMaxRoundsInput,
+    ]),
+    el("div", { class: "row" }, [
+      el("label", { text: "Turn max context messages (10-400)" }),
+      turnMaxCtxInput,
+    ]),
+    el("div", { class: "row" }, [
+      el("label", { text: "SSE queue maxsize (200-50000)" }),
+      sseQueueMaxsizeInput,
+    ]),
+    el("div", { class: "row" }, [
+      el("label", { text: "Tool log max chars (20000-2000000)" }),
+      toolLogMaxCharsInput,
+    ]),
+    el("div", { class: "row" }, [el("label", { class: "kv" }, [enableMcpToolsCb, document.createTextNode(" Enable MCP tools")])]),
+    el("div", { class: "row" }, [el("label", { class: "kv" }, [enablePluginToolsCb, document.createTextNode(" Enable plugin tools")])]),
+    el("div", { class: "row" }, [el("label", { class: "kv" }, [enableRunCommandCb, document.createTextNode(" Enable run_command (high-risk)")])]),
+    el("div", { class: "row" }, [el("label", { class: "kv" }, [toolContextTruncateCb, document.createTextNode(" Compress tool result in agent context (50 chars + hint)")])]),
+    el("div", { class: "row" }, [el("label", { class: "kv" }, [chatShowTtftDebugCb, document.createTextNode(" Show TTFT debug timings in chat status")])]),
+    el("div", { class: "row" }, [
+      el("label", { text: "Tool message max chars to LLM (0=unlimited, 4096-500000 recommended)" }),
+      toolLlmMessageMaxCharsInput,
+    ]),
+    el("div", { class: "muted", text: "Set 0 to disable truncation. If some gateways return 400 for oversized tool messages, set back to 24000." }),
+    el("div", { class: "row" }, [
+      el("label", { text: "MCP filesystem extra roots (| separated)" }),
+      mcpFilesystemExtraRootsInput,
+    ]),
+    el("div", { class: "row" }, [
+      el("label", { text: "MCP env allowlist (comma separated)" }),
+      mcpEnvAllowlistInput,
+    ]),
+    el("div", { class: "row" }, [
+      el("label", { text: "oclaw retryable error codes (comma separated)" }),
+      oclawRetryableErrorCodesInput,
+    ]),
+    el("div", { class: "row" }, [el("label", { class: "kv" }, [oclawRetryCodesStrictModeCb, document.createTextNode(" Strict mode: reject unknown retry codes")])]),
+    el("div", { class: "row" }, [
+      el("label", { text: "WeCom longconn workers (1-8)" }),
+      wecomLongconnWorkersInput,
+    ]),
+    el("div", { class: "row" }, [
+      el("label", { text: "WeCom inbound queue maxsize (20-5000)" }),
+      wecomLongconnInboundQueueInput,
+    ]),
+    el("div", { class: "row" }, [saveToolPolicyBtn]),
+    toolPolicyStatus,
+    el("div", { class: "table-wrap" }, [
+      el("table", { class: "table" }, [
+        el("thead", {}, [el("tr", {}, [el("th", { text: t("table.name") }), el("th", { text: t("table.version") }), el("th", { text: t("table.entryPoint") }), el("th", { text: t("table.enabled") })])]),
+        pluginTbody,
+      ]),
+    ]),
+    pluginPager.wrap,
+  ]);
+  const foldMcpMarket = pluginsFold("【2】MCP 市场 / 依赖 / Trending / 检索结果", [
+    el("div", { class: "muted", text: failureText ? `Failure summary: ${failureText}` : "Failure summary: -" }),
+    el("div", { class: "muted", text: "本地依赖检查" }),
+    depWrap,
+    el("div", { class: "row" }, [marketQ, marketBtn, marketRefreshBtn]),
+    el("div", { class: "muted", text: "Trending" }),
+    trendingWrap,
+    el("div", { class: "muted", text: "Market search" }),
+    marketWrap,
+  ]);
+  const foldMcpInstall = pluginsFold("【3】MCP 安装（表单 / JSON / 运维）", [
+    el("div", { class: "row" }, [sourceType, sourceRef, version]),
+    el("div", { class: "row" }, [entryCmd, entryArgs, installBtn]),
+    el("div", { class: "muted", text: "CLI direct install (paste one command)" }),
+    el("div", { class: "row" }, [cliInstallInput, cliInstallBtn]),
+    el("div", { class: "muted", text: "常用命令行安装示例（可先本机验证，再填上方表单）" }),
+    el("pre", {
+      class: "pre",
+      text:
+`# npm 包（本地安装）
+npm install mcp-fetch-server
+
+# 直接运行（推荐）
+npx -y mcp-fetch-server
+
+# 全局安装后运行
+npm install -g mcp-fetch-server
+mcp-fetch-server
+
+# Python 包示例
+pip install mcp-server-time
+python -m mcp_server_time
+
+# Python（Git URL / VCS）示例：必须显式指定 entry module
+pip install git+https://github.com/philschmid/code-sandbox-mcp.git && python -m code_sandbox_mcp`,
+    }),
+    el("div", { class: "muted", text: "JSON install (single object or array)" }),
+    jsonInstallInput,
+    el("div", { class: "row" }, [jsonInstallBtn]),
+    el("div", { class: "row", style: "flex-wrap:wrap;align-items:center;gap:8px;" }, [
+      checkUpdatesBtn,
+      updateOutdatedBtn,
+      checkAllBtn,
+      e2eCheckBtn,
+      updateAllBtn,
+      repairWeakBtn,
+      repairWeakScopeLabel,
+    ]),
+    installStatus,
+    preflightFixWrap,
+  ]);
+  const mcpExportJsonBtn = el("button", {
+    class: "btn",
+    text: "Export JSON (download)",
+    title: "Download uninstall/reinstallable snapshot (same shape as “Install from JSON”)",
+    onclick: async () => {
+      let r;
+      try {
+        r = await apiGet("/admin/api/mcp/export");
+      } catch (err) {
+        installStatus.textContent = "[export] " + String((err && err.message) || err);
+        return;
+      }
+      if (!r || r.ok !== true || !r.document) {
+        installStatus.textContent = "[export] failed: " + JSON.stringify(r);
+        return;
+      }
+      const text = JSON.stringify(r.document, null, 2) + "\n";
+      const blob = new Blob([text], { type: "application/json" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = "mcp_registry_migrated.json";
+      a.click();
+      URL.revokeObjectURL(a.href);
+      installStatus.textContent =
+        "[export] downloaded mcp_registry_migrated.json" + (r.local_path ? " ; on server: " + r.local_path : "");
+    },
+  });
+  const foldMcpInstalled = pluginsFold(`【4】已安装 MCP 服务（${mcpServerList.length}）`, [
+    el("div", { class: "row", style: "align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:8px;" }, [
+      mcpExportJsonBtn,
+      el("div", {
+        class: "muted",
+        text: "新安装/重装/卸载(删记录)成功后自动写入: src/_local/mcp_registry_migrated.json，便于换机迁移。",
+      }),
+    ]),
+    el("div", { class: "table-wrap" }, [
+      el("table", { class: "table table--compact" }, [
+        el("thead", {}, [el("tr", {}, [
+          el("th", { text: "server_id" }),
+          el("th", { text: "source" }),
+          el("th", { text: "ref" }),
+          el("th", { text: "version" }),
+          el("th", { text: "entry" }),
+          el("th", { text: "tools" }),
+          el("th", { text: "update" }),
+          el("th", { text: "enabled" }),
+          el("th", { text: "health" }),
+          el("th", { text: "actions" }),
+        ])]),
+        mcpInstalledTbody,
+      ]),
+    ]),
+    mcpInstalledPager.wrap,
+  ]);
   const foldMcpUsage = pluginsFold(
     `【5】MCP 用量（summary ${usageSummaryList.length} / calls ${usageCallsList.length}）`,
     [
