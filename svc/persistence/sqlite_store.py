@@ -6495,6 +6495,15 @@ class SqliteStore(ScheduledJobStoreMixin):
 
         msg_id = uuid.uuid4().hex
         ts = utc_now_iso()
+        ch = str(channel or "").strip().lower()
+        body = str(text)
+        if ch in {"whatsapp", "wa"}:
+            try:
+                from runtime.extensions.whatsapp.formatting import prepare_whatsapp_outbound_text
+
+                body = prepare_whatsapp_outbound_text(body)
+            except Exception:
+                body = str(text)
         with self._connect() as conn:
             conn.execute(
                 """
@@ -6502,7 +6511,7 @@ class SqliteStore(ScheduledJobStoreMixin):
                     (id, tenant_id, channel, account_id, chat_id, text, status, source, created_at, error)
                 VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, '')
                 """,
-                (msg_id, str(tenant_id), str(channel), str(account_id), str(chat_id), str(text), str(source), ts),
+                (msg_id, str(tenant_id), str(channel), str(account_id), str(chat_id), body, str(source), ts),
             )
         return msg_id
 
