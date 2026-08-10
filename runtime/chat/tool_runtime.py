@@ -458,11 +458,23 @@ def _load_turn_failed_name_counts(store: Any, *, session_id: str, turn_uuid: str
 _HEAVY_CLI_NAME_SUFFIXES = ("execmanagedne",)
 _HEAVY_CLI_TURN_CALL_BUDGET = 4
 _HEAVY_CLI_TURN_FAIL_BUDGET = 2
+_SHELL_TURN_CALL_BUDGET = 5
+_SHELL_TURN_FAIL_BUDGET = 3
 
 
 def _is_heavy_cli_tool(name: str) -> bool:
     low = str(name or "").strip().lower()
     return any(low.endswith(suf) for suf in _HEAVY_CLI_NAME_SUFFIXES)
+
+
+def _turn_name_budgets(name: str) -> tuple[int, int, str] | None:
+    """Return (call_budget, fail_budget, kind) for tools that spam WhatsApp turns."""
+    low = str(name or "").strip().lower()
+    if any(low.endswith(suf) for suf in _HEAVY_CLI_NAME_SUFFIXES):
+        return (_HEAVY_CLI_TURN_CALL_BUDGET, _HEAVY_CLI_TURN_FAIL_BUDGET, "cli")
+    if low == "run_command" or low.endswith("__run_command") or low.endswith(".run_command"):
+        return (_SHELL_TURN_CALL_BUDGET, _SHELL_TURN_FAIL_BUDGET, "shell")
+    return None
 
 
 def normalize_tool_result(result: Any) -> dict[str, Any]:
@@ -1128,54 +1140,69 @@ class ToolExecutor:
                     {"tool_name": tc.name},
                 )
                 continue
-            if _is_heavy_cli_tool(tool_name):
+            budgets = _turn_name_budgets(tool_name)
+            if budgets is not None:
+                call_budget, fail_budget, kind = budgets
                 prior_calls = int(turn_tool_name_counts.get(tool_name, 0)) + int(
                     planned_name_counts.get(tool_name, 0)
                 )
                 prior_fails = int(failed_name_counts.get(tool_name, 0))
-                if prior_fails >= _HEAVY_CLI_TURN_FAIL_BUDGET:
+                if prior_fails >= fail_budget:
+                    if kind == "cli":
+                        hint = (
+                            "execManagedNe already failed multiple times this turn. "
+                            "Stop CLI spam: report unreachable/timeout NEs, batch remaining "
+                            "show commands into one call with higher read_timeout_sec, or switch targets."
+                        )
+                        code = "cli_fail_budget_exceeded"
+                    else:
+                        hint = (
+                            "run_command already failed multiple times this turn. "
+                            "Stop shell retries; use write_xlsx / ume_alarm_xlsx_report / dedicated tools instead."
+                        )
+                        code = "shell_fail_budget_exceeded"
                     results_by_id[tc.id] = (
                         {
                             "ok": False,
-                            "error_code": "cli_fail_budget_exceeded",
+                            "error_code": code,
                             "failure_class": "retry_guard",
                             "error": f"{tool_name} failed too many times this turn",
-                            "hint": (
-                                "execManagedNe already failed multiple times this turn. "
-                                "Stop CLI spam: report unreachable/timeout NEs, batch remaining "
-                                "show commands into one call with higher read_timeout_sec, or switch targets."
-                            ),
+                            "hint": hint,
                             "fail_count": prior_fails,
-                            "fail_budget": _HEAVY_CLI_TURN_FAIL_BUDGET,
+                            "fail_budget": fail_budget,
                         },
                         0,
                     )
-                    _trace(
-                        "cli_fail_budget_exceeded",
-                        {"tool_name": tool_name, "fail_count": prior_fails},
-                    )
+                    _trace(code, {"tool_name": tool_name, "fail_count": prior_fails})
                     continue
-                if prior_calls >= _HEAVY_CLI_TURN_CALL_BUDGET:
+                if prior_calls >= call_budget:
+                    if kind == "cli":
+                        hint = (
+                            "Too many execManagedNe calls this turn. "
+                            "Batch commands into fewer calls, reuse prior listCliTargets ids, "
+                            "and summarize what you already have."
+                        )
+                        code = "cli_call_budget_exceeded"
+                    else:
+                        hint = (
+                            "Too many run_command calls this turn. "
+                            "Prefer dedicated tools (write_xlsx, ume_alarm_xlsx_report, MCP) "
+                            "and summarize without more shell."
+                        )
+                        code = "shell_call_budget_exceeded"
                     results_by_id[tc.id] = (
                         {
                             "ok": False,
-                            "error_code": "cli_call_budget_exceeded",
+                            "error_code": code,
                             "failure_class": "retry_guard",
                             "error": f"{tool_name} call budget exceeded this turn",
-                            "hint": (
-                                "Too many execManagedNe calls this turn. "
-                                "Batch commands into fewer calls, reuse prior listCliTargets ids, "
-                                "and summarize what you already have."
-                            ),
+                            "hint": hint,
                             "call_count": prior_calls,
-                            "call_budget": _HEAVY_CLI_TURN_CALL_BUDGET,
+                            "call_budget": call_budget,
                         },
                         0,
                     )
-                    _trace(
-                        "cli_call_budget_exceeded",
-                        {"tool_name": tool_name, "call_count": prior_calls},
-                    )
+                    _trace(code, {"tool_name": tool_name, "call_count": prior_calls})
                     continue
             if tc.name in _TABULAR_QUERY_TOOL_NAMES and not has_tabular_ref_in_session:
                 results_by_id[tc.id] = (

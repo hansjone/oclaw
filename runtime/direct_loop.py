@@ -1466,6 +1466,7 @@ def run_oclaw_direct_loop(
 
     skill_exec = SkillExecutor(config=ToolExecutionConfig(max_workers=max(1, min(int(max_tool_workers or 8), 32))))
     tool_traces: list[dict[str, Any]] = []
+    user_facing_hints: list[str] = []
     final_text = ""
     hit_tool_round_limit = False
     workspace_lane_role = str(skill_binding_role or wire_policy_role or "generalist").strip().lower() or "generalist"
@@ -1644,6 +1645,10 @@ def run_oclaw_direct_loop(
                     "round": int(round_idx + 1),
                 }
             )
+            if isinstance(result, dict):
+                uh = str(result.get("user_facing_hint") or "").strip()
+                if uh:
+                    user_facing_hints.append(uh)
 
         if on_progress:
             on_progress(f"oclaw: tools done ({elapsed_ms}ms)")
@@ -1653,11 +1658,21 @@ def run_oclaw_direct_loop(
         _check_stop(should_stop)
         if on_progress:
             on_progress("oclaw: finalize…")
+        from runtime.tools.tool_error_hints import build_finalize_system_suffix
+
+        finalize_suffix = build_finalize_system_suffix(
+            lang=lang,
+            hit_tool_round_limit=hit_tool_round_limit,
+            user_facing_hints=user_facing_hints,
+        )
+        finalize_system = str(system_prompt or "")
+        if finalize_suffix:
+            finalize_system = f"{finalize_system}\n\n{finalize_suffix}".strip()
         msgs = _build_model_context(
             store=store,
             session_id=session_id,
             max_messages=max_messages,
-            system_prompt=system_prompt,
+            system_prompt=finalize_system,
             model=model,
             lang=lang,
             memory_context=memory_context,

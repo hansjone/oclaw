@@ -245,3 +245,49 @@ def test_exec_managed_ne_fail_budget(tmp_path: Path) -> None:
     blocked, _ = results["f3"]
     assert calls["n"] == 2
     assert blocked.get("error_code") == "cli_fail_budget_exceeded"
+
+
+def test_run_command_call_budget(tmp_path: Path) -> None:
+    store = SqliteStore(str(tmp_path / "shell.sqlite"))
+    sess = store.create_session("t")
+    calls = {"n": 0}
+
+    def _handler(_args):
+        calls["n"] += 1
+        return {"ok": True, "stdout": "ok", "exit_code": 0}
+
+    reg = ToolRegistry(
+        [
+            ToolSpec(
+                name="run_command",
+                description="shell",
+                parameters={"type": "object", "properties": {"command": {"type": "string"}}},
+                handler=_handler,
+                read_only=False,
+            )
+        ]
+    )
+    ctx = ToolExecutionContext(
+        store=store,
+        tools=reg,
+        session_id=sess.id,
+        turn_uuid="turn-shell-budget",
+        lang="en",
+    )
+    for i in range(5):
+        ToolExecutor().execute_tool_uses(
+            ctx=ctx,
+            assistant_msg_id=i + 1,
+            tool_uses=[LLMToolCall(id=f"s{i}", name="run_command", arguments={"command": f"echo {i}"})],
+            signature_budget=2,
+        )
+    assert calls["n"] == 5
+    _, results = ToolExecutor().execute_tool_uses(
+        ctx=ctx,
+        assistant_msg_id=99,
+        tool_uses=[LLMToolCall(id="sX", name="run_command", arguments={"command": "echo x"})],
+        signature_budget=2,
+    )
+    blocked, _ = results["sX"]
+    assert calls["n"] == 5
+    assert blocked.get("error_code") == "shell_call_budget_exceeded"

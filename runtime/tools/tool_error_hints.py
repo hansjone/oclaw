@@ -230,7 +230,15 @@ def classify_tool_failure(result: dict[str, Any]) -> str:
         return "unreachable"
     if any(x in blob for x in ("auth", "permission denied", "authentication", "login failed")):
         return "auth"
-    if code in {"tool_loop_guard", "identical_retry_blocked"}:
+    if code in {
+        "tool_loop_guard",
+        "identical_retry_blocked",
+        "retry_forbidden_blocked",
+        "cli_call_budget_exceeded",
+        "cli_fail_budget_exceeded",
+        "shell_call_budget_exceeded",
+        "shell_fail_budget_exceeded",
+    }:
         return "retry_guard"
     if code in {"tool_not_registered"}:
         return "not_registered"
@@ -249,7 +257,55 @@ def stamp_tool_failure_class(result: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
+def build_finalize_system_suffix(
+    *,
+    lang: str = "en",
+    hit_tool_round_limit: bool = False,
+    user_facing_hints: list[str] | None = None,
+) -> str:
+    """Nudge the model to stop tools and answer when the turn must finalize."""
+    hints = [str(h).strip() for h in (user_facing_hints or []) if str(h).strip()]
+    # de-dupe preserving order
+    seen: set[str] = set()
+    unique: list[str] = []
+    for h in hints:
+        key = h.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(h)
+        if len(unique) >= 4:
+            break
+
+    is_zh = str(lang or "").strip().lower().startswith("zh")
+    lines: list[str] = []
+    if hit_tool_round_limit:
+        if is_zh:
+            lines.append(
+                "[工具轮次已达上限：禁止再调用任何工具。请基于已有工具结果，"
+                "用简洁中文直接回复用户（WhatsApp 现场用语）。]"
+            )
+        else:
+            lines.append(
+                "[Tool-round limit reached: do NOT call any more tools. "
+                "Answer the user now in concise English from results already obtained.]"
+            )
+    elif unique:
+        if is_zh:
+            lines.append("[收束：如无必要请停止工具调用，直接给出可发送的答复。]")
+        else:
+            lines.append("[Finalize: stop tool calls if possible and deliver a sendable answer.]")
+    if unique:
+        if is_zh:
+            lines.append("工具给出的用户可读约束：")
+        else:
+            lines.append("User-facing constraints from tools:")
+        lines.extend(f"- {h}" for h in unique)
+    return "\n".join(lines).strip()
+
+
 __all__ = [
+    "build_finalize_system_suffix",
     "classify_tool_failure",
     "enrich_exec_managed_ne_error",
     "enrich_mcp_scope_error",

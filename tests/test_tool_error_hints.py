@@ -42,6 +42,21 @@ def test_enrich_mcp_scope_sql() -> None:
     assert "ume_alarm_xlsx_report" in out["fallback_tools"]
 
 
+def test_build_finalize_system_suffix() -> None:
+    from runtime.tools.tool_error_hints import build_finalize_system_suffix
+
+    en = build_finalize_system_suffix(
+        lang="en",
+        hit_tool_round_limit=True,
+        user_facing_hints=["SQL query is not enabled for this bot token."],
+    )
+    assert "Tool-round limit" in en
+    assert "SQL query is not enabled" in en
+    assert "do NOT call" in en
+    zh = build_finalize_system_suffix(lang="zh", hit_tool_round_limit=True)
+    assert "工具轮次" in zh
+
+
 def test_enrich_exec_auth() -> None:
     from runtime.tools.tool_error_hints import enrich_exec_managed_ne_error
 
