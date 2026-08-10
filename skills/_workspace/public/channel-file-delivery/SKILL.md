@@ -44,10 +44,12 @@ description: "在 WhatsApp/微信等渠道会话中，把生成的附件发回�
 **Excel（xlsx）— 优先：**
 
 ```text
-1. write_xlsx(sheets=[...], name="report.xlsx") → 得到 attachment_id
-2. 若用户要求发文件：save_deliverable_attachment(attachment_id="...")
-3. 文字回复摘要
+1. write_xlsx(sheets=[...], name="report.xlsx", deliverable=true)  # 一键投递
+   # 或仍分两步：write_xlsx → save_deliverable_attachment(attachment_id=...)
+2. 文字回复摘要
 ```
+
+告警类 WhatsApp 短句优先用 ops 工具 **`ume_alarm_xlsx_report`**（查询+xlsx+投递一条完成）。
 
 **文本文件（CSV/TXT）：**
 

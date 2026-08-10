@@ -30,9 +30,9 @@
 | 意图 | 调用 |
 |------|------|
 | Critical Top | `aggregateUmeAlarms(severity=critical, top_ne=20)` |
-| 按 host 统计 | `aggregateUmeAlarms(group_by=alarm_host_name, limit=50)` |
-| 断纤/离线清单 | `queryUmeAlarmsRaw(keyword=…, field_preset=evidence)` → 可选 `write_xlsx` + `save_deliverable_attachment` |
-| 发 Excel | `write_xlsx`（sheets 或顶层 headers+rows）→ `save_deliverable_attachment` |
+| 按 host 统计+Excel | `ume_alarm_xlsx_report(mode=aggregate_by_host, severity=critical)` |
+| 断纤/离线清单+Excel | `ume_alarm_xlsx_report(mode=fiber_cut\|offline)` |
+| 发 Excel（已有表数据） | `write_xlsx(..., deliverable=true)` |
 
 ## 4) 诊断
 

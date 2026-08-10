@@ -216,6 +216,12 @@ def write_xlsx_tool() -> ToolSpec:
                 return {"ok": False, "error": "path_write_failed", "detail": str(exc)}
 
         meta = AttachmentAssetStore().save_bytes(blob, filename=filename, mime=XLSX_MIME)
+        deliverable = args.get("deliverable") is True or str(args.get("deliverable") or "").strip().lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }
         out: dict[str, Any] = {
             "ok": True,
             "attachment_id": meta.attachment_id,
@@ -224,12 +230,16 @@ def write_xlsx_tool() -> ToolSpec:
             "bytes": meta.bytes,
             "sheet_count": len(summary),
             "sheets": summary,
-            "hint": (
-                "Excel saved to attachment store. Not sent to channel yet. "
-                "If the user asked to receive the file, call save_deliverable_attachment "
-                "with this attachment_id."
-            ),
         }
+        if deliverable:
+            out["deliverable"] = True
+            out["hint"] = "Excel marked deliverable — channel outbound will attach this file."
+        else:
+            out["hint"] = (
+                "Excel saved to attachment store. Not sent to channel yet. "
+                "If the user asked to receive the file, either re-call with deliverable=true "
+                "or call save_deliverable_attachment with this attachment_id."
+            )
         if path_written:
             out["path"] = path_written
         return out
@@ -238,8 +248,8 @@ def write_xlsx_tool() -> ToolSpec:
         name="write_xlsx",
         description=(
             "Build a real .xlsx workbook from structured sheet data (headers + rows) and save it "
-            "to the attachment store. Returns attachment_id/name/mime/bytes — does NOT mark "
-            "deliverable and does NOT send to WhatsApp/WeChat. To deliver, call "
+            "to the attachment store. Returns attachment_id/name/mime/bytes. "
+            "Set deliverable=true to send on WhatsApp/WeChat in one step; otherwise call "
             "save_deliverable_attachment(attachment_id=...). Prefer this over run_command/openpyxl."
         ),
         parameters={
@@ -342,6 +352,14 @@ def write_xlsx_tool() -> ToolSpec:
                     "type": "boolean",
                     "default": True,
                     "description": "Best-effort column width from sample cells (default true).",
+                },
+                "deliverable": {
+                    "type": "boolean",
+                    "default": False,
+                    "description": (
+                        "If true, mark the workbook for channel delivery (WhatsApp/WeChat) "
+                        "without a separate save_deliverable_attachment call."
+                    ),
                 },
             },
             "required": [],

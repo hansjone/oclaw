@@ -58,14 +58,15 @@ description: 面向 ops 专家的 netx UME 运维作业手册。覆盖告警查�
 
 | 用户说法（例） | 配方 |
 |----------------|------|
-| 断纤 / fiber cut / LOS / 光缆中断 | ① `queryUmeAlarmsRaw(keyword=LOS\|fiber\|断纤\|光缆, field_preset=evidence, page_size=50)` 或 `keyword`+severity；② 摘要表；若要文件：`write_xlsx`→`save_deliverable_attachment` |
-| 离线 / 单板离线 / offline NE | ① `queryUmeAlarms`/`Raw` + keyword `离线`/`offline`/`通信中断`；② 按 `alarm_host_name` 去重列清单；要文件同上 |
-| Critical Top / 告警统计 | ① `aggregateUmeAlarms(severity=critical, top_ne=20)` 或 `group_by=alarm_host_name`；② 结论；要 xlsx 再写表 |
+| 断纤 / fiber cut / LOS / 光缆中断 | **优先** `ume_alarm_xlsx_report(mode=fiber_cut)`（一键 xlsx+投递）；或 `queryUmeAlarmsRaw` 后摘要 |
+| 离线 / 单板离线 / offline NE | **优先** `ume_alarm_xlsx_report(mode=offline)` |
+| Critical Top / 告警统计 | ① `aggregateUmeAlarms(severity=critical, top_ne=20)`；要文件：`ume_alarm_xlsx_report(mode=aggregate_by_host, severity=critical)` |
 | 当前告警有多少 / tally | ① `runUmeDiagnostics` 或 `aggregateUmeAlarms`；② 直接报 by_severity + freshness |
-| 导出 Excel / 发我表格 | 先查再 `write_xlsx(sheets=[…])`（可顶层 headers+rows）→ **必须** `save_deliverable_attachment(attachment_id=…)` |
+| 导出 Excel / 发我表格 | `ume_alarm_xlsx_report` **或** `write_xlsx(..., deliverable=true)`；勿再拆成 3 步 |
 
 交付约定：
-- `write_xlsx` 只入库，不发出；WhatsApp 要文件时最后一步必须 `save_deliverable_attachment`。
+- `ume_alarm_xlsx_report` 默认 `deliverable=true`，WhatsApp 可直接收文件。
+- 通用表格：`write_xlsx(..., deliverable=true)` 可跳过 `save_deliverable_attachment`。
 - 禁止用 `run_command`+openpyxl 造 xlsx。
 - 确认类短句（YES / confirm / 继续）：承接上一任务继续，勿重新开查。
 

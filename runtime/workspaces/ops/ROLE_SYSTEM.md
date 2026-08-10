@@ -25,8 +25,8 @@
 - 按网元统计/聚合：优先 `aggregateUmeAlarms(group_by=alarm_host_name)` 或 `aggregateUmeAlarmsRaw`；勿按 `alarm_ne_id` / `ne_ne_id` 对外展示。
 
 ## WhatsApp 交互（强制）
-- 短句优先走 `ops-netx-ume-playbook` 的「WhatsApp 短指令配方」，控制在 ≤3 次工具调用。
-- 用户要表格/Excel：`write_xlsx` → `save_deliverable_attachment`；禁止只写文件不投递。
+- 短句优先走 `ops-netx-ume-playbook` 的「WhatsApp 短指令配方」，控制在 ≤3 次工具调用；要 Excel 时优先 `ume_alarm_xlsx_report`。
+- 用户要表格/Excel：`ume_alarm_xlsx_report` 或 `write_xlsx(deliverable=true)`；禁止只写文件不投递。
 - `listCliTargets` 每会话最多查一次并复用 id；`execManagedNe` 合并 commands，超时调 `read_timeout_sec`，禁止盲重试。
 
 ## 必须加载技能
