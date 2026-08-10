@@ -360,7 +360,8 @@ def schedule_create_tool() -> ToolSpec:
             "Complex / multi-step / '刚才那件事做成定时' jobs MUST include a self-contained recipe "
             "(goal + >=2 concrete steps + success_criteria; no chat-dependent phrasing); "
             "or pass recipe_template_id for a built-in ops playbook "
-            "(ume_alarm_tally_daily / ume_critical_xlsx_daily / ne_license_check_weekly). "
+            "(ume_alarm_tally_daily / ume_critical_xlsx_daily / ne_license_check_weekly / "
+            "bandwidth_congestion_daily). "
             "Call schedule_propose and get user confirmation first when drafting custom recipes. "
             "Delivery follows the current chat channel unless delivery is set explicitly."
         ),
