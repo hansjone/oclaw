@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any
 
 from runtime.tools.base import ToolSpec
@@ -14,21 +15,31 @@ def _resolve_write_path(args: dict[str, Any]) -> str:
     return ""
 
 
+def _default_write_path() -> str:
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    return f"tmp/write_{stamp}.txt"
+
+
 def write_file_tool() -> ToolSpec:
     def _handler(args: dict[str, Any]) -> dict[str, Any]:
         raw = _resolve_write_path(args)
-        if not raw:
-            return {
-                "ok": False,
-                "error": "path_required",
-                "hint": "Pass path (or file/filename) relative to workspace root.",
-                "example": {"path": "tmp/notes.txt", "content": "hello", "mode": "overwrite"},
-            }
         content = args.get("content")
         if content is None:
             content = args.get("text")
         if content is None:
             content = args.get("body")
+        auto_path = False
+        if not raw:
+            if content is None:
+                return {
+                    "ok": False,
+                    "error": "path_required",
+                    "hint": "Pass path (or file/filename) relative to workspace root.",
+                    "example": {"path": "tmp/notes.txt", "content": "hello", "mode": "overwrite"},
+                }
+            # Production WA agents often omit path; default under tmp/ instead of schema-fail looping.
+            raw = _default_write_path()
+            auto_path = True
         content_s = "" if content is None else str(content)
         mode = str(args.get("mode") or "overwrite").strip().lower()
         try:
@@ -42,13 +53,18 @@ def write_file_tool() -> ToolSpec:
             p.write_text(p.read_text(encoding="utf-8", errors="replace") + content_s, encoding="utf-8")
         else:
             p.write_text(content_s, encoding="utf-8")
-        return {"ok": True, "path": str(p), "bytes": p.stat().st_size}
+        out: dict[str, Any] = {"ok": True, "path": str(p), "bytes": p.stat().st_size}
+        if auto_path:
+            out["auto_path"] = True
+            out["hint"] = f"No path provided; wrote content to {raw}."
+        return out
 
     return ToolSpec(
         name="write_file",
         description=(
             "Write text content to a workspace file (overwrite or append). "
-            "Path aliases: file, filename, file_path."
+            "Path aliases: file, filename, file_path. "
+            "If path is omitted but content is provided, writes to tmp/write_<timestamp>.txt."
         ),
         parameters={
             "type": "object",

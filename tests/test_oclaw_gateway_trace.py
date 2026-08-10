@@ -993,3 +993,44 @@ def test_group_focus_system_hint_only_for_shared_group_scope() -> None:
     assert "current sender" in hint
     assert OclawGateway._group_focus_system_hint(per_user, "en") == ""
     assert OclawGateway._group_focus_system_hint(dm, "en") == ""
+
+
+def test_ops_short_intent_caps_tool_rounds(tmp_path) -> None:
+    from runtime.types import StandardMessage
+    from svc.persistence.sqlite_store import SqliteStore
+
+    store = SqliteStore(str(tmp_path / "rounds.sqlite"))
+    gw = OclawGateway(store=store)
+    short = StandardMessage(
+        session_id="s1",
+        tenant_id="t1",
+        user_id="u1",
+        role="member",
+        channel="whatsapp",
+        text="fiber cut report",
+        attachments=[],
+        metadata={},
+    )
+    long = StandardMessage(
+        session_id="s1",
+        tenant_id="t1",
+        user_id="u1",
+        role="member",
+        channel="whatsapp",
+        text="Please investigate the full OSPF adjacency flap history across all PE routers and draft a long RCA.",
+        attachments=[],
+        metadata={},
+    )
+    admin = StandardMessage(
+        session_id="s1",
+        tenant_id="t1",
+        user_id="u1",
+        role="member",
+        channel="admin",
+        text="fiber cut report",
+        attachments=[],
+        metadata={},
+    )
+    assert gw._resolve_max_tool_rounds(short, base=100) == 8
+    assert gw._resolve_max_tool_rounds(long, base=100) == 100
+    assert gw._resolve_max_tool_rounds(admin, base=100) == 100

@@ -24,3 +24,18 @@ def test_run_command_accepts_cmd_alias(monkeypatch) -> None:
     out = spec.handler(filtered)
     assert out.get("ok") is True
     assert calls[0]["command"] == "echo hi"
+
+
+def test_run_command_blocks_openpyxl_xlsx() -> None:
+    from runtime.tools.public.run_command_tool import _looks_like_xlsx_via_shell
+
+    assert _looks_like_xlsx_via_shell("python -c \"import openpyxl; wb=openpyxl.Workbook()\"")
+    assert _looks_like_xlsx_via_shell("python -c \"df.to_excel('a.xlsx')\"")
+    assert not _looks_like_xlsx_via_shell("echo hello")
+
+    spec = run_command_tool()
+    out = spec.handler({"command": "python -c \"import openpyxl; openpyxl.Workbook()\""})
+    assert out.get("ok") is False
+    assert out.get("error_code") == "xlsx_via_shell_forbidden"
+    assert out.get("retry_forbidden") is True
+    assert "write_xlsx" in (out.get("fallback_tools") or [])

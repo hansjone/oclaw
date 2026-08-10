@@ -484,6 +484,25 @@ class OclawGateway:
 
         return str(maybe_ops_short_intent_system_hint(text=str(msg.text or ""), lang=lang) or "").strip()
 
+    def _resolve_max_tool_rounds(self, msg: StandardMessage, *, base: int) -> int:
+        """Cap tool rounds for WhatsApp/WeChat ops short intents (cut 12+ tool loops)."""
+        rounds = max(1, min(int(base), 300))
+        if not self._is_channel_delivery_channel(msg):
+            return rounds
+        md = msg.metadata if isinstance(msg.metadata, dict) else {}
+        from runtime.application.gateway.ops_short_intent import detect_ops_short_intent
+
+        intent = detect_ops_short_intent(str(msg.text or md.get("raw_inbound_text") or ""))
+        if not intent:
+            return rounds
+        try:
+            raw = str(self.store.get_setting("AIA_OPS_SHORT_INTENT_MAX_TOOL_ROUNDS") or "").strip()
+            cap = int(raw) if raw.isdigit() else 8
+        except Exception:
+            cap = 8
+        cap = max(3, min(int(cap), 30))
+        return min(rounds, cap)
+
     @staticmethod
     def _group_focus_system_hint(msg: StandardMessage, lang: str) -> str:
         """Only for shared group transcripts (legacy session_scope=chat / __group__)."""
@@ -1242,7 +1261,10 @@ class OclawGateway:
                     parent_span_id=None,
                     run_id=rid,
                     max_messages=_get_int_setting("AIA_TURN_MAX_CONTEXT_MESSAGES", 80, 10, 400),
-                    max_tool_rounds=_get_int_setting("AIA_TURN_MAX_TOOL_ROUNDS", 100, 1, 300),
+                    max_tool_rounds=self._resolve_max_tool_rounds(
+                        msg,
+                        base=_get_int_setting("AIA_TURN_MAX_TOOL_ROUNDS", 100, 1, 300),
+                    ),
                     max_tool_workers=_get_int_setting("AIA_TURN_MAX_TOOL_WORKERS", 8, 1, 32),
                     max_attempts=_get_int_setting("AIA_OCLAW_MAX_ATTEMPTS", 2, 1, 5),
                     memory_context=memory_context,
