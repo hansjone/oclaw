@@ -22,7 +22,17 @@
 
 - `aggregateUmeAlarms`：`severity`(可选，如 critical)、`top_ne`(默认50)、`exclude_missing_host`(默认true)、`time_from`/`time_to`
   - 高危 Top：`severity=critical`；看 `by_ne_missing`；Top 默认不含 missing
+  - **也可传 `group_by=alarm_host_name`**：自动走动态聚合（等同 `aggregateUmeAlarmsRaw`）
 - `aggregateUmeAlarmsRaw`：`group_by=alarm_host_name` 等；按 host 分组时默认排除 missing（`by_ne_missing`）
+
+## 3b) WhatsApp 最短路径
+
+| 意图 | 调用 |
+|------|------|
+| Critical Top | `aggregateUmeAlarms(severity=critical, top_ne=20)` |
+| 按 host 统计 | `aggregateUmeAlarms(group_by=alarm_host_name, limit=50)` |
+| 断纤/离线清单 | `queryUmeAlarmsRaw(keyword=…, field_preset=evidence)` → 可选 `write_xlsx` + `save_deliverable_attachment` |
+| 发 Excel | `write_xlsx`（sheets 或顶层 headers+rows）→ `save_deliverable_attachment` |
 
 ## 4) 诊断
 

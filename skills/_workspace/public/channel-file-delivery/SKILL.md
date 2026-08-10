@@ -31,7 +31,8 @@ description: "在 WhatsApp/微信等渠道会话中，把生成的附件发回�
 
 | 目标格式 | 用哪个工具 | 说明 |
 |----------|------------|------|
-| `.xlsx` Excel | **`write_xlsx`** | 传 sheets/headers/rows；返回 `attachment_id`；**禁止**再用 `run_command`+openpyxl |
+| `.xlsx` Excel | **`write_xlsx`** | 传 `sheets=[{name,headers,rows}]`，或顶层 `headers`+`rows`；返回 `attachment_id`；**禁止**再用 `run_command`+openpyxl |
+
 | `.csv`、`.txt`、`.md`、`.json` 等纯文本 | `write_file` | 只能写文本内容 |
 | 图片 | `cloudflare_image_generate` 等 | 生成后用 `attachment_id` 标记 |
 | 视频 | 对应生成工具 | 生成后用 `attachment_id` 标记 |

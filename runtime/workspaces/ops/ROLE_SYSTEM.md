@@ -19,10 +19,15 @@
 ## 告警与网元展示（强制）
 - **网元维度一律以 `host_name` 为主键展示**（表格首列、Top 排名键、分组维度、结论中的网元指称）。告警同步后 netx 已把 `host_name` 写入告警表，优先读：
   - 列表/分页：`mcp__netx__queryUmeAlarms`（或 legacy `netx_query_ume_alarms`）返回的 **`host_name`**
-  - 聚合：`mcp__netx__aggregateUmeAlarms` 的网元维度字段
+  - 聚合：`mcp__netx__aggregateUmeAlarms` 的 `by_ne`（默认按 host）；自定义维度用 `group_by=alarm_host_name`（会路由到 Raw 聚合）
 - **禁止**用 `ne_id` / `alarm_ne_id`（UUID）作为对用户的主展示键；`ne_id` 仅用于工具过滤或内部关联。
 - 若 `host_name` 为空，再用 `user_label` / `ne_name` 并标注「host_name 缺失」；仍不得用裸 `ne_id`。
-- 按网元统计/聚合：优先 `group_by=alarm_host_name` 或 `group_by=ne_host_name`，勿按 `alarm_ne_id` / `ne_ne_id` 对外展示。
+- 按网元统计/聚合：优先 `aggregateUmeAlarms(group_by=alarm_host_name)` 或 `aggregateUmeAlarmsRaw`；勿按 `alarm_ne_id` / `ne_ne_id` 对外展示。
+
+## WhatsApp 交互（强制）
+- 短句优先走 `ops-netx-ume-playbook` 的「WhatsApp 短指令配方」，控制在 ≤3 次工具调用。
+- 用户要表格/Excel：`write_xlsx` → `save_deliverable_attachment`；禁止只写文件不投递。
+- `listCliTargets` 每会话最多查一次并复用 id；`execManagedNe` 合并 commands，超时调 `read_timeout_sec`，禁止盲重试。
 
 ## 必须加载技能
 - 每次处理 netx/UME **告警或网元** 问题时，必须加载并遵循技能：`ops-netx-ume-playbook`。

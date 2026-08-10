@@ -98,6 +98,49 @@ def test_write_xlsx_requires_sheets() -> None:
     out = spec.handler({})
     assert out.get("ok") is False
     assert out.get("error") == "sheets_required"
+    assert "example" in out
+
+
+def test_write_xlsx_accepts_top_level_headers_rows(tmp_path, monkeypatch) -> None:
+    store = AttachmentAssetStore(root_dir=tmp_path / "att")
+    monkeypatch.setattr(
+        "runtime.tools.public.write_xlsx_tool.AttachmentAssetStore",
+        lambda root_dir=None: store if root_dir is None else AttachmentAssetStore(root_dir=root_dir),
+    )
+    spec = write_xlsx_tool()
+    out = spec.handler(
+        {
+            "filename": "fiber.xlsx",
+            "headers": ["host_name", "count"],
+            "rows": [["NE-A", 3], ["NE-B", 1]],
+            "freeze_header": True,
+            "auto_width": True,
+        }
+    )
+    assert out.get("ok") is True
+    assert out.get("name") == "fiber.xlsx"
+    assert out.get("sheet_count") == 1
+    blob, _ = store.load_bytes(str(out["attachment_id"]))
+    wb = load_workbook(io.BytesIO(blob))
+    ws = wb.active
+    assert [c.value for c in ws[1]] == ["host_name", "count"]
+    assert ws["A2"].value == "NE-A"
+
+
+def test_write_xlsx_schema_allows_freeze_and_shortcut_keys() -> None:
+    from runtime.tools.tool_validation import filter_arguments_to_schema, validate_tool_arguments
+
+    spec = write_xlsx_tool()
+    args = {
+        "headers": ["a"],
+        "rows": [[1]],
+        "freeze_header": True,
+        "auto_width": False,
+        "filename": "t.xlsx",
+    }
+    filtered = filter_arguments_to_schema(spec.parameters, args)
+    ok, err = validate_tool_arguments(spec.parameters, filtered)
+    assert ok, err
 
 
 def test_write_xlsx_tool_result_maps_to_binary_ref() -> None:

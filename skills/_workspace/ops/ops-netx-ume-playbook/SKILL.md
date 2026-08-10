@@ -44,12 +44,30 @@ description: 面向 ops 专家的 netx UME 运维作业手册。覆盖告警查�
 
 - **整体态势 / Top 风险**：`runUmeDiagnostics` + `aggregateUmeAlarms`（默认已排除 missing host；看 `by_ne_missing`）。
   - 高危 Top-N：`aggregateUmeAlarms(severity=critical, top_ne=10)`，勿只看总量 Top。
+  - 按 host 自定义分组：`aggregateUmeAlarms(group_by=alarm_host_name, …)`（内部等同 Raw）或显式 `aggregateUmeAlarmsRaw`。
 - **时间收敛**：`queryUmeAlarms` / `aggregateUmeAlarms` / raw 均支持 `time_from`/`time_to`（语义=`last_seen_at`）。先看 freshness，再填时间窗。
 - **可引用证据**：`queryUmeAlarmsRaw` + `field_preset=evidence`。
 - **任意字段统计**：`aggregateUmeAlarmsRaw`（按 host 分组时默认排除 missing；看 `by_ne_missing`）。
 - **复杂条件**：`sqlQueryUme`。
 - **critical 口类/光路类告警**：抽 1–2 个 `ne_id` → `findTopologyPaths`（默认 `detail=summary`，看 `paths[].label`）→ 再决定是否 CLI。
 - **查网元身份**：`queryUmeNeInventory(keyword=host_name)`；完整 `raw_json` 用 `getUmeNe`。
+
+## WhatsApp 短指令配方（强制少工具）
+
+群聊短句（中/英）优先走下列固定路径，**目标 ≤3 次工具调用**，不要先翻页/反复 listCliTargets。
+
+| 用户说法（例） | 配方 |
+|----------------|------|
+| 断纤 / fiber cut / LOS / 光缆中断 | ① `queryUmeAlarmsRaw(keyword=LOS\|fiber\|断纤\|光缆, field_preset=evidence, page_size=50)` 或 `keyword`+severity；② 摘要表；若要文件：`write_xlsx`→`save_deliverable_attachment` |
+| 离线 / 单板离线 / offline NE | ① `queryUmeAlarms`/`Raw` + keyword `离线`/`offline`/`通信中断`；② 按 `alarm_host_name` 去重列清单；要文件同上 |
+| Critical Top / 告警统计 | ① `aggregateUmeAlarms(severity=critical, top_ne=20)` 或 `group_by=alarm_host_name`；② 结论；要 xlsx 再写表 |
+| 当前告警有多少 / tally | ① `runUmeDiagnostics` 或 `aggregateUmeAlarms`；② 直接报 by_severity + freshness |
+| 导出 Excel / 发我表格 | 先查再 `write_xlsx(sheets=[…])`（可顶层 headers+rows）→ **必须** `save_deliverable_attachment(attachment_id=…)` |
+
+交付约定：
+- `write_xlsx` 只入库，不发出；WhatsApp 要文件时最后一步必须 `save_deliverable_attachment`。
+- 禁止用 `run_command`+openpyxl 造 xlsx。
+- 确认类短句（YES / confirm / 继续）：承接上一任务继续，勿重新开查。
 
 ## 约束与护栏
 
@@ -76,8 +94,8 @@ description: 面向 ops 专家的 netx UME 运维作业手册。覆盖告警查�
 
 ## 推荐分析模式
 
-- 高风险网元：`aggregateUmeAlarmsRaw` + `group_by=alarm_host_name` + `severity`。
-- 严重度：`aggregateUmeAlarms` 或 `group_by=alarm_perceived_severity`。
+- 高风险网元：`aggregateUmeAlarms(group_by=alarm_host_name, severity=critical)` 或显式 `aggregateUmeAlarmsRaw`。
+- 严重度：`aggregateUmeAlarms`（默认 by_severity + by_ne）；自定义维度才用 `group_by`。
 - 事件类型：看 diagnostics `top_event_types`；真正告警码看 `top_alarm_codes`（UME `alarmCode`）。
 - 关联路径：critical Port down / LOS → `findTopologyPaths(from_ume_ne_id, to_ume_ne_id)`。
 

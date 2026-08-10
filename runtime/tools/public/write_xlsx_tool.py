@@ -97,7 +97,7 @@ def _build_workbook(sheets: list[dict[str, Any]], *, freeze_header: bool, auto_w
     for i, sheet in enumerate(sheets, start=1):
         if not isinstance(sheet, dict):
             continue
-        rows, inferred_cols = _normalize_rows(sheet.get("rows"))
+        rows, inferred_cols = _normalize_rows(sheet.get("rows") if sheet.get("rows") is not None else sheet.get("data"))
         headers_raw = sheet.get("headers")
         if isinstance(headers_raw, list) and headers_raw:
             col_count = max(len(headers_raw), inferred_cols, 1)
@@ -129,15 +129,62 @@ def _build_workbook(sheets: list[dict[str, Any]], *, freeze_header: bool, auto_w
     return buf.getvalue(), summary
 
 
+_XLSX_EXAMPLE = {
+    "name": "alarm_summary.xlsx",
+    "sheets": [
+        {
+            "name": "by_host",
+            "headers": ["host_name", "severity", "count"],
+            "rows": [["NE-A", "critical", 12], ["NE-B", "major", 5]],
+        }
+    ],
+    "freeze_header": True,
+    "auto_width": True,
+}
+
+
+def _coerce_sheets(args: dict[str, Any]) -> list[Any] | None:
+    """Accept common agent shapes: sheets[], or top-level headers/rows[/name]."""
+    sheets_raw = args.get("sheets")
+    if isinstance(sheets_raw, list) and sheets_raw:
+        return sheets_raw
+    # Single sheet mistaken as top-level object
+    if isinstance(sheets_raw, dict) and (
+        "rows" in sheets_raw or "headers" in sheets_raw or "data" in sheets_raw
+    ):
+        return [sheets_raw]
+    headers = args.get("headers")
+    rows = args.get("rows")
+    if rows is None:
+        rows = args.get("data")
+    if isinstance(rows, list):
+        sheet: dict[str, Any] = {"rows": rows}
+        if isinstance(headers, list):
+            sheet["headers"] = headers
+        title = str(args.get("sheet_name") or args.get("sheet") or "").strip()
+        if title:
+            sheet["name"] = title
+        return [sheet]
+    return None
+
+
 def write_xlsx_tool() -> ToolSpec:
     def _handler(args: dict[str, Any]) -> dict[str, Any]:
-        sheets_raw = args.get("sheets")
-        if not isinstance(sheets_raw, list) or not sheets_raw:
-            return {"ok": False, "error": "sheets_required"}
+        sheets_raw = _coerce_sheets(args)
+        if not sheets_raw:
+            return {
+                "ok": False,
+                "error": "sheets_required",
+                "hint": "Pass sheets=[{name, headers, rows}] (or top-level headers+rows).",
+                "example": _XLSX_EXAMPLE,
+            }
         if len(sheets_raw) > _MAX_SHEETS:
             return {"ok": False, "error": "too_many_sheets", "max_sheets": _MAX_SHEETS}
 
-        filename = str(args.get("name") or "").strip() or "report.xlsx"
+        filename = (
+            str(args.get("name") or args.get("filename") or args.get("file_name") or "").strip()
+            or "report.xlsx"
+        )
         if not filename.lower().endswith(".xlsx"):
             filename = f"{filename}.xlsx"
         freeze_header = args.get("freeze_header") is not False
@@ -200,7 +247,10 @@ def write_xlsx_tool() -> ToolSpec:
             "properties": {
                 "sheets": {
                     "type": "array",
-                    "description": "One or more sheets. Each item: {name, headers[], rows[][]}.",
+                    "description": (
+                        "Preferred: one or more sheets [{name, headers[], rows[][]}]. "
+                        "If omitted, top-level headers+rows are accepted as a single sheet."
+                    ),
                     "items": {
                         "type": "object",
                         "properties": {
@@ -213,16 +263,71 @@ def write_xlsx_tool() -> ToolSpec:
                             "rows": {
                                 "type": "array",
                                 "description": "Data rows: each row is an array of cell values (string/number/bool/null).",
-                                "items": {"type": "array"},
+                                "items": {
+                                    "anyOf": [
+                                        {"type": "array"},
+                                        {"type": "object"},
+                                    ]
+                                },
+                            },
+                            "data": {
+                                "type": "array",
+                                "description": "Alias for rows.",
+                                "items": {
+                                    "anyOf": [
+                                        {"type": "array"},
+                                        {"type": "object"},
+                                    ]
+                                },
                             },
                         },
-                        "required": ["rows"],
-                        "additionalProperties": False,
+                        "additionalProperties": True,
                     },
+                },
+                "headers": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Shortcut when sheets omitted: column headers for a single sheet.",
+                },
+                "rows": {
+                    "type": "array",
+                    "description": "Shortcut when sheets omitted: data rows for a single sheet.",
+                    "items": {
+                        "anyOf": [
+                            {"type": "array"},
+                            {"type": "object"},
+                        ]
+                    },
+                },
+                "data": {
+                    "type": "array",
+                    "description": "Alias for top-level rows.",
+                    "items": {
+                        "anyOf": [
+                            {"type": "array"},
+                            {"type": "object"},
+                        ]
+                    },
+                },
+                "sheet_name": {
+                    "type": "string",
+                    "description": "Shortcut sheet tab name when using top-level headers/rows.",
+                },
+                "sheet": {
+                    "type": "string",
+                    "description": "Alias for sheet_name.",
                 },
                 "name": {
                     "type": "string",
                     "description": "Download filename, e.g. alarm_summary.xlsx",
+                },
+                "filename": {
+                    "type": "string",
+                    "description": "Alias for name.",
+                },
+                "file_name": {
+                    "type": "string",
+                    "description": "Alias for name.",
                 },
                 "path": {
                     "type": "string",
@@ -239,7 +344,7 @@ def write_xlsx_tool() -> ToolSpec:
                     "description": "Best-effort column width from sample cells (default true).",
                 },
             },
-            "required": ["sheets"],
+            "required": [],
             "additionalProperties": False,
         },
         handler=_handler,

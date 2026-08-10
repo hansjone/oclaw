@@ -491,7 +491,8 @@ flowchart TD
 
 运维专家：
   1. 加载 ops-netx-ume-playbook
-  2. mcp__netx__aggregateUmeAlarms(severity=critical, group_by=alarm_host_name)
+  2. mcp__netx__aggregateUmeAlarms(severity=critical, top_ne=5)
+     # 若需自定义维度：aggregateUmeAlarms(group_by=alarm_host_name, severity=critical, limit=5)
   3. 返回结论 + 证据表格
 ```
 
