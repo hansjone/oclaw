@@ -353,6 +353,12 @@ def _parse_group_policy_dict(raw: Any) -> GroupPolicyConfig | None:
 
 
 def resolve_group_policy(*, account: dict[str, Any] | None = None) -> GroupPolicyConfig:
+    """Resolve group mention/session policy.
+
+    Default ``session_scope`` is ``user_in_chat`` (per speaker in a group). Override via
+    account ``group_policy.session_scope`` or env ``AIA_WHATSAPP_GROUP_SESSION_SCOPE=chat``
+    when a shared group transcript is intentionally desired.
+    """
     cfg = (account or {}).get("config")
     if isinstance(cfg, dict):
         gp = _parse_group_policy_dict(cfg.get("group_policy"))

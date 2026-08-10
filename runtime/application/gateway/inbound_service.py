@@ -915,8 +915,9 @@ def _enqueue_whatsapp_inbound_reply(
     reply_text: str,
     reply_attachments: list[dict[str, Any]] | None,
     reply_metadata: dict[str, Any] | None,
+    kind: str = "inbound_reply",
 ) -> str:
-    """Persist final WhatsApp reply on the outbound queue (sidecar poller delivers)."""
+    """Persist WhatsApp reply/progress on the outbound queue (sidecar poller delivers)."""
     from runtime.scheduler.whatsapp_mentions import encode_whatsapp_outbound_source
 
     text = str(reply_text or "").strip()
@@ -948,7 +949,7 @@ def _enqueue_whatsapp_inbound_reply(
         if str(meta.get(k) or "").strip() or meta.get(k) is True
     }
     source = encode_whatsapp_outbound_source(
-        kind="inbound_reply",
+        kind=str(kind or "inbound_reply").strip() or "inbound_reply",
         mention_jids=mention_jids,
         mention_names=mention_names,
         mention_text_ready=bool(mention_jids),
@@ -1436,6 +1437,41 @@ def process_inbound_payload(payload: dict[str, Any]) -> dict[str, Any]:
                                     )
                                     job_lang = str(turn_job.get("lang") or lang or "zh")
                                     job_inbound = turn_job.get("inbound") or inbound
+                                    progress_cb = None
+                                    tool_ui_cb = None
+                                    if wa_queue_delivery:
+                                        from runtime.application.gateway.whatsapp_progress import (
+                                            WhatsappTurnProgressPublisher,
+                                            whatsapp_turn_progress_enabled,
+                                        )
+
+                                        if whatsapp_turn_progress_enabled():
+
+                                            def _enqueue_progress(
+                                                progress_text: str,
+                                                progress_meta: dict[str, Any] | None,
+                                                *,
+                                                _inbound: Any = job_inbound,
+                                            ) -> None:
+                                                _enqueue_whatsapp_inbound_reply(
+                                                    store,
+                                                    inbound=_inbound,
+                                                    account_id=account_id,
+                                                    tenant_id=str(tenant_id or ""),
+                                                    reply_text=progress_text,
+                                                    reply_attachments=None,
+                                                    reply_metadata=progress_meta,
+                                                    kind="inbound_progress",
+                                                )
+
+                                            publisher = WhatsappTurnProgressPublisher(
+                                                enqueue=_enqueue_progress,
+                                                lang=job_lang,
+                                                is_group=bool(getattr(job_inbound, "is_group", False)),
+                                                inbound=job_inbound,
+                                            )
+                                            progress_cb = publisher.on_progress
+                                            tool_ui_cb = publisher.on_tool_ui
                                     try:
                                         turn_result = gw.handle_turn(
                                             msg=StandardMessage(
@@ -1451,6 +1487,8 @@ def process_inbound_payload(payload: dict[str, Any]) -> dict[str, Any]:
                                             lang=job_lang,
                                             executor=manager,
                                             specialist_executor_factory=specialist_factory,
+                                            on_progress=progress_cb,
+                                            on_tool_ui=tool_ui_cb,
                                         )
                                         channel_turn_uuid = str(turn_result.turn_uuid or "").strip()
                                         turn_reply = str(turn_result.reply_text or "").strip()
