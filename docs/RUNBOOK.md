@@ -243,16 +243,15 @@ Linux/macOS:
 Admin 可视化调度（新增）：
 
 - `Stack` 页面提供 `Weixin dispatch` 控制卡。
-- 可直接选择专家并执行：
-  - `绑定专家`（写入 `expert + specialist`）
-  - `综合`（写入 `comprehensive + specialist`）
+- 可直接选择专家并执行 `绑定专家`（写入 `expert + specialist`）。
 - 通道默认值：`expert + generalist`。
+- 产品面已统一为**专家模式**；不再提供「综合 / Manager」分派。
 
 账号级调度（新增）：
 
 - 在 `用户/渠道绑定` 页面选择 `channel=weixin` 后，可按账号配置：
   - 专家（默认 `generalist`）
-  - 模式：`绑定专家` / `综合`
+  - 绑定专家（`expert + specialist`）
 - 生效优先级：**账号级配置 > 通道全局配置 > 默认值**。
 
 注意：当模型侧返回“OpenAI key 缺失”兜底文本时，微信通道会静默抑制该类回复（不向微信用户下发错误文案）。
@@ -310,9 +309,9 @@ powershell -ExecutionPolicy Bypass -File .\runtime\operations\scripts\whatsapp_s
 
 Admin 可视化调度（新增）：
 
-- `Stack` 页面提供 `WhatsApp dispatch` 控制卡（`绑定专家` / `综合`）。
-- `用户/渠道绑定` 页面选择 `channel=whatsapp` 后可按账号单独配置专家/模式。
-- 默认值同微信：`expert + generalist`。
+- `Stack` 页面提供 `WhatsApp dispatch` 控制卡（`绑定专家`）。
+- `用户/渠道绑定` 页面选择 `channel=whatsapp` 后可按账号单独配置默认专家。
+- 默认值同微信：`expert + generalist`（专家模式 only）。
 
 ---
 
@@ -403,7 +402,7 @@ Admin Chat 依赖表 **`ui_session_owner`**（`session_id` → `tenant_id` + `us
 
 **工作区 ``extra_roots``（与编排临时会话）**
 
-管理台为用户配置的 ``user_workspace_path_allowlist.extra_roots`` 通过 ``ui_session_owner`` 解析到租户+用户。全能者编排里专家步往往在**无 owner 的临时** ``chat_session`` 上落库中间消息：内置路径类工具会携带 **用户 UI 会话 id 作为 fallback**，仍按该用户策略合并 ``extra_roots``；MCP filesystem 启动参数本就按用户聊天 ``session_id``（policy）合并，二者现已对齐。
+管理台为用户配置的 ``user_workspace_path_allowlist.extra_roots`` 通过 ``ui_session_owner`` 解析到租户+用户。专家轮次若在**无 owner 的临时** ``chat_session`` 上落库中间消息：内置路径类工具会携带 **用户 UI 会话 id 作为 fallback**，仍按该用户策略合并 ``extra_roots``；MCP filesystem 启动参数本就按用户聊天 ``session_id``（policy）合并，二者现已对齐。
 
 ### 6.5 主库路径与「删掉的会话又回来了 / 新建用户不见了」
 

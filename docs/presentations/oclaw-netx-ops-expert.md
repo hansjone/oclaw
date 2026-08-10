@@ -64,12 +64,11 @@ flowchart LR
 | **ops** | 网络运维专家（本文重点） |
 | generalist | 通用任务 |
 | memory | 知识/记忆 |
-| image / video / stock | 专项能力 |
 
 ### 2.3 交互模式
 
-- **expert**：用户直连某一专家（如 ops）
-- **comprehensive**：经理 Agent 编排，按任务委派给 ops 等专家
+- 产品面已统一为 **expert**：用户直连某一专家（如 ops）
+- 历史「comprehensive / Manager 编排」已移除
 
 ### 2.4 分层架构
 
@@ -87,8 +86,6 @@ skills/         可安装技能包（SKILL.md）
 flowchart TD
   A[入站消息] --> B{渠道路由}
   B -->|specialist=ops| C[NetworkOpsAgent]
-  B -->|comprehensive| D[Manager Agent]
-  D -->|委派网络任务| C
   C --> E[加载 ROLE_SYSTEM + Skills]
   E --> F[工具集: network_ops + memory + MCP]
   F --> G{Agent 循环}
@@ -448,8 +445,7 @@ powershell -ExecutionPolicy Bypass -File .\runtime\operations\scripts\whatsapp_s
 
 **交互模式：**
 
-- **绑定专家（expert）**：所有消息直连 ops 运维专家（推荐运维群场景）
-- **综合（comprehensive）**：经理 Agent 编排，网络任务委派给 ops
+- **绑定专家（expert）**：所有消息直连 ops 运维专家（推荐运维群场景；当前唯一模式）
 
 **优先级**：账号级配置 > 通道全局配置 > 默认（`expert + generalist`）
 

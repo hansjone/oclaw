@@ -18,7 +18,6 @@ from runtime.hooks_runtime import (
 )
 from runtime.relay_pointer import summarize_relay_ttl
 from runtime.skills import build_skill_manifest
-from runtime.prompt_prebuild import get_manager_prompt_prebuild
 from runtime.types import (
     OclawSessionContext,
     StandardMessage,
@@ -119,71 +118,6 @@ class OclawGateway:
                 )
         except Exception:
             pass
-
-    @staticmethod
-    def _looks_like_manager_instruction(reply: str, instruction: str) -> bool:
-        r = str(reply or "").strip()
-        ins = str(instruction or "").strip()
-        if not r or not ins:
-            return False
-        if r == ins:
-            return True
-        if len(ins) >= 16 and ins in r:
-            return True
-        # Heuristic: prefix overlap is usually enough for instruction leakage.
-        a = r[:120]
-        b = ins[:120]
-        common = 0
-        for x, y in zip(a, b):
-            if x != y:
-                break
-            common += 1
-        return common >= 24
-
-    @staticmethod
-    def _parse_json_object(text: str) -> dict[str, Any] | None:
-        t = str(text or "").strip()
-        start = t.find("{")
-        if start < 0:
-            return None
-        executed_turn_uuid = ""
-        try:
-            obj, _end = json.JSONDecoder().raw_decode(t[start:])
-        except Exception:
-            return None
-        return obj if isinstance(obj, dict) else None
-
-    @staticmethod
-    def _sanitize_dynamic_system_prompt(raw: Any) -> str:
-        s = str(raw or "").strip()
-        if not s:
-            return ""
-        s = s[:3000]
-        banned = ("<tool_call>", "</tool_call>", "assistant_response:", "function_call:")
-        low = s.lower()
-        if any(b in low for b in banned):
-            return ""
-        return s
-
-    @staticmethod
-    def _parse_dynamic_agent(raw: Any) -> dict[str, Any] | None:
-        if not isinstance(raw, dict):
-            return None
-        name = str(raw.get("name") or "").strip()
-        system_prompt = OclawGateway._sanitize_dynamic_system_prompt(raw.get("system_prompt"))
-        reason = str(raw.get("reason") or "").strip()
-        tp = raw.get("tool_policy")
-        tool_policy = tp if isinstance(tp, dict) else {}
-        allow_tags = [str(x).strip() for x in (tool_policy.get("allow_tags") or []) if str(x).strip()]
-        allow_tools = [str(x).strip() for x in (tool_policy.get("allow_tools") or []) if str(x).strip()]
-        if not system_prompt:
-            return None
-        return {
-            "name": name or "dynamic_ephemeral",
-            "system_prompt": system_prompt,
-            "tool_policy": {"allow_tags": allow_tags, "allow_tools": allow_tools},
-            "reason": reason or "dynamic_agent_selected",
-        }
 
     def _maybe_generate_title_on_third_round(self, *, msg: StandardMessage, model: Any | None) -> None:
         """Generate title once on round-3: one plain model.chat (system+user, no tools)."""
@@ -298,123 +232,6 @@ class OclawGateway:
                 pass
         except Exception:
             pass
-
-    def _manager_select_specialist(
-        self,
-        *,
-        msg: StandardMessage,
-        lang: str,
-        executor: Any,
-        memory_enabled: bool,
-    ) -> tuple[str, str, dict[str, Any] | None, str]:
-        model = getattr(executor, "model", None)
-        if model is None or not callable(getattr(model, "chat", None)):
-            return ("generalist", "manager_model_missing", None, "")
-        try:
-            registry = getattr(executor, "tools", None)
-            base_url = str(getattr(model, "base_url", "") or "")
-            if registry is None:
-                return ("generalist", "manager_tools_missing", None, "")
-            pack = get_manager_prompt_prebuild(
-                store=self.store,
-                registry=registry,
-                base_url=base_url,
-                memory_enabled=memory_enabled,
-            )
-            manager_context = str(pack.get("manager_context") or "")
-            allowed_fixed = [str(x).strip().lower() for x in (pack.get("allowed_fixed") or []) if str(x).strip()]
-            allowed_fixed_quoted = str(pack.get("allowed_fixed_quoted") or "")
-            messages = [
-                {
-                    "role": "system",
-                    "content": (
-                        f"{manager_context}\n\n"
-                        "Return exactly one compact JSON object with route.specialist, route.reason, and "
-                        "dispatch.instruction_text. "
-                        f"Allowed fixed specialists: {allowed_fixed_quoted}. "
-                        "If route.specialist is NOT a fixed specialist, you MUST include dynamic_agent with "
-                        "name/system_prompt/tool_policy(allow_tags/allow_tools)/reason."
-                    ),
-                },
-                {
-                    "role": "user",
-                    "content": (
-                        f"User request:\n{str(msg.text or '').strip()}\n\n"
-                        "Return JSON only."
-                    ),
-                },
-            ]
-            ensure_no_tool_or_embedded_image_payload(messages=messages, path="gateway.manager_select")
-            resp = model.chat(messages, [], on_token=None)
-            obj = self._parse_json_object(str(getattr(resp, "content", "") or ""))
-            if not isinstance(obj, dict):
-                return ("generalist", "manager_json_missing", None, "")
-            route = obj.get("route") if isinstance(obj, dict) else None
-            if not isinstance(route, dict):
-                return ("generalist", "manager_route_missing", None, "")
-            route_kind = str(route.get("kind") or "").strip().lower()
-            raw_specialist = str(route.get("specialist") or "").strip().lower()
-            fixed_set = set([str(x).strip().lower() for x in allowed_fixed if str(x).strip()])
-            fixed = raw_specialist in fixed_set
-            specialist = normalize_requested_specialist(raw_specialist) if fixed else raw_specialist
-            reason = str(route.get("reason") or "").strip() or "manager_selected"
-            dispatch = obj.get("dispatch") if isinstance(obj, dict) else None
-            instruction_text = ""
-            if isinstance(dispatch, dict):
-                instruction_text = str(dispatch.get("instruction_text") or "").strip()
-            if not instruction_text:
-                return ("generalist", "manager_instruction_missing", None, "")
-            if route_kind and route_kind != "specialist":
-                return ("generalist", "manager_route_kind_invalid", None, instruction_text)
-            dynamic_agent = self._parse_dynamic_agent(obj.get("dynamic_agent") if isinstance(obj, dict) else None)
-            if specialist == "memory" and not memory_enabled:
-                return ("generalist", "memory_disabled_fallback", None, instruction_text)
-            if not fixed and dynamic_agent is None:
-                return ("generalist", "dynamic_agent_invalid_fallback", None, instruction_text)
-            return (specialist, reason, dynamic_agent, instruction_text)
-        except Exception:
-            return ("generalist", "manager_select_failed", None, "")
-
-    def _manager_finalize_output(
-        self,
-        *,
-        msg: StandardMessage,
-        lang: str,
-        executor: Any,
-        specialist: str,
-        specialist_reply: str,
-        memory_enabled: bool,
-        on_token: Optional[Callable[[str], None]] = None,
-    ) -> str:
-        model = getattr(executor, "model", None)
-        if model is None or not callable(getattr(model, "chat", None)):
-            return str(specialist_reply or "")
-        try:
-            registry = getattr(executor, "tools", None)
-            base_url = str(getattr(model, "base_url", "") or "")
-            if registry is None:
-                return str(specialist_reply or "")
-            pack = get_manager_prompt_prebuild(
-                store=self.store,
-                registry=registry,
-                base_url=base_url,
-                memory_enabled=memory_enabled,
-            )
-            manager_context = str(pack.get("manager_context") or "")
-            user_text = (
-                "请基于以下信息输出最终答复。\n\n"
-                f"原始用户问题:\n{str(msg.text or '').strip()}\n\n"
-                f"已调用专家: {str(specialist or '').strip()}\n\n"
-                f"专家结果:\n{str(specialist_reply or '').strip()}\n\n"
-                "要求：保持简洁、准确，不要暴露内部流程。"
-            )
-            messages = [{"role": "system", "content": manager_context}, {"role": "user", "content": user_text}]
-            ensure_no_tool_or_embedded_image_payload(messages=messages, path="gateway.manager_finalize")
-            resp = model.chat(messages, [], on_token=on_token)
-            final_text = str(getattr(resp, "content", "") or "").strip()
-            return final_text or str(specialist_reply or "")
-        except Exception:
-            return str(specialist_reply or "")
 
     def _memory_enabled(self) -> bool:
         raw = str(self.store.get_setting(_SPECIALIST_FLAGS_SETTING_KEY) or "").strip()

@@ -254,10 +254,8 @@ def _worker_loop(*, store: Any, worker_id: str, poll_interval_s: float) -> None:
                     or ""
                 )
             )
-            skill_binding_role = str(manager_specialist or "generalist")
-            wire_policy_role = (
-                "manager" if interaction_mode == "comprehensive" else str(requested_specialist or skill_binding_role)
-            )
+            skill_binding_role = str(manager_specialist or requested_specialist or "generalist")
+            wire_policy_role = str(requested_specialist or skill_binding_role)
             memory_ctx = build_memory_context(
                 store=store,
                 session_id=session_id,
