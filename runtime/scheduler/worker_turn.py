@@ -6,7 +6,7 @@ from typing import Any
 
 
 from runtime.orchestration.group_ingest import is_nonsend_channel_reply_text
-from runtime.scheduler.turn_text import format_scheduled_user_reminder
+from runtime.scheduler.turn_text import format_scheduled_failure_summary, format_scheduled_user_reminder
 
 
 def resolve_scheduled_outbound_text(*, payload: dict[str, Any], reply_text: str) -> str:
@@ -15,7 +15,8 @@ def resolve_scheduled_outbound_text(*, payload: dict[str, Any], reply_text: str)
         return text
     prompt = str(payload.get("prompt_text") or "").strip()
     if prompt:
-        return format_scheduled_user_reminder(prompt)
+        lang = str(payload.get("lang") or "en")
+        return format_scheduled_user_reminder(prompt, lang=lang)
     return ""
 
 
@@ -158,9 +159,43 @@ def finalize_scheduled_turn_failure(
     payload: dict[str, Any],
     error: str,
 ) -> None:
+    from runtime.scheduler.channel_delivery import deliver_scheduled_reply
+
     tenant_id = str(payload.get("tenant_id") or "")
     job_id = str(payload.get("job_id") or "")
     scheduled_run_id = str(payload.get("run_id_scheduled") or "")
+    err = str(error or "")[:500]
+    job = store.scheduled_job_get(job_id=job_id, tenant_id=tenant_id) if job_id else None
+    delivery_json = ""
+    if job:
+        delivery_json = str(getattr(job, "delivery_json", "") or "")
+    if not delivery_json:
+        delivery = payload.get("delivery") if isinstance(payload.get("delivery"), dict) else {}
+        delivery_json = json.dumps(delivery, ensure_ascii=False) if delivery else ""
+
+    lang = str(payload.get("lang") or getattr(job, "lang", "") or "en")
+    summary = format_scheduled_failure_summary(
+        job_name=str(getattr(job, "name", "") or ""),
+        job_id=job_id,
+        error=err,
+        lang=lang,
+    )
+    delivery_status: dict[str, Any] = {}
+    try:
+        delivery_status = deliver_scheduled_reply(
+            store,
+            tenant_id=tenant_id,
+            reply_text=summary,
+            delivery_json=delivery_json,
+            resolved_channel=str(payload.get("resolved_channel") or ""),
+            resolved_chat_id=str(payload.get("resolved_chat_id") or ""),
+            resolved_account_id=str(payload.get("resolved_account_id") or ""),
+            session_id=str(payload.get("session_id") or ""),
+            turn_uuid="",
+        )
+    except Exception as exc:
+        delivery_status = {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+
     if scheduled_run_id:
         store.scheduled_job_run_update(
             run_id=scheduled_run_id,
@@ -168,11 +203,13 @@ def finalize_scheduled_turn_failure(
             patch={
                 "status": "failed",
                 "finished_at": datetime.now(timezone.utc).isoformat(),
-                "error": str(error or "")[:500],
+                "error": err,
+                "reply_text": summary,
+                "delivery_status": delivery_status,
+                "session_id": str(payload.get("session_id") or ""),
             },
         )
     if job_id:
-        job = store.scheduled_job_get(job_id=job_id, tenant_id=tenant_id)
         pause_after = bool(job and str(getattr(job, "schedule_kind", "") or "") == "once")
         store.scheduled_job_mark_run(
             job_id=job_id,

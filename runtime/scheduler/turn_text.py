@@ -5,13 +5,34 @@ from typing import Any
 from runtime.scheduler.recipe import compile_playbook_instruction, recipe_has_playbook
 
 
-def format_scheduled_user_reminder(prompt_text: str) -> str:
+def format_scheduled_user_reminder(prompt_text: str, *, lang: str = "en") -> str:
     body = str(prompt_text or "").strip()
     if not body:
         return ""
     if body.startswith("⏰"):
         return body
-    return f"⏰ 提醒：{body}"
+    if str(lang or "").lower().startswith("zh"):
+        return f"⏰ 提醒：{body}"
+    return f"⏰ Reminder: {body}"
+
+
+def format_scheduled_failure_summary(
+    *,
+    job_name: str = "",
+    job_id: str = "",
+    error: str = "",
+    lang: str = "en",
+) -> str:
+    """Short user-facing failure notice for WhatsApp/WeChat scheduled delivery."""
+    name = str(job_name or "").strip() or str(job_id or "").strip() or "scheduled job"
+    err = " ".join(str(error or "").strip().split())
+    if len(err) > 240:
+        err = err[:237] + "..."
+    if not err:
+        err = "unknown error"
+    if str(lang or "").lower().startswith("zh"):
+        return f"[定时任务失败] {name}\n错误：{err}\n请检查任务配置或手动重试。"
+    return f"[Scheduled job failed] {name}\nError: {err}\nCheck the job config or retry manually."
 
 
 def build_scheduled_turn_instruction(
@@ -71,6 +92,7 @@ def scheduled_turn_system_suffix(*, lang: str, playbook: bool = False) -> str:
 
 __all__ = [
     "build_scheduled_turn_instruction",
+    "format_scheduled_failure_summary",
     "format_scheduled_user_reminder",
     "scheduled_turn_system_suffix",
 ]

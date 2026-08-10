@@ -76,7 +76,7 @@ def enqueue_scheduled_job_run(
     trace_id = uuid.uuid4().hex
     agent_run_id = uuid.uuid4().hex
     prompt_text = str(getattr(job, "prompt_text", "") or "").strip()
-    lang = str(getattr(job, "lang", "") or "zh")
+    lang = str(getattr(job, "lang", "") or "en")
     recipe = load_recipe_from_job(job)
     playbook = recipe_has_playbook(recipe)
     user_text = build_scheduled_turn_instruction(

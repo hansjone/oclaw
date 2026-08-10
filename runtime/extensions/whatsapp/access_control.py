@@ -343,9 +343,21 @@ def coerce_whatsapp_access_target(value: str) -> str:
     return normalize_whatsapp_target(normalize_whatsapp_phone(value))
 
 
-def denied_reply_text(*, lang: str) -> str:
+def denied_reply_text(*, lang: str, pending_id: str = "") -> str:
+    pid = str(pending_id or "").strip()
     if str(lang or "").strip().lower().startswith("zh"):
+        if pid:
+            return (
+                f"访问申请已提交（编号 {pid}）。管理员同意后即可使用；"
+                "请稍候，无需重复发送相同请求。"
+            )
         return "无权限：您尚未获得使用此助手的授权。请联系管理员。"
+    if pid:
+        return (
+            f"Access pending (request {pid}): an administrator was notified. "
+            "You can use the assistant after they approve with YES. "
+            "No need to resend the same request."
+        )
     return "Access denied: you are not authorized to use this assistant. Please contact an administrator."
 
 

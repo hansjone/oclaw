@@ -500,7 +500,7 @@ def handle_whatsapp_access(
             {
                 "channel": "whatsapp",
                 "chat_id": inbound.external_chat_id,
-                "text": denied_reply_text(lang=lang),
+                "text": denied_reply_text(lang=lang, pending_id=str(pending_id or "")),
                 "attachments": [],
                 "metadata": reply_meta,
             }
