@@ -21,6 +21,7 @@ description: 面向 ops 专家的 netx 纳管网元（网元管理）作业手�
    - **UME 清单（无需逐台纳管）**：`mcp__netx__listCliTargets`（`source=ume`）或 `queryUmeNeInventory` 取 `ne_id`，再用 `ume_ne_id` 执行 CLI（需先在 netx **UME → CLI 连接** 配置统一凭据/跳板）
 2. **登录查信息**
    - `mcp__netx__execManagedNe`：`ne_id` **或** `ume_ne_id` + `commands`（默认最多 5 条，可由 `NETX_NE_EXEC_MAX_COMMANDS` 调高，硬上限 50）
+   - **多台同命令（推荐）**：一次调用传 `ne_ids` / `ume_ne_ids`（或 `targets`）+ 共享 `commands`，服务端并发执行（默认 concurrency=4，最多 20 台）。禁止对同一 show 命令逐台循环 `execManagedNe`
    - **一次会话内**：`listCliTargets` 最多调用一次，缓存返回的 id；多条 show 合并进同一次 `commands`，禁止「list→exec→list→exec」循环
    - 超时：提高 `read_timeout_sec`（默认 60，慢命令 90–120）或减少命令条数，禁止对同一命令盲重试
 

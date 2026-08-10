@@ -21,8 +21,9 @@ def _mcp_row_env_config(row: dict[str, Any]) -> tuple[list[str], dict[str, str]]
 
 # Long-running netx tools exceed the generic MCP row timeout (often 30s).
 # Production WA ops showed execManagedNe p90/p95 glued to ~30000ms timeouts.
+# Batch multi-NE exec posts once to /exec-batch (server concurrency); allow longer wall clock.
 _MCP_TOOL_TIMEOUT_OVERRIDES_S: dict[str, float] = {
-    "execManagedNe": 320.0,
+    "execManagedNe": 620.0,
     "sqlQueryUme": 90.0,
     "findTopologyPaths": 60.0,
     "aggregateUmeAlarmsRaw": 60.0,
@@ -43,6 +44,26 @@ _MCP_LIST_CACHE_TTL_S: dict[str, float] = {
     "runUmeDiagnostics": 60.0,
     "findTopologyPaths": 60.0,
 }
+
+# Safe to run in parallel with other consecutive read-only tools (separate MCP stdio processes).
+# Do NOT include execManagedNe: same-tool fans share one stdio lock — use ne_ids/ume_ne_ids batch instead.
+_MCP_READ_ONLY_TOOLS: frozenset[str] = frozenset(
+    {
+        "listCliTargets",
+        "listManagedNe",
+        "getManagedNe",
+        "getUmeNe",
+        "queryUmeNeInventory",
+        "queryUmeAlarms",
+        "queryUmeAlarmsRaw",
+        "aggregateUmeAlarms",
+        "aggregateUmeAlarmsRaw",
+        "listUmeAlarmFields",
+        "runUmeDiagnostics",
+        "findTopologyPaths",
+        "sqlQueryUme",
+    }
+)
 
 _MCP_LIST_CACHE_LOCK = threading.Lock()
 _MCP_LIST_CACHE: dict[str, tuple[float, float, dict[str, Any]]] = {}
@@ -176,6 +197,7 @@ class _McpBoundTool:
             timeout_s=self.timeout_s,
             required_permissions=self.required_permissions,
             execution_mode="subprocess",
+            read_only=self.tool_name in _MCP_READ_ONLY_TOOLS,
         )
 
 
