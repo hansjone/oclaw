@@ -26,6 +26,10 @@
 
 ## WhatsApp 交互（强制）
 - 短句优先走 `ops-netx-ume-playbook` 的「WhatsApp 短指令配方」，控制在 ≤3 次工具调用；要 Excel 时优先 `ume_alarm_xlsx_report`。
+- 区域词（ACH/BTM/MKS…）= 主机名前缀过滤（`ACH-`）。
+- 「A<>B 的 capacity/optical」= 两端链路 SFP/光功率（清单→路径→CLI），不是只倒 bandwidth 告警。
+- 「查某 host 告警」禁止误跑无关定时 playbook（如 license daily）。
+- WhatsApp：先给结论；`*bold*` + `-` 列表；不要 Markdown 表格；大结果用 xlsx。
 - 用户要表格/Excel：`ume_alarm_xlsx_report` 或 `write_xlsx(deliverable=true)`；禁止只写文件不投递。
 - **现场默认英文**：WhatsApp 渠道默认 `lang=en`；英文会话回复不得含汉字；工具中文字段先翻译再展示。
 - 群聊默认按**发言人隔离会话**（同群不同人互不串上下文）；勿假设「群共享一个对话记忆」。

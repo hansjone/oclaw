@@ -25,6 +25,33 @@ description: 面向 ops 专家的 netx 纳管网元（网元管理）作业手�
    - **一次会话内**：`listCliTargets` 最多调用一次，缓存返回的 id；多条 show 合并进同一次 `commands`，禁止「list→exec→list→exec」循环
    - 超时：提高 `read_timeout_sec`（默认 60，慢命令 90–120）或减少命令条数，禁止对同一命令盲重试
 
+## Field link recipes (WhatsApp EN)
+
+### Capacity / optical power between two names
+
+When user says **capacity**, **bandwidth between A and B**, or **optical power A <> B** (prod vocabulary):
+
+1. Resolve nicknames → real `host_name` via inventory/wiki (`SEMBAWA` → e.g. `PLG-SMW-EN1-…`).
+2. Find interconnect: `findTopologyPaths` and/or LLDP (`show lldp …` / vendor equivalent) — identify **both ports**.
+3. Read optics on **both** ends with the correct vendor command (below). Summarize: interface, RX/TX power, threshold, whether link is up.
+4. Do **not** answer with only UME bandwidth-usage-rate alarms unless the user asked for congestion alarms.
+
+### ZTE optical CLI (prod corrections)
+
+Try in order; **one failure → switch command, do not retry the same spelling**:
+
+| Prefer | Fallback / notes |
+|--------|------------------|
+| `show opticalinfo brief` | Field-confirmed on ZXR10 (e.g. ANGKATAN / `PLG-A45-…`) |
+| `show optical brief` | Some EN platforms |
+| `show opticalinfo brief \| begin <if>` | Narrow to one interface after port known |
+
+Cisco/Huawei: use `show interface transceiver` / `display optical-module` style allowlisted commands as applicable.
+
+### Multi-NE same show
+
+Prefer `execManagedNe(ume_ne_ids=[…], commands=[…])` once. Cap to the NEs on the asked path (usually 2).
+
 ## CLI 约束（服务端强制）
 
 - 允许前缀：`show `、`display `、`ping `、`ping6 `、`traceroute `、`tracert `、`trace `、`trace6 `

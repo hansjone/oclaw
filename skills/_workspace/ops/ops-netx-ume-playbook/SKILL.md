@@ -63,12 +63,46 @@ Prefer these fixed paths for short group/DM asks (EN first; ZH aliases still wor
 | Critical Top / alarm tally | ① `aggregateUmeAlarms(severity=critical, top_ne=20)`; for file: `ume_alarm_xlsx_report(mode=aggregate_by_host, severity=critical)` |
 | how many alarms / tally | ① `runUmeDiagnostics` or `aggregateUmeAlarms`; ② report by_severity + freshness |
 | export Excel / send spreadsheet | `ume_alarm_xlsx_report` **or** `write_xlsx(..., deliverable=true)`; never split into 3 steps |
+| CRC in area PAD / ACH / … | `queryUmeAlarmsRaw(keyword=CRC)` then keep rows whose `alarm_host_name` / `ne_host_name` starts with area prefix (`PAD-`, `ACH-`, …). Optional xlsx via `write_xlsx(deliverable=true)` |
+| bandwidth / congestion / usage rate (+ area) | keyword=`bandwidth` (do **not** require event_type unless user asks); filter hostname prefix for area; CLI validate only top 3–5 if user asks to confirm false positives |
+| BN EMS / dying gasp / unmanaged (+ area) | keyword or native cause match (`BN EMS` / `dying gasp`); filter area prefix; short EN summary + optional xlsx |
+| power / temperature / fan alarms (+ area/NE) | keyword=`power` / `temperature` / `fan`; scope to host or area prefix |
+| alarm on **one hostname** (e.g. `MDN-PLSP`, `MKS-SWBP-EN1`) | `queryUmeAlarms` / `queryUmeAlarmsRaw` with `host_name` / keyword=hostname. **Never** start a scheduled License/daily playbook |
+| alarm history / time range (e.g. `17.50-18.15`) | Resolve **WIB (UTC+7)** wall clock → `time_from`/`time_to` on `last_seen_at` / history fields; first check freshness; name hosts exactly (`MKS-KIM-CN1`) |
+| is NE rebooted? / alarm history for NE | Host-scoped alarm history (reboot/reload/power related causes); answer yes/no + evidence times |
 
 Delivery rules:
 - `ume_alarm_xlsx_report` defaults `deliverable=true` so WhatsApp receives the file.
 - Generic sheets: `write_xlsx(..., deliverable=true)` can skip `save_deliverable_attachment`.
 - Do not build xlsx via `run_command` + openpyxl.
-- Confirm short replies (`YES` / `confirm` / `继续`): continue the previous task; do not restart the query.
+- Confirm short replies (`YES` / `confirm` / `继续` / `ya` / `yea`): continue the previous task; do not restart the query.
+
+### Field vocabulary (prod-learned; enforce)
+
+- **Area** = hostname **prefix** before first extra segment: `BTM-`, `ACH-`, `MKS-`, `PAD-`, `MDN-`, `KND-`, `SMD-`, `MDO-`, `PLG-`, … Case-insensitive starts-with.
+- **Capacity / bandwidth between A and B** (user correction in field): means **SFP/optical link capacity between two hostnames**, not UME bandwidth-usage-rate alarms alone. Resolve both NEs → interconnect ports (`findTopologyPaths` / LLDP) → optical/SFP CLI. See `ops-netx-managed-ne-playbook`.
+- **Site nicknames** (SEMBAWA, ANGKATAN_EP, …): resolve via inventory/wiki/`queryUmeNeInventory(keyword=…)` **before** CLI; never invent hostnames.
+- **Local clock phrases** (`17.50`, `today`, `yesterday`): treat as **Asia/Jakarta (WIB, UTC+7)** unless user says otherwise.
+
+### Anti-patterns seen in field (do not repeat)
+
+1. **Wrong playbook hijack** — User: `query alarm on MDN-AHJ-AN1` → must NOT run License/daily scheduled playbook. Answer that host’s current alarms only.
+2. **Narration-only turns** — Avoid “Let me start by…” / “I’ll fetch fields…” as the only WhatsApp message. Prefer: progress throttle already exists; final reply = **findings first** (counts + top hosts), then optional detail.
+3. **Markdown tables on WhatsApp** — Do not send `|---|+` pipe tables or `##` headings. Use `*bold*` labels and `-` bullets (outbound converter helps, but write WA-native).
+4. **Apology loops** — If user asks “are you still running / why no response?”, resume the **quoted task** immediately; one short status line, then results. Do not ask what a Run ID might mean if `schedule_list` / job tools can answer.
+5. **Group noise** — Pure emoji / mention-only / “hi” with no ops ask: stay minimal or silent per group policy; do not give a long “how can I help” menu.
+6. **Blind CLI retries** — Wrong ZTE optic command once → switch to `show opticalinfo brief` (see managed-ne skill); do not retry the failed spelling.
+
+### Answer shape (WhatsApp EN)
+
+```
+*<topic> — <area/NE>*
+- Finding: …
+- Evidence: N alarms / CLI ok|fail
+- Next: … (only if needed)
+```
+
+Keep body short; put large tables in **xlsx attachment**.
 
 ## 约束与护栏
 

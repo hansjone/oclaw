@@ -33,6 +33,20 @@
 | 按 host 统计+Excel | `ume_alarm_xlsx_report(mode=aggregate_by_host, severity=critical)` |
 | 断纤/离线清单+Excel | `ume_alarm_xlsx_report(mode=fiber_cut\|offline)` |
 | 发 Excel（已有表数据） | `write_xlsx(..., deliverable=true)` |
+| 区域 + 关键字（CRC/bandwidth/power） | `queryUmeAlarmsRaw(keyword=…)` → 过滤 `host` 前缀 `AREA-` |
+| 单网元当前告警 | `queryUmeAlarms(host_name=…)` — **禁止**误跑 License 定时 playbook |
+| 两端 capacity/optical | 解析两端 hostname → `findTopologyPaths` / LLDP → CLI optic（见 managed-ne） |
+| 时间窗历史（WIB） | freshness → `time_from`/`time_to`（按 Asia/Jakarta） |
+
+## 3c) 现场口语 → 动作
+
+| 用户说法 | 正确理解 |
+|----------|----------|
+| congestion / bandwidth usage in ACH | UME keyword bandwidth + hostname `ACH-`；要验真再 CLI top N |
+| capacity A to B / optical power A <> B | **链路口 SFP/光功率**，不是单独告警 tally |
+| site SEMBAWA / ANGKATAN_EP | 先 inventory/wiki 解析成真实 `host_name` |
+| `17.50 - 18.15` | WIB 当天 17:50–18:15 |
+| check alarm on MDN-xxx | **仅该 host**；勿触发 daily license 等无关 playbook |
 
 ## 4) 诊断
 
