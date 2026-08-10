@@ -199,9 +199,51 @@ def enrich_exec_managed_ne_error(result: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
+def classify_tool_failure(result: dict[str, Any]) -> str:
+    """Coarse failure class for analytics / retry guards (English field ops)."""
+    if not isinstance(result, dict) or result.get("ok") is not False:
+        return ""
+    existing = str(result.get("failure_class") or result.get("error_class") or "").strip().lower()
+    if existing:
+        return existing
+    code = str(result.get("error_code") or "").strip().lower()
+    err = str(result.get("error") or "").strip().lower()
+    hint = str(result.get("hint") or "").strip().lower()
+    blob = f"{code} {err} {hint}"
+    if code in {"tool_invalid_arguments", "invalid_arguments"} or "invalid arguments" in blob or "参数不合法" in err:
+        return "schema_validation"
+    if "insufficient_scope" in blob or code == "insufficient_scope":
+        return "scope"
+    if "timeout" in blob or code == "tool_timeout_or_failed":
+        return "timeout"
+    if any(x in blob for x in ("unreachable", "connect_failed", "connection refused", "no route")):
+        return "unreachable"
+    if any(x in blob for x in ("auth", "permission denied", "authentication", "login failed")):
+        return "auth"
+    if code in {"tool_loop_guard", "identical_retry_blocked"}:
+        return "retry_guard"
+    if code in {"tool_not_registered"}:
+        return "not_registered"
+    return "runtime"
+
+
+def stamp_tool_failure_class(result: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(result, dict) or result.get("ok") is not False:
+        return result if isinstance(result, dict) else {"ok": False, "error": "tool_result_not_dict"}
+    out = dict(result)
+    klass = classify_tool_failure(out)
+    if klass:
+        out["failure_class"] = klass
+        if not str(out.get("error_class") or "").strip():
+            out["error_class"] = klass
+    return out
+
+
 __all__ = [
+    "classify_tool_failure",
     "enrich_exec_managed_ne_error",
     "enrich_mcp_scope_error",
     "format_unregistered_tool_error",
+    "stamp_tool_failure_class",
     "suggest_tool_names",
 ]

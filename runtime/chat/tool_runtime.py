@@ -318,6 +318,51 @@ def _session_has_video_ref(store: Any, session_id: str, *, limit: int = 300) -> 
     return False
 
 
+def _parse_event_payload(raw: Any) -> dict[str, Any]:
+    if isinstance(raw, dict):
+        return dict(raw)
+    if isinstance(raw, str) and raw.strip():
+        try:
+            data = json.loads(raw)
+            return data if isinstance(data, dict) else {}
+        except Exception:
+            return {}
+    return {}
+
+
+def _load_turn_failed_signatures(store: Any, *, session_id: str, turn_uuid: str) -> set[str]:
+    """Signatures that already failed earlier in this turn (blind-retry guard)."""
+    tu = str(turn_uuid or "").strip()
+    sid = str(session_id or "").strip()
+    out: set[str] = set()
+    if not tu or not sid:
+        return out
+    try:
+        rows = store.get_messages(session_id=sid, limit=500)
+    except Exception:
+        return out
+    for m in rows or []:
+        if str(getattr(m, "role", "") or "").strip().lower() != "tool":
+            continue
+        if str(getattr(m, "turn_uuid", "") or "").strip() != tu:
+            continue
+        ep = _parse_event_payload(getattr(m, "event_payload", None))
+        sig = str(ep.get("tool_signature") or "").strip()
+        if not sig:
+            continue
+        if ep.get("ok") is False:
+            out.add(sig)
+            continue
+        # Fallback: inspect tool body when older rows lack ok in event_payload.
+        try:
+            payload = json.loads(str(getattr(m, "content", "") or "") or "{}")
+        except Exception:
+            payload = {}
+        if isinstance(payload, dict) and payload.get("ok") is False:
+            out.add(sig)
+    return out
+
+
 def normalize_tool_result(result: Any) -> dict[str, Any]:
     if isinstance(result, dict):
         out = dict(result)
@@ -335,6 +380,9 @@ def normalize_tool_result(result: Any) -> dict[str, Any]:
         raw_err = str(out.get("error") or "").strip()
         if not raw_ec:
             out["error_code"] = _TOOL_ERROR_MAP.get(raw_err, "tool_failed")
+        from runtime.tools.tool_error_hints import stamp_tool_failure_class
+
+        out = stamp_tool_failure_class(out)
     return out
 
 
@@ -881,6 +929,11 @@ class ToolExecutor:
         has_text_ref_in_session = _session_has_text_ref(ctx.store, ctx.session_id)
         has_image_ref_in_session = _session_has_image_ref(ctx.store, ctx.session_id)
         has_video_ref_in_session = _session_has_video_ref(ctx.store, ctx.session_id)
+        failed_signatures = _load_turn_failed_signatures(
+            ctx.store,
+            session_id=ctx.session_id,
+            turn_uuid=str(ctx.turn_uuid or ""),
+        )
 
         results_by_id: dict[str, tuple[dict[str, Any], int]] = {}
         runnable_tool_uses: list[LLMToolCall] = []
@@ -966,6 +1019,28 @@ class ToolExecutor:
                 )
                 continue
             sig = f"{tc.name}:{self._json_dumps_safe(dict(tc.arguments or {}))}"
+            if sig in failed_signatures:
+                results_by_id[tc.id] = (
+                    {
+                        "ok": False,
+                        "error_code": "identical_retry_blocked",
+                        "failure_class": "retry_guard",
+                        "error": f"identical failed call already ran this turn: {tc.name}",
+                        "hint": (
+                            "Same tool+arguments already failed earlier in this turn. "
+                            "Change arguments, raise timeouts, or switch tools — do not blind-retry."
+                        ),
+                    },
+                    0,
+                )
+                _trace(
+                    "identical_retry_blocked",
+                    {
+                        "tool_name": tc.name,
+                        "signature": sig[:300],
+                    },
+                )
+                continue
             count = int(sig_seen.get(sig, 0))
             name_low = str(tc.name or "").strip().lower()
             listish = name_low.endswith(
@@ -1059,6 +1134,8 @@ class ToolExecutor:
             )
             result, duration_ms = results_by_id[tc.id]
             result = normalize_tool_result(result)
+            if isinstance(result, dict) and result.get("ok") is False:
+                failed_signatures.add(f"{tc.name}:{self._json_dumps_safe(dict(tc.arguments or {}))}")
             persisted_result, ingested_refs = ingest_embedded_image_blobs_as_refs(
                 result,
                 filename_prefix=f"{str(tc.name or 'tool')}-{str(tc.id or '')}",
@@ -1100,6 +1177,7 @@ class ToolExecutor:
             trunc_ms = int((time.perf_counter() - t_trunc) * 1000)
             tool_content = self._json_dumps_safe(result_for_llm)
             t_db2 = time.perf_counter()
+            tool_sig = f"{tc.name}:{self._json_dumps_safe(dict(tc.arguments or {}))}"
             msg_row = ctx.store.add_message(
                 session_id=ctx.session_id,
                 role="tool",
@@ -1108,7 +1186,13 @@ class ToolExecutor:
                 attachments=(_merge_attachments(_attachments_from_tool_result(persisted_result), ingested_refs) or None),
                 turn_uuid=ctx.turn_uuid,
                 event_type="tool_result",
-                event_payload={"tool_name": tc.name, "observed_rows": int(observed_rows_this_call)},
+                event_payload={
+                    "tool_name": tc.name,
+                    "observed_rows": int(observed_rows_this_call),
+                    "ok": bool(result.get("ok")) if isinstance(result, dict) else False,
+                    "tool_signature": tool_sig[:800],
+                    "failure_class": str((result or {}).get("failure_class") or "") if isinstance(result, dict) else "",
+                },
             )
             try:
                 owner = ctx.store.get_ui_session_owner(session_id=ctx.session_id) or {}

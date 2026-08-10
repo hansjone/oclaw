@@ -28,6 +28,12 @@ _HINTS: dict[str, tuple[str, str]] = {
         "do not build xlsx via run_command.]",
         "[短指令：导出 Excel。优先 ume_alarm_xlsx_report 或 write_xlsx(deliverable=true)；禁止 run_command 造表。]",
     ),
+    "license": (
+        "[Ops short-intent: license/capacity. Prefer aggregateUmeAlarms / queryUmeAlarmsRaw with license keywords, "
+        "or ume_alarm_xlsx_report(mode=list, keyword=license); ≤3 tool calls — no CLI spam.]",
+        "[短指令：License/容量。优先 aggregateUmeAlarms / queryUmeAlarmsRaw（license 关键字）"
+        "或 ume_alarm_xlsx_report(mode=list, keyword=license)；≤3 次工具，勿刷 CLI。]",
+    ),
     "continue": (
         "[Ops short-intent: continue/confirm. Resume the unfinished prior task immediately; "
         "do not re-ask confirmation or restart the query from scratch.]",
@@ -58,6 +64,8 @@ def detect_ops_short_intent(text: str) -> str | None:
         return "offline"
     if any(k in t for k in ("excel", "xlsx", "spreadsheet", "export", "send me the table", "表格", "导出")):
         return "excel_export"
+    if any(k in t for k in ("license", "licence", "capacity", "带宽", "拥塞", "license到期")):
+        return "license"
     if any(
         k in t
         for k in (

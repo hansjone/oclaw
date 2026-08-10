@@ -2300,7 +2300,11 @@ class SqliteStore(ScheduledJobStoreMixin):
         if raw_cap.isdigit():
             cap = max(20_000, min(int(raw_cap), 2_000_000))
         args_capped = self._cap_json_for_log(args, max_chars=cap, keep_keys=())
-        result_capped = self._cap_json_for_log(result, max_chars=cap, keep_keys=("ok", "error_code", "error"))
+        result_capped = self._cap_json_for_log(
+            result,
+            max_chars=cap,
+            keep_keys=("ok", "error_code", "error", "failure_class", "error_class", "hint"),
+        )
         self._tool_log_queries_repo().insert_tool_log(
             session_id=str(session_id),
             tool_name=str(tool_name),
