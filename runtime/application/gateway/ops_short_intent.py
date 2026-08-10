@@ -12,36 +12,39 @@ _BOT_MENTION_RE = re.compile(r"@\S+")
 # intent -> (en hint, zh hint)
 _HINTS: dict[str, tuple[str, str]] = {
     "fiber_cut": (
-        "[Ops short-intent: fiber/LOS. Prefer ume_alarm_xlsx_report(mode=fiber_cut) in ≤3 tool calls; "
-        "do not paginate or re-list CLI targets first.]",
-        "[短指令：断纤/LOS。优先 ume_alarm_xlsx_report(mode=fiber_cut)，≤3 次工具；勿先翻页或反复 listCliTargets。]",
+        "[Ops short-intent: fiber/LOS. Call ume_alarm_xlsx_report(mode=fiber_cut, deliverable=true) now. "
+        "Inventory/CLI tools are hidden this turn — do not try listCliTargets/execManagedNe.]",
+        "[短指令：断纤/LOS。立即 ume_alarm_xlsx_report(mode=fiber_cut, deliverable=true)。"
+        "本轮已隐藏清单/CLI 工具，勿调用 listCliTargets/execManagedNe。]",
     ),
     "offline": (
-        "[Ops short-intent: offline NE. Prefer ume_alarm_xlsx_report(mode=offline) in ≤3 tool calls.]",
-        "[短指令：离线网元。优先 ume_alarm_xlsx_report(mode=offline)，≤3 次工具。]",
+        "[Ops short-intent: offline NE. Call ume_alarm_xlsx_report(mode=offline, deliverable=true) now. "
+        "Inventory/CLI tools are hidden this turn.]",
+        "[短指令：离线网元。立即 ume_alarm_xlsx_report(mode=offline, deliverable=true)。本轮已隐藏清单/CLI。]",
     ),
     "alarm_tally": (
-        "[Ops short-intent: alarm tally/top. Prefer aggregateUmeAlarms or "
-        "ume_alarm_xlsx_report(mode=aggregate_by_host); ≤3 tool calls.]",
-        "[短指令：告警统计/Top。优先 aggregateUmeAlarms 或 ume_alarm_xlsx_report(mode=aggregate_by_host)；≤3 次工具。]",
+        "[Ops short-intent: alarm tally/top. Prefer ume_alarm_xlsx_report(mode=aggregate_by_host) or "
+        "aggregateUmeAlarms; inventory/CLI tools are hidden this turn.]",
+        "[短指令：告警统计/Top。优先 ume_alarm_xlsx_report(mode=aggregate_by_host) 或 aggregateUmeAlarms；"
+        "本轮已隐藏清单/CLI。]",
     ),
     "excel_export": (
-        "[Ops short-intent: Excel export. Prefer ume_alarm_xlsx_report or write_xlsx(deliverable=true); "
-        "do not build xlsx via run_command.]",
-        "[短指令：导出 Excel。优先 ume_alarm_xlsx_report 或 write_xlsx(deliverable=true)；禁止 run_command 造表。]",
+        "[Ops short-intent: Excel export. Prefer ume_alarm_xlsx_report or write_xlsx(deliverable=true). "
+        "Inventory/CLI/run_command are hidden this turn — do not build xlsx via shell.]",
+        "[短指令：导出 Excel。优先 ume_alarm_xlsx_report 或 write_xlsx(deliverable=true)；"
+        "本轮已隐藏清单/CLI/run_command。]",
     ),
     "license": (
-        "[Ops short-intent: license/capacity. Prefer aggregateUmeAlarms / queryUmeAlarmsRaw with license keywords, "
-        "or ume_alarm_xlsx_report(mode=list, keyword=license); ≤3 tool calls — no CLI spam.]",
-        "[短指令：License/容量。优先 aggregateUmeAlarms / queryUmeAlarmsRaw（license 关键字）"
-        "或 ume_alarm_xlsx_report(mode=list, keyword=license)；≤3 次工具，勿刷 CLI。]",
+        "[Ops short-intent: license/capacity. Prefer ume_alarm_xlsx_report(mode=list, keyword=license) or "
+        "aggregateUmeAlarms/queryUmeAlarmsRaw; CLI/inventory tools are hidden this turn.]",
+        "[短指令：License/容量。优先 ume_alarm_xlsx_report(mode=list, keyword=license) 或 "
+        "aggregate/queryUmeAlarmsRaw；本轮已隐藏 CLI/清单。]",
     ),
     "congestion": (
-        "[Ops short-intent: bandwidth congestion. Prefer aggregateUmeAlarms / queryUmeAlarmsRaw "
-        "(bandwidth/utilization/congestion keywords) or ume_alarm_xlsx_report(mode=list); "
-        "≤3 tool calls — no CLI spam / no sqlQueryUme unless scoped.]",
-        "[短指令：带宽拥塞。优先 aggregateUmeAlarms / queryUmeAlarmsRaw（带宽/利用率/拥塞）"
-        "或 ume_alarm_xlsx_report(mode=list)；≤3 次工具，勿刷 CLI / 勿先 sqlQueryUme。]",
+        "[Ops short-intent: bandwidth congestion. Prefer ume_alarm_xlsx_report(mode=list) or "
+        "aggregateUmeAlarms/queryUmeAlarmsRaw; CLI/inventory/sql are hidden this turn.]",
+        "[短指令：带宽拥塞。优先 ume_alarm_xlsx_report(mode=list) 或 aggregate/query；"
+        "本轮已隐藏 CLI/清单/sql。]",
     ),
     "continue": (
         "[Ops short-intent: continue/confirm. Resume the unfinished prior task immediately; "
@@ -49,6 +52,65 @@ _HINTS: dict[str, tuple[str, str]] = {
         "[短指令：继续/确认。立即承接上一未完成任务；勿再问确认或重开查询。]",
     ),
 }
+
+# Report-style short intents: hide inventory/CLI loops that dominate WA tool spam.
+_REPORT_TOOL_FILTER_INTENTS = frozenset(
+    {"fiber_cut", "offline", "alarm_tally", "excel_export", "license", "congestion"}
+)
+
+# Match bare tool names and mcp__netx__* / legacy netx_* aliases.
+_SUPPRESSED_TOOL_NAMES = frozenset(
+    {
+        "listclitargets",
+        "listmanagedne",
+        "getmanagedne",
+        "execmanagedne",
+        "queryumeneinventory",
+        "getumene",
+        "findtopologypaths",
+        "sqlqueryume",
+        "run_command",
+        "netx_list_managed_ne",
+        "netx_get_managed_ne",
+        "netx_exec_managed_ne",
+        "netx_sql_query_ume",
+        "netx_list_cli_targets",
+    }
+)
+
+
+def _tool_name_key(name: str) -> str:
+    raw = str(name or "").strip()
+    if not raw:
+        return ""
+    # mcp__netx__listManagedNe -> listManagedNe
+    if "__" in raw:
+        raw = raw.rsplit("__", 1)[-1]
+    return raw.strip().lower()
+
+
+def ops_short_intent_should_filter_tools(intent: str | None) -> bool:
+    return str(intent or "").strip() in _REPORT_TOOL_FILTER_INTENTS
+
+
+def is_ops_short_intent_suppressed_tool(tool_name: str, *, intent: str | None) -> bool:
+    if not ops_short_intent_should_filter_tools(intent):
+        return False
+    key = _tool_name_key(tool_name)
+    return bool(key) and key in _SUPPRESSED_TOOL_NAMES
+
+
+def filter_tool_specs_for_ops_short_intent(tools: list[Any], *, intent: str | None) -> list[Any]:
+    """Drop inventory/CLI tools for report-style short intents (keep alarm/xlsx path)."""
+    if not ops_short_intent_should_filter_tools(intent):
+        return list(tools or [])
+    out: list[Any] = []
+    for spec in tools or []:
+        name = str(getattr(spec, "name", "") or "")
+        if is_ops_short_intent_suppressed_tool(name, intent=intent):
+            continue
+        out.append(spec)
+    return out
 
 
 def normalize_ops_user_text(text: str) -> str:
@@ -180,8 +242,11 @@ __all__ = [
     "build_group_mention_nudge_text",
     "build_ops_short_intent_hint",
     "detect_ops_short_intent",
+    "filter_tool_specs_for_ops_short_intent",
+    "is_ops_short_intent_suppressed_tool",
     "maybe_ops_short_intent_system_hint",
     "normalize_ops_user_text",
+    "ops_short_intent_should_filter_tools",
     "reset_group_mention_nudge_throttle_for_tests",
     "should_send_group_mention_nudge",
 ]

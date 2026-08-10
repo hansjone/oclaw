@@ -1216,6 +1216,34 @@ class OclawGateway:
             tools = tools_override if tools_override is not None else getattr(selected_executor, "tools", None)
             if model is None or tools is None:
                 raise RuntimeError("executor missing model/tools")
+            if self._is_channel_delivery_channel(msg) and isinstance(tools, ToolRegistry):
+                from runtime.application.gateway.ops_short_intent import (
+                    detect_ops_short_intent,
+                    filter_tool_specs_for_ops_short_intent,
+                    ops_short_intent_should_filter_tools,
+                )
+
+                md_intent = msg.metadata if isinstance(msg.metadata, dict) else {}
+                short_intent = detect_ops_short_intent(
+                    str(msg.text or md_intent.get("raw_inbound_text") or "")
+                )
+                if ops_short_intent_should_filter_tools(short_intent):
+                    before_n = len(tools.list())
+                    filtered_specs = filter_tool_specs_for_ops_short_intent(
+                        tools.list(), intent=short_intent
+                    )
+                    if len(filtered_specs) < before_n:
+                        tools_override = ToolRegistry(filtered_specs)
+                        tools = tools_override
+                        _trace_local(
+                            event_type="ops_short_intent_tools_filtered",
+                            payload={
+                                "intent": short_intent,
+                                "before_count": before_n,
+                                "after_count": len(filtered_specs),
+                            },
+                            started_at=t0,
+                        )
             sys_prompt = system_prompt_override or str(getattr(selected_executor, "system_prompt", "") or "")
             if self._is_channel_delivery_channel(msg):
                 ch_hint = self._channel_file_delivery_system_hint(lang)
@@ -1224,10 +1252,10 @@ class OclawGateway:
                 focus_hint = self._group_focus_system_hint(msg, lang)
                 if focus_hint:
                     sys_prompt = f"{sys_prompt}\n\n{focus_hint}".strip()
-                if str(manager_specialist or requested_specialist or "").strip().lower() == "ops":
-                    intent_hint = self._ops_short_intent_system_hint(msg, lang)
-                    if intent_hint:
-                        sys_prompt = f"{sys_prompt}\n\n{intent_hint}".strip()
+                # Always inject short-intent recipe on WA/weixin (not only when specialist==ops).
+                intent_hint = self._ops_short_intent_system_hint(msg, lang)
+                if intent_hint:
+                    sys_prompt = f"{sys_prompt}\n\n{intent_hint}".strip()
             if self._has_tabular_ref_attachments(msg):
                 sys_prompt = f"{sys_prompt}\n\n{self._tabular_query_system_hint(lang)}".strip()
             if self._has_text_ref_attachments(msg):
