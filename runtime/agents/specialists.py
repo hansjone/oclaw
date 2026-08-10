@@ -69,7 +69,7 @@ def specialist_ids() -> tuple[SpecialistId, ...]:
 
 
 def agent_role_ids() -> tuple[AgentRoleId, ...]:
-    return (MANAGER_AGENT_ID, *specialist_ids())
+    return specialist_ids()
 
 
 def expert_name_for_specialist(specialist_id: SpecialistId) -> str:
@@ -101,6 +101,8 @@ def model_role_for_specialist(specialist_id: SpecialistId) -> AgentRoleId:
 
 def normalize_specialist_id(specialist_id: SpecialistId | None) -> SpecialistId:
     sid = (specialist_id or "").strip().lower()
+    if sid in {"manager", "manager_self", "main", "comprehensive"}:
+        return "generalist"
     if sid in _REMOVED_SPECIALIST_IDS:
         return "generalist"
     if sid in SPECIALISTS:
@@ -125,6 +127,11 @@ def parse_agent_profile_bindings(raw: str | None) -> dict[AgentRoleId, str]:
         return out
     if not isinstance(obj, dict):
         return out
+    # Fold legacy manager profile into generalist when generalist empty.
+    mgr = str(obj.get("manager") or "").strip()
+    if mgr and not str(obj.get("generalist") or "").strip():
+        obj = dict(obj)
+        obj["generalist"] = mgr
     for rid in agent_role_ids():
         v = obj.get(rid)
         if v is None:

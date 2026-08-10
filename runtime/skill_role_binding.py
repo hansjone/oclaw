@@ -8,6 +8,7 @@ from runtime.agents.specialists import discover_specialist_ids
 
 SKILL_ROLE_BINDING_KEY = "skill_role_binding"
 SKILL_ROLE_BINDING_ENABLED_SETTING = "AIA_SKILL_ROLE_BINDING_ENABLED"
+# Deprecated: Manager inherit removed; kept so old settings keys do not crash readers.
 SKILL_ROLE_BINDING_MANAGER_INHERIT_SETTING = "AIA_SKILL_ROLE_BINDING_MANAGER_INHERIT"
 
 
@@ -22,7 +23,8 @@ def ordered_specialist_ids() -> list[str]:
 
 
 def ordered_binding_roles() -> list[str]:
-    return ["manager", *ordered_specialist_ids()]
+    """Roles that appear in skill-binding UI/maps (specialists only; no manager)."""
+    return ordered_specialist_ids()
 
 
 def skill_role_binding_enabled_env_present() -> bool:
@@ -80,24 +82,33 @@ def normalize_skill_role_binding(
     roles = available_roles if available_roles is not None else ordered_binding_roles()
     role_set = set(roles)
     out: dict[str, list[str]] = {r: [] for r in roles}
-    for k, v in (mapping_raw or {}).items():
-        rk = str(k or "").strip().lower()
+
+    def _append(rk: str, items: Any) -> None:
         if rk not in role_set:
-            continue
-        items = v if isinstance(v, list) else []
-        seen: set[str] = set()
-        for x in items:
+            return
+        rows = items if isinstance(items, list) else []
+        seen = set(out[rk])
+        for x in rows:
             nm = str(x or "").strip()
             if not nm or nm not in valid_skill_names or nm in seen:
                 continue
             seen.add(nm)
             out[rk].append(nm)
+
+    for k, v in (mapping_raw or {}).items():
+        rk = str(k or "").strip().lower()
+        # Legacy Manager bindings fold into generalist.
+        if rk == "manager":
+            rk = "generalist"
+        _append(rk, v)
     return out
 
 
 def allowed_workspace_skill_names_for_role(*, store: Any, role: str) -> set[str]:
-    """Union of manager-bound skills and skills bound to the given specialist role."""
+    """Skills bound to the given specialist role, plus public workspace skills."""
     r = str(role or "").strip().lower()
+    if r == "manager":
+        r = "generalist"
     if not r:
         return set()
     from runtime.skills import discover_public_workspace_skill_names
@@ -107,18 +118,8 @@ def allowed_workspace_skill_names_for_role(*, store: Any, role: str) -> set[str]
         mapping_raw=load_skill_role_binding_dict(store),
         valid_skill_names=_all_installed_skill_names(store),
     )
-    try:
-        raw_env = str(os.getenv(SKILL_ROLE_BINDING_MANAGER_INHERIT_SETTING) or "").strip()
-        if raw_env:
-            inherit_mgr = _truthy(raw_env)
-        else:
-            raw = str(store.get_setting(SKILL_ROLE_BINDING_MANAGER_INHERIT_SETTING) or "").strip()
-            inherit_mgr = _truthy(raw) if raw else True
-    except Exception:
-        inherit_mgr = True
-    mgr = {str(x).strip() for x in (mapping.get("manager") or []) if str(x).strip()} if inherit_mgr else set()
     sp = {str(x).strip() for x in (mapping.get(r) or []) if str(x).strip()}
-    return mgr | sp | public
+    return sp | public
 
 
 def _all_installed_skill_names(store: Any) -> set[str]:

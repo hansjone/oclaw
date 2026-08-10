@@ -8,14 +8,9 @@ from svc.persistence.assistant_store import get_assistant_store
 from runtime.agent_context import build_role_system_context
 from runtime.agents.specialists import discover_specialist_ids
 from runtime.direct_loop import tool_wire_freeze_status, warm_tool_wire_cache
-from runtime.skill_role_binding import SKILL_ROLE_BINDING_KEY
-from runtime.skills import workspace_skills_layout_signature
 from runtime.system_prompt import get_executor_prompt_static, warm_executor_prompt_cache
 from runtime.tools.catalog import default_registry
-from runtime.workspaces.experts import expert_workspace_signature_token, list_experts
 
-_MANAGER_PREBUILD_CACHE_LOCK = threading.Lock()
-_MANAGER_PREBUILD_CACHE: dict[tuple[Any, ...], dict[str, Any]] = {}
 _RUNTIME_PREWARM_LOCK = threading.Lock()
 _RUNTIME_PREWARM_RUNNING = False
 _RUNTIME_PREWARM_LAST: dict[str, Any] = {
@@ -31,47 +26,6 @@ _RUNTIME_PREWARM_HISTORY: list[dict[str, Any]] = []
 _RUNTIME_PREWARM_HISTORY_LIMIT = 40
 
 
-def _manager_settings_signature(store: Any) -> tuple[str, ...]:
-    keys = (
-        "AIA_SKILL_RUNTIME_ENABLED",
-        "AIA_SKILL_DISABLED_NAMES",
-        "AIA_SKILL_ROLE_BINDING_ENABLED",
-        "AIA_SKILL_ROLE_BINDING_MANAGER_INHERIT",
-        SKILL_ROLE_BINDING_KEY,
-        "AIA_CHAT_SPECIALIST_FLAGS_JSON",
-    )
-    parts: list[str] = []
-    for key in keys:
-        try:
-            val = str(store.get_setting(key) or "")
-        except Exception:
-            val = ""
-        parts.append(f"{key}={val}")
-    return tuple(parts)
-
-
-def _compact_line(text: str, *, limit: int = 80) -> str:
-    s = " ".join(str(text or "").strip().split())
-    if len(s) <= limit:
-        return s
-    return s[: max(0, limit - 1)] + "…"
-
-
-def _build_expert_desc_map() -> dict[str, str]:
-    out: dict[str, str] = {}
-    for row in list_experts():
-        eid = str(row.get("id") or "").strip().lower()
-        if not eid:
-            continue
-        files = row.get("files") if isinstance(row, dict) else {}
-        if not isinstance(files, dict):
-            continue
-        desc = _compact_line(str(files.get("ROLE_SYSTEM.md") or ""), limit=80)
-        if desc:
-            out[eid] = desc
-    return out
-
-
 def get_manager_prompt_prebuild(
     *,
     store: Any,
@@ -79,18 +33,8 @@ def get_manager_prompt_prebuild(
     base_url: str,
     memory_enabled: bool,
 ) -> dict[str, Any]:
-    cache_key = (
-        str(base_url or "").strip(),
-        bool(memory_enabled),
-        expert_workspace_signature_token(),
-        _manager_settings_signature(store),
-        workspace_skills_layout_signature(),
-    )
-    with _MANAGER_PREBUILD_CACHE_LOCK:
-        cached = _MANAGER_PREBUILD_CACHE.get(cache_key)
-    if isinstance(cached, dict):
-        return dict(cached)
-
+    """Legacy stub: Manager prompt packing removed; return specialist catalog only."""
+    del store, registry, base_url
     allowed_fixed = [str(x).strip().lower() for x in discover_specialist_ids() if str(x).strip()]
     if not allowed_fixed:
         allowed_fixed = ["generalist"]
@@ -99,38 +43,17 @@ def get_manager_prompt_prebuild(
     if "generalist" not in allowed_fixed:
         allowed_fixed.insert(0, "generalist")
     allowed_fixed_quoted = ", ".join([f'"{x}"' for x in allowed_fixed])
-
-    desc_by_id = _build_expert_desc_map()
-    candidate_lines = [f"- {sid}: {desc_by_id.get(sid) or 'no description'}" for sid in allowed_fixed]
-    dynamic_hint = (
-        f"\n{chr(10).join(candidate_lines)}\n"
-        "不要假设固定专家集合。"
-    )
-    manager_context = build_role_system_context(
-        "manager",
-        template_vars={"MANAGER_DYNAMIC_EXPERTS_HINT": dynamic_hint},
-    )
-    out = {
-        "manager_context": manager_context,
+    return {
+        "manager_context": "",
         "allowed_fixed": tuple(allowed_fixed),
         "allowed_fixed_quoted": allowed_fixed_quoted,
     }
-    with _MANAGER_PREBUILD_CACHE_LOCK:
-        _MANAGER_PREBUILD_CACHE[cache_key] = dict(out)
-        if len(_MANAGER_PREBUILD_CACHE) > 64:
-            _MANAGER_PREBUILD_CACHE.clear()
-    return out
 
 
 def warm_startup_prompt_prebuild(*, store: Any, registry: Any, base_url: str, memory_enabled: bool) -> dict[str, Any]:
+    del memory_enabled
     t0 = time.perf_counter()
-    manager_pack = get_manager_prompt_prebuild(
-        store=store,
-        registry=registry,
-        base_url=base_url,
-        memory_enabled=memory_enabled,
-    )
-    role_systems: dict[str, str] = {"manager": str(manager_pack.get("manager_context") or "")}
+    role_systems: dict[str, str] = {}
     for sid in discover_specialist_ids():
         role_systems[str(sid)] = build_role_system_context(str(sid))
     role_warm = warm_executor_prompt_cache(
@@ -144,7 +67,7 @@ def warm_startup_prompt_prebuild(*, store: Any, registry: Any, base_url: str, me
     return {
         "ok": True,
         "elapsed_ms": elapsed_ms,
-        "manager_candidates": int(len(manager_pack.get("allowed_fixed") or [])),
+        "manager_candidates": 0,
         "roles_warmed": int(role_warm.get("roles_warmed") or 0),
     }
 
@@ -187,7 +110,7 @@ def run_runtime_prewarm(
             base_url=base_url,
             memory_enabled=bool(memory_enabled),
         )
-        roles = ["manager", *list(discover_specialist_ids())]
+        roles = list(discover_specialist_ids())
         tool_stats = warm_tool_wire_cache(
             store=own_store,
             tools=registry,
@@ -245,24 +168,16 @@ def runtime_prewarm_prompts_snapshot(
     own_store = store if store is not None else get_assistant_store()
     registry = default_registry(store=own_store)
     target = str(role or "").strip().lower()
-    allowed_roles = ["manager", *list(discover_specialist_ids())]
+    if target in {"manager", "manager_self", "main"}:
+        target = "generalist"
+    allowed_roles = list(discover_specialist_ids())
     if target and target not in allowed_roles:
         return {"ok": False, "error": "invalid_role", "allowed_roles": allowed_roles}
     selected_roles = [target] if target else allowed_roles
 
-    manager_pack = get_manager_prompt_prebuild(
-        store=own_store,
-        registry=registry,
-        base_url=base_url,
-        memory_enabled=memory_enabled,
-    )
     prompts: dict[str, dict[str, Any]] = {}
     for rid in selected_roles:
-        base_system = (
-            str(manager_pack.get("manager_context") or "")
-            if rid == "manager"
-            else build_role_system_context(str(rid))
-        )
+        base_system = build_role_system_context(str(rid))
         executor_system = get_executor_prompt_static(
             store=own_store,
             tools=registry,

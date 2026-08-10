@@ -758,20 +758,13 @@ def _resolve_user_menu_chat_settings(
     """User-wide settings (⋯ menu): mode + specialist — all sessions share these keys."""
     user_mode_key = _chat_user_mode_setting_key(tenant_id=tenant_id, user_id=user_id, field="interaction_mode")
     user_specialist_key = _chat_user_mode_setting_key(tenant_id=tenant_id, user_id=user_id, field="specialist")
-    user_confirm_strategy_key = _chat_user_mode_setting_key(tenant_id=tenant_id, user_id=user_id, field="confirm_strategy")
-    user_plan_agent_version_key = _chat_user_mode_setting_key(
-        tenant_id=tenant_id, user_id=user_id, field="plan_agent_version"
-    )
     mode_raw = str(store.get_setting(user_mode_key) or "").strip()
     specialist_raw = str(store.get_setting(user_specialist_key) or "").strip()
-    confirm_raw = str(store.get_setting(user_confirm_strategy_key) or "").strip()
-    plan_agent_raw = str(store.get_setting(user_plan_agent_version_key) or "").strip()
     interaction_mode = normalize_interaction_mode(mode_raw or "expert")
     specialist = normalize_requested_specialist(specialist_raw or "generalist")
     specialist = _apply_specialist_flags(store, specialist)
-    confirm_strategy = _normalize_confirm_strategy({"confirm_strategy": (confirm_raw or "strict")})
-    plan_agent_version = _normalize_plan_agent_version({"plan_agent_version": (plan_agent_raw or "v1")})
-    return interaction_mode, specialist, confirm_strategy, plan_agent_version
+    # Legacy plan-mode fields kept as wire constants for older clients.
+    return interaction_mode, specialist, "strict", "v1"
 
 
 def _persist_user_menu_chat_settings(
@@ -784,6 +777,7 @@ def _persist_user_menu_chat_settings(
     confirm_strategy: str,
     plan_agent_version: str,
 ) -> None:
+    del confirm_strategy, plan_agent_version
     store.set_setting(
         _chat_user_mode_setting_key(tenant_id=tenant_id, user_id=user_id, field="interaction_mode"),
         interaction_mode,
@@ -792,15 +786,6 @@ def _persist_user_menu_chat_settings(
         _chat_user_mode_setting_key(tenant_id=tenant_id, user_id=user_id, field="specialist"),
         specialist,
     )
-    store.set_setting(
-        _chat_user_mode_setting_key(tenant_id=tenant_id, user_id=user_id, field="confirm_strategy"),
-        confirm_strategy,
-    )
-    store.set_setting(
-        _chat_user_mode_setting_key(tenant_id=tenant_id, user_id=user_id, field="plan_agent_version"),
-        plan_agent_version,
-    )
-    store.set_setting("AIA_EXPERT_PLAN_CONFIRM_STRATEGY", confirm_strategy)
 
 
 def _resolve_session_dialog_chat_settings(

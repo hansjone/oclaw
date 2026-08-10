@@ -230,10 +230,8 @@ def materialize_mcp_tools_for_specialist(
         return "mcp-remote" in joined and "/api/v1/mcps/webparser/sse" in joined
 
     sp = str(specialist or "").strip().lower()
-    if sp == "manager":
-        # Manager is a first-class binding role in admin UI/config.
-        # We keep it separate from generalist instead of aliasing.
-        sp = "manager"
+    if sp in {"manager", "manager_self", "main"}:
+        sp = "generalist"
     # Preferred mapping: specialist -> server_ids
     binding_server_ids: set[str] | None = None
     try:
@@ -243,6 +241,9 @@ def materialize_mcp_tools_for_specialist(
                 obj = json.loads(raw_binding)
                 if isinstance(obj, dict):
                     rows = obj.get(sp)
+                    # Legacy: if this specialist has no key, try manager bindings for generalist.
+                    if rows is None and sp == "generalist" and "manager" in obj:
+                        rows = obj.get("manager")
                     # 缺键或 null：视为未配置该专家的绑定 → 走下方「仅 coarse allowlist」逻辑（可见全部已启用 MCP）。
                     # 仅当键存在且为 JSON 数组时，才按白名单过滤（含空数组 = 刻意不给该专家任何 MCP）。
                     if rows is None:
@@ -262,8 +263,12 @@ def materialize_mcp_tools_for_specialist(
     except Exception:
         raw_allowed = ""
     if not raw_allowed:
-        raw_allowed = str(os.getenv("AIA_MCP_SPECIALISTS") or "generalist,manager,ops").strip()
+        raw_allowed = str(os.getenv("AIA_MCP_SPECIALISTS") or "generalist,ops").strip()
     allowed = {x.strip().lower() for x in raw_allowed.split(",") if x.strip()}
+    allowed.discard("manager")
+    allowed.discard("manager_self")
+    if "generalist" not in allowed and "ops" in allowed:
+        pass
     if binding_server_ids is None and sp and sp not in allowed:
         return []
     out: list[ToolSpec] = []

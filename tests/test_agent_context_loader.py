@@ -13,15 +13,16 @@ def _set_project_root(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
 
 def test_build_role_system_context_reads_runtime_workspaces(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     _set_project_root(monkeypatch, tmp_path)
-    ws = tmp_path / "runtime" / "workspaces" / "main"
+    ws = tmp_path / "runtime" / "workspaces" / "generalist"
     ws.mkdir(parents=True, exist_ok=True)
-    (ws / "SOUL.md").write_text("main soul", encoding="utf-8")
-    (ws / "ROLE_SYSTEM.md").write_text("main role system", encoding="utf-8")
+    (ws / "SOUL.md").write_text("generalist soul", encoding="utf-8")
+    (ws / "ROLE_SYSTEM.md").write_text("generalist role system", encoding="utf-8")
+    # Legacy manager/main aliases resolve to the generalist workspace.
     out = loader_mod.build_role_system_context("manager")
     assert "# SOUL" in out
-    assert "main soul" in out
+    assert "generalist soul" in out
     assert "# ROLE_SYSTEM" in out
-    assert "main role system" in out
+    assert "generalist role system" in out
 
 
 def test_build_role_system_context_cache_invalidates_on_file_change(

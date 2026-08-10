@@ -118,12 +118,12 @@ class AdminSkillsApiTests(unittest.TestCase):
         self.assertIn("available_roles", body)
         self.assertIn("mapping", body)
         roles = list(body.get("available_roles") or [])
-        self.assertIn("manager", roles)
+        self.assertNotIn("manager", roles)
+        self.assertIn("generalist", roles)
         mapping = dict(body.get("mapping") or {})
         for r in roles:
             mapping.setdefault(r, [])
         mapping["generalist"] = ["bind_demo_skill"]
-        mapping["manager"] = ["bind_demo_skill"]
         s = self.client.post(
             "/admin/api/skills/binding",
             json={"enabled": True, "mapping": mapping},
@@ -167,10 +167,8 @@ class AdminSkillsApiTests(unittest.TestCase):
             json={
                 "enabled": True,
                 "mapping": {
-                    "manager": ["effective_demo_skill"],
-                    "generalist": [],
+                    "generalist": ["effective_demo_skill"],
                     "ops": [],
-                    "image": [],
                     "memory": [],
                 },
             },
@@ -182,12 +180,12 @@ class AdminSkillsApiTests(unittest.TestCase):
         body = r.json() or {}
         self.assertTrue(body.get("ok"))
         items = list(body.get("items") or [])
-        self.assertTrue(any(str(x.get("role") or "") == "manager" for x in items))
-        mgr = next((x for x in items if str(x.get("role") or "") == "manager"), {})
-        self.assertGreaterEqual(int(mgr.get("workspace_total") or 0), 1)
-        self.assertGreaterEqual(int(mgr.get("total") or 0), int(mgr.get("workspace_total") or 0))
-        self.assertIn("workspace_docs_only", mgr)
-        self.assertIn("workspace_resolved_tool_match", mgr)
+        self.assertFalse(any(str(x.get("role") or "") == "manager" for x in items))
+        gen = next((x for x in items if str(x.get("role") or "") == "generalist"), {})
+        self.assertGreaterEqual(int(gen.get("workspace_total") or 0), 1)
+        self.assertGreaterEqual(int(gen.get("total") or 0), int(gen.get("workspace_total") or 0))
+        self.assertIn("workspace_docs_only", gen)
+        self.assertIn("workspace_resolved_tool_match", gen)
 
     def test_skills_retry_install_registry(self) -> None:
         pkg = Path(self._tmp.name) / "pkg2"

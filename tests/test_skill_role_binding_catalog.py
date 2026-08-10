@@ -40,6 +40,7 @@ def test_collect_respects_role_binding_union(tmp_path: Path, monkeypatch) -> Non
     store.set_setting(SKILL_ROLE_BINDING_ENABLED_SETTING, "1")
     mapping = {r: [] for r in ordered_binding_roles()}
     mapping["generalist"] = ["skill-alpha"]
+    # Legacy manager bindings fold into generalist.
     mapping["manager"] = ["skill-beta"]
     store.set_setting(SKILL_ROLE_BINDING_KEY, json.dumps(mapping))
 
@@ -141,14 +142,15 @@ def test_collect_unfiltered_when_binding_disabled(tmp_path: Path, monkeypatch) -
 
 
 def test_normalize_drops_unknown_skills(tmp_path: Path) -> None:
-    roles = ["manager", "generalist"]
+    roles = ["generalist", "ops"]
     out = normalize_skill_role_binding(
-        mapping_raw={"manager": ["nope", "skill-x"], "generalist": ["skill-x"]},
+        mapping_raw={"manager": ["nope", "skill-x"], "generalist": ["skill-x"], "ops": ["nope"]},
         valid_skill_names={"skill-x"},
         available_roles=roles,
     )
-    assert out["manager"] == ["skill-x"]
+    assert "manager" not in out
     assert out["generalist"] == ["skill-x"]
+    assert out["ops"] == []
 
 
 def test_skill_role_binding_env_overrides_store_value(tmp_path: Path, monkeypatch) -> None:

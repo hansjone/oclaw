@@ -22,7 +22,6 @@ from runtime.skill_installer import (
 from runtime.skill_role_binding import (
     SKILL_ROLE_BINDING_ENABLED_SETTING,
     SKILL_ROLE_BINDING_KEY,
-    SKILL_ROLE_BINDING_MANAGER_INHERIT_SETTING,
     load_skill_role_binding_dict,
     normalize_skill_role_binding,
     ordered_binding_roles,
@@ -348,7 +347,7 @@ def include_skill_routes(
             "enabled": bool(skill_role_binding_enabled(store=store)),
             "enabled_stored": bool(skill_role_binding_enabled_stored(store=store)),
             "enabled_env_present": bool(skill_role_binding_enabled_env_present()),
-            "manager_inherit": str(store.get_setting(SKILL_ROLE_BINDING_MANAGER_INHERIT_SETTING) or "").strip() not in {"0", "false", "False"},
+            "manager_inherit": False,
             "available_roles": roles,
             "installed_skills": items,
             "mapping": mapping,
@@ -365,8 +364,6 @@ def include_skill_routes(
         _require_tenant_write(ctx)
         if "enabled" in payload:
             store.set_setting(SKILL_ROLE_BINDING_ENABLED_SETTING, "1" if bool(payload.get("enabled")) else "0")
-        if "manager_inherit" in payload:
-            store.set_setting(SKILL_ROLE_BINDING_MANAGER_INHERIT_SETTING, "1" if bool(payload.get("manager_inherit")) else "0")
         roles, _prev_mapping, valid = _normalized_skill_binding(store)
         mapping_raw = payload.get("mapping") if isinstance(payload.get("mapping"), dict) else {}
         mapping = normalize_skill_role_binding(
@@ -388,7 +385,7 @@ def include_skill_routes(
             "enabled": bool(skill_role_binding_enabled(store=store)),
             "enabled_stored": bool(skill_role_binding_enabled_stored(store=store)),
             "enabled_env_present": bool(skill_role_binding_enabled_env_present()),
-            "manager_inherit": str(store.get_setting(SKILL_ROLE_BINDING_MANAGER_INHERIT_SETTING) or "").strip() not in {"0", "false", "False"},
+            "manager_inherit": False,
             "available_roles": roles,
             "mapping": mapping,
         }
@@ -401,7 +398,7 @@ def include_skill_routes(
         roles, mapping, _valid = _normalized_skill_binding(store)
         role_rows: list[dict[str, Any]] = []
         for role in roles:
-            specialist = "generalist" if role == "manager" else role
+            specialist = role
             ex = build_gateway_executor(store=store, specialist=specialist)
             tools = getattr(ex, "tools", None)
             model = getattr(ex, "model", None)
@@ -432,10 +429,8 @@ def include_skill_routes(
                 base_url=base_url,
             )
             direct_set = set(mapping.get(role) or [])
-            manager_set = set(mapping.get("manager") or [])
             workspace_total = 0
             workspace_direct = 0
-            workspace_inherited = 0
             workspace_resolved_tool_match = 0
             workspace_docs_only = 0
             mcp_total = 0
@@ -456,8 +451,6 @@ def include_skill_routes(
                         docs_only_names.append(str(nm))
                     if nm in direct_set:
                         workspace_direct += 1
-                    elif role != "manager" and nm in manager_set:
-                        workspace_inherited += 1
                 elif str(nm).startswith("mcp__"):
                     mcp_total += 1
                 else:
@@ -468,7 +461,7 @@ def include_skill_routes(
                     "total": len(entries),
                     "workspace_total": workspace_total,
                     "workspace_direct": workspace_direct,
-                    "workspace_inherited_manager": workspace_inherited,
+                    "workspace_inherited_manager": 0,
                     "workspace_resolved_tool_match": workspace_resolved_tool_match,
                     "workspace_docs_only": workspace_docs_only,
                     "mcp_total": mcp_total,

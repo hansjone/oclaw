@@ -1583,7 +1583,7 @@ async function renderStack() {
     apiGetNoHang("/admin/api/runtime/anomalies"),
     apiGetNoHang("/admin/api/runtime/scan-artifacts"),
     apiGetNoHang("/admin/api/runtime/prewarm/status"),
-    apiGetNoHang("/admin/api/runtime/prewarm/prompts?role=manager"),
+    apiGetNoHang("/admin/api/runtime/prewarm/prompts?role=generalist"),
     apiGetNoHang("/admin/api/chat/settings/specialist-flags"),
     apiGetNoHang("/admin/api/chat/settings/channel-dispatch/weixin"),
     apiGetNoHang("/admin/api/chat/settings/channel-dispatch/whatsapp"),
@@ -2220,7 +2220,7 @@ async function renderStack() {
     : [el("tr", {}, [el("td", { class: "muted", text: "—", colspan: "5" })])];
   const promptsSectionBody = el("div");
   const promptsRoleSelect = el("select", { class: "input" }, [
-    el("option", { value: "manager", text: "manager (default)" }),
+    el("option", { value: "generalist", text: "generalist (default)" }),
     el("option", { value: "", text: currentLang === "zh" ? "全部角色" : "all roles" }),
   ]);
   const renderPromptCards = (resp) => {
@@ -2327,7 +2327,7 @@ async function renderStack() {
     ]),
     el("div", { class: "card" }, [
       el("div", { class: "card__title", text: currentLang === "zh" ? "预热后提示词（按专家）" : "Prewarmed Prompts by Role" }),
-      el("div", { class: "muted", text: currentLang === "zh" ? "展示 manager + 各专家预热后的提示词内容。" : "Shows prewarmed prompt content for manager and specialists." }),
+      el("div", { class: "muted", text: currentLang === "zh" ? "展示各专家预热后的提示词内容。" : "Shows prewarmed prompt content for specialists." }),
       el("div", { class: "row" }, [
         el("label", { text: currentLang === "zh" ? "角色筛选" : "Role filter" }),
         promptsRoleSelect,
@@ -7794,7 +7794,7 @@ async function renderSkills() {
     marketDetailPre,
   ]);
 
-  const skillBindingState = { roles: [], names: [], mapping: {}, enabled: false, managerInherit: true };
+  const skillBindingState = { roles: [], names: [], mapping: {}, enabled: false };
   const skillBindingStatus = el("div", { class: "muted", text: "" });
   const skillBindingPersistHint = el("div", {
     class: "muted",
@@ -7807,7 +7807,6 @@ async function renderSkills() {
   });
   const skillEffectiveState = { items: [] };
   const skillBindingEnabledCb = el("input", { type: "checkbox" });
-  const skillBindingManagerInheritCb = el("input", { type: "checkbox" });
   const skillRoleSelect = el("select", { class: "input" }, []);
   const skillBindingListWrap = el("div");
   const skillBindingDashTbody = el("tbody");
@@ -7816,11 +7815,9 @@ async function renderSkills() {
     skillBindingDashTbody.innerHTML = "";
     const roles = Array.isArray(skillBindingState.roles) ? skillBindingState.roles : [];
     const mapping = skillBindingState.mapping && typeof skillBindingState.mapping === "object" ? skillBindingState.mapping : {};
-    const managerBound = new Set(Array.isArray(mapping.manager) ? mapping.manager.map((x) => String(x)) : []);
-    const inheritManager = !!skillBindingState.managerInherit;
     roles.forEach((role) => {
       const direct = new Set(Array.isArray(mapping[role]) ? mapping[role].map((x) => String(x)) : []);
-      const effective = new Set([...(role === "manager" || !inheritManager ? [] : Array.from(managerBound)), ...Array.from(direct)]);
+      const effective = new Set(Array.from(direct));
       skillBindingDashTbody.appendChild(
         el("tr", {}, [
           el("td", { text: role }),
@@ -7860,7 +7857,6 @@ async function renderSkills() {
           el("td", { text: String(x.total || 0) }),
           el("td", { text: String(x.workspace_total || 0) }),
           el("td", { text: String(x.workspace_direct || 0) }),
-          el("td", { text: String(x.workspace_inherited_manager || 0) }),
           el("td", { text: String(x.workspace_resolved_tool_match || 0) }),
           el("td", { text: String(x.workspace_docs_only || 0) }),
           el("td", { text: String(x.mcp_total || 0) }),
@@ -7871,7 +7867,7 @@ async function renderSkills() {
       );
     });
     if (!rows.length) {
-      skillEffectiveTbody.appendChild(el("tr", {}, [el("td", { text: "-", colspan: "11" })]));
+      skillEffectiveTbody.appendChild(el("tr", {}, [el("td", { text: "-", colspan: "10" })]));
     }
   };
   const loadSkillEffective = async () => {
@@ -7920,9 +7916,7 @@ async function renderSkills() {
         .filter(Boolean);
       skillBindingState.mapping = r.mapping && typeof r.mapping === "object" ? { ...r.mapping } : {};
       skillBindingState.enabled = !!r.enabled;
-      skillBindingState.managerInherit = Object.prototype.hasOwnProperty.call(r, "manager_inherit") ? !!r.manager_inherit : true;
       skillBindingEnabledCb.checked = skillBindingState.enabled;
-      skillBindingManagerInheritCb.checked = skillBindingState.managerInherit;
       if (r.enabled_env_present) {
         skillBindingEnvHint.style.display = "block";
         const stored = !!r.enabled_stored;
@@ -7959,14 +7953,11 @@ async function renderSkills() {
       try {
         const r = await apiPost("/admin/api/skills/binding", {
           enabled: !!skillBindingEnabledCb.checked,
-          manager_inherit: !!skillBindingManagerInheritCb.checked,
           mapping: skillBindingState.mapping,
         });
         skillBindingState.mapping = r.mapping && typeof r.mapping === "object" ? { ...r.mapping } : {};
         skillBindingState.enabled = !!r.enabled;
-        skillBindingState.managerInherit = Object.prototype.hasOwnProperty.call(r, "manager_inherit") ? !!r.manager_inherit : true;
         skillBindingEnabledCb.checked = skillBindingState.enabled;
-        skillBindingManagerInheritCb.checked = skillBindingState.managerInherit;
         if (r.enabled_env_present) {
           skillBindingEnvHint.style.display = "block";
           const stored = !!r.enabled_stored;
@@ -7979,7 +7970,7 @@ async function renderSkills() {
           skillBindingEnvHint.style.display = "none";
           skillBindingEnvHint.textContent = "";
         }
-        skillBindingStatus.textContent = `saved: enabled=${String(r.enabled)} manager_inherit=${String(skillBindingState.managerInherit)}`;
+        skillBindingStatus.textContent = `saved: enabled=${String(r.enabled)}`;
         renderSkillBindingList();
         renderSkillBindingDashboard();
         await loadSkillEffective();
@@ -7989,12 +7980,12 @@ async function renderSkills() {
     },
   });
   const skillBindingBox = el("details", { style: "margin:10px 0 14px 0;" }, [
-    el("summary", { text: "Skill role binding (manager + specialists)", style: "cursor:pointer;user-select:none;" }),
+    el("summary", { text: "Skill role binding (specialists)", style: "cursor:pointer;user-select:none;" }),
     el("div", {
       class: "muted",
       style: "margin:8px 0;line-height:1.5;",
       text:
-        "When enabled, the model skills catalog is filtered per role: each role sees only skills bound to that role (and optionally manager-bound skills), plus skills under skills/_workspace/public/. If nothing is bound yet, non-public skills are hidden until you assign them.",
+        "When enabled, the model skills catalog is filtered per role: each role sees only skills bound to that role, plus skills under skills/_workspace/public/. If nothing is bound yet, non-public skills are hidden until you assign them.",
     }),
     skillBindingStatus,
     skillBindingPersistHint,
@@ -8002,10 +7993,6 @@ async function renderSkills() {
     el("label", { class: "row", style: "gap:8px;align-items:center;margin-top:6px;" }, [
       skillBindingEnabledCb,
       el("span", { text: "Enable role binding (AIA_SKILL_ROLE_BINDING_ENABLED)" }),
-    ]),
-    el("label", { class: "row", style: "gap:8px;align-items:center;margin-top:6px;" }, [
-      skillBindingManagerInheritCb,
-      el("span", { text: "Inherit manager skills to other roles (AIA_SKILL_ROLE_BINDING_MANAGER_INHERIT)" }),
     ]),
     el("div", { class: "row", style: "gap:8px;flex-wrap:wrap;margin-top:8px;align-items:center;" }, [
       el("label", { text: "Role" }),
@@ -8019,7 +8006,7 @@ async function renderSkills() {
         skillBindingDashTbody,
       ]),
     ]),
-    el("div", { class: "muted", style: "margin:8px 0 4px 0;", text: "Effective skills dashboard (binding + inherited + MCP + tools)" }),
+    el("div", { class: "muted", style: "margin:8px 0 4px 0;", text: "Effective skills dashboard (binding + MCP + tools)" }),
     el("div", { class: "table-wrap" }, [
       el("table", { class: "table table--compact" }, [
         el("thead", {}, [el("tr", {}, [
@@ -8027,7 +8014,6 @@ async function renderSkills() {
           el("th", { text: "total effective" }),
           el("th", { text: "workspace" }),
           el("th", { text: "direct bind" }),
-          el("th", { text: "inherited manager" }),
           el("th", { text: "workspace resolved" }),
           el("th", { text: "workspace docs-only" }),
           el("th", { text: "mcp converted" }),
@@ -8165,9 +8151,8 @@ async function renderSkills() {
     const rolesTotal = Number(body.roles_total || 0);
     const totalInternal = Number(summary.total_internal_tools || 0);
     const totalWired = Number(summary.total_wired_tools || 0);
-    const totalPermBan = Number(summary.total_perm_ban_9999 || 0);
     const items = Array.isArray(body.items) ? body.items : [];
-    selfCheckSummary.textContent = `roles=${rolesTotal} internal=${totalInternal} wired=${totalWired} permBan9999=${totalPermBan}`;
+    selfCheckSummary.textContent = `roles=${rolesTotal} internal=${totalInternal} wired=${totalWired}`;
     selfCheckTbody.innerHTML = "";
     items.forEach((x) => {
       const removedMcp = Number(x.removed_mcp_total || 0);
@@ -8194,7 +8179,6 @@ async function renderSkills() {
           el("td", { text: String(x.raw_count || 0) }),
           el("td", { text: String(x.wired_count || 0) }),
           el("td", { text: String(x.removed_mcp_total || 0) }),
-          el("td", { text: String(x.policy_perm_ban_9999 || 0) }),
         ]),
       );
     });
@@ -8252,7 +8236,6 @@ async function renderSkills() {
           el("th", { text: "raw" }),
           el("th", { text: "wired" }),
           el("th", { text: "removed mcp" }),
-          el("th", { text: "perm ban(9999)" }),
         ])]),
         selfCheckTbody,
       ]),
@@ -8888,7 +8871,7 @@ async function renderSkills() {
     await loadAudits();
     await loadSkillBinding();
     await loadSkillMode();
-    const rolesForPreview = (Array.isArray(skillBindingState.roles) && skillBindingState.roles.length ? skillBindingState.roles : ["generalist", "ops", "image", "manager"]).map((x) => String(x));
+    const rolesForPreview = (Array.isArray(skillBindingState.roles) && skillBindingState.roles.length ? skillBindingState.roles : ["generalist", "ops", "memory"]).map((x) => String(x));
     internalRoleSelect.innerHTML = "";
     rolesForPreview.forEach((role) => internalRoleSelect.appendChild(el("option", { value: role, text: role })));
     internalRoleSelect.value = rolesForPreview.includes("generalist") ? "generalist" : rolesForPreview[0];

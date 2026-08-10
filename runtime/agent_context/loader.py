@@ -24,8 +24,8 @@ def _read_text(path: Path) -> str:
 
 def _workspace_for_role(role: str) -> str:
     r = str(role or "").strip().lower()
-    if r == "manager":
-        return "main"
+    if r in {"manager", "manager_self", "main"}:
+        return "generalist"
     return r or "generalist"
 
 

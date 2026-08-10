@@ -85,7 +85,6 @@ def _executor_prompt_settings_signature(store: Any) -> tuple[str, ...]:
         "AIA_SKILLS_PROMPT_IN_SYSTEM",
         "AIA_SKILL_DISABLED_NAMES",
         "AIA_SKILL_ROLE_BINDING_ENABLED",
-        "AIA_SKILL_ROLE_BINDING_MANAGER_INHERIT",
         SKILL_ROLE_BINDING_KEY,
         "AIA_PROJECT_CONTEXT_MAX_FILE_CHARS",
         "AIA_PROJECT_CONTEXT_MAX_TOTAL_CHARS",

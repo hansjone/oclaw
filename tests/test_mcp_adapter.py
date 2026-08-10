@@ -114,14 +114,22 @@ class McpAdapterTests(unittest.TestCase):
                 server_id="echo-b",
                 tools=[{"tool_name": "ping_b", "description": "Ping B", "parameters": {"type": "object", "properties": {}}}],
             )
+            # Legacy "manager" alias resolves to generalist; when generalist has its own
+            # binding, that wins (manager key is not merged).
             store.set_setting("mcp_specialist_server_binding", '{"manager":["echo-a"],"generalist":["echo-b"]}')
             m_specs = materialize_mcp_tools_for_specialist(store, specialist="manager")
             g_specs = materialize_mcp_tools_for_specialist(store, specialist="generalist")
             m_names = {x.name for x in m_specs}
             g_names = {x.name for x in g_specs}
-            self.assertIn("mcp__echo-a__ping_a", m_names)
-            self.assertNotIn("mcp__echo-b__ping_b", m_names)
+            self.assertIn("mcp__echo-b__ping_b", m_names)
+            self.assertNotIn("mcp__echo-a__ping_a", m_names)
             self.assertIn("mcp__echo-b__ping_b", g_names)
+            # When only manager key exists, generalist falls back to that binding.
+            store.set_setting("mcp_specialist_server_binding", '{"manager":["echo-a"]}')
+            g2 = materialize_mcp_tools_for_specialist(store, specialist="generalist")
+            g2_names = {x.name for x in g2}
+            self.assertIn("mcp__echo-a__ping_a", g2_names)
+            self.assertNotIn("mcp__echo-b__ping_b", g2_names)
 
     def test_binding_empty_json_object_falls_back_to_all_mcp_for_specialist(self) -> None:
         """{} 不应把每个专家都当成「已绑定但列表为空」而屏蔽全部 MCP。"""

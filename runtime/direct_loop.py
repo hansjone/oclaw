@@ -171,7 +171,6 @@ def _tool_wire_settings_signature(store: Any) -> tuple[bool, str]:
             f"skill_rt={str(store.get_setting('AIA_SKILL_RUNTIME_ENABLED') or '')}",
             f"skill_disabled={str(store.get_setting('AIA_SKILL_DISABLED_NAMES') or '')}",
             f"bind_en={str(store.get_setting('AIA_SKILL_ROLE_BINDING_ENABLED') or '')}",
-            f"bind_inherit={str(store.get_setting('AIA_SKILL_ROLE_BINDING_MANAGER_INHERIT') or '')}",
         ]
     )
     return runtime_enabled, sig

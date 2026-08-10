@@ -11,7 +11,8 @@ def test_unknown_dynamic_specialist_defaults_to_minimum_expert_permissions(monke
 def test_agent_role_ids_uses_runtime_discovery(monkeypatch) -> None:
     monkeypatch.setattr(specialists_mod, "discover_specialist_ids", lambda: ("generalist", "ops", "qa"))
     got = specialists_mod.agent_role_ids()
-    assert got[0] == specialists_mod.MANAGER_AGENT_ID
+    assert got[0] == "generalist"
+    assert "manager" not in set(got)
     assert "qa" in set(got)
 
 

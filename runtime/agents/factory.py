@@ -11,7 +11,6 @@ from runtime.agents.specialists import (
     SpecialistProfile,
     normalize_specialist_id,
     agent_role_ids,
-    MANAGER_AGENT_ID,
     specialist_ids,
     default_system_prefix_for_specialist,
     default_tool_tags_for_specialist,
@@ -196,7 +195,7 @@ def _build_executor_components(
             return active_model, active_mode
         return _build_chat_model_for_profile(bound_pid, allow_runtime_overrides=False)
 
-    manager_model, manager_mode = _pick_model_for_role(MANAGER_AGENT_ID)
+    manager_model, manager_mode = _pick_model_for_role("generalist")
     specialist_models: dict[str, object] = {}
     specialist_modes: dict[str, str] = {}
     for sid in specialist_ids():

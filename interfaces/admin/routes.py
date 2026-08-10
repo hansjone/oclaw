@@ -440,17 +440,15 @@ def build_admin_router() -> APIRouter:
 
     def _ordered_specialists() -> list[str]:
         base = [str(k).strip().lower() for k in discover_specialist_ids() if str(k).strip()]
-        preferred = [x for x in ("generalist", "ops", "image") if x in set(base)]
+        preferred = [x for x in ("generalist", "ops", "memory") if x in set(base)]
         return preferred + [x for x in base if x not in set(preferred)]
 
     def _ordered_mcp_roles() -> list[str]:
-        specs = _ordered_specialists()
-        return ["manager", *[x for x in specs if x != "manager"]]
+        return _ordered_specialists()
 
     def _ordered_roles() -> list[str]:
         """Canonical role list used by Admin preview APIs."""
-        specs = _ordered_specialists()
-        return ["manager", *[x for x in specs if x != "manager"]]
+        return _ordered_specialists()
 
     _EXPERT_ALLOWED_FILES = {"SOUL.md", "ROLE_SYSTEM.md"}
 
@@ -3197,7 +3195,7 @@ def build_admin_router() -> APIRouter:
         ctx = _resolve_auth(store, authorization)
         _require_permission(ctx, "admin:tenant:write")
         available = _ordered_mcp_roles()
-        raw = str(store.get_setting("mcp_allowed_specialists") or "").strip() or "generalist,manager,ops"
+        raw = str(store.get_setting("mcp_allowed_specialists") or "").strip() or "generalist,ops"
         allowed = [x.strip().lower() for x in raw.split(",") if x.strip()]
         allowed_set = set(allowed)
         ordered = [x for x in available if x in allowed_set]
@@ -3220,7 +3218,7 @@ def build_admin_router() -> APIRouter:
         items = raw if isinstance(raw, list) else []
         allowset = {str(x).strip().lower() for x in items if str(x).strip().lower() in available_set}
         if not allowset:
-            defaults = {x for x in ("generalist", "manager") if x in available_set}
+            defaults = {x for x in ("generalist", "ops") if x in available_set}
             allowset = defaults if defaults else (set(available[:1]) if available else set())
         ordered = [x for x in available if x in allowset]
         store.set_setting("mcp_allowed_specialists", ",".join(ordered))
