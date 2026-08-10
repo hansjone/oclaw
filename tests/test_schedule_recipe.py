@@ -7,12 +7,14 @@ from pathlib import Path
 
 from runtime.scheduler.recipe import (
     compile_playbook_instruction,
+    list_ops_recipe_templates,
     looks_like_complex_schedule_prompt,
     normalize_recipe,
     preview_markdown,
     prompt_summary_from_recipe,
     recipe_has_playbook,
     recipe_missing_fields,
+    resolve_ops_recipe_template,
 )
 from runtime.scheduler.turn_text import build_scheduled_turn_instruction, scheduled_turn_system_suffix
 from runtime.tools.experts.productivity.schedule_tools import (
@@ -66,6 +68,18 @@ class RecipeHelpersTests(unittest.TestCase):
         self.assertTrue(looks_like_complex_schedule_prompt("把刚才那件事做成每周一定时"))
         self.assertTrue(looks_like_complex_schedule_prompt("继续刚才那个生成 PDF 流程"))
         self.assertFalse(looks_like_complex_schedule_prompt("提醒喝水"))
+
+    def test_ops_recipe_templates(self) -> None:
+        items = list_ops_recipe_templates()
+        ids = {str(x.get("id") or "") for x in items}
+        self.assertIn("ume_alarm_tally_daily", ids)
+        self.assertIn("ume_critical_xlsx_daily", ids)
+        self.assertIn("ne_license_check_weekly", ids)
+        tmpl = resolve_ops_recipe_template("alarm_tally")
+        assert tmpl is not None
+        self.assertTrue(recipe_has_playbook(tmpl))
+        self.assertEqual((tmpl.get("source") or {}).get("template_id"), "ume_alarm_tally_daily")
+        self.assertIsNone(resolve_ops_recipe_template("nope"))
 
     def test_turn_instruction_modes(self) -> None:
         reminder = build_scheduled_turn_instruction(prompt_text="喝水", mode="scheduled", lang="zh")
@@ -182,6 +196,25 @@ class ScheduleRecipeToolTests(unittest.TestCase):
         )
         self.assertFalse(out.get("ok"))
         self.assertEqual(out.get("error"), "recipe_required")
+
+    def test_create_from_ops_recipe_template(self) -> None:
+        out = schedule_create_tool().handler(
+            {
+                "tenant_id": self.tenant_id,
+                "owner_user_id": self.user_id,
+                "name": "Daily tally",
+                "recipe_template_id": "ume_alarm_tally_daily",
+                "schedule_kind": "cron",
+                "schedule_expr": "0 8 * * *",
+                "lang": "en",
+            }
+        )
+        self.assertTrue(out.get("ok"), out)
+        job = out.get("job") or {}
+        recipe = job.get("recipe") or {}
+        self.assertTrue(recipe_has_playbook(recipe))
+        self.assertEqual((recipe.get("source") or {}).get("template_id"), "ume_alarm_tally_daily")
+        self.assertIn("UME", str(job.get("prompt_text") or ""))
 
     def test_simple_reminder_still_works(self) -> None:
         out = schedule_create_tool().handler(

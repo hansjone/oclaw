@@ -2305,6 +2305,17 @@ def build_admin_router() -> APIRouter:
             },
         }
 
+    @router.get("/admin/api/scheduled-jobs/meta/recipe-templates")
+    def api_scheduled_jobs_meta_recipe_templates(
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        from runtime.scheduler.recipe import list_ops_recipe_templates
+
+        store = get_assistant_store()
+        ctx = _resolve_auth(store, authorization)
+        _require_permission(ctx, "admin:read")
+        return {"ok": True, "items": list_ops_recipe_templates()}
+
     @router.get("/admin/api/scheduled-jobs/meta/targets")
     def api_scheduled_jobs_meta_targets(
         tenant_id: str = Query(default=""),
@@ -2370,13 +2381,43 @@ def build_admin_router() -> APIRouter:
         prompt_text = str(payload.get("prompt_text") or "").strip()
         schedule_kind = normalize_schedule_kind(payload.get("schedule_kind") or "cron")
         schedule_expr = str(payload.get("schedule_expr") or "").strip()
-        if not name or not prompt_text or not schedule_expr:
-            return {"ok": False, "error": "name, prompt_text, schedule_expr are required"}
+        if not name or not schedule_expr:
+            return {"ok": False, "error": "name, schedule_expr are required"}
         delivery = payload.get("delivery") if isinstance(payload.get("delivery"), dict) else None
         if delivery is None:
             wa_chat = str((payload.get("whatsapp") or {}).get("chat_id") if isinstance(payload.get("whatsapp"), dict) else payload.get("whatsapp_chat_id") or "")
             delivery = build_default_delivery(store=store, tenant_id=tenant_id, whatsapp_chat_id=wa_chat)
+        from runtime.scheduler.recipe import (
+            list_ops_recipe_templates,
+            normalize_recipe,
+            prompt_summary_from_recipe,
+            recipe_has_playbook,
+            resolve_ops_recipe_template,
+        )
+
         recipe = payload.get("recipe") if isinstance(payload.get("recipe"), dict) else None
+        if isinstance(recipe, dict):
+            recipe = normalize_recipe(recipe)
+        template_id = str(payload.get("recipe_template_id") or payload.get("template_id") or "").strip()
+        if template_id and not recipe_has_playbook(recipe):
+            tmpl = resolve_ops_recipe_template(template_id)
+            if tmpl is None:
+                return {
+                    "ok": False,
+                    "error": "unknown_recipe_template",
+                    "template_id": template_id,
+                    "available": list_ops_recipe_templates(),
+                }
+            recipe = tmpl
+        if recipe_has_playbook(recipe) and not prompt_text:
+            prompt_text = prompt_summary_from_recipe(recipe, fallback=name)
+        if not prompt_text:
+            return {"ok": False, "error": "name, prompt_text, schedule_expr are required"}
+        # WhatsApp field ops default to English when delivery targets WA and lang omitted.
+        lang = str(payload.get("lang") or "").strip()
+        if not lang:
+            ch = str((delivery or {}).get("channel") or "").strip().lower()
+            lang = "en" if ch in {"whatsapp", "wa"} else "zh"
         row = store.scheduled_job_create(
             tenant_id=tenant_id,
             name=name,
@@ -2387,7 +2428,7 @@ def build_admin_router() -> APIRouter:
             description=str(payload.get("description") or ""),
             interaction_mode=normalize_interaction_mode(payload.get("interaction_mode") or "expert"),
             specialist=normalize_requested_specialist(payload.get("specialist") or "generalist"),
-            lang=str(payload.get("lang") or "zh"),
+            lang=lang,
             delivery=delivery,
             recipe=recipe,
             source_session_id=str(payload.get("source_session_id") or "").strip() or None,

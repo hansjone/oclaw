@@ -542,6 +542,51 @@ def _resolve_creator_specialist(ctx: ToolExecutionContext) -> str:
     return "generalist"
 
 
+def _truthy_flag(raw: Any) -> bool | None:
+    """Return True/False when the flag is explicit; None when unset."""
+    if raw is None:
+        return None
+    if isinstance(raw, bool):
+        return raw
+    text = str(raw).strip().lower()
+    if not text:
+        return None
+    if text in {"1", "true", "yes", "on"}:
+        return True
+    if text in {"0", "false", "no", "off"}:
+        return False
+    return None
+
+
+def _maybe_auto_mark_xlsx_deliverable(
+    *,
+    tool_name: str,
+    tool_args: dict[str, Any],
+    result: dict[str, Any],
+    inbound_metadata: dict[str, Any],
+) -> dict[str, Any]:
+    """On WhatsApp/WeChat, auto-mark successful write_xlsx as deliverable unless explicitly false."""
+    if not isinstance(result, dict) or result.get("ok") is False:
+        return result
+    if str(tool_name or "").strip() != "write_xlsx":
+        return result
+    channel = str(inbound_metadata.get("channel") or "").strip().lower()
+    if channel not in {"whatsapp", "wechat", "wecom"}:
+        return result
+    explicit = _truthy_flag(tool_args.get("deliverable")) if isinstance(tool_args, dict) else None
+    if explicit is False:
+        return result
+    if result.get("deliverable") is True:
+        return result
+    out = dict(result)
+    out["deliverable"] = True
+    out["auto_deliverable"] = True
+    out["hint"] = (
+        "Excel auto-marked deliverable for channel outbound — file will attach on WhatsApp/WeChat."
+    )
+    return out
+
+
 @dataclass(frozen=True)
 class ToolExecutionConfig:
     max_workers: int = 8
@@ -788,6 +833,12 @@ class ToolExecutor:
             else:
                 result = _call()
             out = normalize_tool_result(result)
+            out = _maybe_auto_mark_xlsx_deliverable(
+                tool_name=str(tc.name or ""),
+                tool_args=tool_args if isinstance(tool_args, dict) else {},
+                result=out,
+                inbound_metadata=ctx.inbound_metadata if isinstance(ctx.inbound_metadata, dict) else {},
+            )
             dur_ms = int((time.perf_counter() - t0) * 1000)
             try:
                 _tool_exec_log.info(

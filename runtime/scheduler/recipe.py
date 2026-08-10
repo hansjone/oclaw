@@ -324,9 +324,113 @@ def load_recipe_from_job(job: Any) -> dict[str, Any]:
     return normalize_recipe(data if isinstance(data, dict) else {})
 
 
+# Built-in ops playbooks for WhatsApp field schedules (English-first).
+_OPS_RECIPE_TEMPLATE_ALIASES: dict[str, str] = {
+    "alarm_tally": "ume_alarm_tally_daily",
+    "alarm_tally_daily": "ume_alarm_tally_daily",
+    "critical_xlsx": "ume_critical_xlsx_daily",
+    "critical_xlsx_daily": "ume_critical_xlsx_daily",
+    "license_check": "ne_license_check_weekly",
+    "license_weekly": "ne_license_check_weekly",
+}
+
+OPS_RECIPE_TEMPLATES: dict[str, dict[str, Any]] = {
+    "ume_alarm_tally_daily": {
+        "version": 1,
+        "goal": "Post daily UME open-alarm tally to the ops WhatsApp group",
+        "steps": [
+            "Call runUmeDiagnostics or aggregateUmeAlarms for current open alarms",
+            "Summarize by_severity, top NEs, and freshness in concise English",
+            "Post a short WhatsApp update (skip xlsx unless counts are very large)",
+        ],
+        "constraints": [
+            "Prefer English for WhatsApp field ops",
+            "Do not re-list CLI targets/inventory unless required",
+            "Do not blind-retry identical failing tool calls",
+        ],
+        "success_criteria": [
+            "Group receives a severity tally that includes freshness",
+        ],
+        "output": {"need_attachments": False},
+    },
+    "ume_critical_xlsx_daily": {
+        "version": 1,
+        "goal": "Send daily critical UME alarm Excel to the ops WhatsApp group",
+        "steps": [
+            "Call ume_alarm_xlsx_report(mode=aggregate_by_host, severity=critical, deliverable=true)",
+            "If that tool is unavailable: aggregateUmeAlarms then write_xlsx(deliverable=true)",
+            "Confirm the file is marked deliverable and summarize top hosts in English",
+        ],
+        "constraints": [
+            "Prefer ume_alarm_xlsx_report over multi-step query+xlsx",
+            "Never claim a file was sent without deliverable marking",
+            "Prefer English for WhatsApp field ops",
+        ],
+        "success_criteria": [
+            "WhatsApp group receives an xlsx attachment of critical alarms by host",
+        ],
+        "output": {"need_attachments": True},
+    },
+    "ne_license_check_weekly": {
+        "version": 1,
+        "goal": "Weekly NE license/capacity check summary for ops WhatsApp",
+        "steps": [
+            "Resolve target NEs via listManagedNe or known constants (avoid repeated listCliTargets)",
+            "Run execManagedNe license/capacity show commands with read_timeout_sec>=60",
+            "Summarize near-limit or failed NEs in English; attach xlsx only if many rows",
+        ],
+        "constraints": [
+            "Prefer English for WhatsApp field ops",
+            "On timeout/unreachable, classify failure and do not blind-retry identical args",
+            "Keep the group update short and actionable",
+        ],
+        "success_criteria": [
+            "Group receives a license/capacity status summary for the target set",
+        ],
+        "output": {"need_attachments": False},
+    },
+}
+
+
+def _normalize_template_id(template_id: str) -> str:
+    tid = str(template_id or "").strip().lower().replace("-", "_")
+    return _OPS_RECIPE_TEMPLATE_ALIASES.get(tid, tid)
+
+
+def resolve_ops_recipe_template(template_id: str) -> dict[str, Any] | None:
+    """Return a normalized recipe for a built-in ops template id, or None."""
+    tid = _normalize_template_id(template_id)
+    raw = OPS_RECIPE_TEMPLATES.get(tid)
+    if not raw:
+        return None
+    recipe = normalize_recipe(raw)
+    src = dict(recipe.get("source") or {})
+    src["template_id"] = tid
+    recipe["source"] = src
+    return recipe
+
+
+def list_ops_recipe_templates() -> list[dict[str, Any]]:
+    """List built-in ops recipe templates (id + goal + attachment hint)."""
+    items: list[dict[str, Any]] = []
+    for tid, raw in OPS_RECIPE_TEMPLATES.items():
+        recipe = normalize_recipe(raw)
+        items.append(
+            {
+                "id": tid,
+                "goal": str(recipe.get("goal") or ""),
+                "need_attachments": bool((recipe.get("output") or {}).get("need_attachments")),
+                "aliases": sorted(k for k, v in _OPS_RECIPE_TEMPLATE_ALIASES.items() if v == tid),
+            }
+        )
+    return items
+
+
 __all__ = [
     "COMPLEX_PROMPT_HINTS",
+    "OPS_RECIPE_TEMPLATES",
     "compile_playbook_instruction",
+    "list_ops_recipe_templates",
     "load_recipe_from_job",
     "looks_like_complex_schedule_prompt",
     "normalize_recipe",
@@ -336,4 +440,5 @@ __all__ = [
     "recipe_has_playbook",
     "recipe_is_empty",
     "recipe_missing_fields",
+    "resolve_ops_recipe_template",
 ]

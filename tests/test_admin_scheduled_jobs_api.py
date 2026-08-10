@@ -109,6 +109,35 @@ class AdminScheduledJobsApiTests(unittest.TestCase):
         self.assertEqual(str(job.get("schedule_expr") or ""), "7200")
         self.assertEqual(str(job.get("prompt_text") or ""), "Stand up hourly")
 
+    def test_recipe_templates_meta_and_create(self) -> None:
+        token = self._login()
+        headers = {"authorization": f"Bearer {token}"}
+        meta = self.client.get("/admin/api/scheduled-jobs/meta/recipe-templates", headers=headers)
+        self.assertEqual(meta.status_code, 200, meta.text)
+        items = meta.json().get("items") or []
+        self.assertTrue(any(str(x.get("id") or "") == "ume_alarm_tally_daily" for x in items))
+
+        create = self.client.post(
+            "/admin/api/scheduled-jobs",
+            headers=headers,
+            json={
+                "name": "Daily alarm tally",
+                "schedule_kind": "cron",
+                "schedule_expr": "0 8 * * *",
+                "recipe_template_id": "alarm_tally",
+                "delivery": {"channel": "whatsapp", "chat_id": "ops@g.us"},
+                "specialist": "ops",
+            },
+        )
+        self.assertEqual(create.status_code, 200, create.text)
+        body = create.json()
+        self.assertTrue(body.get("ok"), body)
+        job = body.get("job") or {}
+        self.assertEqual(str(job.get("lang") or ""), "en")
+        recipe = job.get("recipe") if isinstance(job.get("recipe"), dict) else {}
+        self.assertIn("UME", str(recipe.get("goal") or job.get("prompt_text") or ""))
+        self.assertEqual(str((recipe.get("source") or {}).get("template_id") or ""), "ume_alarm_tally_daily")
+
 
 if __name__ == "__main__":
     unittest.main()

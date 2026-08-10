@@ -14,6 +14,7 @@ from runtime.scheduler.job_delete import (
     resolve_scheduled_jobs_by_id,
 )
 from runtime.scheduler.recipe import (
+    list_ops_recipe_templates,
     looks_like_complex_schedule_prompt,
     normalize_recipe,
     parse_recipe_arg,
@@ -21,6 +22,7 @@ from runtime.scheduler.recipe import (
     prompt_summary_from_recipe,
     recipe_has_playbook,
     recipe_missing_fields,
+    resolve_ops_recipe_template,
 )
 from runtime.scheduler.service import run_scheduled_job_now
 from runtime.scheduler.system_timezone import default_system_timezone
@@ -234,6 +236,18 @@ def schedule_create_tool() -> ToolSpec:
             prompt_text = str(args.get("prompt_text") or "").strip()
             recipe_raw = parse_recipe_arg(args.get("recipe"))
             recipe = normalize_recipe(recipe_raw) if recipe_raw is not None else {}
+            template_id = str(args.get("recipe_template_id") or args.get("template_id") or "").strip()
+            if template_id and not recipe_has_playbook(recipe):
+                tmpl = resolve_ops_recipe_template(template_id)
+                if tmpl is None:
+                    return {
+                        "ok": False,
+                        "error": "unknown_recipe_template",
+                        "template_id": template_id,
+                        "available": list_ops_recipe_templates(),
+                        "hint": "Use a known recipe_template_id (e.g. ume_alarm_tally_daily) or pass a full recipe.",
+                    }
+                recipe = tmpl
             if recipe_has_playbook(recipe):
                 prompt_text = prompt_summary_from_recipe(recipe, fallback=prompt_text or name)
             if not prompt_text:
@@ -345,7 +359,9 @@ def schedule_create_tool() -> ToolSpec:
             "Simple reminders may use prompt_text only. "
             "Complex / multi-step / '刚才那件事做成定时' jobs MUST include a self-contained recipe "
             "(goal + >=2 concrete steps + success_criteria; no chat-dependent phrasing); "
-            "call schedule_propose and get user confirmation first. "
+            "or pass recipe_template_id for a built-in ops playbook "
+            "(ume_alarm_tally_daily / ume_critical_xlsx_daily / ne_license_check_weekly). "
+            "Call schedule_propose and get user confirmation first when drafting custom recipes. "
             "Delivery follows the current chat channel unless delivery is set explicitly."
         ),
         parameters={
@@ -360,6 +376,14 @@ def schedule_create_tool() -> ToolSpec:
                     "description": "Short summary / reminder intent. For playbooks, prefer recipe.goal.",
                 },
                 "recipe": _RECIPE_PARAM,
+                "recipe_template_id": {
+                    "type": "string",
+                    "description": (
+                        "Built-in ops playbook id: ume_alarm_tally_daily, ume_critical_xlsx_daily, "
+                        "ne_license_check_weekly (aliases: alarm_tally, critical_xlsx, license_check). "
+                        "Used when recipe is omitted/incomplete."
+                    ),
+                },
                 "schedule_kind": {
                     "type": "string",
                     "enum": ["cron", "once", "interval"],

@@ -108,6 +108,64 @@ class McpTimeoutAndCacheTests(unittest.TestCase):
             self.assertEqual(second.get("data", {}).get("items", [])[0]["ne_id"], "1")
         clear_list_cli_targets_cache()
 
+    def test_alarm_query_ttl_cache(self) -> None:
+        clear_list_cli_targets_cache()
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as td:
+            store = SqliteStore(str(Path(td) / "ops.sqlite"))
+            store.upsert_mcp_server(
+                server_id="netx",
+                source_type="github",
+                source_ref="local",
+                entry_command="python",
+                entry_args=["-m", "netx_mcp"],
+                enabled=True,
+            )
+            store.replace_mcp_server_tools(
+                server_id="netx",
+                tools=[
+                    {
+                        "tool_name": "queryUmeAlarms",
+                        "description": "alarms",
+                        "parameters": {"type": "object", "properties": {}},
+                    },
+                    {
+                        "tool_name": "aggregateUmeAlarms",
+                        "description": "agg",
+                        "parameters": {"type": "object", "properties": {}},
+                    },
+                    {
+                        "tool_name": "runUmeDiagnostics",
+                        "description": "diag",
+                        "parameters": {"type": "object", "properties": {}},
+                    },
+                ],
+            )
+            specs = {s.name: s for s in materialize_mcp_tools(store)}
+            calls = {"n": 0}
+
+            def fake_call_tool(self, tool_name, arguments=None):  # type: ignore[no-untyped-def]
+                calls["n"] += 1
+                return {"ok": True, "data": {"tool": tool_name, "n": calls["n"]}}
+
+            with patch("runtime.tools.mcp.adapter.McpProcessRuntime.call_tool", fake_call_tool):
+                q = specs["mcp__netx__queryUmeAlarms"]
+                a = specs["mcp__netx__aggregateUmeAlarms"]
+                d = specs["mcp__netx__runUmeDiagnostics"]
+                q1 = q.handler({"severity": "critical"})
+                q2 = q.handler({"severity": "critical"})
+                a1 = a.handler({"top_ne": 10})
+                a2 = a.handler({"top_ne": 10})
+                d1 = d.handler({})
+                d2 = d.handler({})
+            self.assertEqual(calls["n"], 3)
+            self.assertFalse(q1.get("cache_hit"))
+            self.assertTrue(q2.get("cache_hit"))
+            self.assertTrue(a2.get("cache_hit"))
+            self.assertTrue(d2.get("cache_hit"))
+            self.assertEqual(a1.get("data", {}).get("tool"), "aggregateUmeAlarms")
+            self.assertEqual(d1.get("data", {}).get("tool"), "runUmeDiagnostics")
+        clear_list_cli_targets_cache()
+
 
 class InvalidArgFormatTests(unittest.TestCase):
     def test_format_includes_example(self) -> None:

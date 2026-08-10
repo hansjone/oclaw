@@ -30,11 +30,17 @@ _MCP_TOOL_TIMEOUT_OVERRIDES_S: dict[str, float] = {
     "aggregateUmeAlarms": 60.0,
 }
 
-# Read-mostly inventory/list tools that agents re-call in tight self-loops on WhatsApp.
+# Read-mostly inventory/list/alarm tools that agents re-call in tight self-loops on WhatsApp.
 _MCP_LIST_CACHE_TTL_S: dict[str, float] = {
     "listCliTargets": 120.0,
     "listManagedNe": 120.0,
     "queryUmeNeInventory": 90.0,
+    # Short TTL: cut identical alarm/diagnostics re-query loops in the same turn.
+    "queryUmeAlarms": 45.0,
+    "queryUmeAlarmsRaw": 45.0,
+    "aggregateUmeAlarms": 45.0,
+    "aggregateUmeAlarmsRaw": 45.0,
+    "runUmeDiagnostics": 60.0,
 }
 
 _MCP_LIST_CACHE_LOCK = threading.Lock()
