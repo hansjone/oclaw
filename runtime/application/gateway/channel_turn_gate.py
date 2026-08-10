@@ -30,16 +30,30 @@ def merge_channel_pending_jobs(jobs: list[dict[str, Any]]) -> dict[str, Any]:
 
     lang = str(rows[-1].get("lang") or "").strip().lower()
     if lang.startswith("zh"):
-        header = "处理上一问期间又收到多条跟进，请一并回答："
+        header = "处理上一问期间又收到多条跟进，请按发言人分别回答："
     else:
-        header = "Several follow-up questions arrived while the previous request was still running. Please answer them together:"
+        header = (
+            "Several follow-up questions arrived while the previous request was still running. "
+            "Answer each item for its own sender:"
+        )
 
     parts: list[str] = []
     attachments: list[dict[str, Any]] = []
     for idx, job in enumerate(rows, start=1):
         text = str(job.get("user_text") or "").strip()
+        md = job.get("msg_metadata") if isinstance(job.get("msg_metadata"), dict) else {}
+        sender = str(
+            md.get("group_sender_label")
+            or md.get("push_name")
+            or md.get("group_sender_id")
+            or md.get("external_user_id")
+            or ""
+        ).strip()
         if text:
-            parts.append(f"{idx}) {text}")
+            if sender and not text.lstrip().startswith(("[Sender:", "[发言:")):
+                parts.append(f"{idx}) [{sender}] {text}")
+            else:
+                parts.append(f"{idx}) {text}")
         for att in job.get("attachments") or []:
             if isinstance(att, dict):
                 attachments.append(att)

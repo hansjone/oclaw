@@ -1376,6 +1376,7 @@ def process_inbound_payload(payload: dict[str, Any]) -> dict[str, Any]:
                                 tenant_id=str(tenant_id or ""),
                                 account_id=wa_acct,
                                 quoted_ctx=quoted_ctx,
+                                lang=lang,
                             )
                         if not user_text and gw_attachments:
                             user_text = (
@@ -1388,6 +1389,17 @@ def process_inbound_payload(payload: dict[str, Any]) -> dict[str, Any]:
                             from runtime.types import StandardMessage
                             from runtime.application.gateway.channel_turn_gate import get_channel_turn_gate
 
+                            raw_meta = (
+                                meta_for_inbound.get("raw")
+                                if isinstance(meta_for_inbound.get("raw"), dict)
+                                else {}
+                            )
+                            sender_label = str(
+                                raw_meta.get("pushName")
+                                or meta_for_inbound.get("push_name")
+                                or inbound.external_user_id
+                                or ""
+                            ).strip()
                             msg_metadata = {
                                 "tenant_id": tenant_id,
                                 "user_id": user_id,
@@ -1400,6 +1412,9 @@ def process_inbound_payload(payload: dict[str, Any]) -> dict[str, Any]:
                                 "external_user_id": inbound.external_user_id,
                                 "external_chat_id": inbound.external_chat_id,
                                 "group_sender_id": inbound.external_user_id,
+                                "group_sender_label": sender_label,
+                                "push_name": sender_label,
+                                "group_session_scope": group_policy.session_scope,
                                 "mentioned_jids": mention_jids_for_ctx,
                                 "mention_names": mention_names_for_ctx,
                                 "raw_inbound_text": raw_user_text,
@@ -1436,12 +1451,20 @@ def process_inbound_payload(payload: dict[str, Any]) -> dict[str, Any]:
                                                 busy_meta = build_whatsapp_group_progress_metadata(
                                                     inbound=inbound
                                                 )
-                                            busy_text = (
-                                                "还在处理上一条请求，这条会排队合并处理。"
-                                                if str(lang or "").startswith("zh")
-                                                else "Still working on your previous request; "
-                                                "I'll merge this follow-up next."
-                                            )
+                                            if str(lang or "").startswith("zh"):
+                                                busy_text = (
+                                                    "本会话还有请求在处理，你这条已排队，完成后会继续回答。"
+                                                    if bool(getattr(inbound, "is_group", False))
+                                                    else "还在处理上一条请求，这条会排队合并处理。"
+                                                )
+                                            else:
+                                                busy_text = (
+                                                    "Still working on an earlier request in this chat; "
+                                                    "your message is queued and will be answered next."
+                                                    if bool(getattr(inbound, "is_group", False))
+                                                    else "Still working on your previous request; "
+                                                    "I'll merge this follow-up next."
+                                                )
                                             _enqueue_whatsapp_inbound_reply(
                                                 store,
                                                 inbound=inbound,

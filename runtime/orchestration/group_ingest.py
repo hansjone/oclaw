@@ -415,13 +415,20 @@ def should_process_group_inbound(
     return not require_mention
 
 
-def build_group_sender_context(*, metadata: dict[str, Any] | None, external_user_id: str) -> str:
+def build_group_sender_context(
+    *,
+    metadata: dict[str, Any] | None,
+    external_user_id: str,
+    lang: str = "en",
+) -> str:
     meta = metadata if isinstance(metadata, dict) else {}
     raw = meta.get("raw") if isinstance(meta.get("raw"), dict) else {}
     push_name = str(raw.get("pushName") or meta.get("push_name") or meta.get("display_name") or "").strip()
     sender = str(external_user_id or "").strip()
     label = push_name or sender or "unknown"
-    return f"[发言: {label}]"
+    if str(lang or "").strip().lower().startswith("zh"):
+        return f"[发言: {label}]"
+    return f"[Sender: {label}]"
 
 
 def _mention_tokens_for_jids(jids: list[str]) -> list[str]:
@@ -565,6 +572,7 @@ def prepare_group_user_text_for_model(
     tenant_id: str = "",
     account_id: str = "",
     quoted_ctx: str = "",
+    lang: str = "en",
 ) -> str:
     body = str(text or "").strip()
     body = strip_bot_mentions_from_text(text=body, bot_jid=bot_jid, metadata=metadata)
@@ -582,10 +590,11 @@ def prepare_group_user_text_for_model(
         account_id=account_id,
     )
     prefix_parts: list[str] = []
-    if normalize_group_session_scope(session_scope) == "chat":
-        prefix_parts.append(
-            build_group_sender_context(metadata=metadata, external_user_id=external_user_id)
-        )
+    # Always tag the speaker in groups (shared or per-user) so history/quotes cannot 串话.
+    _ = session_scope  # retained for call-site compatibility / future policy forks
+    prefix_parts.append(
+        build_group_sender_context(metadata=metadata, external_user_id=external_user_id, lang=lang)
+    )
     quote = str(quoted_ctx or "").strip()
     if quote:
         prefix_parts.append(quote)
@@ -597,10 +606,15 @@ def prepare_group_user_text_for_model(
 
 def build_group_focus_instruction(*, lang: str = "en") -> str:
     if str(lang or "").strip().lower().startswith("zh"):
-        return "[群聊规则：只回答当前发言人的问题；除非本条消息明确引用或承接前文，否则不要默认继承其他群成员的上下文。]"
+        return (
+            "[群聊规则：只回答当前发言人（见 [发言: …]）的问题；"
+            "除非本条消息明确引用或承接前文，否则不要默认继承其他群成员的上下文；"
+            "若排队合并了多条跟进，按条分别回应并 @ 对应发言人。]"
+        )
     return (
-        "[Group chat rule: answer only the current sender's request. "
-        "Do not assume context from other members unless this message explicitly quotes or references it.]"
+        "[Group chat rule: answer only the current sender (see [Sender: …]). "
+        "Do not assume context from other members unless this message explicitly quotes or references it. "
+        "If several follow-ups were merged while busy, answer each item and @ the matching sender.]"
     )
 
 

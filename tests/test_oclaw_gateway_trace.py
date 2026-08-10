@@ -954,3 +954,31 @@ def test_channel_file_delivery_hint_goes_to_system_not_user_message() -> None:
         metadata={},
     )
     assert not OclawGateway._is_channel_delivery_channel(msg_admin)
+
+
+def test_group_focus_system_hint_only_for_groups() -> None:
+    from runtime.types import StandardMessage
+
+    group_msg = StandardMessage(
+        session_id="s1",
+        tenant_id="t1",
+        user_id="u1",
+        role="member",
+        channel="whatsapp",
+        text="@bot alarms",
+        attachments=[],
+        metadata={"is_group": True},
+    )
+    dm = StandardMessage(
+        session_id="s1",
+        tenant_id="t1",
+        user_id="u1",
+        role="member",
+        channel="whatsapp",
+        text="alarms",
+        attachments=[],
+        metadata={"is_group": False},
+    )
+    hint = OclawGateway._group_focus_system_hint(group_msg, "en")
+    assert "current sender" in hint
+    assert OclawGateway._group_focus_system_hint(dm, "en") == ""

@@ -77,19 +77,29 @@ def enrich_mcp_scope_error(result: dict[str, Any]) -> dict[str, Any]:
     out["error"] = f"insufficient_scope:{scope}" if scope else "insufficient_scope"
     if scope == "sql:query":
         out["hint"] = (
-            "Current netx token lacks sql:query. Prefer aggregateUmeAlarms / queryUmeAlarmsRaw / "
-            "ume_alarm_xlsx_report; ask an admin to grant sql:query only if SQL is required."
+            "Current netx token lacks sql:query. Do not retry sqlQueryUme. "
+            "Prefer aggregateUmeAlarms / queryUmeAlarmsRaw / ume_alarm_xlsx_report; "
+            "ask an admin to grant sql:query only if SQL is truly required."
         )
         out["fallback_tools"] = [
             "mcp__netx__aggregateUmeAlarms",
             "mcp__netx__queryUmeAlarmsRaw",
             "ume_alarm_xlsx_report",
         ]
+        out["user_facing_hint"] = (
+            "SQL query is not enabled for this bot token. "
+            "I will use alarm aggregate/report tools instead, or an admin can grant sql:query."
+        )
     else:
         out["hint"] = (
             f"Current netx token lacks scope {scope or '(unknown)'}. "
-            "Ask an admin to grant it on the netx API token, or use tools that do not need this scope."
+            "Do not retry the same tool; ask an admin to grant it, or use tools that do not need this scope."
         )
+        out["user_facing_hint"] = (
+            f"Permission missing ({scope or 'scope'}). An admin needs to grant this on the netx API token."
+        )
+    out["failure_class"] = "auth"
+    out["retry_forbidden"] = True
     return out
 
 

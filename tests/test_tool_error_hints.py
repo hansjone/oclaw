@@ -33,6 +33,10 @@ def test_enrich_mcp_scope_sql() -> None:
     raw = {"ok": False, "error_code": "mcp_rpc_error_-32001", "error": "insufficient_scope:sql:query"}
     out = enrich_mcp_scope_error(raw)
     assert out["error_code"] == "insufficient_scope"
+    assert out.get("failure_class") == "auth"
+    assert out.get("retry_forbidden") is True
+    assert "aggregateUmeAlarms" in str(out.get("hint") or "")
+    assert "SQL query is not enabled" in str(out.get("user_facing_hint") or "")
     assert out["required_scope"] == "sql:query"
     assert "fallback_tools" in out
     assert "ume_alarm_xlsx_report" in out["fallback_tools"]

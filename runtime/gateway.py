@@ -485,6 +485,15 @@ class OclawGateway:
         return str(maybe_ops_short_intent_system_hint(text=str(msg.text or ""), lang=lang) or "").strip()
 
     @staticmethod
+    def _group_focus_system_hint(msg: StandardMessage, lang: str) -> str:
+        md = msg.metadata if isinstance(msg.metadata, dict) else {}
+        if not bool(md.get("is_group")):
+            return ""
+        from runtime.orchestration.group_ingest import build_group_focus_instruction
+
+        return str(build_group_focus_instruction(lang=lang) or "").strip()
+
+    @staticmethod
     def _tabular_query_system_hint(lang: str) -> str:
         limits = OclawGateway._tabular_limits_from_config()
         preview_rows = int(limits.get("large_table_preview_rows") or _DEFAULT_TABULAR_PREVIEW_ROWS)
@@ -1180,6 +1189,9 @@ class OclawGateway:
                 ch_hint = self._channel_file_delivery_system_hint(lang)
                 if ch_hint:
                     sys_prompt = f"{sys_prompt}\n\n{ch_hint}".strip()
+                focus_hint = self._group_focus_system_hint(msg, lang)
+                if focus_hint:
+                    sys_prompt = f"{sys_prompt}\n\n{focus_hint}".strip()
                 if str(manager_specialist or requested_specialist or "").strip().lower() == "ops":
                     intent_hint = self._ops_short_intent_system_hint(msg, lang)
                     if intent_hint:

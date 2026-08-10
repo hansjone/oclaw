@@ -359,8 +359,14 @@ def test_build_group_sender_context() -> None:
         metadata={"raw": {"pushName": "Alice"}},
         external_user_id="111@s.whatsapp.net",
     )
-    assert ctx == "[发言: Alice]"
+    assert ctx == "[Sender: Alice]"
     assert "111@s.whatsapp.net" not in ctx
+    zh = build_group_sender_context(
+        metadata={"raw": {"pushName": "Alice"}},
+        external_user_id="111@s.whatsapp.net",
+        lang="zh",
+    )
+    assert zh == "[发言: Alice]"
 
 
 def test_strip_bot_mentions_from_text() -> None:
@@ -385,16 +391,17 @@ def test_normalize_mentioned_users_in_text_uses_nickname() -> None:
 def test_prepare_group_user_text_for_model_user_in_chat() -> None:
     out = prepare_group_user_text_for_model(
         text="@162788605444170 每三分钟提醒@200846277140511 喝水",
-        metadata={"bot_lid": "162788605444170@lid", "bot_push_name": "oliver"},
+        metadata={"bot_lid": "162788605444170@lid", "bot_push_name": "oliver", "raw": {"pushName": "Bob"}},
         mentions=["162788605444170@lid", "200846277140511@lid"],
         bot_jid="8618142387786@s.whatsapp.net",
         session_scope="user_in_chat",
         external_user_id="8618142387786@s.whatsapp.net",
         filtered_mention_jids=["200846277140511@lid"],
         mention_names=["吴华"],
+        lang="zh",
     )
-    assert out == "每三分钟提醒@吴华 喝水"
-    assert "[发言:" not in out
+    assert out.startswith("[发言: Bob]")
+    assert "每三分钟提醒@吴华 喝水" in out
 
 
 def test_prepare_group_user_text_for_model_shared_chat_prefix() -> None:
@@ -405,8 +412,9 @@ def test_prepare_group_user_text_for_model_shared_chat_prefix() -> None:
         bot_jid="999@s.whatsapp.net",
         session_scope="chat",
         external_user_id="111@s.whatsapp.net",
+        lang="en",
     )
-    assert out.startswith("[发言: Alice]")
+    assert out.startswith("[Sender: Alice]")
     assert out.endswith("帮忙")
     assert "@999" not in out
 
@@ -415,6 +423,7 @@ def test_build_group_focus_instruction() -> None:
     en = build_group_focus_instruction()
     zh = build_group_focus_instruction(lang="zh")
     assert "current sender" in en
+    assert "[Sender:" in en or "Sender" in en
     assert "群聊规则" in zh
 
 
@@ -742,8 +751,8 @@ def test_inbound_group_mention_uses_per_user_session_and_sender_prefix(
     assert len(session_ids) == 2
     assert session_ids[0] != session_ids[1]
     assert "[群成员:" not in captured["text"]
-    assert "[发言:" not in captured["text"]
-    assert captured["text"] == "again"
+    assert captured["text"].startswith("[Sender: Bob]")
+    assert captured["text"].endswith("again")
     assert "群聊规则" not in captured["text"]
 
     sid = store.get_or_create_channel_session_v2(

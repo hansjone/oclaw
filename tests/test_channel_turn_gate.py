@@ -48,9 +48,31 @@ def test_merge_channel_pending_jobs_zh_header() -> None:
             {"user_text": "还有告警吗？", "lang": "zh"},
         ]
     )
-    assert "一并回答" in str(merged.get("user_text") or "")
-    assert "1) 光功率？" in str(merged.get("user_text") or "")
-    assert "2) 还有告警吗？" in str(merged.get("user_text") or "")
+    text = str(merged.get("user_text") or "")
+    assert "分别回答" in text
+    assert "1) 光功率？" in text
+    assert "2) 还有告警吗？" in text
+
+
+def test_merge_channel_pending_jobs_keeps_sender_labels() -> None:
+    merged = merge_channel_pending_jobs(
+        [
+            {
+                "user_text": "LOS count?",
+                "lang": "en",
+                "msg_metadata": {"group_sender_label": "Alice"},
+            },
+            {
+                "user_text": "offline NEs?",
+                "lang": "en",
+                "msg_metadata": {"group_sender_label": "Bob"},
+            },
+        ]
+    )
+    text = str(merged.get("user_text") or "")
+    assert "[Alice]" in text
+    assert "[Bob]" in text
+    assert "own sender" in text.lower() or "Answer each" in text
 
 
 def test_isolated_sessions_and_reset() -> None:
