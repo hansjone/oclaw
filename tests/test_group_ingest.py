@@ -412,10 +412,10 @@ def test_prepare_group_user_text_for_model_shared_chat_prefix() -> None:
 
 
 def test_build_group_focus_instruction() -> None:
-    zh = build_group_focus_instruction()
-    en = build_group_focus_instruction(lang="en")
-    assert "群聊规则" in zh
+    en = build_group_focus_instruction()
+    zh = build_group_focus_instruction(lang="zh")
     assert "current sender" in en
+    assert "群聊规则" in zh
 
 
 def test_extract_group_quoted_message_and_build_context_block() -> None:
@@ -431,8 +431,10 @@ def test_extract_group_quoted_message_and_build_context_block() -> None:
     assert info["quoted_text"] == "服务器刚刚 502 了"
     assert info["quoted_push_name"] == "Alice"
     block = build_group_quoted_context_block(metadata=meta)
-    assert "[被引用消息]" in block
+    assert "[Quoted message]" in block
     assert "Alice" in block
+    zh_block = build_group_quoted_context_block(metadata=meta, lang="zh")
+    assert "[被引用消息]" in zh_block
 
 
 def test_should_inject_quoted_context_dedupes_recent_message() -> None:
@@ -883,7 +885,7 @@ def test_inbound_group_injects_quoted_context_when_not_in_current_session(
         }
     )
     assert out.get("ok") is True
-    assert "[被引用消息]" in captured["text"]
+    assert "[Quoted message]" in captured["text"]
     assert "看起来像 OSPF 邻居抖动" in captured["text"]
     _ = tenant_id, user_id
 
@@ -965,6 +967,7 @@ def test_inbound_group_skips_quoted_context_when_already_in_current_session(
     )
     assert out.get("ok") is True
     assert "[被引用消息]" not in captured["text"]
+    assert "[Quoted message]" not in captured["text"]
     _ = tenant_id, user_id
 
 

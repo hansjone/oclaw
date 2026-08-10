@@ -74,12 +74,12 @@ def normalize_tool_key(name: str) -> str:
     return low.replace("_", "")
 
 
-def humanize_long_tool(*, tool_name: str, lang: str = "zh") -> str | None:
+def humanize_long_tool(*, tool_name: str, lang: str = "en") -> str | None:
     key = normalize_tool_key(tool_name)
     if not key:
         return None
-    table = _LONG_TOOL_LABELS_EN if str(lang or "").startswith("en") else _LONG_TOOL_LABELS_ZH
-    # Keys in tables are already underscore-free lower names.
+    # Field WhatsApp is English-first; only use Chinese when lang is explicitly zh.
+    table = _LONG_TOOL_LABELS_ZH if str(lang or "").strip().lower().startswith("zh") else _LONG_TOOL_LABELS_EN
     return table.get(key)
 
 
@@ -107,19 +107,19 @@ def should_forward_progress_text(text: str) -> bool:
     return len(t) >= 8
 
 
-def humanize_progress_text(*, text: str, lang: str = "zh") -> str:
+def humanize_progress_text(*, text: str, lang: str = "en") -> str:
     t = str(text or "").strip()
+    is_zh = str(lang or "").strip().lower().startswith("zh")
     m = _TOOLS_DONE_RE.search(t)
     if m:
-        if str(lang or "").startswith("en"):
-            return "Tools finished; composing the reply…"
-        return "工具已完成，正在整理回复…"
+        if is_zh:
+            return "工具已完成，正在整理回复…"
+        return "Tools finished; composing the reply…"
     if t.lower().startswith("oclaw:"):
         body = t.split(":", 1)[-1].strip()
-        if str(lang or "").startswith("en"):
-            return body or t
-        # Keep short Chinese-friendly wait copy for unknown oclaw:* lines.
-        return f"处理中：{body}" if body else "处理中，请稍候…"
+        if is_zh:
+            return f"处理中：{body}" if body else "处理中，请稍候…"
+        return body or "Still working, please wait…"
     return t
 
 
@@ -146,7 +146,7 @@ class WhatsappTurnProgressPublisher:
         self,
         *,
         enqueue: Callable[[str, dict[str, Any] | None], None],
-        lang: str = "zh",
+        lang: str = "en",
         is_group: bool = False,
         inbound: Any = None,
         min_interval_sec: float | None = None,

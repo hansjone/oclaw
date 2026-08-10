@@ -27,22 +27,22 @@ def format_unregistered_tool_error(
     tool_name: str,
     available: Iterable[str],
     *,
-    lang: str = "zh",
+    lang: str = "en",
 ) -> dict[str, Any]:
     suggestions = suggest_tool_names(tool_name, available)
-    if str(lang or "").startswith("en"):
-        err = f"Unregistered tool: {tool_name}"
-        hint = (
-            "Use one of suggestions, or refresh MCP tools for this specialist."
-            if suggestions
-            else "Tool is not in the current registry; check MCP enablement / specialist binding."
-        )
-    else:
+    if str(lang or "").startswith("zh"):
         err = f"未注册的工具: {tool_name}"
         hint = (
             "请改用 suggestions 中的工具名，或检查该专家的 MCP 绑定/启用状态。"
             if suggestions
             else "当前工具目录中无此工具；请检查 MCP 是否启用及专家绑定。"
+        )
+    else:
+        err = f"Unregistered tool: {tool_name}"
+        hint = (
+            "Use one of suggestions, or refresh MCP tools for this specialist."
+            if suggestions
+            else "Tool is not in the current registry; check MCP enablement / specialist binding."
         )
     out: dict[str, Any] = {
         "ok": False,

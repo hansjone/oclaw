@@ -181,6 +181,7 @@ def _normalize_quoted_compare_text(text: str) -> str:
     s = re.sub(r"^(?:@\S+\s+)+", "", s)
     # Drop common group-ingest wrappers if somehow present.
     s = re.sub(r"^\[被引用消息\]\s*", "", s)
+    s = re.sub(r"^\[Quoted message\]\s*", "", s, flags=re.IGNORECASE)
     s = re.sub(r"\s+", " ", s).strip()
     return s[:400]
 
@@ -242,7 +243,7 @@ def should_inject_quoted_context(*, quoted_text: str, recent_messages: list[Any]
     return True
 
 
-def build_group_quoted_context_block(*, metadata: dict[str, Any] | None) -> str:
+def build_group_quoted_context_block(*, metadata: dict[str, Any] | None, lang: str = "en") -> str:
     info = extract_group_quoted_message(metadata=metadata)
     quoted_text = str(info.get("quoted_text") or "").strip()
     if not quoted_text:
@@ -250,7 +251,9 @@ def build_group_quoted_context_block(*, metadata: dict[str, Any] | None) -> str:
     quoted_participant = str(info.get("quoted_participant") or "").strip()
     quoted_push_name = str(info.get("quoted_push_name") or "").strip()
     speaker = quoted_push_name or quoted_participant or "unknown"
-    return f"[被引用消息]\n{speaker}: {quoted_text}"
+    if str(lang or "").strip().lower().startswith("zh"):
+        return f"[被引用消息]\n{speaker}: {quoted_text}"
+    return f"[Quoted message]\n{speaker}: {quoted_text}"
 
 
 def enrich_alert_group_question(*, user_text: str, quoted_alert: str) -> str:
@@ -592,26 +595,26 @@ def prepare_group_user_text_for_model(
     return prefix or body
 
 
-def build_group_focus_instruction(*, lang: str = "zh") -> str:
-    if str(lang or "").strip().lower().startswith("en"):
-        return (
-            "[Group chat rule: answer only the current sender's request. "
-            "Do not assume context from other members unless this message explicitly quotes or references it.]"
-        )
-    return "[群聊规则：只回答当前发言人的问题；除非本条消息明确引用或承接前文，否则不要默认继承其他群成员的上下文。]"
+def build_group_focus_instruction(*, lang: str = "en") -> str:
+    if str(lang or "").strip().lower().startswith("zh"):
+        return "[群聊规则：只回答当前发言人的问题；除非本条消息明确引用或承接前文，否则不要默认继承其他群成员的上下文。]"
+    return (
+        "[Group chat rule: answer only the current sender's request. "
+        "Do not assume context from other members unless this message explicitly quotes or references it.]"
+    )
 
 
-def build_channel_file_delivery_instruction(*, lang: str = "zh") -> str:
-    if str(lang or "").strip().lower().startswith("en"):
+def build_channel_file_delivery_instruction(*, lang: str = "en") -> str:
+    if str(lang or "").strip().lower().startswith("zh"):
         return (
-            "[Channel rule: to send any generated attachment back to the user on WhatsApp/WeChat "
-            "(documents, images, videos), call save_deliverable_attachment with path or attachment_id. "
-            "write_file, run_command, and image generation alone do not attach files to the outbound message.]"
+            "[渠道规则：若要把生成的附件发回用户（WhatsApp/微信，含文档/图片/视频），"
+            "必须调用 save_deliverable_attachment（path 或 attachment_id）；"
+            "write_file、run_command、生图工具 alone 不会随消息发送附件。]"
         )
     return (
-        "[渠道规则：若要把生成的附件发回用户（WhatsApp/微信，含文档/图片/视频），"
-        "必须调用 save_deliverable_attachment（path 或 attachment_id）；"
-        "write_file、run_command、生图工具 alone 不会随消息发送附件。]"
+        "[Channel rule: to send any generated attachment back to the user on WhatsApp/WeChat "
+        "(documents, images, videos), call save_deliverable_attachment with path or attachment_id. "
+        "write_file, run_command, and image generation alone do not attach files to the outbound message.]"
     )
 
 

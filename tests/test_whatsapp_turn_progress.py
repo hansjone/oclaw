@@ -41,9 +41,9 @@ class WhatsappProgressHelpersTests(unittest.TestCase):
         self.assertTrue(should_forward_progress_text("oclaw: tools done (12000ms)"))
         self.assertTrue(should_forward_progress_text("oclaw: image specialist (legacy multimodal HTTP)…"))
 
-    def test_humanize_progress_text(self) -> None:
-        self.assertIn("整理", humanize_progress_text(text="oclaw: tools done (9000ms)", lang="zh"))
-        self.assertIn("composing", humanize_progress_text(text="oclaw: tools done (9000ms)", lang="en").lower())
+    def test_humanize_defaults_to_english(self) -> None:
+        self.assertIn("CLI", str(humanize_long_tool(tool_name="mcp__netx__execManagedNe") or ""))
+        self.assertIn("composing", humanize_progress_text(text="oclaw: tools done (9000ms)").lower())
 
 
 class WhatsappTurnProgressPublisherTests(unittest.TestCase):
@@ -56,7 +56,7 @@ class WhatsappTurnProgressPublisherTests(unittest.TestCase):
 
         pub = WhatsappTurnProgressPublisher(
             enqueue=enqueue,
-            lang="zh",
+            lang="en",
             is_group=False,
             min_interval_sec=10.0,
             enabled=True,
@@ -67,7 +67,7 @@ class WhatsappTurnProgressPublisherTests(unittest.TestCase):
 
         pub.on_tool_ui("tool_use_call", {"tool_name": "mcp__netx__execManagedNe"})
         self.assertEqual(len(sent), 1)
-        self.assertIn("设备", sent[0][0])
+        self.assertIn("CLI", sent[0][0])
 
         clock["t"] = 105.0
         pub.on_tool_ui("tool_use_call", {"tool_name": "mcp__netx__queryUmeAlarms"})
@@ -82,7 +82,7 @@ class WhatsappTurnProgressPublisherTests(unittest.TestCase):
         clock["t"] = 122.0
         pub.on_progress("oclaw: tools done (15000ms)")
         self.assertEqual(len(sent), 3)
-        self.assertIn("整理", sent[2][0])
+        self.assertIn("composing", sent[2][0].lower())
 
     def test_group_metadata_mentions_without_quote(self) -> None:
         sent: list[tuple[str, dict[str, Any] | None]] = []
@@ -101,7 +101,7 @@ class WhatsappTurnProgressPublisherTests(unittest.TestCase):
 
         pub = WhatsappTurnProgressPublisher(
             enqueue=lambda t, m: sent.append((t, m)),
-            lang="zh",
+            lang="en",
             is_group=True,
             inbound=_Inbound(),
             min_interval_sec=1.0,
@@ -109,6 +109,7 @@ class WhatsappTurnProgressPublisherTests(unittest.TestCase):
         )
         pub.on_tool_ui("tool_use_call", {"tool_name": "ume_alarm_xlsx_report"})
         self.assertEqual(len(sent), 1)
+        self.assertIn("Excel", sent[0][0])
         meta = sent[0][1] or {}
         self.assertTrue(meta.get("mention_jids"))
         self.assertNotIn("quote_stanza_id", meta)
@@ -185,7 +186,7 @@ class WhatsappInboundProgressWiringTests(unittest.TestCase):
             inbound_mod,
             get_assistant_store=mock.MagicMock(return_value=self.store),
             _build_admin_gateway_executor=mock.MagicMock(return_value=object()),
-            _resolve_channel_dispatch=mock.MagicMock(return_value=("expert", "ops", "zh")),
+            _resolve_channel_dispatch=mock.MagicMock(return_value=("expert", "ops", "en")),
         ), mock.patch("runtime.gateway.OclawGateway") as gw_cls, mock.patch(
             "runtime.orchestration.group_ingest.should_process_group_inbound",
             return_value=True,
@@ -212,7 +213,7 @@ class WhatsappInboundProgressWiringTests(unittest.TestCase):
         self.assertIn("inbound_reply", kinds)
         progress_rows = [p for p, k in zip(pending, kinds) if k == "inbound_progress"]
         self.assertTrue(progress_rows)
-        self.assertIn("设备", str(progress_rows[0].get("text") or ""))
+        self.assertIn("CLI", str(progress_rows[0].get("text") or ""))
         progress_src = json.loads(str(progress_rows[0].get("source") or "{}"))
         self.assertTrue(progress_src.get("mention_jids"))
         self.assertFalse(progress_src.get("quote_stanza_id"))

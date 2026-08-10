@@ -52,23 +52,23 @@ description: 面向 ops 专家的 netx UME 运维作业手册。覆盖告警查�
 - **critical 口类/光路类告警**：抽 1–2 个 `ne_id` → `findTopologyPaths`（默认 `detail=summary`，看 `paths[].label`）→ 再决定是否 CLI。
 - **查网元身份**：`queryUmeNeInventory(keyword=host_name)`；完整 `raw_json` 用 `getUmeNe`。
 
-## WhatsApp 短指令配方（强制少工具）
+## WhatsApp short-intent recipes (≤3 tools; English field primary)
 
-群聊短句（中/英）优先走下列固定路径，**目标 ≤3 次工具调用**，不要先翻页/反复 listCliTargets。
+Prefer these fixed paths for short group/DM asks (EN first; ZH aliases still work). **Target ≤3 tool calls** — do not paginate or re-list CLI targets.
 
-| 用户说法（例） | 配方 |
-|----------------|------|
-| 断纤 / fiber cut / LOS / 光缆中断 | **优先** `ume_alarm_xlsx_report(mode=fiber_cut)`（一键 xlsx+投递）；或 `queryUmeAlarmsRaw` 后摘要 |
-| 离线 / 单板离线 / offline NE | **优先** `ume_alarm_xlsx_report(mode=offline)` |
-| Critical Top / 告警统计 | ① `aggregateUmeAlarms(severity=critical, top_ne=20)`；要文件：`ume_alarm_xlsx_report(mode=aggregate_by_host, severity=critical)` |
-| 当前告警有多少 / tally | ① `runUmeDiagnostics` 或 `aggregateUmeAlarms`；② 直接报 by_severity + freshness |
-| 导出 Excel / 发我表格 | `ume_alarm_xlsx_report` **或** `write_xlsx(..., deliverable=true)`；勿再拆成 3 步 |
+| User says (examples) | Recipe |
+|----------------------|--------|
+| fiber cut / LOS / cable cut / 断纤 | Prefer `ume_alarm_xlsx_report(mode=fiber_cut)` (xlsx + deliver); or summarize via `queryUmeAlarmsRaw` |
+| offline NE / board offline / 离线 | Prefer `ume_alarm_xlsx_report(mode=offline)` |
+| Critical Top / alarm tally | ① `aggregateUmeAlarms(severity=critical, top_ne=20)`; for file: `ume_alarm_xlsx_report(mode=aggregate_by_host, severity=critical)` |
+| how many alarms / tally | ① `runUmeDiagnostics` or `aggregateUmeAlarms`; ② report by_severity + freshness |
+| export Excel / send spreadsheet | `ume_alarm_xlsx_report` **or** `write_xlsx(..., deliverable=true)`; never split into 3 steps |
 
-交付约定：
-- `ume_alarm_xlsx_report` 默认 `deliverable=true`，WhatsApp 可直接收文件。
-- 通用表格：`write_xlsx(..., deliverable=true)` 可跳过 `save_deliverable_attachment`。
-- 禁止用 `run_command`+openpyxl 造 xlsx。
-- 确认类短句（YES / confirm / 继续）：承接上一任务继续，勿重新开查。
+Delivery rules:
+- `ume_alarm_xlsx_report` defaults `deliverable=true` so WhatsApp receives the file.
+- Generic sheets: `write_xlsx(..., deliverable=true)` can skip `save_deliverable_attachment`.
+- Do not build xlsx via `run_command` + openpyxl.
+- Confirm short replies (`YES` / `confirm` / `继续`): continue the previous task; do not restart the query.
 
 ## 约束与护栏
 
@@ -86,7 +86,8 @@ description: 面向 ops 专家的 netx UME 运维作业手册。覆盖告警查�
 
 - 结论 + 工具证据 + 可执行下一步。
 - 无工具证据不得臆测告警事实。
-- 英文提问：回复不得含汉字；工具中文字段须译成英文。
+- **现场默认英文**：用户用英文提问或渠道 lang=en 时，回复 **不得含汉字**；工具返回的中文字段必须译成英文后再展示。
+- 仅当用户明确用中文提问且渠道为 zh 时，才用中文回复。
 
 ### 网元展示：以 host_name 为主键（强制）
 

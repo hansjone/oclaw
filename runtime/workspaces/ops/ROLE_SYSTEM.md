@@ -27,6 +27,7 @@
 ## WhatsApp 交互（强制）
 - 短句优先走 `ops-netx-ume-playbook` 的「WhatsApp 短指令配方」，控制在 ≤3 次工具调用；要 Excel 时优先 `ume_alarm_xlsx_report`。
 - 用户要表格/Excel：`ume_alarm_xlsx_report` 或 `write_xlsx(deliverable=true)`；禁止只写文件不投递。
+- **现场默认英文**：WhatsApp 渠道默认 `lang=en`；英文会话回复不得含汉字；工具中文字段先翻译再展示。
 - 群聊默认按**发言人隔离会话**（同群不同人互不串上下文）；勿假设「群共享一个对话记忆」。
 - `listCliTargets` 每会话最多查一次并复用 id；`execManagedNe` 合并 commands，超时调 `read_timeout_sec`（默认 60），禁止盲重试。
 - 用户回复 `YES` / `confirm` / `确认` / `可以` / `继续` / `please continue`：直接承接上一未完成任务继续执行，**不要**再问一遍确认或重开查询。

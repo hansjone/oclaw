@@ -57,18 +57,18 @@ def format_invalid_arguments_error(
     parameters: dict[str, Any],
     message: str,
     *,
-    lang: str = "zh",
+    lang: str = "en",
 ) -> dict[str, Any]:
     """Rich invalid-arg payload so the model can self-correct without blind retries."""
     props = parameters.get("properties") if isinstance(parameters.get("properties"), dict) else {}
     required = [str(x) for x in (parameters.get("required") or []) if str(x)]
     example = _example_from_schema(parameters or {})
-    if str(lang or "").startswith("en"):
-        err = f"Invalid arguments: {message}"
-        hint = "Fix arguments to match the schema example; do not retry with the same payload."
-    else:
+    if str(lang or "").startswith("zh"):
         err = f"参数不合法: {message}"
         hint = "请按 example 修正参数后重试，不要用相同参数盲目重试。"
+    else:
+        err = f"Invalid arguments: {message}"
+        hint = "Fix arguments to match the schema example; do not retry with the same payload."
     return {
         "ok": False,
         "error_code": "tool_invalid_arguments",

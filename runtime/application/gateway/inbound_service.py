@@ -89,7 +89,7 @@ def _build_admin_gateway_executor(
     uid = str(user_id or "").strip() or None
     return build_gateway_executor(
         store,
-        lang=str(lang or "zh"),
+        lang=str(lang or "en"),
         specialist=specialist,
         viewer_user_id=uid,
         viewer_username=str(viewer_username or "administrator").strip() or "administrator",
@@ -1301,6 +1301,27 @@ def process_inbound_payload(payload: dict[str, Any]) -> dict[str, Any]:
                                         )
                                     except Exception:
                                         pass
+                        gw_attachments = _channel_attachments_for_gateway(
+                            list(inbound.attachments or [])
+                        )
+                        # Resolve channel lang before wrappers so WhatsApp field stays English-first.
+                        from runtime.lang import resolve_runtime_lang
+
+                        interaction_mode, selected_specialist, dispatch_lang = _resolve_channel_dispatch(
+                            store, channel=inbound.channel, account=account
+                        )
+                        lang = (
+                            dispatch_lang
+                            if dispatch_lang in {"zh", "en"}
+                            else resolve_runtime_lang(
+                                store=store,
+                                user_text=str(raw_user_text or text or ""),
+                            )
+                        )
+                        # WhatsApp production is English-primary; never fall back to zh via empty lang.
+                        if str(inbound.channel or "").strip().lower() == "whatsapp" and lang not in {"zh", "en"}:
+                            lang = "en"
+
                         if inbound.is_group:
                             meta_for_group = meta_for_inbound
                             bot_reached = metadata_mentions_bot(meta_for_group) or mentions_include_bot(
@@ -1326,7 +1347,10 @@ def process_inbound_payload(payload: dict[str, Any]) -> dict[str, Any]:
                                     quoted_text=quoted_text,
                                     recent_messages=recent_messages,
                                 ):
-                                    quoted_ctx = build_group_quoted_context_block(metadata=meta_for_group)
+                                    quoted_ctx = build_group_quoted_context_block(
+                                        metadata=meta_for_group,
+                                        lang=lang,
+                                    )
                             wa_acct = str(account_id or "").strip() or "wa-default"
                             user_text = prepare_group_user_text_for_model(
                                 text=raw_user_text,
@@ -1342,25 +1366,17 @@ def process_inbound_payload(payload: dict[str, Any]) -> dict[str, Any]:
                                 account_id=wa_acct,
                                 quoted_ctx=quoted_ctx,
                             )
-                        gw_attachments = _channel_attachments_for_gateway(
-                            list(inbound.attachments or [])
-                        )
                         if not user_text and gw_attachments:
-                            user_text = "用户发送了附件，请根据附件内容回复。"
+                            user_text = (
+                                "用户发送了附件，请根据附件内容回复。"
+                                if str(lang or "").startswith("zh")
+                                else "User sent an attachment; please reply based on the attachment."
+                            )
                         if user_text or gw_attachments:
                             from runtime.gateway import OclawGateway
                             from runtime.types import StandardMessage
-                            from runtime.lang import resolve_runtime_lang
                             from runtime.application.gateway.channel_turn_gate import get_channel_turn_gate
 
-                            interaction_mode, selected_specialist, dispatch_lang = _resolve_channel_dispatch(
-                                store, channel=inbound.channel, account=account
-                            )
-                            lang = (
-                                dispatch_lang
-                                if dispatch_lang in {"zh", "en"}
-                                else resolve_runtime_lang(store=store, user_text=user_text)
-                            )
                             msg_metadata = {
                                 "tenant_id": tenant_id,
                                 "user_id": user_id,
@@ -1435,7 +1451,15 @@ def process_inbound_payload(payload: dict[str, Any]) -> dict[str, Any]:
                                         if isinstance(turn_job.get("msg_metadata"), dict)
                                         else dict(msg_metadata)
                                     )
-                                    job_lang = str(turn_job.get("lang") or lang or "zh")
+                                    job_lang = str(
+                                        turn_job.get("lang")
+                                        or lang
+                                        or (
+                                            "en"
+                                            if str(inbound.channel or "").strip().lower() == "whatsapp"
+                                            else "zh"
+                                        )
+                                    )
                                     job_inbound = turn_job.get("inbound") or inbound
                                     progress_cb = None
                                     tool_ui_cb = None

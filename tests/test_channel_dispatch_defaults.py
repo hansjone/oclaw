@@ -21,6 +21,14 @@ def test_channel_dispatch_defaults_to_expert_and_generalist() -> None:
     assert lang == "auto"
 
 
+def test_channel_dispatch_whatsapp_defaults_to_en() -> None:
+    store = _DummyStore()
+    interaction_mode, specialist, lang = _resolve_channel_dispatch(store, channel="whatsapp", account=None)
+    assert interaction_mode == "expert"
+    assert specialist == "generalist"
+    assert lang == "en"
+
+
 def test_channel_dispatch_uses_global_settings() -> None:
     store = _DummyStore(
         {
