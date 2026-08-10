@@ -6042,6 +6042,31 @@ class SqliteStore(ScheduledJobStoreMixin):
         if "last_attempt_at" not in cols:
             conn.execute("ALTER TABLE channel_outbound_message ADD COLUMN last_attempt_at TEXT")
 
+    def find_open_whatsapp_access_pending(
+        self,
+        *,
+        tenant_id: str,
+        account_id: str,
+        external_user_id: str,
+        phone: str = "",
+    ) -> dict[str, Any] | None:
+        """Return an existing pending access row for this sender, if any."""
+        from runtime.extensions.whatsapp.access_control import contact_phone_key, whatsapp_users_match
+
+        pending = self.list_whatsapp_access_pending(
+            tenant_id=tenant_id,
+            account_id=account_id,
+            status="pending",
+            limit=200,
+        )
+        phone_val = str(phone or "").strip()
+        for row in pending:
+            if whatsapp_users_match(str(row.get("external_user_id") or ""), external_user_id):
+                return dict(row)
+            if phone_val and contact_phone_key(row) == phone_val:
+                return dict(row)
+        return None
+
     def create_whatsapp_access_pending(
         self,
         *,
@@ -6054,20 +6079,14 @@ class SqliteStore(ScheduledJobStoreMixin):
     ) -> str | None:
         import uuid
 
-        from runtime.extensions.whatsapp.access_control import contact_phone_key, whatsapp_users_match
-
-        pending = self.list_whatsapp_access_pending(
+        existing = self.find_open_whatsapp_access_pending(
             tenant_id=tenant_id,
             account_id=account_id,
-            status="pending",
-            limit=200,
+            external_user_id=external_user_id,
+            phone=phone,
         )
-        phone_val = str(phone or "").strip()
-        for row in pending:
-            if whatsapp_users_match(str(row.get("external_user_id") or ""), external_user_id):
-                return str(row.get("id") or "")
-            if phone_val and contact_phone_key(row) == phone_val:
-                return str(row.get("id") or "")
+        if existing:
+            return str(existing.get("id") or "") or None
         pending_id = uuid.uuid4().hex
         ts = utc_now_iso()
         with self._connect() as conn:

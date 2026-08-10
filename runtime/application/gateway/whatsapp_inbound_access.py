@@ -461,15 +461,29 @@ def handle_whatsapp_access(
         )
         return None
 
-    pending_id = store.create_whatsapp_access_pending(
-        tenant_id=tenant_id,
-        account_id=account_id,
-        external_user_id=raw_jid,
-        push_name=push_name,
-        phone=phone,
-        request_text=text,
-    )
-    if pending_id:
+    pending_id = ""
+    already_pending = False
+    finder = getattr(store, "find_open_whatsapp_access_pending", None)
+    if callable(finder):
+        existing = finder(
+            tenant_id=tenant_id,
+            account_id=account_id,
+            external_user_id=raw_jid,
+            phone=phone,
+        )
+        if isinstance(existing, dict) and str(existing.get("id") or "").strip():
+            pending_id = str(existing.get("id") or "").strip()
+            already_pending = True
+    if not pending_id:
+        pending_id = store.create_whatsapp_access_pending(
+            tenant_id=tenant_id,
+            account_id=account_id,
+            external_user_id=raw_jid,
+            push_name=push_name,
+            phone=phone,
+            request_text=text,
+        ) or ""
+    if pending_id and not already_pending:
         _notify_admins(
             store,
             tenant_id=tenant_id,
@@ -500,12 +514,17 @@ def handle_whatsapp_access(
             {
                 "channel": "whatsapp",
                 "chat_id": inbound.external_chat_id,
-                "text": denied_reply_text(lang=lang, pending_id=str(pending_id or "")),
+                "text": denied_reply_text(
+                    lang=lang,
+                    pending_id=str(pending_id or ""),
+                    already_pending=already_pending,
+                ),
                 "attachments": [],
                 "metadata": reply_meta,
             }
         ],
         "whatsapp_access": "denied",
+        "whatsapp_access_already_pending": bool(already_pending),
     }
 
 

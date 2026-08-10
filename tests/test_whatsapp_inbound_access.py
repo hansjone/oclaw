@@ -65,12 +65,19 @@ class _AccessStore:
             rows = [r for r in rows if str(r.get("list_type") or "") == list_type]
         return rows
 
+    def find_open_whatsapp_access_pending(self, **kwargs: Any) -> dict[str, Any] | None:
+        jid = str(kwargs.get("external_user_id") or "")
+        for row in self.pending:
+            if row.get("status") == "pending" and row.get("external_user_id") == jid:
+                return dict(row)
+        return None
+
     def create_whatsapp_access_pending(self, **kwargs: Any) -> str:
+        existing = self.find_open_whatsapp_access_pending(**kwargs)
+        if existing:
+            return str(existing.get("id") or "")
         self._pending_seq += 1
         pending_id = f"pending{self._pending_seq}"
-        for row in self.pending:
-            if row.get("status") == "pending" and row.get("external_user_id") == kwargs.get("external_user_id"):
-                return str(row.get("id") or pending_id)
         self.pending.append(
             {
                 "id": pending_id,
@@ -347,7 +354,34 @@ def test_handle_whatsapp_access_denied_unknown_user(monkeypatch) -> None:
     assert store.pending[0].get("phone") == "8615601877957"
     assert store.outbound
     replies = out.get("replies") if isinstance(out.get("replies"), list) else []
-    assert replies and "denied" in str(replies[0].get("text") or "").lower()
+    text = str((replies[0] or {}).get("text") or "").lower()
+    assert replies and ("pending" in text or "denied" in text)
+
+
+def test_handle_whatsapp_access_already_pending_skips_renotify(monkeypatch) -> None:
+    import runtime.application.gateway.whatsapp_inbound_access as mod
+
+    monkeypatch.setattr(mod, "resolve_whatsapp_tenant_id", lambda store, account_id: "tenant1")
+    store = _AccessStore()
+    # blacklist mode: unknown senders are denied and create a pending request
+    store.config["access_mode"] = "blacklist"
+    store.contacts["111@s.whatsapp.net"] = {"external_user_id": "111@s.whatsapp.net", "list_type": "admin"}
+    first = handle_whatsapp_access(store, inbound=_Inbound(), account_id="wa-default", text="hello")
+    assert first is not None
+    assert first.get("whatsapp_access") == "denied"
+    assert first.get("whatsapp_access_already_pending") is not True
+    assert len(store.outbound) == 1
+    pending_id = str(store.pending[0].get("id") or "")
+
+    second = handle_whatsapp_access(store, inbound=_Inbound(), account_id="wa-default", text="hello again")
+    assert second is not None
+    assert second.get("whatsapp_access_already_pending") is True
+    assert len(store.outbound) == 1  # no second admin notify
+    assert len(store.pending) == 1
+    assert store.pending[0].get("id") == pending_id
+    replies = second.get("replies") if isinstance(second.get("replies"), list) else []
+    text = str((replies[0] or {}).get("text") or "").lower()
+    assert "still pending" in text or pending_id.lower() in text
 
 
 def test_handle_whatsapp_access_allows_whitelisted_user(monkeypatch) -> None:

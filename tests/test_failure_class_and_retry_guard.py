@@ -128,3 +128,120 @@ def test_retry_forbidden_blocks_same_tool_different_args(tmp_path: Path) -> None
     assert calls["n"] == 1
     assert blocked.get("error_code") == "retry_forbidden_blocked"
     assert blocked.get("retry_forbidden") is True
+
+
+def test_exec_managed_ne_call_budget(tmp_path: Path) -> None:
+    store = SqliteStore(str(tmp_path / "cli.sqlite"))
+    sess = store.create_session("t")
+    calls = {"n": 0}
+
+    def _handler(args):
+        calls["n"] += 1
+        return {"ok": True, "data": {"ne_id": args.get("ne_id"), "n": calls["n"]}}
+
+    reg = ToolRegistry(
+        [
+            ToolSpec(
+                name="mcp__netx__execManagedNe",
+                description="exec",
+                parameters={"type": "object", "properties": {"ne_id": {"type": "string"}}},
+                handler=_handler,
+                read_only=False,
+            )
+        ]
+    )
+    ctx = ToolExecutionContext(
+        store=store,
+        tools=reg,
+        session_id=sess.id,
+        turn_uuid="turn-cli-budget",
+        lang="en",
+    )
+    # 4 distinct-arg calls allowed; 5th blocked by call budget.
+    for i in range(4):
+        ToolExecutor().execute_tool_uses(
+            ctx=ctx,
+            assistant_msg_id=i + 1,
+            tool_uses=[
+                LLMToolCall(
+                    id=f"c{i}",
+                    name="mcp__netx__execManagedNe",
+                    arguments={"ne_id": f"ne-{i}", "commands": [f"disp {i}"]},
+                )
+            ],
+            signature_budget=2,
+        )
+    assert calls["n"] == 4
+    _, results = ToolExecutor().execute_tool_uses(
+        ctx=ctx,
+        assistant_msg_id=99,
+        tool_uses=[
+            LLMToolCall(
+                id="cX",
+                name="mcp__netx__execManagedNe",
+                arguments={"ne_id": "ne-x", "commands": ["disp x"]},
+            )
+        ],
+        signature_budget=2,
+    )
+    blocked, _ = results["cX"]
+    assert calls["n"] == 4
+    assert blocked.get("error_code") == "cli_call_budget_exceeded"
+
+
+def test_exec_managed_ne_fail_budget(tmp_path: Path) -> None:
+    store = SqliteStore(str(tmp_path / "cli-fail.sqlite"))
+    sess = store.create_session("t")
+    calls = {"n": 0}
+
+    def _handler(_args):
+        calls["n"] += 1
+        return {"ok": False, "error_code": "tool_timeout_or_failed", "error": "timeout"}
+
+    reg = ToolRegistry(
+        [
+            ToolSpec(
+                name="mcp__netx__execManagedNe",
+                description="exec",
+                parameters={"type": "object", "properties": {"ne_id": {"type": "string"}}},
+                handler=_handler,
+                read_only=False,
+            )
+        ]
+    )
+    ctx = ToolExecutionContext(
+        store=store,
+        tools=reg,
+        session_id=sess.id,
+        turn_uuid="turn-cli-fail",
+        lang="en",
+    )
+    for i in range(2):
+        ToolExecutor().execute_tool_uses(
+            ctx=ctx,
+            assistant_msg_id=i + 1,
+            tool_uses=[
+                LLMToolCall(
+                    id=f"f{i}",
+                    name="mcp__netx__execManagedNe",
+                    arguments={"ne_id": f"ne-{i}", "commands": ["disp"]},
+                )
+            ],
+            signature_budget=2,
+        )
+    assert calls["n"] == 2
+    _, results = ToolExecutor().execute_tool_uses(
+        ctx=ctx,
+        assistant_msg_id=3,
+        tool_uses=[
+            LLMToolCall(
+                id="f3",
+                name="mcp__netx__execManagedNe",
+                arguments={"ne_id": "ne-3", "commands": ["disp"]},
+            )
+        ],
+        signature_budget=2,
+    )
+    blocked, _ = results["f3"]
+    assert calls["n"] == 2
+    assert blocked.get("error_code") == "cli_fail_budget_exceeded"

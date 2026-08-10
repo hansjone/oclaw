@@ -416,6 +416,55 @@ def _load_turn_retry_forbidden_tools(store: Any, *, session_id: str, turn_uuid: 
     return out
 
 
+def _load_turn_failed_name_counts(store: Any, *, session_id: str, turn_uuid: str) -> dict[str, int]:
+    """Count failed tool results by tool name earlier in this turn."""
+    tu = str(turn_uuid or "").strip()
+    sid = str(session_id or "").strip()
+    out: dict[str, int] = {}
+    if not tu or not sid:
+        return out
+    try:
+        rows = store.get_messages(session_id=sid, limit=500)
+    except Exception:
+        return out
+    for m in rows or []:
+        if str(getattr(m, "role", "") or "").strip().lower() != "tool":
+            continue
+        if str(getattr(m, "turn_uuid", "") or "").strip() != tu:
+            continue
+        ep = _parse_event_payload(getattr(m, "event_payload", None))
+        name = str(ep.get("tool_name") or "").strip()
+        failed = ep.get("ok") is False
+        if not failed:
+            try:
+                payload = json.loads(str(getattr(m, "content", "") or "") or "{}")
+            except Exception:
+                payload = {}
+            failed = isinstance(payload, dict) and payload.get("ok") is False
+            if not name and isinstance(payload, dict):
+                raw_tc = getattr(m, "tool_calls", None)
+                if isinstance(raw_tc, str):
+                    try:
+                        raw_tc = json.loads(raw_tc)
+                    except Exception:
+                        raw_tc = None
+                if isinstance(raw_tc, dict):
+                    name = str(raw_tc.get("name") or "").strip()
+        if failed and name:
+            out[name] = int(out.get(name, 0)) + 1
+    return out
+
+
+_HEAVY_CLI_NAME_SUFFIXES = ("execmanagedne",)
+_HEAVY_CLI_TURN_CALL_BUDGET = 4
+_HEAVY_CLI_TURN_FAIL_BUDGET = 2
+
+
+def _is_heavy_cli_tool(name: str) -> bool:
+    low = str(name or "").strip().lower()
+    return any(low.endswith(suf) for suf in _HEAVY_CLI_NAME_SUFFIXES)
+
+
 def normalize_tool_result(result: Any) -> dict[str, Any]:
     if isinstance(result, dict):
         out = dict(result)
@@ -1043,6 +1092,12 @@ class ToolExecutor:
             session_id=ctx.session_id,
             turn_uuid=str(ctx.turn_uuid or ""),
         )
+        failed_name_counts = _load_turn_failed_name_counts(
+            ctx.store,
+            session_id=ctx.session_id,
+            turn_uuid=str(ctx.turn_uuid or ""),
+        )
+        planned_name_counts: dict[str, int] = {}
 
         results_by_id: dict[str, tuple[dict[str, Any], int]] = {}
         runnable_tool_uses: list[LLMToolCall] = []
@@ -1051,7 +1106,8 @@ class ToolExecutor:
         sig_seen: dict[str, int] = {}
         budget = max(1, min(int(signature_budget or 2), 8))
         for tc in tool_uses:
-            if str(tc.name or "") in retry_forbidden_tools:
+            tool_name = str(tc.name or "")
+            if tool_name in retry_forbidden_tools:
                 results_by_id[tc.id] = (
                     {
                         "ok": False,
@@ -1072,6 +1128,55 @@ class ToolExecutor:
                     {"tool_name": tc.name},
                 )
                 continue
+            if _is_heavy_cli_tool(tool_name):
+                prior_calls = int(turn_tool_name_counts.get(tool_name, 0)) + int(
+                    planned_name_counts.get(tool_name, 0)
+                )
+                prior_fails = int(failed_name_counts.get(tool_name, 0))
+                if prior_fails >= _HEAVY_CLI_TURN_FAIL_BUDGET:
+                    results_by_id[tc.id] = (
+                        {
+                            "ok": False,
+                            "error_code": "cli_fail_budget_exceeded",
+                            "failure_class": "retry_guard",
+                            "error": f"{tool_name} failed too many times this turn",
+                            "hint": (
+                                "execManagedNe already failed multiple times this turn. "
+                                "Stop CLI spam: report unreachable/timeout NEs, batch remaining "
+                                "show commands into one call with higher read_timeout_sec, or switch targets."
+                            ),
+                            "fail_count": prior_fails,
+                            "fail_budget": _HEAVY_CLI_TURN_FAIL_BUDGET,
+                        },
+                        0,
+                    )
+                    _trace(
+                        "cli_fail_budget_exceeded",
+                        {"tool_name": tool_name, "fail_count": prior_fails},
+                    )
+                    continue
+                if prior_calls >= _HEAVY_CLI_TURN_CALL_BUDGET:
+                    results_by_id[tc.id] = (
+                        {
+                            "ok": False,
+                            "error_code": "cli_call_budget_exceeded",
+                            "failure_class": "retry_guard",
+                            "error": f"{tool_name} call budget exceeded this turn",
+                            "hint": (
+                                "Too many execManagedNe calls this turn. "
+                                "Batch commands into fewer calls, reuse prior listCliTargets ids, "
+                                "and summarize what you already have."
+                            ),
+                            "call_count": prior_calls,
+                            "call_budget": _HEAVY_CLI_TURN_CALL_BUDGET,
+                        },
+                        0,
+                    )
+                    _trace(
+                        "cli_call_budget_exceeded",
+                        {"tool_name": tool_name, "call_count": prior_calls},
+                    )
+                    continue
             if tc.name in _TABULAR_QUERY_TOOL_NAMES and not has_tabular_ref_in_session:
                 results_by_id[tc.id] = (
                     {
@@ -1226,6 +1331,7 @@ class ToolExecutor:
                 continue
             first_tool_call_id_by_signature[sig] = str(tc.id or "")
             runnable_tool_uses.append(tc)
+            planned_name_counts[tool_name] = int(planned_name_counts.get(tool_name, 0)) + 1
 
         for batch in partition_tool_use_batches(runnable_tool_uses, ctx.tools):
             _check_stop()
