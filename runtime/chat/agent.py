@@ -95,8 +95,14 @@ class Agent:
         t0 = time.perf_counter()
         tool = self.tools.get(tc.name)
         if not tool:
-            msg = f"Unregistered tool: {tc.name}" if self.lang.startswith("en") else f"未注册的工具: {tc.name}"
-            return {"ok": False, "error": msg}, int((time.perf_counter() - t0) * 1000)
+            from runtime.tools.tool_error_hints import format_unregistered_tool_error
+
+            available = [t.name for t in self.tools.list()] if hasattr(self.tools, "list") else []
+            return format_unregistered_tool_error(
+                str(tc.name or ""),
+                available,
+                lang=str(self.lang or "zh"),
+            ), int((time.perf_counter() - t0) * 1000)
 
         ok, v_err = validate_tool_arguments(tool.parameters, tc.arguments)
         if not ok:

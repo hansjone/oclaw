@@ -78,7 +78,9 @@ description: 面向 ops 专家的 netx UME 运维作业手册。覆盖告警查�
 - 体积：`page_size` 默认 50；聚合 `top_ne` 默认 50；raw 用 preset；动态聚合 `limit≤200`。
 - **Top 网元**：默认忽略 `(host_name missing)`；结论中说明 missing 数量，勿把 UUID/`unknown`/空串当网元名。
 - SQL：建议 `statement_timeout_ms=8000`；非 `count(*)` 应带过滤；时间窗相对 **数据新鲜度**，不是盲目 `now()`。
+  - 若返回 `insufficient_scope:sql:query`：改用 `aggregateUmeAlarms` / `queryUmeAlarmsRaw` / `ume_alarm_xlsx_report`，勿盲重试 SQL。
 - `WITH` CTE 可用；**禁止** `WITH RECURSIVE`。
+- `getManagedNe` 只要 **纳管 ne_id**（来自 listManagedNe）；UME UUID 用 `getUmeNe` / `execManagedNe(ume_ne_id=...)`。
 
 ## 输出约定
 

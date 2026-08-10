@@ -127,6 +127,9 @@ class _McpBoundTool:
                 return {"ok": False, "error_code": "mcp_runtime_invalid_payload", "error": "invalid_response"}
             if "ok" not in res:
                 res["ok"] = False
+            from runtime.tools.tool_error_hints import enrich_mcp_scope_error
+
+            res = enrich_mcp_scope_error(res)
             if tool_name == "listCliTargets" and res.get("ok") is not False and cache_key:
                 _set_list_cli_cache(cache_key, res)
                 res = dict(res)

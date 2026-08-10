@@ -534,8 +534,14 @@ class ToolExecutor:
 
         tool = ctx.tools.get(tc.name)
         if not tool:
-            msg = f"Unregistered tool: {tc.name}" if ctx.lang.startswith("en") else f"未注册的工具: {tc.name}"
-            return {"ok": False, "error_code": "tool_not_registered", "error": msg}, int((time.perf_counter() - t0) * 1000)
+            from runtime.tools.tool_error_hints import format_unregistered_tool_error
+
+            available = [t.name for t in ctx.tools.list()] if hasattr(ctx.tools, "list") else []
+            return format_unregistered_tool_error(
+                str(tc.name or ""),
+                available,
+                lang=str(ctx.lang or "zh"),
+            ), int((time.perf_counter() - t0) * 1000)
 
         from runtime.tools.context_inject import enrich_tool_arguments
         from runtime.tools.tool_validation import filter_arguments_to_schema
