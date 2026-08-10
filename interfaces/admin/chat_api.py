@@ -738,9 +738,9 @@ def _normalize_execution_mode(payload: dict[str, Any] | None) -> str:
 
 
 def _normalize_confirm_strategy(payload: dict[str, Any] | None) -> str:
-    body = payload or {}
-    raw = str(body.get("confirm_strategy") or "").strip().lower()
-    return raw if raw in {"auto", "strict", "off"} else "strict"
+    """Plan-mode confirm gate removed; keep a fixed wire default for older clients."""
+    del payload
+    return "strict"
 
 
 def _normalize_plan_agent_version(payload: dict[str, Any] | None) -> str:
@@ -755,7 +755,7 @@ def _resolve_user_menu_chat_settings(
     tenant_id: str,
     user_id: str,
 ) -> tuple[str, str, str, str]:
-    """User-wide settings (⋯ menu): mode + confirm — all sessions share these keys."""
+    """User-wide settings (⋯ menu): mode + specialist — all sessions share these keys."""
     user_mode_key = _chat_user_mode_setting_key(tenant_id=tenant_id, user_id=user_id, field="interaction_mode")
     user_specialist_key = _chat_user_mode_setting_key(tenant_id=tenant_id, user_id=user_id, field="specialist")
     user_confirm_strategy_key = _chat_user_mode_setting_key(tenant_id=tenant_id, user_id=user_id, field="confirm_strategy")
@@ -850,7 +850,7 @@ def _resolve_mode_settings(
     user_id: str,
     session_id: str,
 ) -> tuple[str, str, str, str, str, str]:
-    """User-wide mode/specialist + session memory/exec + user confirm/plan_agent for gateway + REST send."""
+    """User-wide mode/specialist + session memory/exec (+ legacy confirm/plan_agent defaults) for gateway + REST send."""
     u_im, u_sp, u_cs, u_pav = _resolve_user_menu_chat_settings(store=store, tenant_id=tenant_id, user_id=user_id)
     s_mm, s_em = _resolve_session_dialog_chat_settings(
         store=store, tenant_id=tenant_id, user_id=user_id, session_id=str(session_id)

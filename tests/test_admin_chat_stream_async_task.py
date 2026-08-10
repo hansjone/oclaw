@@ -242,7 +242,7 @@ class AdminChatStreamAsyncTaskTests(unittest.TestCase):
         # Session POST ignores interaction/specialist; user menu still has generalist.
         self.assertEqual(str(body1.get("specialist") or ""), "generalist")
         self.assertEqual(str(body1.get("memory_mode") or ""), "store_only")
-        self.assertEqual(str(body1.get("confirm_strategy") or ""), "auto")
+        self.assertEqual(str(body1.get("confirm_strategy") or ""), "strict")
 
         resp2 = self.client.get(
             f"/admin/api/chat/sessions/{self.session_id}/mode",
@@ -254,7 +254,7 @@ class AdminChatStreamAsyncTaskTests(unittest.TestCase):
         self.assertEqual(str(body2.get("interaction_mode") or ""), "expert")
         self.assertEqual(str(body2.get("specialist") or ""), "generalist")
         self.assertEqual(str(body2.get("memory_mode") or ""), "store_only")
-        self.assertEqual(str(body2.get("confirm_strategy") or ""), "auto")
+        self.assertEqual(str(body2.get("confirm_strategy") or ""), "strict")
 
     def test_messages_use_session_mode_when_payload_omits_mode(self) -> None:
         token = self._login()

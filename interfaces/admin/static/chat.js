@@ -107,10 +107,6 @@ const I18N = {
     "chat.execModeAgent": "Agent",
     "chat.execModePlan": "Plan",
     "chat.execModeApplied": "执行态：{mode}",
-    "chat.confirmStrategyLabel": "确认策略",
-    "chat.confirmStrategyStrict": "Strict（需切换 Agent）",
-    "chat.confirmStrategyAuto": "Auto（自动确认执行）",
-    "chat.confirmStrategyOff": "Off（不拦截确认）",
     "chat.specialistGeneralist": "通用",
     "chat.specialistOps": "运维",
     "chat.specialistImage": "图像",
@@ -301,10 +297,6 @@ const I18N = {
     "chat.execModeAgent": "Agent",
     "chat.execModePlan": "Plan",
     "chat.execModeApplied": "Execution: {mode}",
-    "chat.confirmStrategyLabel": "Confirm Strategy",
-    "chat.confirmStrategyStrict": "Strict (switch to Agent first)",
-    "chat.confirmStrategyAuto": "Auto (confirm executes directly)",
-    "chat.confirmStrategyOff": "Off (no confirm-mode gate)",
     "chat.specialistGeneralist": "Generalist",
     "chat.specialistOps": "Ops",
     "chat.specialistImage": "Image",
@@ -406,14 +398,11 @@ const CHAT_SPECIALIST_PREF_KEY = "ops_chat_specialist_pref";
 const CHAT_INTERACTION_MODE_KEY = "ops_chat_interaction_mode";
 const CHAT_MEMORY_MODE_KEY = "ops_chat_memory_mode";
 const CHAT_EXECUTION_MODE_KEY = "ops_chat_execution_mode";
-const CHAT_CONFIRM_STRATEGY_KEY = "ops_chat_confirm_strategy";
 const CHAT_USER_MENU_MODE_KEY = "ops_chat_user_menu_mode";
 const CHAT_REASONING_TOGGLE_KEY = "ops_chat_reasoning_toggle";
 const EXECUTION_MODE_AGENT = "agent";
 const EXECUTION_MODE_PLAN = "plan";
 const CONFIRM_STRATEGY_STRICT = "strict";
-const CONFIRM_STRATEGY_AUTO = "auto";
-const CONFIRM_STRATEGY_OFF = "off";
 const PLAN_AGENT_V1 = "v1";
 /** Default on: reasoning/tool fold matches streamed behavior; new browsers have no localStorage yet. */
 const ADMIN_CHAT_SHOW_TOOL_OUTPUT_DEFAULT = true;
@@ -3064,27 +3053,6 @@ function syncAuthUserLabel() {
           }
         });
         items.push(modeSel);
-        items.push(el("div", { class: "muted", style: "padding:2px 10px 2px;font-size:12px;", text: t("chat.confirmStrategyLabel") }));
-        const csSel = el("select", { class: "input", style: "width:100%;margin:4px 8px 8px;max-width:calc(100% - 16px);" });
-        try {
-          const rows = Array.isArray(bridge.getConfirmStrategyOptions && bridge.getConfirmStrategyOptions())
-            ? bridge.getConfirmStrategyOptions()
-            : [];
-          rows.forEach((r) => csSel.appendChild(el("option", { value: String(r.value || ""), text: String(r.label || r.value || "") })));
-          csSel.value = String((bridge.getConfirmStrategyValue && bridge.getConfirmStrategyValue()) || "");
-        } catch (_) {}
-        csSel.addEventListener("change", async () => {
-          const v = csSel.value;
-          try {
-            csSel.disabled = true;
-            if (bridge.setConfirmStrategyValue) await bridge.setConfirmStrategyValue(v);
-          } catch (_) {
-            // errors are surfaced by saveUserGlobalModePreference()
-          } finally {
-            csSel.disabled = false;
-          }
-        });
-        items.push(csSel);
         const reasonWrap = el("label", { class: "switch-wrap", style: "margin:2px 8px 8px;" }, [
           el("input", { type: "checkbox", class: "switch-input" }),
           el("span", { class: "switch-slider" }),
@@ -3351,16 +3319,9 @@ async function renderChatUi() {
     const raw = String(v || "").trim().toLowerCase();
     return raw === EXECUTION_MODE_PLAN ? EXECUTION_MODE_PLAN : EXECUTION_MODE_AGENT;
   };
-  const normalizeConfirmStrategy = (v) => {
-    const raw = String(v || "").trim().toLowerCase();
-    if (raw === CONFIRM_STRATEGY_AUTO) return CONFIRM_STRATEGY_AUTO;
-    if (raw === CONFIRM_STRATEGY_OFF) return CONFIRM_STRATEGY_OFF;
-    return CONFIRM_STRATEGY_STRICT;
-  };
   const executionModeLabel = (v) =>
     normalizeExecutionMode(v) === EXECUTION_MODE_PLAN ? t("chat.execModePlan") : t("chat.execModeAgent");
   let currentExecutionMode = normalizeExecutionMode(localStorage.getItem(CHAT_EXECUTION_MODE_KEY) || EXECUTION_MODE_AGENT);
-  let currentConfirmStrategy = normalizeConfirmStrategy(localStorage.getItem(CHAT_CONFIRM_STRATEGY_KEY) || CONFIRM_STRATEGY_STRICT);
   const execSelect = el("select", {
     class: "input",
     style: "min-width:96px;max-width:140px;padding:6px 8px;",
@@ -3534,7 +3495,6 @@ async function renderChatUi() {
       const s = String((resp && resp.specialist) || "").toLowerCase();
       const mm = String((resp && resp.memory_mode) || "").toLowerCase();
       const em = String((resp && resp.execution_mode) || "").toLowerCase();
-      const cs = String((resp && resp.confirm_strategy) || "").toLowerCase();
       const gm = resp && resp.global_menu && typeof resp.global_menu === "object" ? resp.global_menu : null;
       if (gm) {
         const gIm = String(gm.interaction_mode || "").toLowerCase();
@@ -3548,8 +3508,6 @@ async function renderChatUi() {
           if (ur && ur.ok) {
             const gum = String((ur.interaction_mode || "").toLowerCase());
             const gus = String((ur.specialist || "").toLowerCase());
-            currentConfirmStrategy = normalizeConfirmStrategy(ur.confirm_strategy || currentConfirmStrategy);
-            localStorage.setItem(CHAT_CONFIRM_STRATEGY_KEY, currentConfirmStrategy);
             if (isSelectableSpecialist(gus)) globalMenuModeValue = gus;
             else if (isSelectableSpecialist(gum)) globalMenuModeValue = gum;
             else globalMenuModeValue = MAIN_MODE_VALUE;
@@ -3564,8 +3522,6 @@ async function renderChatUi() {
       syncHiddenModeSelectFromGlobal();
       if (["default", "store_only"].includes(mm)) localStorage.setItem(CHAT_MEMORY_MODE_KEY, mm);
       setExecutionMode(em, { persistLocal: true, saveSession: false });
-      currentConfirmStrategy = normalizeConfirmStrategy(cs || currentConfirmStrategy);
-      localStorage.setItem(CHAT_CONFIRM_STRATEGY_KEY, currentConfirmStrategy);
       persistModeSelection();
       const mml = String(localStorage.getItem(CHAT_MEMORY_MODE_KEY) || "default").toLowerCase();
       localStorage.setItem(CHAT_MEMORY_MODE_KEY, mml === "store_only" ? "store_only" : "default");
@@ -3583,7 +3539,7 @@ async function renderChatUi() {
       const resp = await apiPost("/admin/api/chat/user-mode", {
         interaction_mode: "expert",
         specialist,
-        confirm_strategy: String(currentConfirmStrategy || CONFIRM_STRATEGY_STRICT),
+        confirm_strategy: CONFIRM_STRATEGY_STRICT,
         plan_agent_version: PLAN_AGENT_V1,
       });
       localStorage.setItem(CHAT_USER_MENU_MODE_KEY, specialist);
@@ -3913,18 +3869,6 @@ async function renderChatUi() {
           syncHiddenModeSelectFromGlobal();
           await saveUserGlobalModePreference();
           refreshExecUi();
-          publishUserMenuPrefsBridge();
-        },
-        getConfirmStrategyOptions: () => [
-          { value: CONFIRM_STRATEGY_STRICT, label: t("chat.confirmStrategyStrict") },
-          { value: CONFIRM_STRATEGY_AUTO, label: t("chat.confirmStrategyAuto") },
-          { value: CONFIRM_STRATEGY_OFF, label: t("chat.confirmStrategyOff") },
-        ],
-        getConfirmStrategyValue: () => String(currentConfirmStrategy || CONFIRM_STRATEGY_STRICT),
-        setConfirmStrategyValue: async (v) => {
-          currentConfirmStrategy = normalizeConfirmStrategy(v);
-          localStorage.setItem(CHAT_CONFIRM_STRATEGY_KEY, currentConfirmStrategy);
-          await saveUserGlobalModePreference();
           publishUserMenuPrefsBridge();
         },
         getReasoningVisible: () => !!showToolOutput,
