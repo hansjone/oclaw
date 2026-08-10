@@ -169,6 +169,84 @@ def _unwrap_nested_error_blob(raw: Any) -> tuple[str, str]:
     return str(text or "").strip(), str(code or "").strip()
 
 
+def enrich_get_managed_ne_error(result: dict[str, Any]) -> dict[str, Any]:
+    """Steer agents away from empty getManagedNe loops (common WA failure mode)."""
+    if not isinstance(result, dict) or result.get("ok") is not False:
+        return result
+    out = dict(result)
+    raw_err = out.get("error")
+    raw_code = str(out.get("error_code") or "")
+    unwrapped, nested_code = _unwrap_nested_error_blob(raw_err)
+    if unwrapped and unwrapped != str(raw_err or "").strip():
+        out["error_detail"] = unwrapped
+    code = (nested_code or raw_code or "").strip()
+    detail = str(out.get("detail") or "")
+    blob = f"{unwrapped} {code} {raw_err} {detail}".lower()
+
+    error_class = "get_managed_ne_failed"
+    hint = (
+        "getManagedNe failed. Use listManagedNe(keyword=...) or listCliTargets(source=managed) "
+        "to resolve a *managed* ne_id. For UME inventory UUIDs use getUmeNe or "
+        "execManagedNe(ume_ne_id=...) — do not retry the same getManagedNe args."
+    )
+    example: dict[str, Any] = {"ne_id": "<managed-ne-id-from-listManagedNe>"}
+
+    if code in {"ne_id_required", "managed_ne_id_required"} or "ne_id_required" in blob:
+        error_class = "ne_id_required"
+        hint = (
+            "ne_id is required and must be a managed NE id from listManagedNe / "
+            "listCliTargets(source=managed). UME UUIDs belong in getUmeNe / execManagedNe(ume_ne_id=...)."
+        )
+    elif any(
+        x in blob
+        for x in (
+            "404",
+            "not_found",
+            "not found",
+            "netx_http_404",
+            "no such",
+            "unknown ne",
+            "ne not found",
+        )
+    ):
+        error_class = "not_found"
+        hint = (
+            "Managed NE not found for this ne_id (often a UME UUID was passed). "
+            "Next: listManagedNe(keyword=host_name) or listCliTargets(source=managed); "
+            "if the id is from alarms/UME inventory, call getUmeNe / execManagedNe(ume_ne_id=...) instead. "
+            "Do not blind-retry getManagedNe with the same id."
+        )
+        example = {
+            "next": [
+                {"tool": "listManagedNe", "args": {"keyword": "<host_name>"}},
+                {"tool": "execManagedNe", "args": {"ume_ne_id": "<ume-uuid>", "commands": ["show version"]}},
+            ]
+        }
+    elif "timeout" in blob or code in {"tool_timeout_or_failed", "read_timeout", "deadline_exceeded"}:
+        error_class = "timeout"
+        hint = (
+            "getManagedNe timed out. Prefer listManagedNe for discovery; only call getManagedNe "
+            "when you need connect_detail — do not spam retries."
+        )
+
+    out["error_class"] = error_class
+    if code and not out.get("error_code"):
+        out["error_code"] = code
+    # Prefer our steer when prior hint is empty or too vague.
+    prior = str(out.get("hint") or "").strip()
+    if (not prior) or ("listManagedNe" not in prior and "ume_ne_id" not in prior.lower()):
+        out["hint"] = hint
+    if not out.get("example"):
+        out["example"] = example
+    out["next_tools"] = [
+        "mcp__netx__listManagedNe",
+        "mcp__netx__listCliTargets",
+        "mcp__netx__getUmeNe",
+        "mcp__netx__execManagedNe",
+    ]
+    return out
+
+
 def enrich_exec_managed_ne_error(result: dict[str, Any]) -> dict[str, Any]:
     """Classify execManagedNe failures so agents stop blind-retrying."""
     if not isinstance(result, dict) or result.get("ok") is not False:
@@ -185,7 +263,7 @@ def enrich_exec_managed_ne_error(result: dict[str, Any]) -> dict[str, Any]:
     error_class = "exec_failed"
     hint = (
         "CLI failed. Check ne_id/ume_ne_id, avoid identical blind retries, "
-        "and prefer batching show commands in one execManagedNe call."
+        "and for many NEs prefer one execManagedNe(ne_ids|ume_ne_ids=..., commands=...) batch."
     )
     if "timeout" in blob or code in {"tool_timeout_or_failed", "read_timeout", "deadline_exceeded"}:
         error_class = "timeout"
@@ -264,6 +342,12 @@ def classify_tool_failure(result: dict[str, Any]) -> str:
         return "retry_guard"
     if code in {"tool_not_registered"}:
         return "not_registered"
+    if code in {"ne_id_required"}:
+        return "ne_id_required"
+    if any(x in blob for x in ("not found", "netx_http_404")) or (
+        "404" in blob and ("managed" in blob or "ne_id" in blob)
+    ):
+        return "not_found"
     return "runtime"
 
 
@@ -330,6 +414,7 @@ __all__ = [
     "build_finalize_system_suffix",
     "classify_tool_failure",
     "enrich_exec_managed_ne_error",
+    "enrich_get_managed_ne_error",
     "enrich_mcp_scope_error",
     "format_unregistered_tool_error",
     "stamp_tool_failure_class",

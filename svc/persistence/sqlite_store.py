@@ -2296,7 +2296,8 @@ class SqliteStore(ScheduledJobStoreMixin):
         raw_cap = str(self.get_setting("AIA_TOOL_LOG_MAX_CHARS") or "").strip()
         if not raw_cap:
             raw_cap = str(os.getenv("AIA_TOOL_LOG_MAX_CHARS") or "").strip()
-        cap = 200_000
+        # Default 64k: field ops rarely need multi-100k tool dumps in tool_log.
+        cap = 64_000
         if raw_cap.isdigit():
             cap = max(20_000, min(int(raw_cap), 2_000_000))
         args_capped = self._cap_json_for_log(args, max_chars=cap, keep_keys=())

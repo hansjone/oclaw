@@ -88,4 +88,4 @@ limit 50
 ## 6) 登设备
 
 - 见 `ops-netx-managed-ne-playbook`
-- UME `ne_id` → `listCliTargets` / `execManagedNe(ume_ne_id=…)`（需已配 UME→CLI）
+- UME `ne_id` → `listCliTargets` / `execManagedNe(ume_ne_id=…)`（需已配 UME→CLI）；多台同 show → `execManagedNe(ume_ne_ids=[…], commands=[…])` 一批

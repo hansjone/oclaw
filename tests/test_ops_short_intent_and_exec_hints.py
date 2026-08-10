@@ -10,7 +10,7 @@ from runtime.application.gateway.ops_short_intent import (
     should_send_group_mention_nudge,
 )
 from runtime.tools.base import ToolSpec
-from runtime.tools.tool_error_hints import enrich_exec_managed_ne_error
+from runtime.tools.tool_error_hints import enrich_exec_managed_ne_error, enrich_get_managed_ne_error
 
 
 def test_detect_ops_short_intent_english_field() -> None:
@@ -105,3 +105,22 @@ def test_enrich_exec_unreachable_nested_json() -> None:
     )
     assert out["error_class"] == "unreachable"
     assert "unreachable" in out["hint"].lower()
+
+
+def test_enrich_get_managed_ne_not_found() -> None:
+    out = enrich_get_managed_ne_error(
+        {"ok": False, "error": "netx_http_404", "error_code": "netx_http_404", "detail": "Not Found"}
+    )
+    assert out["error_class"] == "not_found"
+    assert "listManagedNe" in out["hint"]
+    assert "ume_ne_id" in out["hint"]
+    assert "listManagedNe" in " ".join(out.get("next_tools") or [])
+
+
+def test_enrich_get_managed_ne_id_required() -> None:
+    out = enrich_get_managed_ne_error(
+        {"ok": False, "error": "ne_id_required", "error_code": "ne_id_required"}
+    )
+    assert out["error_class"] == "ne_id_required"
+    assert "listManagedNe" in out["hint"]
+    assert out.get("example")

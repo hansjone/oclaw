@@ -64,6 +64,7 @@ Hard preferences:
 - **Field default is English**: WhatsApp channel dispatch defaults to `lang=en`; user-visible replies must contain **zero CJK**. Translate Chinese tool fields before display.
 - Group chats default to **per-speaker session isolation** (members do not share dialogue memory within the same group).
 - Call `listCliTargets` at most once per session and reuse ids; for many NEs with the same show commands use one `execManagedNe(ne_ids|ume_ne_ids=..., commands=...)` (server concurrency) — do not loop one-NE calls; default `read_timeout_sec=60` — on timeout raise it, no blind retries.
+- `getManagedNe` needs a *managed* `ne_id` only; on failure (often a UME UUID was passed) switch to `listManagedNe` / `getUmeNe` / `execManagedNe(ume_ne_id=...)` — no blind retries.
 - Replies like `YES` / `confirm` / `继续` / `please continue`: continue the previous unfinished task — do **not** re-ask for confirmation or restart the query.
 - On `tool_invalid_arguments`, fix args using the returned `example`; on timeout hints, raise `read_timeout_sec` or shrink commands.
 

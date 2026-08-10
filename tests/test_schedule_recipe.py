@@ -83,7 +83,37 @@ class RecipeHelpersTests(unittest.TestCase):
         cong = resolve_ops_recipe_template("congestion")
         assert cong is not None
         self.assertEqual((cong.get("source") or {}).get("template_id"), "bandwidth_congestion_daily")
+        cong_blob = " ".join(str(s) for s in (cong.get("steps") or []) + (cong.get("constraints") or []))
+        self.assertIn("ume_ne_ids", cong_blob)
+        self.assertIn("batch", cong_blob.lower())
+        license_tmpl = resolve_ops_recipe_template("license_check")
+        assert license_tmpl is not None
+        lic_blob = " ".join(str(s) for s in (license_tmpl.get("steps") or []))
+        self.assertIn("ne_ids", lic_blob)
+        self.assertIn("never one-NE", lic_blob)
         self.assertIsNone(resolve_ops_recipe_template("nope"))
+
+    def test_compile_injects_batch_cli_constraint(self) -> None:
+        recipe = {
+            "goal": "CLI check top hosts",
+            "steps": [
+                "Pull congestion alarms",
+                "Run execManagedNe show interface on top hosts",
+            ],
+            "success_criteria": ["Group gets summary"],
+        }
+        instr = compile_playbook_instruction(recipe=recipe, lang="en")
+        self.assertIn("ne_ids", instr)
+        self.assertIn("ume_ne_ids", instr)
+        self.assertIn("batch", instr.lower())
+        # Alarm-only playbook should not get CLI batch constraint.
+        alarm_only = {
+            "goal": "Alarm tally",
+            "steps": ["aggregateUmeAlarms", "Summarize by_severity"],
+            "success_criteria": ["Done"],
+        }
+        alarm_instr = compile_playbook_instruction(recipe=alarm_only, lang="en")
+        self.assertNotIn("Multi-NE CLI default", alarm_instr)
 
     def test_turn_instruction_modes(self) -> None:
         reminder = build_scheduled_turn_instruction(prompt_text="喝水", mode="scheduled", lang="zh")

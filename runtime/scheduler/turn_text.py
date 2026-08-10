@@ -185,12 +185,14 @@ def scheduled_turn_system_suffix(*, lang: str, playbook: bool = False) -> str:
                 "(including save_deliverable_attachment for generated files). "
                 "Lead the final reply with a short English summary (3–8 lines: what ran, key counts, "
                 "ok/failed highlights), then optional detail. "
+                "For multi-NE CLI, prefer one execManagedNe(ne_ids|ume_ne_ids=..., commands=...) batch. "
                 "Do not pretend the user just messaged you."
             )
         return (
             "\n\n【定时工作流模式】你正在执行周期性工作流。"
             "按 playbook 步骤完成任务，按需调用工具；若生成文件须 save_deliverable_attachment。"
             "最终回复先给 3–8 行摘要（做了什么、关键计数、成败），再写细节。"
+            "多台 CLI 优先一次 execManagedNe(ne_ids|ume_ne_ids=..., commands=...) 批量并发。"
             "不要假装用户刚刚发了消息，不要只回一句空提醒。"
         )
     if is_en:

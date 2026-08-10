@@ -242,20 +242,23 @@ def synthesize_recipe_from_prompt(prompt_text: str, *, session_id: str = "") -> 
         ]
         if need_attachments:
             success.append("Generated files are saved via save_deliverable_attachment.")
-        recipe = normalize_recipe(
-            {
-                "version": 1,
-                "goal": goal,
-                "steps": steps,
-                "constraints": constraints,
-                "success_criteria": success,
-                "output": {"need_attachments": need_attachments, "style": "channel_update"},
-                "source": {
-                    "session_id": str(session_id or "").strip(),
-                    "compiled_at": "",
-                    "compiled_from": "prompt_text",
-                },
-            }
+        recipe = ensure_batch_cli_constraint(
+            normalize_recipe(
+                {
+                    "version": 1,
+                    "goal": goal,
+                    "steps": steps,
+                    "constraints": constraints,
+                    "success_criteria": success,
+                    "output": {"need_attachments": need_attachments, "style": "channel_update"},
+                    "source": {
+                        "session_id": str(session_id or "").strip(),
+                        "compiled_at": "",
+                        "compiled_from": "prompt_text",
+                    },
+                }
+            ),
+            lang="en",
         )
         # Preserve compiled_from beyond normalize (normalize only keeps session_id/compiled_at).
         recipe.setdefault("source", {})["compiled_from"] = "prompt_text"
@@ -275,19 +278,22 @@ def synthesize_recipe_from_prompt(prompt_text: str, *, session_id: str = "") -> 
     ]
     if text != goal:
         steps.insert(1, f"Full prompt/algorithm to follow:\n{text}")
-    recipe = normalize_recipe(
-        {
-            "version": 1,
-            "goal": goal,
-            "steps": steps,
-            "constraints": [],
-            "success_criteria": [
-                "Workflow completed with tools as required.",
-                "Channel update delivered.",
-            ],
-            "output": {"need_attachments": need_attachments, "style": "channel_update"},
-            "source": {"session_id": str(session_id or "").strip(), "compiled_at": ""},
-        }
+    recipe = ensure_batch_cli_constraint(
+        normalize_recipe(
+            {
+                "version": 1,
+                "goal": goal,
+                "steps": steps,
+                "constraints": [],
+                "success_criteria": [
+                    "Workflow completed with tools as required.",
+                    "Channel update delivered.",
+                ],
+                "output": {"need_attachments": need_attachments, "style": "channel_update"},
+                "source": {"session_id": str(session_id or "").strip(), "compiled_at": ""},
+            }
+        ),
+        lang="en",
     )
     recipe.setdefault("source", {})["compiled_from"] = "prompt_text"
     return recipe
@@ -398,9 +404,66 @@ def preview_markdown(
     return "\n".join(lines).strip()
 
 
-def compile_playbook_instruction(*, recipe: dict[str, Any], lang: str = "zh") -> str:
-    norm = normalize_recipe(recipe)
+_BATCH_CLI_MARKERS = (
+    "execmanagedne",
+    "listclitargets",
+    "exec-batch",
+    "ume_ne_ids",
+    "ne_ids[",
+    "show ",
+    "display ",
+    "optical",
+    "cli valid",
+    "cli confirm",
+    "登设备",
+    "只读 cli",
+)
+
+
+def _recipe_mentions_cli(recipe: dict[str, Any]) -> bool:
+    """True when playbook steps/goal look like device CLI work."""
+    parts: list[str] = []
+    for key in ("goal",):
+        parts.append(str(recipe.get(key) or ""))
+    for key in ("steps", "constraints", "success_criteria"):
+        for item in list(recipe.get(key) or []):
+            parts.append(str(item or ""))
+    blob = " ".join(parts).lower()
+    return any(m in blob for m in _BATCH_CLI_MARKERS)
+
+
+def _batch_cli_constraint(*, lang: str) -> str:
     is_en = str(lang or "").lower().startswith("en")
+    if is_en:
+        return (
+            "Multi-NE CLI default: one execManagedNe with ne_ids[] or ume_ne_ids[] "
+            "(or targets[]) + shared commands (server concurrent batch). "
+            "Do not loop one-NE execManagedNe for the same show commands. Cap to top ~5–20."
+        )
+    return (
+        "多台 CLI 默认：一次 execManagedNe 传 ne_ids[] / ume_ne_ids[]（或 targets[]）+ 共享 commands"
+        "（服务端并发 batch）。禁止对同一 show 命令逐台循环。建议最多 top 5–20 台。"
+    )
+
+
+def ensure_batch_cli_constraint(recipe: dict[str, Any] | None, *, lang: str = "en") -> dict[str, Any]:
+    """Inject batch-CLI constraint when recipe mentions device CLI."""
+    norm = normalize_recipe(recipe or {})
+    if not _recipe_mentions_cli(norm):
+        return norm
+    constraint = _batch_cli_constraint(lang=lang)
+    existing = list(norm.get("constraints") or [])
+    low = " ".join(str(c).lower() for c in existing)
+    if "ne_ids" in low or "ume_ne_ids" in low or "exec-batch" in low or "并发" in low:
+        return norm
+    existing.append(constraint)
+    norm["constraints"] = existing
+    return norm
+
+
+def compile_playbook_instruction(*, recipe: dict[str, Any], lang: str = "zh") -> str:
+    is_en = str(lang or "").lower().startswith("en")
+    norm = ensure_batch_cli_constraint(recipe, lang="en" if is_en else "zh")
     steps = list(norm.get("steps") or [])
     constraints = list(norm.get("constraints") or [])
     criteria = list(norm.get("success_criteria") or [])
@@ -534,12 +597,13 @@ OPS_RECIPE_TEMPLATES: dict[str, dict[str, Any]] = {
         "version": 1,
         "goal": "Weekly NE license/capacity check summary for ops WhatsApp",
         "steps": [
-            "Resolve target NEs via listManagedNe or known constants (avoid repeated listCliTargets)",
-            "Run execManagedNe license/capacity show commands with read_timeout_sec>=60",
+            "Resolve target NEs once via listManagedNe or known constants (listCliTargets at most once)",
+            "One execManagedNe(ne_ids=[…] or ume_ne_ids=[…], commands=[license/capacity show…], read_timeout_sec>=60) — concurrent batch, never one-NE loops",
             "Summarize near-limit or failed NEs in English; attach xlsx only if many rows",
         ],
         "constraints": [
             "Prefer English for WhatsApp field ops",
+            "Multi-NE CLI: ne_ids/ume_ne_ids batch only; no per-NE execManagedNe loops",
             "On timeout/unreachable, classify failure and do not blind-retry identical args",
             "Keep the group update short and actionable",
         ],
@@ -554,11 +618,13 @@ OPS_RECIPE_TEMPLATES: dict[str, dict[str, Any]] = {
         "steps": [
             "Call aggregateUmeAlarms or queryUmeAlarmsRaw with bandwidth/congestion/utilization keywords",
             "Optionally ume_alarm_xlsx_report(mode=list) if the user wants a file (deliverable=true)",
+            "If CLI validation is needed: take top 3–5 host ume_ne_ids and one execManagedNe(ume_ne_ids=[…], commands=[…]) batch — never loop one-NE calls",
             "Summarize top congested hosts/ports in concise English — avoid sqlQueryUme unless scoped",
         ],
         "constraints": [
             "Prefer English for WhatsApp field ops",
             "Do not spam CLI or identical alarm re-queries",
+            "CLI confirmations use ume_ne_ids/ne_ids batch (cap top 5)",
             "If insufficient_scope on SQL, switch to aggregate/report tools immediately",
         ],
         "success_criteria": [
@@ -607,6 +673,7 @@ __all__ = [
     "COMPLEX_PROMPT_HINTS",
     "OPS_RECIPE_TEMPLATES",
     "compile_playbook_instruction",
+    "ensure_batch_cli_constraint",
     "list_ops_recipe_templates",
     "load_recipe_from_job",
     "looks_like_complex_schedule_prompt",

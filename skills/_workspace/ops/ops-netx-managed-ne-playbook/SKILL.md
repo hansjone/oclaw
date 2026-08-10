@@ -16,8 +16,9 @@ description: 面向 ops 专家的 netx 纳管网元（网元管理）作业手�
 优先 **MCP**（`mcp__netx__*`）。legacy：`netx_list_managed_ne` 等（`OCLAW_NETX_BUILTIN_TOOLS=1`）。
 
 1. **定位设备**
-   - `mcp__netx__listManagedNe`：`keyword`、`connect_status=pass`
-   - `mcp__netx__getManagedNe`：单条详情、`connect_detail`
+   - `mcp__netx__listManagedNe`：`keyword`、`connect_status=pass`（**首选定位**）
+   - `mcp__netx__getManagedNe`：仅当需要单条 `connect_detail` 时调用；**入参必须是纳管 ne_id**（来自 listManagedNe / listCliTargets `source=managed`）
+   - **禁止**把告警/UME 的 UUID 当 `getManagedNe` 的 `ne_id`；失败时跟返回 `hint`：改 `listManagedNe` / `getUmeNe` / `execManagedNe(ume_ne_id=...)`，禁止相同参数盲重试
    - **UME 清单（无需逐台纳管）**：`mcp__netx__listCliTargets`（`source=ume`）或 `queryUmeNeInventory` 取 `ne_id`，再用 `ume_ne_id` 执行 CLI（需先在 netx **UME → CLI 连接** 配置统一凭据/跳板）
 2. **登录查信息**
    - `mcp__netx__execManagedNe`：`ne_id` **或** `ume_ne_id` + `commands`（默认最多 5 条，可由 `NETX_NE_EXEC_MAX_COMMANDS` 调高，硬上限 50）

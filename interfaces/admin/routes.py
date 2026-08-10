@@ -2778,7 +2778,7 @@ def build_admin_router() -> APIRouter:
         sse_raw = str(store.get_setting("AIA_SSE_QUEUE_MAXSIZE") or "").strip()
         sse_queue_maxsize = max(200, min(int(sse_raw), 50_000)) if sse_raw.isdigit() else 2000
         tl_raw = str(store.get_setting("AIA_TOOL_LOG_MAX_CHARS") or "").strip()
-        tool_log_max_chars = max(20_000, min(int(tl_raw), 2_000_000)) if tl_raw.isdigit() else 200_000
+        tool_log_max_chars = max(20_000, min(int(tl_raw), 2_000_000)) if tl_raw.isdigit() else 64_000
         emcp_raw = str(store.get_setting("AIA_ENABLE_MCP_TOOLS") or "").strip().lower()
         enable_mcp_tools = emcp_raw not in ("0", "false", "no", "off")
         epl_raw = str(store.get_setting("AIA_ENABLE_PLUGIN_TOOLS") or "").strip().lower()
@@ -2882,7 +2882,7 @@ def build_admin_router() -> APIRouter:
             tmc_n = 80
         md = ""
         sse_q = payload.get("sse_queue_maxsize", 2000)
-        tl_cap = payload.get("tool_log_max_chars", 200000)
+        tl_cap = payload.get("tool_log_max_chars", 64000)
         try:
             sse_q_n = max(200, min(int(sse_q), 50_000))
         except Exception:
@@ -2890,7 +2890,7 @@ def build_admin_router() -> APIRouter:
         try:
             tl_cap_n = max(20_000, min(int(tl_cap), 2_000_000))
         except Exception:
-            tl_cap_n = 200_000
+            tl_cap_n = 64_000
         emcp = bool(payload.get("enable_mcp_tools", True))
         epl = bool(payload.get("enable_plugin_tools", False))
         erc = bool(payload.get("enable_run_command", True))

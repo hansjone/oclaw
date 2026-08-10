@@ -184,6 +184,10 @@ class _McpBoundTool:
                 from runtime.tools.tool_error_hints import enrich_exec_managed_ne_error
 
                 res = enrich_exec_managed_ne_error(res)
+            if tool_name == "getManagedNe" and res.get("ok") is False:
+                from runtime.tools.tool_error_hints import enrich_get_managed_ne_error
+
+                res = enrich_get_managed_ne_error(res)
             return res
 
         return ToolSpec(

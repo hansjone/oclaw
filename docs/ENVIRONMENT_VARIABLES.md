@@ -185,15 +185,21 @@
 
 - `AIA_TOOL_LLM_MESSAGE_MAX_CHARS`
   - 默认：`0`（不限制）
-  - 作用：工具结果写回 LLM 的消息长度上限
-  - 说明：`0` 表示不做限制（不推荐，可能触发部分网关的单条消息上限 400）
+  - 作用：工具结果写回 **模型上下文** 的消息长度上限（当前轮分析用）
+  - 说明：`0` 表示不做限制；持久化截断见 `AIA_TOOL_PERSIST_MAX_CHARS`
   - 生效：`oclaw/runtime/chat/tool_runtime.py`
   - 观测：管理端聊天流 `tool_use_result` 事件会携带 `llm_wire.{truncated_for_llm,max_chars,result_bytes,result_for_llm_bytes,truncate_ms}`
 
+- `AIA_TOOL_PERSIST_MAX_CHARS`
+  - 默认：`24000`
+  - 作用：一轮结束后压缩 `chat_message`（role=tool）入库内容，减缓跨天会话撑爆 SQLite
+  - 说明：`0` 关闭回合后压缩；未设置时也可回退读 `AIA_TOOL_LLM_MESSAGE_MAX_CHARS`
+  - 生效：`compact_turn_tool_messages_for_storage`（`runtime/chat/tool_runtime.py`）
+
 - `AIA_TOOL_LOG_MAX_CHARS`
-  - 默认：`200000`
+  - 默认：`64000`
   - 作用：`tool_log` 中 args/result 截断上限
-  - 生效：`oclaw/platform/persistence/sqlite_store.py`
+  - 生效：`svc/persistence/sqlite_store.py`
 
 - `AIA_MAX_ATTACHMENT_BYTES`
   - 默认：`26214400`（25MB）

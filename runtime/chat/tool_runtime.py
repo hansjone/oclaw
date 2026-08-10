@@ -440,6 +440,11 @@ def normalize_tool_result(result: Any) -> dict[str, Any]:
 
 
 def tool_llm_message_max_chars() -> int:
+    """Cap for tool payloads fed back into the *model* mid-context.
+
+    Default 0 = unlimited for the active turn (large UME dumps stay usable
+    until the turn ends). Persistence uses :func:`tool_persist_max_chars`.
+    """
     raw = str(os.getenv("AIA_TOOL_LLM_MESSAGE_MAX_CHARS") or "").strip()
     if raw.isdigit():
         n = int(raw)
@@ -447,6 +452,37 @@ def tool_llm_message_max_chars() -> int:
             return 0
         return max(4096, min(n, 500_000))
     return 0
+
+
+def tool_persist_max_chars(store: Any | None = None) -> int:
+    """Cap for rewriting ``role=tool`` chat_message rows after a turn finishes.
+
+    Multi-day field sessions rarely need multi-MB tool JSON in history; default
+    24_000 keeps SQLite growth down. Set ``AIA_TOOL_PERSIST_MAX_CHARS=0`` (or
+    the same DB setting) to disable post-turn compaction.
+    """
+    raw = ""
+    if store is not None:
+        try:
+            raw = str(store.get_setting("AIA_TOOL_PERSIST_MAX_CHARS") or "").strip()
+        except Exception:
+            raw = ""
+    if not raw:
+        raw = str(os.getenv("AIA_TOOL_PERSIST_MAX_CHARS") or "").strip()
+    # Fall back to the older LLM-message setting when operators already tuned it.
+    if not raw and store is not None:
+        try:
+            raw = str(store.get_setting("AIA_TOOL_LLM_MESSAGE_MAX_CHARS") or "").strip()
+        except Exception:
+            raw = ""
+    if not raw:
+        raw = str(os.getenv("AIA_TOOL_LLM_MESSAGE_MAX_CHARS") or "").strip()
+    if raw.isdigit():
+        n = int(raw)
+        if n == 0:
+            return 0
+        return max(4096, min(n, 500_000))
+    return 24_000
 
 
 def tool_history_summary_after_calls() -> int:
@@ -1423,6 +1459,9 @@ def compact_turn_tool_messages_for_storage(
     tid = str(turn_uuid or "").strip()
     if not tid:
         return {"scanned": 0, "updated": 0}
+    persist_cap = tool_persist_max_chars(store)
+    if persist_cap <= 0:
+        return {"scanned": 0, "updated": 0, "skipped": 1}
     try:
         rows = store.get_messages(session_id=session_id, limit=800)
     except Exception:
@@ -1444,7 +1483,7 @@ def compact_turn_tool_messages_for_storage(
             continue
         if not isinstance(obj, dict):
             continue
-        compacted = truncate_tool_result_for_llm_messages(obj)
+        compacted = truncate_tool_result_for_llm_messages(obj, max_chars=persist_cap)
         if compacted == obj:
             continue
         try:
@@ -1457,7 +1496,7 @@ def compact_turn_tool_messages_for_storage(
             updated += 1
         except Exception:
             continue
-    return {"scanned": int(scanned), "updated": int(updated)}
+    return {"scanned": int(scanned), "updated": int(updated), "persist_cap": int(persist_cap)}
 
 __all__ = [
     "ToolExecutionConfig",
@@ -1466,6 +1505,7 @@ __all__ = [
     "normalize_tool_result",
     "partition_tool_use_batches",
     "tool_llm_message_max_chars",
+    "tool_persist_max_chars",
     "truncate_tool_result_for_llm_messages",
     "compact_turn_tool_messages_for_storage",
 ]
