@@ -406,9 +406,10 @@ def should_process_group_inbound(
             return True
         return has_trigger
 
+    # Quote/reply-to-bot alone is not enough — require explicit @ or a trigger.
     if metadata_mentions_bot(metadata):
         return True
-    if is_reply_to_bot(metadata=metadata, bot_jid=bot_jid):
+    if bot_mentioned:
         return True
     if has_trigger:
         return True

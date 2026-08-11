@@ -196,12 +196,26 @@ def test_should_reject_group_when_other_mentioned_even_if_reply_to_bot() -> None
     )
 
 
-def test_should_accept_group_reply_to_bot() -> None:
+def test_should_reject_group_reply_to_bot_without_mention() -> None:
     assert (
         should_process_group_inbound(
             is_group=True,
             text="follow up",
             mentions=[],
+            bot_jid="999@s.whatsapp.net",
+            require_mention=True,
+            metadata={"raw": {"quotedParticipant": "999:0@s.whatsapp.net", "isReplyToBot": True}},
+        )
+        is False
+    )
+
+
+def test_should_accept_group_reply_to_bot_when_also_mentioned() -> None:
+    assert (
+        should_process_group_inbound(
+            is_group=True,
+            text="@bot follow up",
+            mentions=["999:0@s.whatsapp.net"],
             bot_jid="999@s.whatsapp.net",
             require_mention=True,
             metadata={"raw": {"quotedParticipant": "999:0@s.whatsapp.net", "isReplyToBot": True}},
@@ -653,47 +667,41 @@ def test_inbound_group_without_mention_is_silent(monkeypatch: pytest.MonkeyPatch
     )
     assert out.get("ok") is True
     assert out.get("replies") == []
-    assert out.get("delivery") != "mention_nudge"
 
 
-def test_inbound_group_ops_without_mention_gets_throttled_nudge(
+def test_inbound_group_ops_without_mention_stays_silent(
     monkeypatch: pytest.MonkeyPatch, fresh_sqlite_store: SqliteStore
 ) -> None:
-    from runtime.application.gateway.ops_short_intent import reset_group_mention_nudge_throttle_for_tests
-
     store = fresh_sqlite_store
     _setup_whatsapp_identity(store)
     monkeypatch.setattr("svc.persistence.assistant_store.get_assistant_store", lambda: store)
-    reset_group_mention_nudge_throttle_for_tests()
 
-    payload = {
-        "channel": "whatsapp",
-        "account_id": "wa-default",
-        "user_id": "111@s.whatsapp.net",
-        "chat_id": "120363012345678@g.us",
-        "text": "fiber cut sites",
-        "is_group": True,
-        "mentions": [],
-        "metadata": {"bot_jid": "999@s.whatsapp.net", "source": "test"},
-    }
-    first = process_inbound_payload(payload)
-    assert first.get("delivery") == "mention_nudge"
-    assert first.get("ops_intent") == "fiber_cut"
-    assert first.get("replies") == []
+    out = process_inbound_payload(
+        {
+            "channel": "whatsapp",
+            "account_id": "wa-default",
+            "user_id": "111@s.whatsapp.net",
+            "chat_id": "120363012345678@g.us",
+            "text": "fiber cut sites",
+            "is_group": True,
+            "mentions": [],
+            "metadata": {"bot_jid": "999@s.whatsapp.net", "source": "test"},
+        }
+    )
+    assert out.get("ok") is True
+    assert out.get("replies") == []
+    assert out.get("delivery") != "mention_nudge"
     outbound = store.list_channel_outbound_messages(limit=20) if hasattr(store, "list_channel_outbound_messages") else []
-    if not outbound:
-        # Fallback: inspect via raw SQL if list helper missing
+    if not outbound and hasattr(store, "_connect"):
         with store._connect() as conn:  # noqa: SLF001
             rows = conn.execute(
-                "SELECT text, source FROM channel_outbound_message ORDER BY created_at DESC LIMIT 5"
+                "SELECT text FROM channel_outbound_message ORDER BY created_at DESC LIMIT 5"
             ).fetchall()
-        outbound = [{"text": r[0], "source": r[1]} for r in rows]
-    assert outbound
-    assert any("@mention" in str(o.get("text") or "").lower() or "@me" in str(o.get("text") or "").lower() for o in outbound)
-
-    second = process_inbound_payload(payload)
-    assert second.get("delivery") != "mention_nudge"
-    assert second.get("replies") == []
+        outbound = [{"text": r[0]} for r in rows]
+    assert not any(
+        "@mentioned" in str(o.get("text") or "").lower() or "re-send with @me" in str(o.get("text") or "").lower()
+        for o in (outbound or [])
+    )
 
 
 def test_inbound_dm_still_processes_without_mention(monkeypatch: pytest.MonkeyPatch, fresh_sqlite_store: SqliteStore) -> None:

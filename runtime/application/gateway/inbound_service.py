@@ -1164,69 +1164,6 @@ def process_inbound_payload(payload: dict[str, Any]) -> dict[str, Any]:
                 group_policy.require_mention,
                 text[:120],
             )
-            # Ops short-intents without @bot look "broken" in field groups — nudge once (throttled).
-            if str(inbound.channel or "").strip().lower() == "whatsapp" and bool(
-                group_policy.require_mention
-            ):
-                try:
-                    from runtime.application.gateway.ops_short_intent import (
-                        build_group_mention_nudge_text,
-                        detect_ops_short_intent,
-                        should_send_group_mention_nudge,
-                    )
-                    from runtime.application.gateway.whatsapp_progress import (
-                        build_whatsapp_group_progress_metadata,
-                    )
-                    from runtime.extensions.whatsapp.tenant import resolve_whatsapp_tenant_id
-
-                    intent = detect_ops_short_intent(text)
-                    if intent and should_send_group_mention_nudge(
-                        account_id=account_id,
-                        chat_id=str(inbound.external_chat_id or ""),
-                        user_id=str(inbound.external_user_id or ""),
-                    ):
-                        nudge_lang = "en"
-                        try:
-                            cfg = store.get_whatsapp_access_config(
-                                tenant_id=resolve_whatsapp_tenant_id(store, account_id=account_id),
-                                account_id=account_id,
-                            )
-                            nudge_lang = str((cfg or {}).get("lang") or "en")
-                        except Exception:
-                            nudge_lang = "en"
-                        nudge_text = build_group_mention_nudge_text(
-                            intent=intent,
-                            lang=nudge_lang,
-                            triggers=list(group_policy.triggers or []),
-                        )
-                        nudge_meta = build_whatsapp_group_progress_metadata(inbound=inbound)
-                        tenant_for_nudge = ""
-                        try:
-                            tenant_for_nudge = str(
-                                resolve_whatsapp_tenant_id(store, account_id=account_id) or ""
-                            )
-                        except Exception:
-                            tenant_for_nudge = ""
-                        _enqueue_whatsapp_inbound_reply(
-                            store,
-                            inbound=inbound,
-                            account_id=account_id,
-                            tenant_id=tenant_for_nudge,
-                            reply_text=nudge_text,
-                            reply_attachments=None,
-                            reply_metadata=nudge_meta,
-                            kind="inbound_progress",
-                        )
-                        return {
-                            "ok": True,
-                            "replies": [],
-                            "delivery": "mention_nudge",
-                            "ops_intent": intent,
-                        }
-                except Exception:
-                    logging.getLogger(__name__).debug(
-                        "whatsapp group mention nudge failed", exc_info=True
-                    )
             return {"ok": True, "replies": []}
         if str(inbound.channel or "").strip().lower() == "whatsapp":
             from runtime.application.gateway.whatsapp_inbound_access import handle_whatsapp_access
