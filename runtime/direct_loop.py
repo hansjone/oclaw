@@ -1255,7 +1255,47 @@ def run_oclaw_direct_loop(
     user_facing_hints: list[str] = []
     final_text = ""
     hit_tool_round_limit = False
+    early_finalize_reason = ""
     workspace_lane_role = str(skill_binding_role or wire_policy_role or "generalist").strip().lower() or "generalist"
+
+    # Turn checklist / idle guard (P0: cut narration-only + no-progress loops).
+    short_intent = ""
+    try:
+        md0 = inbound_metadata if isinstance(inbound_metadata, dict) else {}
+        short_intent = str(md0.get("ops_short_intent") or "").strip()
+    except Exception:
+        short_intent = ""
+    if not short_intent:
+        try:
+            from runtime.application.gateway.ops_short_intent import detect_ops_short_intent
+
+            short_intent = str(detect_ops_short_intent(str(user_text or "")) or "").strip()
+        except Exception:
+            short_intent = ""
+    turn_system_suffix = ""
+    if short_intent:
+        try:
+            from runtime.tools.playbook_contracts import build_turn_checklist
+
+            turn_system_suffix = build_turn_checklist(
+                intent=short_intent,
+                lang=lang,
+                goal=str(user_text or "")[:160],
+            )
+        except Exception:
+            turn_system_suffix = ""
+    from runtime.chat.turn_idle_guard import TurnIdleTracker
+
+    idle_tracker = TurnIdleTracker(lang=str(lang or "en"), short_intent=short_intent or None)
+
+    def _effective_system_prompt() -> str:
+        base = str(system_prompt or "")
+        extra = str(turn_system_suffix or "").strip()
+        if not extra:
+            return base
+        if extra in base:
+            return base
+        return f"{base}\n\n{extra}".strip()
 
     base_url = str(getattr(model, "base_url", "") or "")
     model_id = str(getattr(model, "model", "") or "")
@@ -1275,7 +1315,7 @@ def run_oclaw_direct_loop(
             store=store,
             session_id=session_id,
             max_messages=max_messages,
-            system_prompt=system_prompt,
+            system_prompt=_effective_system_prompt(),
             model=model,
             lang=lang,
             memory_context=memory_context,
@@ -1373,6 +1413,36 @@ def run_oclaw_direct_loop(
             )
             final_text = step.assistant_text
         if not step.llm_tool_calls:
+            idle_decision = idle_tracker.decide_after_assistant_no_tools()
+            if idle_decision.action == "nudge" and idle_decision.nudge_text:
+                turn_system_suffix = (
+                    f"{turn_system_suffix}\n\n{idle_decision.nudge_text}".strip()
+                    if turn_system_suffix
+                    else idle_decision.nudge_text
+                )
+                try:
+                    if trace_id:
+                        _emit_direct_loop_trace(
+                            store=store,
+                            session_id=session_id,
+                            trace_id=trace_id,
+                            parent_span_id=parent_span_id,
+                            event_type="turn_idle_guard",
+                            payload={
+                                "action": idle_decision.action,
+                                "reason": idle_decision.reason,
+                                "round": int(round_idx + 1),
+                                "short_intent": short_intent or "",
+                            },
+                            run_id=run_id,
+                            attempt_no=attempt_no,
+                            lang=lang,
+                        )
+                except Exception:
+                    pass
+                if on_progress:
+                    on_progress("oclaw: idle-guard nudge…")
+                continue
             break
         if round_idx == (max_rounds - 1):
             # Reached tool-round cap with pending tool calls. Execute this batch, then
@@ -1420,17 +1490,18 @@ def run_oclaw_direct_loop(
             inbound_metadata=inbound_metadata,
         )
 
+        round_traces: list[dict[str, Any]] = []
         for tc in step.llm_tool_calls:
             result, dur = results_by_id.get(str(getattr(tc, "id", "") or ""), ({}, 0))
-            tool_traces.append(
-                {
-                    "name": str(getattr(tc, "name", "") or ""),
-                    "tool_call_id": str(getattr(tc, "id", "") or ""),
-                    "ok": bool((result or {}).get("ok")) if isinstance(result, dict) else None,
-                    "duration_ms": int(dur),
-                    "round": int(round_idx + 1),
-                }
-            )
+            tr = {
+                "name": str(getattr(tc, "name", "") or ""),
+                "tool_call_id": str(getattr(tc, "id", "") or ""),
+                "ok": bool((result or {}).get("ok")) if isinstance(result, dict) else None,
+                "duration_ms": int(dur),
+                "round": int(round_idx + 1),
+            }
+            round_traces.append(tr)
+            tool_traces.append(tr)
             if isinstance(result, dict):
                 uh = str(result.get("user_facing_hint") or "").strip()
                 if uh:
@@ -1439,7 +1510,80 @@ def run_oclaw_direct_loop(
         if on_progress:
             on_progress(f"oclaw: tools done ({elapsed_ms}ms)")
 
-    need_finalize = hit_tool_round_limit or (bool(tool_traces) and not str(final_text or "").strip())
+        idle_stats = idle_tracker.record_from_traces(
+            round_idx=int(round_idx + 1),
+            had_tool_calls=True,
+            round_traces=round_traces,
+            results_by_id=results_by_id,
+        )
+        idle_decision = idle_tracker.decide_after_tools(idle_stats)
+        if idle_decision.action == "nudge" and idle_decision.nudge_text:
+            turn_system_suffix = (
+                f"{turn_system_suffix}\n\n{idle_decision.nudge_text}".strip()
+                if turn_system_suffix
+                else idle_decision.nudge_text
+            )
+            try:
+                if trace_id:
+                    _emit_direct_loop_trace(
+                        store=store,
+                        session_id=session_id,
+                        trace_id=trace_id,
+                        parent_span_id=parent_span_id,
+                        event_type="turn_idle_guard",
+                        payload={
+                            "action": idle_decision.action,
+                            "reason": idle_decision.reason,
+                            "round": int(round_idx + 1),
+                            "short_intent": short_intent or "",
+                            "ok_count": int(idle_stats.ok_count),
+                            "schema_fail_count": int(idle_stats.schema_fail_count),
+                        },
+                        run_id=run_id,
+                        attempt_no=attempt_no,
+                        lang=lang,
+                    )
+            except Exception:
+                pass
+            if on_progress:
+                on_progress("oclaw: idle-guard nudge…")
+        elif idle_decision.action == "early_finalize":
+            early_finalize_reason = str(idle_decision.reason or "idle")
+            if idle_decision.nudge_text:
+                turn_system_suffix = (
+                    f"{turn_system_suffix}\n\n{idle_decision.nudge_text}".strip()
+                    if turn_system_suffix
+                    else idle_decision.nudge_text
+                )
+            try:
+                if trace_id:
+                    _emit_direct_loop_trace(
+                        store=store,
+                        session_id=session_id,
+                        trace_id=trace_id,
+                        parent_span_id=parent_span_id,
+                        event_type="turn_idle_guard",
+                        payload={
+                            "action": idle_decision.action,
+                            "reason": idle_decision.reason,
+                            "round": int(round_idx + 1),
+                            "short_intent": short_intent or "",
+                        },
+                        run_id=run_id,
+                        attempt_no=attempt_no,
+                        lang=lang,
+                    )
+            except Exception:
+                pass
+            if on_progress:
+                on_progress("oclaw: idle-guard finalize…")
+            break
+
+    need_finalize = (
+        hit_tool_round_limit
+        or bool(early_finalize_reason)
+        or (bool(tool_traces) and not str(final_text or "").strip())
+    )
     if need_finalize:
         _check_stop(should_stop)
         if on_progress:
@@ -1448,10 +1592,10 @@ def run_oclaw_direct_loop(
 
         finalize_suffix = build_finalize_system_suffix(
             lang=lang,
-            hit_tool_round_limit=hit_tool_round_limit,
+            hit_tool_round_limit=hit_tool_round_limit or bool(early_finalize_reason),
             user_facing_hints=user_facing_hints,
         )
-        finalize_system = str(system_prompt or "")
+        finalize_system = _effective_system_prompt()
         if finalize_suffix:
             finalize_system = f"{finalize_system}\n\n{finalize_suffix}".strip()
         msgs = _build_model_context(

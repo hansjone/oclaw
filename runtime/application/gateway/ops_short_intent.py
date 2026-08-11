@@ -162,7 +162,16 @@ def build_ops_short_intent_hint(*, intent: str, lang: str = "en") -> str:
     if not pair:
         return ""
     en, zh = pair
-    return zh if str(lang or "").strip().lower().startswith("zh") else en
+    base = zh if str(lang or "").strip().lower().startswith("zh") else en
+    try:
+        from runtime.tools.playbook_contracts import build_turn_checklist
+
+        checklist = build_turn_checklist(intent=key, lang=lang)
+        if checklist:
+            return f"{base}\n{checklist}".strip()
+    except Exception:
+        pass
+    return base
 
 
 def maybe_ops_short_intent_system_hint(*, text: str, lang: str = "en") -> str:

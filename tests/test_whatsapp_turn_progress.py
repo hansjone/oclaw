@@ -38,12 +38,14 @@ class WhatsappProgressHelpersTests(unittest.TestCase):
         self.assertFalse(should_forward_progress_text("oclaw: running…"))
         self.assertFalse(should_forward_progress_text("oclaw: think (1)…"))
         self.assertFalse(should_forward_progress_text("oclaw: tools done (120ms)"))
-        self.assertTrue(should_forward_progress_text("oclaw: tools done (12000ms)"))
+        # Mid-turn composing spam must not reach WhatsApp (was the main noise pattern).
+        self.assertFalse(should_forward_progress_text("oclaw: tools done (12000ms)"))
+        self.assertFalse(should_forward_progress_text("oclaw: idle-guard nudge…"))
         self.assertTrue(should_forward_progress_text("oclaw: image specialist (legacy multimodal HTTP)…"))
 
     def test_humanize_defaults_to_english(self) -> None:
         self.assertIn("CLI", str(humanize_long_tool(tool_name="mcp__netx__execManagedNe") or ""))
-        self.assertIn("composing", humanize_progress_text(text="oclaw: tools done (9000ms)").lower())
+        self.assertIn("wait", humanize_progress_text(text="oclaw: tools done (9000ms)").lower())
 
 
 class WhatsappTurnProgressPublisherTests(unittest.TestCase):
@@ -59,6 +61,7 @@ class WhatsappTurnProgressPublisherTests(unittest.TestCase):
             lang="en",
             is_group=False,
             min_interval_sec=10.0,
+            max_per_turn=5,
             enabled=True,
             clock=lambda: clock["t"],
         )
@@ -71,18 +74,43 @@ class WhatsappTurnProgressPublisherTests(unittest.TestCase):
 
         clock["t"] = 105.0
         pub.on_tool_ui("tool_use_call", {"tool_name": "mcp__netx__queryUmeAlarms"})
-        self.assertEqual(len(sent), 1)  # throttled
+        self.assertEqual(len(sent), 1)  # throttled by interval
 
         clock["t"] = 111.0
         pub.on_tool_ui("tool_use_call", {"tool_name": "mcp__netx__queryUmeAlarms"})
         self.assertEqual(len(sent), 2)
 
+        # tools-done / composing never forwarded
         pub.on_progress("oclaw: tools done (15000ms)")
         self.assertEqual(len(sent), 2)
-        clock["t"] = 122.0
+        clock["t"] = 160.0
         pub.on_progress("oclaw: tools done (15000ms)")
-        self.assertEqual(len(sent), 3)
-        self.assertIn("composing", sent[2][0].lower())
+        self.assertEqual(len(sent), 2)
+
+    def test_same_tool_announced_once_and_max_cap(self) -> None:
+        sent: list[str] = []
+        clock = {"t": 0.0}
+        pub = WhatsappTurnProgressPublisher(
+            enqueue=lambda t, _m: sent.append(t),
+            lang="en",
+            min_interval_sec=1.0,
+            max_per_turn=2,
+            enabled=True,
+            clock=lambda: clock["t"],
+        )
+        pub.on_tool_ui("tool_use_call", {"tool_name": "mcp__netx__listCliTargets"})
+        clock["t"] = 10.0
+        # Repeated execManagedNe hops must not spam.
+        for _ in range(6):
+            clock["t"] += 60.0
+            pub.on_tool_ui("tool_use_call", {"tool_name": "mcp__netx__execManagedNe"})
+        self.assertEqual(len(sent), 2)
+        self.assertIn("CLI targets", sent[0])
+        self.assertIn("CLI", sent[1])
+        # Cap reached: another distinct tool is dropped.
+        clock["t"] += 60.0
+        pub.on_tool_ui("tool_use_call", {"tool_name": "mcp__netx__findTopologyPaths"})
+        self.assertEqual(len(sent), 2)
 
     def test_group_metadata_mentions_without_quote(self) -> None:
         sent: list[tuple[str, dict[str, Any] | None]] = []

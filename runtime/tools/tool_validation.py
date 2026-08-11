@@ -58,6 +58,8 @@ def format_invalid_arguments_error(
     message: str,
     *,
     lang: str = "en",
+    tool_name: str | None = None,
+    intent: str | None = None,
 ) -> dict[str, Any]:
     """Rich invalid-arg payload so the model can self-correct without blind retries."""
     props = parameters.get("properties") if isinstance(parameters.get("properties"), dict) else {}
@@ -69,7 +71,7 @@ def format_invalid_arguments_error(
     else:
         err = f"Invalid arguments: {message}"
         hint = "Fix arguments to match the schema example; do not retry with the same payload."
-    return {
+    out: dict[str, Any] = {
         "ok": False,
         "error_code": "tool_invalid_arguments",
         "error": err,
@@ -78,7 +80,20 @@ def format_invalid_arguments_error(
         "properties": sorted(str(k) for k in props.keys()),
         "example": example,
         "hint": hint,
+        "failure_class": "schema_validation",
     }
+    if tool_name:
+        try:
+            from runtime.tools.playbook_contracts import enrich_invalid_arguments_with_playbook
+
+            out = enrich_invalid_arguments_with_playbook(
+                out,
+                tool_name=str(tool_name),
+                intent=intent,
+            )
+        except Exception:
+            out["tool"] = str(tool_name)
+    return out
 
 
 def validate_tool_arguments(parameters: dict[str, Any], arguments: dict[str, Any]) -> tuple[bool, str | None]:

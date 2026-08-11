@@ -829,10 +829,18 @@ class ToolExecutor:
 
         ok, v_err = validate_tool_arguments(tool.parameters, tool_args)
         if not ok:
+            intent = None
+            try:
+                md = ctx.inbound_metadata if isinstance(ctx.inbound_metadata, dict) else {}
+                intent = str(md.get("ops_short_intent") or "").strip() or None
+            except Exception:
+                intent = None
             return format_invalid_arguments_error(
                 tool.parameters or {},
                 str(v_err or "invalid"),
                 lang=str(ctx.lang or "zh"),
+                tool_name=str(tc.name or tool.name or ""),
+                intent=intent,
             ), int((time.perf_counter() - t0) * 1000)
 
         try:

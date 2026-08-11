@@ -1,4 +1,8 @@
-"""Rate-limited WhatsApp interim progress during long channel turns."""
+"""Rate-limited WhatsApp interim progress during long channel turns.
+
+Field groups hate spam: keep at most a few ticks, never alternate
+"Running CLI" ↔ "composing", and announce each long tool at most once.
+"""
 
 from __future__ import annotations
 
@@ -52,11 +56,21 @@ def whatsapp_turn_progress_enabled() -> bool:
 
 
 def progress_min_interval_sec() -> float:
+    """Default 45s — field turns often run multi-hop CLI for minutes."""
     raw = str(os.environ.get("OCLAW_WHATSAPP_PROGRESS_MIN_INTERVAL_SEC") or "").strip()
     try:
-        return max(3.0, min(float(raw), 120.0))
+        return max(5.0, min(float(raw), 300.0))
     except Exception:
-        return 12.0
+        return 45.0
+
+
+def progress_max_per_turn() -> int:
+    """Hard cap on interim WA ticks per inbound turn (final reply is separate)."""
+    raw = str(os.environ.get("OCLAW_WHATSAPP_PROGRESS_MAX_PER_TURN") or "").strip()
+    try:
+        return max(0, min(int(raw), 20))
+    except Exception:
+        return 2
 
 
 def normalize_tool_key(name: str) -> str:
@@ -84,7 +98,7 @@ def humanize_long_tool(*, tool_name: str, lang: str = "en") -> str | None:
 
 
 def should_forward_progress_text(text: str) -> bool:
-    """Filter noisy think/retry ticks; keep meaningful wait signals."""
+    """Filter noisy think/retry/composing ticks; keep rare meaningful waits only."""
     t = str(text or "").strip()
     if not t:
         return False
@@ -95,13 +109,12 @@ def should_forward_progress_text(text: str) -> bool:
         return False
     if "retry-empty" in low or "retry-native-tool-calls" in low:
         return False
-    m = _TOOLS_DONE_RE.search(t)
-    if m:
-        try:
-            return int(m.group(1)) >= 8000
-        except Exception:
-            return False
-    # Specialist / other explicit progress lines
+    if "idle-guard" in low:
+        return False
+    # Mid-turn "tools done / composing" is the main WA spam pattern when CLI loops.
+    if _TOOLS_DONE_RE.search(t) or "composing" in low or "整理回复" in t:
+        return False
+    # Specialist / other explicit progress lines (rare)
     if low.startswith("oclaw:"):
         return True
     return len(t) >= 8
@@ -110,11 +123,11 @@ def should_forward_progress_text(text: str) -> bool:
 def humanize_progress_text(*, text: str, lang: str = "en") -> str:
     t = str(text or "").strip()
     is_zh = str(lang or "").strip().lower().startswith("zh")
-    m = _TOOLS_DONE_RE.search(t)
-    if m:
+    # tools-done is filtered by should_forward; keep a soft fallback if callers bypass.
+    if _TOOLS_DONE_RE.search(t):
         if is_zh:
-            return "工具已完成，正在整理回复…"
-        return "Tools finished; composing the reply…"
+            return "仍在处理，请稍候…"
+        return "Still working, please wait…"
     if t.lower().startswith("oclaw:"):
         body = t.split(":", 1)[-1].strip()
         if is_zh:
@@ -150,6 +163,7 @@ class WhatsappTurnProgressPublisher:
         is_group: bool = False,
         inbound: Any = None,
         min_interval_sec: float | None = None,
+        max_per_turn: int | None = None,
         enabled: bool | None = None,
         clock: Callable[[], float] | None = None,
     ) -> None:
@@ -158,12 +172,14 @@ class WhatsappTurnProgressPublisher:
         self._is_group = bool(is_group)
         self._inbound = inbound
         self._min_interval = float(min_interval_sec if min_interval_sec is not None else progress_min_interval_sec())
+        self._max_per_turn = int(max_per_turn if max_per_turn is not None else progress_max_per_turn())
         self._enabled = bool(whatsapp_turn_progress_enabled() if enabled is None else enabled)
         self._clock = clock or time.monotonic
         self._lock = threading.Lock()
         self._last_sent_at = 0.0
         self._last_text = ""
         self._sent_count = 0
+        self._announced_tools: set[str] = set()
 
     @property
     def sent_count(self) -> int:
@@ -183,10 +199,18 @@ class WhatsappTurnProgressPublisher:
         if str(event or "").strip() != "tool_use_call":
             return
         pl = payload if isinstance(payload, dict) else {}
-        label = humanize_long_tool(tool_name=str(pl.get("tool_name") or ""), lang=self._lang)
+        tool_name = str(pl.get("tool_name") or "")
+        key = normalize_tool_key(tool_name)
+        label = humanize_long_tool(tool_name=tool_name, lang=self._lang)
         if not label:
             return
-        self._maybe_send(label)
+        with self._lock:
+            # Same long tool (e.g. repeated execManagedNe hops) → one WA tick only.
+            if key and key in self._announced_tools:
+                return
+        if self._maybe_send(label) and key:
+            with self._lock:
+                self._announced_tools.add(key)
 
     def _reply_metadata(self) -> dict[str, Any] | None:
         if not self._is_group or self._inbound is None:
@@ -196,23 +220,26 @@ class WhatsappTurnProgressPublisher:
         except Exception:
             return None
 
-    def _maybe_send(self, text: str) -> None:
+    def _maybe_send(self, text: str) -> bool:
         msg = str(text or "").strip()
         if not msg:
-            return
+            return False
         with self._lock:
+            if self._max_per_turn >= 0 and self._sent_count >= self._max_per_turn:
+                return False
             now = float(self._clock())
             if msg == self._last_text and self._sent_count > 0:
-                return
+                return False
             if self._sent_count > 0 and (now - self._last_sent_at) < self._min_interval:
-                return
+                return False
             try:
                 self._enqueue(msg, self._reply_metadata())
             except Exception:
-                return
+                return False
             self._last_sent_at = now
             self._last_text = msg
             self._sent_count += 1
+            return True
 
 
 __all__ = [
@@ -221,6 +248,7 @@ __all__ = [
     "humanize_long_tool",
     "humanize_progress_text",
     "normalize_tool_key",
+    "progress_max_per_turn",
     "progress_min_interval_sec",
     "should_forward_progress_text",
     "whatsapp_turn_progress_enabled",

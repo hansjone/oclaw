@@ -870,6 +870,14 @@ class OclawGateway:
                 short_intent = detect_ops_short_intent(
                     str(msg.text or md_intent.get("raw_inbound_text") or "")
                 )
+                if short_intent:
+                    # Stamp for tool validation playbook examples + turn idle guard.
+                    try:
+                        if not isinstance(msg.metadata, dict):
+                            msg.metadata = {}
+                        msg.metadata["ops_short_intent"] = str(short_intent)
+                    except Exception:
+                        pass
                 if ops_short_intent_should_filter_tools(short_intent):
                     before_n = len(tools.list())
                     filtered_specs = filter_tool_specs_for_ops_short_intent(

@@ -31,6 +31,22 @@
   - 作用：单轮工具循环轮次上限（一轮 = 模型思考一次并执行一批工具）
   - 生效：`runtime/gateway.py`, `runtime/direct_loop.py`, `runtime/worker.py`
 
+- `AIA_TURN_IDLE_GUARD`
+  - 默认：`1`（开启）
+  - 作用：turn 内 idle guard：短指令只叙述不调工具时 nudge 一次；连续无进展 / 参数校验失败过多时 early finalize，减少空转
+  - 取值：`0` / `false` / `no` / `off` 关闭
+  - 生效：`runtime/chat/turn_idle_guard.py`, `runtime/direct_loop.py`
+
+- `AIA_TURN_IDLE_MAX_ROUNDS`
+  - 默认：`2`
+  - 作用：连续「有工具调用但 0 成功」轮次达到该值且本 turn 尚无成功工具时，触发 early finalize
+  - 生效：`runtime/chat/turn_idle_guard.py`
+
+- `AIA_TURN_IDLE_MAX_SCHEMA_FAILS`
+  - 默认：`3`
+  - 作用：本 turn `tool_invalid_arguments` / schema_validation 累计次数达到该值且尚无成功工具时，触发 early finalize
+  - 生效：`runtime/chat/turn_idle_guard.py`
+
 - `AIA_TURN_MAX_CONTEXT_MESSAGES`
   - 默认：`80`
   - 作用：上下文消息上限
@@ -546,6 +562,23 @@
   - 默认：`256`
   - 作用：每用户最近事件回放缓冲上限（用于 `connect.params.lastSeq` 断线补偿）
   - 生效：`oclaw/interfaces/ws/common.py`, `oclaw/interfaces/ws/runtime_impl.py`, `oclaw/interfaces/ws/runtime_helpers.py`
+
+## WhatsApp 中间进度
+
+- `OCLAW_WHATSAPP_TURN_PROGRESS`
+  - 默认：开启（未设置或非 `0/false/no/off`）
+  - 作用：长 turn 是否向 WhatsApp 发中间进度（终稿不受影响）
+  - 生效：`runtime/application/gateway/whatsapp_progress.py`, `inbound_service.py`
+
+- `OCLAW_WHATSAPP_PROGRESS_MIN_INTERVAL_SEC`
+  - 默认：`45`
+  - 作用：两条中间进度的最小间隔（秒）
+  - 生效：`runtime/application/gateway/whatsapp_progress.py`
+
+- `OCLAW_WHATSAPP_PROGRESS_MAX_PER_TURN`
+  - 默认：`2`
+  - 作用：单次入站 turn 中间进度硬上限；同名 long tool（如多跳 `execManagedNe`）每 turn 只播报一次；不再发 mid-turn `tools done / composing`
+  - 生效：`runtime/application/gateway/whatsapp_progress.py`
 
 ## WeCom 长连接
 

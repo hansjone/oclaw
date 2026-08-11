@@ -18,6 +18,66 @@
 
 ---
 
+## 2026-08-11 / WhatsApp progress noise reduction
+
+### Added
+- `OCLAW_WHATSAPP_PROGRESS_MAX_PER_TURN`
+  - 默认值：`2`
+  - 用途：单次入站 turn 的中间进度消息硬上限（终稿回复不计）
+  - 影响模块：`runtime/application/gateway/whatsapp_progress.py`
+
+### Changed
+- `OCLAW_WHATSAPP_PROGRESS_MIN_INTERVAL_SEC`
+  - 变更前：默认 `12`
+  - 变更后：默认 `45`
+  - 影响：中间进度更稀疏；仍可用环境变量覆盖
+  - 是否需要重启：是
+- WhatsApp progress 行为：不再转发 mid-turn `tools done / composing`；同一 long tool（如重复 `execManagedNe`）每 turn 只播报一次
+
+### Deprecated
+- （无）
+
+### Removed
+- （无）
+
+### Migration Checklist
+- [ ] 重启 gateway
+- [ ] 现场长 CLI 路径查询验证：中间进度 ≤2 条，终稿仍正常
+- [ ] 若需完全关闭进度：`OCLAW_WHATSAPP_TURN_PROGRESS=0`
+
+---
+
+## 2026-08-11 / turn idle guard + playbook contracts
+
+### Added
+- `AIA_TURN_IDLE_GUARD`
+  - 默认值：`1`
+  - 用途：开启 turn 内 idle guard（短指令 narration nudge / 无进展 early finalize）
+  - 影响模块：`runtime/chat/turn_idle_guard.py`, `runtime/direct_loop.py`
+- `AIA_TURN_IDLE_MAX_ROUNDS`
+  - 默认值：`2`
+  - 用途：连续无成功工具轮次阈值
+  - 影响模块：`runtime/chat/turn_idle_guard.py`
+- `AIA_TURN_IDLE_MAX_SCHEMA_FAILS`
+  - 默认值：`3`
+  - 用途：schema 校验失败累计阈值
+  - 影响模块：`runtime/chat/turn_idle_guard.py`
+
+### Changed
+- （无）
+
+### Deprecated
+- （无）
+
+### Removed
+- （无）
+
+### Migration Checklist
+- [ ] 重启 gateway / worker 后生效
+- [ ] 若需关闭：设 `AIA_TURN_IDLE_GUARD=0`
+
+---
+
 ## 模板
 
 ```md
