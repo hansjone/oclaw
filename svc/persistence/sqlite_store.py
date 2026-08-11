@@ -2282,6 +2282,26 @@ class SqliteStore(ScheduledJobStoreMixin):
             session_id=sid, after_id=aid, limit=lim
         )
 
+    def get_messages_before_id(self, *, session_id: str, before_id: int, limit: int = 200) -> list[ChatMessage]:
+        """Return up to ``limit`` messages with id < ``before_id``, ASC within the window."""
+        sid = str(session_id or "").strip()
+        if not sid:
+            return []
+        bid = int(before_id or 0)
+        if bid <= 0:
+            return []
+        lim = max(1, min(int(limit), 2000))
+        return self._chat_messages_repo().get_messages_before_id(
+            session_id=sid, before_id=bid, limit=lim
+        )
+
+    def exists_message_before_id(self, *, session_id: str, before_id: int) -> bool:
+        sid = str(session_id or "").strip()
+        bid = int(before_id or 0)
+        if not sid or bid <= 0:
+            return False
+        return self._chat_messages_repo().exists_message_before_id(session_id=sid, before_id=bid)
+
     def add_tool_log(
         self,
         session_id: str,

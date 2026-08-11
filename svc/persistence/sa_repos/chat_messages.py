@@ -237,6 +237,102 @@ class ChatMessagesSaRepository:
                 rows.insert(0, dict(arow))
         return [_row_to_chat_message(r) for r in rows]
 
+    def get_messages_before_id(
+        self, *, session_id: str, before_id: int, limit: int
+    ) -> list[ChatMessage]:
+        """Return up to ``limit`` messages with id < ``before_id``, ASC within the window.
+
+        Same orphan-tool prepend behavior as :meth:`get_messages_recent_asc` so a page
+        that starts mid-tool-turn still includes the parent assistant row.
+        """
+        if limit <= 0:
+            return []
+        sid = str(session_id or "").strip()
+        if not sid:
+            return []
+        bid = int(before_id or 0)
+        if bid <= 0:
+            return []
+        lim = max(1, min(int(limit), 2000))
+        ids_sq = (
+            select(chat_message.c.id)
+            .where(chat_message.c.session_id == sid, chat_message.c.id < bid)
+            .order_by(chat_message.c.id.desc())
+            .limit(lim)
+            .scalar_subquery()
+        )
+        stmt = (
+            select(
+                chat_message.c.id,
+                chat_message.c.session_id,
+                chat_message.c.role,
+                chat_message.c.content,
+                chat_message.c.tool_calls,
+                chat_message.c.attachments,
+                chat_message.c.turn_uuid,
+                chat_message.c.event_type,
+                chat_message.c.event_payload,
+                chat_message.c.timestamp,
+            )
+            .where(chat_message.c.session_id == sid, chat_message.c.id.in_(ids_sq))
+            .order_by(chat_message.c.id.asc())
+        )
+        prepended: set[int] = set()
+        with self._engine.connect() as conn:
+            rows: list[dict[str, Any]] = [dict(r) for r in conn.execute(stmt).mappings().all()]
+            while rows:
+                first = rows[0]
+                if str(first.get("role") or "") != "tool":
+                    break
+                aid = _tool_row_assistant_message_id(first.get("tool_calls"))
+                if aid is None:
+                    break
+                first_id = int(first["id"])
+                if aid >= first_id:
+                    break
+                if any(int(r["id"]) == int(aid) for r in rows):
+                    break
+                if int(aid) in prepended:
+                    break
+                arow = conn.execute(
+                    select(
+                        chat_message.c.id,
+                        chat_message.c.session_id,
+                        chat_message.c.role,
+                        chat_message.c.content,
+                        chat_message.c.tool_calls,
+                        chat_message.c.attachments,
+                        chat_message.c.turn_uuid,
+                        chat_message.c.event_type,
+                        chat_message.c.event_payload,
+                        chat_message.c.timestamp,
+                    )
+                    .where(chat_message.c.session_id == sid, chat_message.c.id == int(aid))
+                    .limit(1)
+                ).mappings().first()
+                if not arow:
+                    break
+                prepended.add(int(aid))
+                rows.insert(0, dict(arow))
+        return [_row_to_chat_message(r) for r in rows]
+
+    def exists_message_before_id(self, *, session_id: str, before_id: int) -> bool:
+        sid = str(session_id or "").strip()
+        bid = int(before_id or 0)
+        if not sid or bid <= 0:
+            return False
+        with self._engine.connect() as conn:
+            return bool(
+                conn.execute(
+                    select(
+                        exists().where(
+                            chat_message.c.session_id == sid,
+                            chat_message.c.id < bid,
+                        )
+                    )
+                ).scalar()
+            )
+
     def get_messages_after_id(
         self, *, session_id: str, after_id: int, limit: int
     ) -> list[ChatMessage]:

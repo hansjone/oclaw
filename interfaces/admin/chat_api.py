@@ -66,7 +66,8 @@ def _wiki_root_from_config() -> Path | None:
         root = (Path(__file__).resolve().parents[2] / root).resolve()
     return root
 
-_CHAT_MSG_LIMIT = 5000
+# Default window for chat UI / admin: recent messages only (scroll-up loads older via before_id).
+_CHAT_MSG_LIMIT = 80
 _SESSION_TITLE_MAX_LEN = 120
 _AVATAR_UPLOAD_MAX_BYTES = 2 * 1024 * 1024
 _AVATAR_MIMES = frozenset({"image/png", "image/jpeg", "image/jpg", "image/webp", "image/gif"})
@@ -1056,6 +1057,7 @@ def include_chat_routes(router: APIRouter, *, resolve_auth: Callable[[SqliteStor
     def api_chat_messages(
         session_id: str,
         limit: int = Query(default=_CHAT_MSG_LIMIT, ge=1, le=20000),
+        before_id: int | None = Query(default=None, ge=1),
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
         store = get_assistant_store()
@@ -1066,11 +1068,24 @@ def include_chat_routes(router: APIRouter, *, resolve_auth: Callable[[SqliteStor
         if not sess:
             raise HTTPException(status_code=404, detail="session_not_found")
         meta = store.get_session_messages_meta(session_id)
-        msgs = store.get_messages(session_id=session_id, limit=int(limit))
+        lim = int(limit)
+        if before_id is not None:
+            msgs = store.get_messages_before_id(
+                session_id=session_id, before_id=int(before_id), limit=lim
+            )
+        else:
+            msgs = store.get_messages(session_id=session_id, limit=lim)
         msgs = _filter_internal_instruction_user_messages(msgs)
+        oldest_id = int(getattr(msgs[0], "id", 0) or 0) if msgs else 0
+        has_more = bool(oldest_id) and store.exists_message_before_id(
+            session_id=session_id, before_id=oldest_id
+        )
         return {
             "ok": True,
-            "message_count": len(msgs),
+            "message_count": int(meta.message_count or 0),
+            "returned_count": len(msgs),
+            "has_more": has_more,
+            "before_id": int(before_id) if before_id is not None else None,
             "messages": [_serialize_message(m) for m in msgs],
         }
 

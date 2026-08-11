@@ -1,7 +1,8 @@
 /* Standalone /chat page: same bearer + /admin/api/chat as admin SPA. */
 
 const PAGE_SIZE = 35;
-const CHAT_MESSAGES_FETCH_LIMIT = 5000;
+/** Initial / page size for session history (older messages load on scroll-up). */
+const CHAT_MESSAGES_FETCH_LIMIT = 80;
 
 const I18N = {
   zh: {
@@ -73,7 +74,9 @@ const I18N = {
     "chat.marker.summary": "文件标记：指针 {p}，封套 {e}（封套内 {ep}）",
     "chat.marker.ttl": "TTL：turn {t} / session {s} / keep {k}",
     "chat.marker.reclaimed": "本轮回收 turn 标记 {n}",
-    "chat.historyTruncated": "仅显示最近 {shown} 条，共 {total} 条",
+    "chat.historyTruncated": "已显示最近 {shown}/{total} 条 · 上滑加载更早",
+    "chat.loadingOlder": "正在加载更早消息…",
+    "chat.historyComplete": "已到最早消息",
     "reasoning.summary": "模型推理片段",
     "reasoning.processNotes": "主通道过程说明",
     "tool.streamTitle": "工具与进度（本轮）",
@@ -263,7 +266,9 @@ const I18N = {
     "chat.marker.summary": "File markers: pointers {p}, envelope {e} (in-envelope {ep})",
     "chat.marker.ttl": "TTL: turn {t} / session {s} / keep {k}",
     "chat.marker.reclaimed": "Turn markers reclaimed {n}",
-    "chat.historyTruncated": "Showing last {shown} of {total} messages",
+    "chat.historyTruncated": "Showing latest {shown}/{total} · scroll up for older",
+    "chat.loadingOlder": "Loading older messages…",
+    "chat.historyComplete": "Reached the start of this chat",
     "reasoning.summary": "Model reasoning",
     "reasoning.processNotes": "Main-channel notes",
     "tool.streamTitle": "Tools & progress (this turn)",
@@ -3085,7 +3090,13 @@ async function appendMessageRow(messagesEl, m, options = {}) {
       else innerBubble.appendChild(bar);
     }
   }
-  messagesEl.appendChild(bubble);
+  if (options.prependBefore && options.prependBefore.parentNode === messagesEl) {
+    messagesEl.insertBefore(bubble, options.prependBefore);
+  } else if (options.prepend) {
+    messagesEl.insertBefore(bubble, messagesEl.firstChild);
+  } else {
+    messagesEl.appendChild(bubble);
+  }
   hydrateMermaidIn(bubble);
 }
 
@@ -3414,6 +3425,9 @@ async function renderChatUi() {
   };
   messagesEl.addEventListener("scroll", () => {
     shouldFollowMessages = isNearBottom();
+    if (messagesEl.scrollTop <= 80) {
+      loadOlderMessagesForActive().catch(() => {});
+    }
   });
   messagesEl.addEventListener(
     "load",
@@ -4306,13 +4320,49 @@ async function renderChatUi() {
     },
   };
 
+  let historyHasMore = false;
+  let historyOldestId = 0;
+  let historyLoadedCount = 0;
+  let historyTotal = 0;
+  let historyLoadingOlder = false;
+  let historyCapEl = null;
+
+  const ensureHistoryCap = () => {
+    if (!historyHasMore && historyLoadedCount > 0 && historyTotal > 0 && historyLoadedCount >= historyTotal) {
+      if (historyCapEl && historyCapEl.parentNode) historyCapEl.remove();
+      historyCapEl = null;
+      return;
+    }
+    if (!historyHasMore && !historyLoadingOlder) {
+      if (historyCapEl && historyCapEl.parentNode) historyCapEl.remove();
+      historyCapEl = null;
+      return;
+    }
+    if (!historyCapEl) historyCapEl = el("div", { class: "muted chat-msg-cap" });
+    historyCapEl.textContent = historyLoadingOlder
+      ? t("chat.loadingOlder")
+      : t("chat.historyTruncated", {
+          shown: String(historyLoadedCount || 0),
+          total: String(historyTotal || historyLoadedCount || 0),
+        });
+    if (historyCapEl.parentNode !== messagesEl) {
+      messagesEl.insertBefore(historyCapEl, messagesEl.firstChild);
+    }
+  };
+
   const loadMessagesForActive = async (opts = {}) => {
     loadMessagesForActive._rid = (loadMessagesForActive._rid || 0) + 1;
     const rid = loadMessagesForActive._rid;
     shouldFollowMessages = true;
+    historyHasMore = false;
+    historyOldestId = 0;
+    historyLoadedCount = 0;
+    historyTotal = 0;
+    historyLoadingOlder = false;
     if (!activeId) {
       loadMessagesForActive._needsWsTextFallback = true;
       messagesEl.innerHTML = "";
+      historyCapEl = null;
       statusBar.textContent = sessions.length ? "" : t("chat.noSessions");
       if (!sessions.length) messagesEl.appendChild(el("div", { class: "muted", text: t("chat.empty") }));
       return 0;
@@ -4327,7 +4377,10 @@ async function renderChatUi() {
       const msgs = Array.isArray(resp.messages) ? resp.messages : [];
       const renderRows = _buildRenderRows(msgs);
       loadMessagesForActive._needsWsTextFallback = _needsWsTextFallbackFromRenderRows(renderRows);
-      const total = intOr(resp.message_count, msgs.length);
+      historyTotal = intOr(resp.message_count, msgs.length);
+      historyLoadedCount = msgs.length;
+      historyHasMore = !!resp.has_more;
+      historyOldestId = msgs.length ? intOr(msgs[0].id, 0) : 0;
       // End-of-turn hydrate: if the server returns nothing renderable yet (PG commit lag, transient API
       // glitch) but the caller still has a live stream worth keeping, do not wipe messagesEl — that
       // caused "stream flashes then entire dialog is empty" when reasoning/tool-output mode reloads.
@@ -4336,14 +4389,8 @@ async function renderChatUi() {
         return 0;
       }
       messagesEl.innerHTML = "";
-      if (total > msgs.length) {
-        messagesEl.appendChild(
-          el("div", {
-            class: "muted chat-msg-cap",
-            text: t("chat.historyTruncated", { shown: msgs.length, total }),
-          }),
-        );
-      }
+      historyCapEl = null;
+      ensureHistoryCap();
       if (!renderRows.length) {
         messagesEl.appendChild(el("div", { class: "muted", text: t("chat.empty") }));
       } else {
@@ -4360,6 +4407,49 @@ async function renderChatUi() {
       loadMessagesForActive._needsWsTextFallback = true;
       statusBar.textContent = `${t("chat.error")}: ${String(e)}`;
       return -1;
+    }
+  };
+
+  const loadOlderMessagesForActive = async () => {
+    if (!activeId || !historyHasMore || historyLoadingOlder || !historyOldestId) return 0;
+    if (isChatStreaming()) return 0;
+    historyLoadingOlder = true;
+    ensureHistoryCap();
+    const prevHeight = messagesEl.scrollHeight;
+    const prevTop = messagesEl.scrollTop;
+    const rid = loadMessagesForActive._rid || 0;
+    try {
+      const resp = await apiGet(
+        `/admin/api/chat/sessions/${encodeURIComponent(activeId)}/messages?limit=${CHAT_MESSAGES_FETCH_LIMIT}&before_id=${encodeURIComponent(String(historyOldestId))}`,
+      );
+      if (rid !== loadMessagesForActive._rid) return 0;
+      const msgs = Array.isArray(resp.messages) ? resp.messages : [];
+      if (!msgs.length) {
+        historyHasMore = false;
+        ensureHistoryCap();
+        return 0;
+      }
+      const renderRows = _buildRenderRows(msgs);
+      historyTotal = intOr(resp.message_count, historyTotal);
+      historyLoadedCount += msgs.length;
+      historyHasMore = !!resp.has_more;
+      historyOldestId = intOr(msgs[0].id, historyOldestId);
+      ensureHistoryCap();
+      const anchor = historyCapEl && historyCapEl.parentNode === messagesEl ? historyCapEl.nextSibling : messagesEl.firstChild;
+      for (const m of renderRows) {
+        await appendMessageRow(messagesEl, m, { ...rowRenderOptions, prependBefore: anchor });
+      }
+      const delta = messagesEl.scrollHeight - prevHeight;
+      messagesEl.scrollTop = prevTop + delta;
+      return renderRows.length;
+    } catch (e) {
+      if (typeof showToast === "function") {
+        showToast(`${t("chat.error")}: ${String(e)}`, { kind: "error", ttlMs: 4500 });
+      }
+      return -1;
+    } finally {
+      historyLoadingOlder = false;
+      ensureHistoryCap();
     }
   };
 

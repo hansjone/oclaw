@@ -89,3 +89,19 @@ def test_sa_chat_message_tool_window_prepend(fresh_sqlite_store: SqliteStore) ->
     assert len(win) == 2
     assert win[0].id == asst.id
     assert win[1].role == "tool"
+
+
+def test_sa_chat_message_before_id_window(fresh_sqlite_store: SqliteStore) -> None:
+    s = fresh_sqlite_store
+    sess = s.create_session("P")
+    ids = []
+    for i in range(6):
+        ids.append(s.add_message(sess.id, "user", f"m{i}").id)
+    recent = s.get_messages(sess.id, limit=2)
+    assert [m.content for m in recent] == ["m4", "m5"]
+    older = s.get_messages_before_id(session_id=sess.id, before_id=recent[0].id, limit=2)
+    assert [m.content for m in older] == ["m2", "m3"]
+    assert s.exists_message_before_id(session_id=sess.id, before_id=older[0].id) is True
+    head = s.get_messages_before_id(session_id=sess.id, before_id=ids[1], limit=10)
+    assert [m.content for m in head] == ["m0"]
+    assert s.exists_message_before_id(session_id=sess.id, before_id=head[0].id) is False
