@@ -103,6 +103,16 @@ def run_runtime_prewarm(
     t0 = time.perf_counter()
     own_store = store if store is not None else get_assistant_store()
     try:
+        from runtime.operations.mcp_env import apply_gateway_mcp_env_to_os
+        from runtime.tools.mcp.sync_tools import sync_enabled_mcp_servers
+
+        try:
+            apply_gateway_mcp_env_to_os()
+        except Exception:
+            pass
+        # Refresh MCP tool catalogs first so wire freeze/prewarm sees current tools/list.
+        # Health is best-effort and does not gate sync (wire penalty/suppression was removed).
+        mcp_sync = sync_enabled_mcp_servers(own_store)
         registry = default_registry(store=own_store)
         prompt_stats = warm_startup_prompt_prebuild(
             store=own_store,
@@ -125,6 +135,7 @@ def run_runtime_prewarm(
             "elapsed_ms": int((time.perf_counter() - t0) * 1000),
             "started_at_ms": started_at_ms,
             "finished_at_ms": int(time.time() * 1000),
+            "mcp_sync": mcp_sync,
             "prompt": prompt_stats,
             "tools": tool_stats,
             "freeze": freeze,

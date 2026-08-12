@@ -190,8 +190,8 @@ def materialize_tool_specs(
     except Exception as exc:
         logger.warning("expert tool load skipped: %s", exc)
 
-    # MCP tools are role-bound and should be materialized before model injection.
-    # Fine-grained penalty/visibility is still applied by wire policy in direct_loop.
+    # MCP tools are role-bound and materialized before model injection.
+    # Wire penalty/suppression was removed; visibility is specialist↔MCP binding only.
     mcp_enabled = True
     try:
         if store is not None:

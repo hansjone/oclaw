@@ -76,7 +76,7 @@ export default {
   "auth.logout": "Logout",
   "auth.password": "Password",
   "auth.username": "Username",
-  "auto.after_any_skill_tool_role_prompt_change_run_prewarm_imme": "After any skill/tool/role/prompt change, run prewarm immediately; restart for complex changes. System also auto-prewarms every 10 minutes.",
+  "auto.after_any_skill_tool_role_prompt_change_run_prewarm_imme": "After any skill/tool/role/prompt/MCP change, run prewarm immediately (syncs enabled MCP tools/list, then freezes the tool wire); restart for complex changes. System also auto-prewarms every 10 minutes.",
   "auto.prewarm_running_in_background_refreshing_this_page_when_": "[prewarm] running in background; refreshing this page when finished…",
   "boot.loadFailed": "Failed to load admin scripts",
   "boot.loadFailedHint": "Confirm /admin/assets/app.js and /admin/assets/js/ are reachable.",

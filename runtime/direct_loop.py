@@ -202,6 +202,12 @@ def warm_tool_wire_cache(
     global _TOOL_WIRE_FROZEN_SIGNATURE, _TOOL_WIRE_LAST_WARM_TS_MS, _TOOL_WIRE_LAST_WARM_ROLES, _TOOL_WIRE_LAST_WARM_COUNT
     freeze_enabled = _tool_wire_freeze_enabled(store)
     runtime_enabled, sig = _tool_wire_settings_signature(store)
+    # Force rebuild: frozen mode makes _prepare_llm_tools return the previous wire forever
+    # (cache key ignores MCP tools/list content). Prewarm / MCP sync must clear first or
+    # "health + sync + prewarm" appears to do nothing.
+    with _TOOL_WIRE_CACHE_LOCK:
+        _TOOL_WIRE_FROZEN_SIGNATURE = None
+        _TOOL_WIRE_CACHE.clear()
     warmed = 0
     for role in roles or []:
         _ = _prepare_llm_tools(
@@ -222,7 +228,7 @@ def warm_tool_wire_cache(
         _TOOL_WIRE_LAST_WARM_TS_MS = int(time.time() * 1000)
         _TOOL_WIRE_LAST_WARM_ROLES = tuple(str(x or "").strip().lower() for x in roles or [])
         _TOOL_WIRE_LAST_WARM_COUNT = int(warmed)
-    return {"roles_warmed": int(warmed), "frozen": int(bool(freeze_enabled))}
+    return {"roles_warmed": int(warmed), "frozen": int(bool(freeze_enabled)), "cache_cleared": 1}
 
 
 def tool_wire_freeze_status(*, store: Any | None = None) -> dict[str, Any]:

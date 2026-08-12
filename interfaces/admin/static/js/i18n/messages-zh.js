@@ -76,7 +76,7 @@ export default {
   "auth.logout": "退出登录",
   "auth.password": "密码",
   "auth.username": "用户名",
-  "auto.after_any_skill_tool_role_prompt_change_run_prewarm_imme": "任何 skill/tool/角色/提示词变更后，请立即预热；复杂变更可直接重启。系统每10分钟自动异步预热一次。",
+  "auto.after_any_skill_tool_role_prompt_change_run_prewarm_imme": "任何 skill/tool/角色/提示词/MCP 变更后，请立即预热（会先同步已启用 MCP 的 tools/list，再冻结核线）；复杂变更可直接重启。系统每10分钟自动异步预热一次。",
   "auto.prewarm_running_in_background_refreshing_this_page_when_": "[预热] 后台执行中，完成后自动刷新本页数据（含提示词）…",
   "boot.loadFailed": "无法加载管理台脚本",
   "boot.loadFailedHint": "请确认 /admin/assets/app.js 与 /admin/assets/js/ 可访问。",

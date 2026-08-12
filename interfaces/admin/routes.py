@@ -111,88 +111,22 @@ def _expand_mcp_entry_args(raw: list[Any] | None) -> list[str]:
 
 
 def _mcp_health_and_sync_one(store: SqliteStore, row: dict[str, Any]) -> dict[str, Any] | None:
-    """Run MCP initialize health + tools/list + persist tools (same semantics as check-all per row)."""
-    sid = str(row.get("server_id") or "").strip()
-    cmd = str(row.get("entry_command") or "").strip()
-    args = [str(x) for x in (row.get("entry_args") or []) if str(x).strip()]
-    if not sid:
-        return None
-    if not cmd:
-        item: dict[str, Any] = {
-            "server_id": sid,
-            "ok": False,
-            "error_code": "mcp_entry_missing",
-            "error": "entry_command_missing",
-            "health": {"ok": False, "error_code": "mcp_entry_missing", "error": "entry_command_missing"},
-            "tools_synced": 0,
-        }
-        store.set_mcp_server_health(server_id=sid, status="error", detail=item["health"])
-        return item
-    if _is_bailian_webparser_remote(entry_command=cmd, entry_args=args):
-        tools = _bailian_webparser_virtual_tools()
-        store.replace_mcp_server_tools(server_id=sid, tools=tools)
-        detail = {"synced_tools": len(tools), "compat_mode": "bailian_webparser"}
-        store.set_mcp_server_health(server_id=sid, status="ok", detail=detail)
-        return {"server_id": sid, "ok": True, "health": detail, "tools_synced": len(tools)}
-    rt = mcp_runtime_for_row(row, store=store)
-    try:
-        health = rt.health()
-        health_ok = bool(health.get("ok"))
-        if not health_ok:
-            item = {
-                "server_id": sid,
-                "ok": False,
-                "error_code": str(health.get("error_code") or "mcp_healthcheck_failed"),
-                "error": str(health.get("error") or "healthcheck_failed"),
-                "health": health,
-                "tools_synced": 0,
-            }
-            store.set_mcp_server_health(server_id=sid, status="error", detail=health)
-            return item
-        tools_res = rt.tools_list()
-        if not bool(tools_res.get("ok")):
-            item = {
-                "server_id": sid,
-                "ok": False,
-                "error_code": str(tools_res.get("error_code") or "mcp_tools_list_invalid"),
-                "error": str(tools_res.get("error") or "tools_list_failed"),
-                "health": health,
-                "tools_synced": 0,
-            }
-            store.set_mcp_server_health(server_id=sid, status="error", detail=tools_res)
-            return item
-        tools = tools_res.get("tools") if isinstance(tools_res.get("tools"), list) else []
-        store.replace_mcp_server_tools(server_id=sid, tools=tools if isinstance(tools, list) else [])
-        store.set_mcp_server_health(server_id=sid, status="ok", detail={"synced_tools": len(tools)})
-        return {"server_id": sid, "ok": True, "health": health, "tools_synced": len(tools)}
-    finally:
-        rt.stop()
+    """Persist MCP tools/list for one server. Health is best-effort and does not gate sync."""
+    from runtime.tools.mcp.sync_tools import sync_mcp_server_tools
+
+    return sync_mcp_server_tools(store, row)
 
 
 def _is_bailian_webparser_remote(*, entry_command: str, entry_args: list[str]) -> bool:
-    cmd = str(entry_command or "").strip().lower()
-    if cmd not in {"npx", "npx.cmd", "node"}:
-        return False
-    joined = " ".join(str(x or "").strip().lower() for x in (entry_args or []))
-    return "mcp-remote" in joined and "/api/v1/mcps/webparser/sse" in joined
+    from runtime.tools.mcp.sync_tools import is_bailian_webparser_remote
+
+    return is_bailian_webparser_remote(entry_command=entry_command, entry_args=entry_args)
 
 
 def _bailian_webparser_virtual_tools() -> list[dict[str, Any]]:
-    return [
-        {
-            "tool_name": "bailian_webparser_parse",
-            "description": "Parse webpage via DashScope WebParser compatibility mode. Requires `url` (http/https).",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "url": {"type": "string", "description": "Target webpage URL (required). Example: https://example.com"},
-                    "timeout": {"type": "integer", "default": 35, "minimum": 8, "maximum": 90},
-                },
-                "required": ["url"],
-                "additionalProperties": False,
-            },
-        }
-    ]
+    from runtime.tools.mcp.sync_tools import bailian_webparser_virtual_tools
+
+    return bailian_webparser_virtual_tools()
 
 
 def _http_get_json(url: str, *, timeout: float = 8.0) -> dict[str, Any]:
