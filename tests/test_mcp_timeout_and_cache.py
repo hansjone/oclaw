@@ -16,7 +16,7 @@ from runtime.tools.tool_validation import format_invalid_arguments_error, valida
 
 class McpTimeoutAndCacheTests(unittest.TestCase):
     def test_exec_managed_ne_timeout_override(self) -> None:
-        self.assertEqual(mcp_timeout_for_tool("execManagedNe", 30.0), 320.0)
+        self.assertEqual(mcp_timeout_for_tool("execManagedNe", 30.0), 620.0)
         self.assertEqual(mcp_timeout_for_tool("ping", 30.0), 30.0)
         self.assertGreaterEqual(mcp_timeout_for_tool("sqlQueryUme", 30.0), 90.0)
 
@@ -48,7 +48,7 @@ class McpTimeoutAndCacheTests(unittest.TestCase):
                 ],
             )
             specs = {s.name: s for s in materialize_mcp_tools(store)}
-            self.assertEqual(specs["mcp__netx__execManagedNe"].timeout_s, 320.0)
+            self.assertEqual(specs["mcp__netx__execManagedNe"].timeout_s, 620.0)
             self.assertEqual(specs["mcp__netx__listCliTargets"].timeout_s, 30.0)
 
     def test_list_cli_targets_ttl_cache(self) -> None:

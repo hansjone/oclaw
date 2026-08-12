@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import logging
 import logging.config
+import logging.handlers
 import os
 from pathlib import Path
 from typing import Any
@@ -10,6 +12,28 @@ from typing import Any
 from svc.config.log_paths import oclaw_log_root
 
 _CONFIGURED = False
+
+
+class SafeRotatingFileHandler(logging.handlers.RotatingFileHandler):
+    """RotatingFileHandler that tolerates Windows file locks during rename.
+
+    Production gateway.err showed thousands of ``PermissionError: [WinError 32]``
+    when ``RotatingFileHandler.doRollover`` tried to rename ``oclaw.log`` while
+    another handle still had the file open. Swallow that race and keep writing
+    to the current stream instead of dumping a traceback storm to stderr.
+    """
+
+    def doRollover(self) -> None:  # noqa: N802 — logging API
+        try:
+            super().doRollover()
+        except PermissionError:
+            return
+        except OSError as e:
+            winerr = getattr(e, "winerror", None)
+            # 32 = sharing violation; 13/EACCES also seen under concurrent writers.
+            if winerr == 32 or getattr(e, "errno", None) in (13, 11):
+                return
+            raise
 
 
 def _skip_file_handlers() -> bool:
@@ -74,7 +98,7 @@ def build_worker_logging_dict_config(
         },
         "handlers": {
             "oclaw_file": {
-                "class": "logging.handlers.RotatingFileHandler",
+                "class": "svc.observability.logging_setup.SafeRotatingFileHandler",
                 "formatter": "file",
                 "filename": str(oclaw_path),
                 "maxBytes": max(256_000, mb),
@@ -118,7 +142,7 @@ def build_uvicorn_logging_dict_config(
         },
         "handlers": {
             "default_file": {
-                "class": "logging.handlers.RotatingFileHandler",
+                "class": "svc.observability.logging_setup.SafeRotatingFileHandler",
                 "formatter": "default",
                 "filename": str(oclaw_path),
                 "maxBytes": max(256_000, mb),
@@ -126,7 +150,7 @@ def build_uvicorn_logging_dict_config(
                 "encoding": "utf-8",
             },
             "access_file": {
-                "class": "logging.handlers.RotatingFileHandler",
+                "class": "svc.observability.logging_setup.SafeRotatingFileHandler",
                 "formatter": "access",
                 "filename": str(access_path),
                 "maxBytes": max(256_000, mb),
@@ -185,6 +209,7 @@ def reset_oclaw_logging_for_tests() -> None:
 
 
 __all__ = [
+    "SafeRotatingFileHandler",
     "build_uvicorn_logging_dict_config",
     "build_worker_logging_dict_config",
     "configure_oclaw_logging",

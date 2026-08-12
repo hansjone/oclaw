@@ -781,17 +781,52 @@ input[type="checkbox"]:checked::before,
 }
 .table--compact { table-layout: fixed; min-width: 860px; }
 .table--compact th, .table--compact td { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.table--compact td.table__cell--actions,
 .table--compact td.table__cell--form {
   overflow: visible;
   text-overflow: clip;
+  white-space: nowrap;
+}
+.table--compact th.table__cell--actions,
+.table--compact td.table__cell--actions {
+  overflow: visible;
+  text-overflow: clip;
+  white-space: nowrap;
+  width: 4rem;
+  min-width: 4rem;
 }
 .table__cell-actions {
   display: flex;
-  flex-wrap: wrap;
-  gap: 6px 8px;
+  flex-wrap: nowrap;
+  gap: 6px;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: center;
+  position: relative;
+}
+.row-actions__btn {
+  opacity: 1 !important;
+  pointer-events: auto !important;
+}
+.row-actions__btn:focus,
+.row-actions__btn:focus-visible {
+  outline: none;
+  border-color: transparent;
+  box-shadow: none;
+}
+.row-actions__menu {
+  z-index: 1200;
+}
+.row-actions__item--danger {
+  color: #fca5a5;
+}
+.row-actions__item--danger:hover {
+  background: rgba(239, 68, 68, 0.14);
+}
+/* Multi-button action cells (users / market): don't force ⋯ width. */
+.table--compact td.table__cell--actions:has(.btn),
+.table--users-mgmt td.table__cell--actions {
+  width: auto;
+  min-width: 0;
+  max-width: none;
 }
 
 @media (max-width: 1200px) {
@@ -813,6 +848,14 @@ input[type="checkbox"]:checked::before,
   align-items: center;
   justify-content: center;
   padding: 16px;
+}
+.session-monitor-modal:not(.u-hidden) {
+  display: flex;
+}
+.session-monitor-modal.u-hidden {
+  display: none !important;
+  pointer-events: none !important;
+  visibility: hidden !important;
 }
 .session-monitor-modal__card {
   width: min(1200px, 96vw);
@@ -1127,7 +1170,7 @@ body.theme-ds-body[data-admin-theme="light"] .content {
 .u-w-12p { width: 12%; }
 .u-w-full-mt-8 { width: 100%; margin-top: 8px; }
 .u-w-full-mt-10 { width: 100%; margin-top: 10px; }
-.u-overlay-fixed { position: fixed; z-index: 300; }
+.u-overlay-fixed { position: fixed; z-index: 400; }
 .u-overlay-scrim { position: fixed; inset: 0; z-index: 250; background: transparent; }
 .u-z-modal { z-index: 9998; }
 .u-z-modal-top { z-index: 9999; }

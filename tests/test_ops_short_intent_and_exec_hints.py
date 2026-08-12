@@ -24,6 +24,8 @@ def test_ops_short_intent_suppresses_inventory_cli_tools() -> None:
     assert is_ops_short_intent_suppressed_tool("mcp__netx__listCliTargets", intent="fiber_cut")
     assert is_ops_short_intent_suppressed_tool("mcp__netx__execManagedNe", intent="offline")
     assert is_ops_short_intent_suppressed_tool("run_command", intent="excel_export")
+    assert is_ops_short_intent_suppressed_tool("write_xlsx", intent="fiber_cut")
+    assert is_ops_short_intent_suppressed_tool("write_xlsx", intent="excel_export")
     assert not is_ops_short_intent_suppressed_tool("ume_alarm_xlsx_report", intent="fiber_cut")
     assert not is_ops_short_intent_suppressed_tool("mcp__netx__queryUmeAlarmsRaw", intent="alarm_tally")
     assert not is_ops_short_intent_suppressed_tool("mcp__netx__execManagedNe", intent="continue")
@@ -50,7 +52,7 @@ def test_filter_tool_specs_for_ops_short_intent_keeps_report_path() -> None:
     names = {t.name for t in kept}
     assert "ume_alarm_xlsx_report" in names
     assert "mcp__netx__aggregateUmeAlarms" in names
-    assert "write_xlsx" in names
+    assert "write_xlsx" not in names
     assert "mcp__netx__listCliTargets" not in names
     assert "mcp__netx__execManagedNe" not in names
     assert "run_command" not in names

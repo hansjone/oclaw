@@ -145,47 +145,33 @@ for raw in sys.stdin:
 
 工具数量 > 0 即接通成功。
 
-### 3.2 JSON 安装
+### 3.2 Cursor JSON 安装
 
-**单条**（在 Plugins **「3」MCP 安装** 的 **Install from JSON** 中粘贴，或作 array 的其中一个元素）：
+在 Plugins **【2】从 Cursor JSON 安装** 粘贴与 Cursor `mcp.json` 相同的文档（仅支持 `mcpServers`，不再兼容旧的 `servers[]` / 表单字段）：
 
 ```json
 {
-  "source_type": "pypi",
-  "source_ref": "local-echo",
-  "server_id": "local-echo",
-  "version": "",
-  "entry_command": "python",
-  "entry_args": ["D:/project/chatgpt/examples/mcp_echo_server.py"],
-  "required_permissions": [],
-  "risk_level": "low",
-  "enabled": true,
-  "timeout_s": 30
+  "mcpServers": {
+    "local-echo": {
+      "command": "python",
+      "args": ["__REPO_ROOT__/examples/mcp_echo_server.py"]
+    },
+    "remote-demo": {
+      "url": "https://example.com/mcp",
+      "headers": { "Authorization": "Bearer ${API_KEY}" }
+    }
+  }
 }
 ```
 
-**批量**：以下三种写法 **`Install from JSON`** 都支持，会**逐条** preflight + install（任一条失败会记结果并继续下一条，最后看结果 JSON）：
-
-1. **数组**：`[ { 上面一条的字段… }, { … } ]`
-2. **对象包一层 `servers`**（与 `data/mcp_registry.seed.json`、导出文件一致）：
-   ```json
-   {
-     "servers": [
-       { "source_type": "npm", "source_ref": "@upstash/context7-mcp", "server_id": "mcp-context7", "version": "", "entry_command": "npx", "entry_args": ["-y", "@upstash/context7-mcp"], "env_schema": {}, "required_permissions": [], "risk_level": "medium", "enabled": true, "timeout_s": 60, "dry_run": false }
-     ]
-   }
-   ```
-3. **带 `payload` 的单条**（如 `examples/mcp_install_context7.json`）：
-   ```json
-   { "payload": { "source_type": "npm", "source_ref": "…", "server_id": "…" } }
-   ```
-
-路径占位符 `__REPO_ROOT__/…` 在**管理台安装 / preflight** 中会与 `scripts/seed_mcp_registry.py` 一样展开为仓库根下的绝对路径（如 `mcp-echo` 的脚本路径、filesystem 的目录根、sqlite 的库文件路径）。若不用占位符，可直接写本机绝对路径。
+- stdio：`command` / `args` / `env`
+- 远程：仅 `url`（可带 `headers`）时由服务端归一成 `npx -y mcp-remote …` 桥接
+- `__REPO_ROOT__/…` 在安装时展开为仓库根路径
 
 **导出与自动备份**
 
-- 在 **【4】已安装 MCP 服务** 使用 **Export JSON (download)**，可下载当前库中**全部**已安装 MCP 的可重装 JSON（`servers` 包 + `exported_at`）。
-- 每次 **安装、重装、卸载且删除库记录、Delete** 成功后，会刷新 **`oclaw/_local/mcp_registry_migrated.json`**（与导出内容同结构，便于换库/换机后把文件粘回 **Install from JSON** 或 `python scripts/seed_mcp_registry.py path/to/file.json` 注意 seed 会跑 npm/pypi 安装步骤，与 `dry_run` 等字段一致）。该文件建议加入 `.gitignore`（如未忽略），避免本机差异被误提交；密钥仍放在 `oclaw/_local/mcp_local.env` 等环境变量，不在此 JSON 中。
+- **Export JSON** 下载当前全部已安装 MCP 的 Cursor `mcpServers` 快照。
+- 安装 / 改配置 / 卸载删记录后刷新 **`oclaw/_local/mcp_registry_migrated.json`**（同结构）。可用 `python -m runtime.operations.scripts.seed_mcp_registry path/to/file.json` 灌库。密钥仍放 `oclaw/_local/mcp_local.env`。
 
 ### 3.3 MCP 工具可见性（仅绑定）
 
@@ -265,7 +251,7 @@ MCP 工具是增量能力，不会替代原有内置工具体系。
 
 ## Goal
 
-Write local tools as a **standard MCP server over stdio (JSON-RPC)**, then connect them from Admin MCP Market.
+Write local tools as a **standard MCP server over stdio (JSON-RPC)**, then connect them from Admin → Plugins → Install from Cursor JSON.
 
 This project now uses MCP standard flow in runtime:
 
@@ -369,29 +355,20 @@ Then send one JSON-RPC request line from stdin to verify.
 
 ---
 
-## Install in Admin MCP Market
+## Install in Admin (Cursor JSON)
 
-For local Python script:
+Paste Cursor `mcpServers` JSON in **Plugins → Install from Cursor JSON**. There is no MCP Market UI; edit installed servers via the Edit action (same Cursor entry shape).
 
-- `source_type`: `pypi` (or any source type you use for bookkeeping)
-- `source_ref`: custom label (for example `local-echo`)
-- `entry_command`: `python`
-- `entry_args`: `<absolute-or-relative-path-to-script>`
-
-Example JSON install payload:
+For a local Python script:
 
 ```json
 {
-  "source_type": "pypi",
-  "source_ref": "local-echo",
-  "server_id": "local-echo",
-  "version": "",
-  "entry_command": "python",
-  "entry_args": ["D:/project/chatgpt/examples/mcp_echo_server.py"],
-  "required_permissions": [],
-  "risk_level": "low",
-  "enabled": true,
-  "timeout_s": 30
+  "mcpServers": {
+    "local-echo": {
+      "command": "python",
+      "args": ["D:/project/chatgpt/examples/mcp_echo_server.py"]
+    }
+  }
 }
 ```
 

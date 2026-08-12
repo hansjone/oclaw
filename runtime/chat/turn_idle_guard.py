@@ -98,6 +98,8 @@ class TurnIdleTracker:
                 "identical_retry_blocked",
                 "retry_forbidden_blocked",
                 "tool_loop_guard",
+                "cli_call_budget_exceeded",
+                "cli_fail_budget_exceeded",
             }:
                 guard += 1
         stats = RoundStats(

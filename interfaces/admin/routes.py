@@ -37,14 +37,17 @@ from svc.persistence.sqlite_store import SqliteStore
 from svc.persistence.assistant_store import get_assistant_store
 from runtime.agents.specialists import discover_specialist_ids, parse_agent_profile_bindings
 from runtime.tools.mcp.env_config import mcp_runtime_for_row
+from runtime.tools.mcp.cursor_config import (
+    config_payload_to_upsert_fields,
+    parse_cursor_mcp_document,
+    registry_row_to_cursor_server,
+)
 from runtime.tools.mcp.installer import (
     _safe_server_id,
-    detect_local_dependencies,
     install_mcp_server,
     preflight_mcp_server,
     uninstall_mcp_server,
 )
-from runtime.tools.mcp.market import search_mcp_market, trending_mcp_market
 from runtime.tools.mcp.manifest import McpServerManifest
 from runtime.operations.mcp_registry_export import (
     build_mcp_install_export_document,
@@ -2386,6 +2389,21 @@ def build_admin_router() -> APIRouter:
             },
         }
 
+    @router.get("/admin/api/scheduled-jobs/stats")
+    def api_scheduled_jobs_stats(
+        recent_limit: int = Query(default=80),
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        store = get_assistant_store()
+        ctx = _resolve_auth(store, authorization)
+        _require_permission(ctx, "admin:read")
+        tenant_id = str(ctx.get("tenant_id") or "")
+        summary = store.scheduled_job_failure_summary(
+            tenant_id=tenant_id,
+            recent_limit=max(10, min(int(recent_limit or 80), 300)),
+        )
+        return {"ok": True, **summary}
+
     @router.get("/admin/api/scheduled-jobs/meta/recipe-templates")
     def api_scheduled_jobs_meta_recipe_templates(
         authorization: str | None = Header(default=None),
@@ -3051,6 +3069,7 @@ def build_admin_router() -> APIRouter:
             sid = str(r.get("server_id") or "")
             r["health"] = health.get(sid) or {}
             r["tools"] = store.list_mcp_server_tools(server_id=sid)
+            r["cursor"] = registry_row_to_cursor_server(r)
         return {"ok": True, "servers": rows}
 
     @router.get("/admin/api/mcp/export")
@@ -3088,40 +3107,6 @@ def build_admin_router() -> APIRouter:
             "summary": store.list_mcp_tool_usage_summary(limit=limit),
             "calls": store.list_mcp_tool_call_logs(server_id=server_id, limit=limit),
         }
-
-    @router.get("/admin/api/mcp/market/search")
-    def api_mcp_market_search(
-        q: str = Query(default=""),
-        per_source_limit: int = Query(default=6),
-        authorization: str | None = Header(default=None),
-    ) -> dict[str, Any]:
-        store = get_assistant_store()
-        ctx = _resolve_auth(store, authorization)
-        _require_permission(ctx, "admin:tenant:write")
-        query = str(q or "").strip()
-        if not query:
-            return {"ok": True, "items": []}
-        items = search_mcp_market(query, per_source_limit=per_source_limit)
-        return {"ok": True, "items": items}
-
-    @router.get("/admin/api/mcp/market/trending")
-    def api_mcp_market_trending(
-        per_source_limit: int = Query(default=5),
-        refresh: int = Query(default=0),
-        authorization: str | None = Header(default=None),
-    ) -> dict[str, Any]:
-        store = get_assistant_store()
-        ctx = _resolve_auth(store, authorization)
-        _require_permission(ctx, "admin:tenant:write")
-        items = trending_mcp_market(force_refresh=bool(int(refresh or 0)), per_source_limit=per_source_limit)
-        return {"ok": True, "items": items}
-
-    @router.get("/admin/api/mcp/dependencies")
-    def api_mcp_dependencies(authorization: str | None = Header(default=None)) -> dict[str, Any]:
-        store = get_assistant_store()
-        ctx = _resolve_auth(store, authorization)
-        _require_permission(ctx, "admin:tenant:write")
-        return {"ok": True, "items": detect_local_dependencies()}
 
     @router.get("/admin/api/mcp/binding")
     def api_mcp_binding(authorization: str | None = Header(default=None)) -> dict[str, Any]:
@@ -3342,26 +3327,147 @@ def build_admin_router() -> APIRouter:
         store = get_assistant_store()
         ctx = _resolve_auth(store, authorization)
         _require_permission(ctx, "admin:tenant:write")
-        source_type = str(payload.get("source_type") or "").strip().lower()
-        source_ref = str(payload.get("source_ref") or "").strip()
-        if source_type not in {"github", "npm", "pypi", "local"} or not source_ref:
-            return {"ok": False, "error": "invalid_source"}
-        server_id = _safe_server_id(str(payload.get("server_id") or source_ref))
-        manifest = McpServerManifest(
-            server_id=server_id,
-            source_type=source_type,
-            source_ref=source_ref,
-            version=str(payload.get("version") or "").strip(),
-            entry_command=str(payload.get("entry_command") or "").strip(),
-            entry_args=_expand_mcp_entry_args(payload.get("entry_args") if isinstance(payload.get("entry_args"), list) else []),
-            env_schema=payload.get("env_schema") if isinstance(payload.get("env_schema"), dict) else {},
-            permissions=[str(x) for x in (payload.get("required_permissions") or [])],
-            risk_level=str(payload.get("risk_level") or "high"),
-            enabled=bool(payload.get("enabled", True)),
-            timeout_s=float(payload.get("timeout_s") or 30.0),
-        )
         dry_run = bool(payload.get("dry_run", False))
-        install = install_mcp_server(manifest, dry_run=dry_run)
+        try:
+            items = parse_cursor_mcp_document(payload)
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc)}
+        results: list[dict[str, Any]] = []
+        all_ok = True
+        for item in items:
+            entry_args = _expand_mcp_entry_args(
+                item.get("entry_args") if isinstance(item.get("entry_args"), list) else []
+            )
+            manifest = McpServerManifest(
+                server_id=str(item.get("server_id") or ""),
+                source_type=str(item.get("source_type") or "local"),
+                source_ref=str(item.get("source_ref") or ""),
+                version=str(item.get("version") or "").strip(),
+                entry_command=str(item.get("entry_command") or "").strip(),
+                entry_args=entry_args,
+                env_schema=item.get("env_schema") if isinstance(item.get("env_schema"), dict) else {},
+                permissions=[str(x) for x in (item.get("required_permissions") or [])],
+                risk_level=str(item.get("risk_level") or "high"),
+                enabled=bool(item.get("enabled", True)),
+                timeout_s=float(item.get("timeout_s") or 30.0),
+            )
+            install = install_mcp_server(manifest, dry_run=dry_run)
+            store.upsert_mcp_server(
+                server_id=manifest.server_id,
+                source_type=manifest.source_type,
+                source_ref=manifest.source_ref,
+                version=manifest.version,
+                entry_command=manifest.entry_command,
+                entry_args=manifest.entry_args,
+                env_schema=manifest.env_schema,
+                required_permissions=manifest.permissions,
+                risk_level=manifest.risk_level,
+                timeout_s=manifest.timeout_s,
+                enabled=manifest.enabled if install.ok else False,
+            )
+            store.add_mcp_installation_log(
+                server_id=manifest.server_id,
+                status="ok" if install.ok else "error",
+                error_code=install.error_code,
+                detail={"error": install.error, **(install.details or {})},
+                install_command=install.install_command,
+            )
+            store.add_admin_audit_log(
+                actor_tenant_id=ctx["tenant_id"],
+                actor_user_id=ctx["user_id"],
+                action="mcp_install",
+                target_type="mcp_server",
+                target_id=manifest.server_id,
+                status="ok" if install.ok else "error",
+                detail={
+                    "source_type": manifest.source_type,
+                    "source_ref": manifest.source_ref,
+                    "error_code": install.error_code,
+                    "cursor": True,
+                },
+            )
+            row_out = {
+                "ok": bool(install.ok),
+                "server_id": manifest.server_id,
+                "install_command": install.install_command,
+                "error_code": install.error_code,
+                "error": install.error,
+                "cursor": registry_row_to_cursor_server(
+                    {
+                        "server_id": manifest.server_id,
+                        "entry_command": manifest.entry_command,
+                        "entry_args": manifest.entry_args,
+                        "env_schema": manifest.env_schema,
+                    }
+                ),
+            }
+            if not install.ok:
+                all_ok = False
+            results.append(row_out)
+        if all_ok:
+            persist_mcp_migrated_file(store)
+        return {
+            "ok": all_ok,
+            "results": results,
+            "installed": [x.get("server_id") for x in results if x.get("ok")],
+            "mcp_migrated_saved": str(mcp_migrated_json_path()) if all_ok else "",
+        }
+
+    @router.post("/admin/api/mcp/config")
+    def api_mcp_config(
+        payload: dict[str, Any] | None = Body(default=None),
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        payload = payload or {}
+        store = get_assistant_store()
+        ctx = _resolve_auth(store, authorization)
+        _require_permission(ctx, "admin:tenant:write")
+        server_id = str(payload.get("server_id") or "").strip()
+        if not server_id:
+            return {"ok": False, "error": "server_id_required"}
+        rows = store.list_mcp_servers(enabled_only=False)
+        existing = next((x for x in rows if str(x.get("server_id") or "") == server_id), None)
+        if not existing:
+            return {"ok": False, "error": "server_not_found"}
+        try:
+            fields = config_payload_to_upsert_fields(payload, existing=existing)
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc)}
+        entry_args = _expand_mcp_entry_args(
+            fields.get("entry_args") if isinstance(fields.get("entry_args"), list) else []
+        )
+        reinstall = bool(payload.get("reinstall", False))
+        dry_run = bool(payload.get("dry_run", False))
+        manifest = McpServerManifest(
+            server_id=str(fields.get("server_id") or server_id),
+            source_type=str(fields.get("source_type") or "local"),
+            source_ref=str(fields.get("source_ref") or server_id),
+            version=str(fields.get("version") or "").strip(),
+            entry_command=str(fields.get("entry_command") or "").strip(),
+            entry_args=entry_args,
+            env_schema=fields.get("env_schema") if isinstance(fields.get("env_schema"), dict) else {},
+            permissions=[str(x) for x in (fields.get("required_permissions") or [])],
+            risk_level=str(fields.get("risk_level") or "high"),
+            enabled=bool(fields.get("enabled", True)),
+            timeout_s=float(fields.get("timeout_s") or 30.0),
+        )
+        install_ok = True
+        install_command = ""
+        error_code = ""
+        error = ""
+        if reinstall:
+            install = install_mcp_server(manifest, dry_run=dry_run)
+            install_ok = bool(install.ok)
+            install_command = install.install_command
+            error_code = install.error_code
+            error = install.error
+            store.add_mcp_installation_log(
+                server_id=manifest.server_id,
+                status="ok" if install.ok else "error",
+                error_code=install.error_code,
+                detail={"error": install.error, **(install.details or {}), "config_reinstall": True},
+                install_command=install.install_command,
+            )
         store.upsert_mcp_server(
             server_id=manifest.server_id,
             source_type=manifest.source_type,
@@ -3373,31 +3479,38 @@ def build_admin_router() -> APIRouter:
             required_permissions=manifest.permissions,
             risk_level=manifest.risk_level,
             timeout_s=manifest.timeout_s,
-            enabled=manifest.enabled if install.ok else False,
-        )
-        store.add_mcp_installation_log(
-            server_id=manifest.server_id,
-            status="ok" if install.ok else "error",
-            error_code=install.error_code,
-            detail={"error": install.error, **(install.details or {})},
-            install_command=install.install_command,
+            enabled=manifest.enabled if install_ok else False,
         )
         store.add_admin_audit_log(
             actor_tenant_id=ctx["tenant_id"],
             actor_user_id=ctx["user_id"],
-            action="mcp_install",
+            action="mcp_config_update",
             target_type="mcp_server",
             target_id=manifest.server_id,
-            status="ok" if install.ok else "error",
-            detail={"source_type": source_type, "source_ref": source_ref, "error_code": install.error_code},
+            status="ok" if install_ok else "error",
+            detail={"reinstall": reinstall, "error_code": error_code},
         )
-        if not install.ok:
-            return {"ok": False, "server_id": manifest.server_id, "error_code": install.error_code, "error": install.error}
+        if not install_ok:
+            return {
+                "ok": False,
+                "server_id": manifest.server_id,
+                "error_code": error_code,
+                "error": error,
+            }
         persist_mcp_migrated_file(store)
+        cursor = registry_row_to_cursor_server(
+            {
+                "server_id": manifest.server_id,
+                "entry_command": manifest.entry_command,
+                "entry_args": manifest.entry_args,
+                "env_schema": manifest.env_schema,
+            }
+        )
         return {
             "ok": True,
             "server_id": manifest.server_id,
-            "install_command": install.install_command,
+            "install_command": install_command,
+            "cursor": cursor,
             "mcp_migrated_saved": str(mcp_migrated_json_path()),
         }
 

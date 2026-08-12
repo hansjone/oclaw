@@ -1,4 +1,4 @@
-"""Build a reinstallable MCP JSON from SQLite and persist under ``oclaw/_local/`` for migration."""
+"""Build a reinstallable Cursor ``mcpServers`` JSON from SQLite under ``oclaw/_local/``."""
 from __future__ import annotations
 
 import json
@@ -10,6 +10,7 @@ from typing import Any
 
 from svc.config.paths import PROJECT_ROOT
 from svc.persistence.sqlite_store import SqliteStore
+from runtime.tools.mcp.cursor_config import build_cursor_mcp_export
 from runtime.tools.mcp.registry import McpRegistry
 
 _EXPORT_FILENAME = "mcp_registry_migrated.json"
@@ -22,11 +23,7 @@ def mcp_migrated_json_path() -> Path:
 
 
 def _collapse_entry_arg(arg: str, root: Path) -> str:
-    """Rewrite absolute / repo-relative paths to ``__REPO_ROOT__/...`` when they exist on disk under root.
-
-    Skips npx flags (``-y``) and tokens that are not an existing file or directory, so package names
-    (e.g. ``mcp-sqlite``, ``@upstash/foo``) are not mistaken for paths.
-    """
+    """Rewrite absolute / repo-relative paths to ``__REPO_ROOT__/...`` when under root."""
     t = (arg or "").strip()
     if not t or t.startswith("__REPO_ROOT__") or t.startswith("-"):
         return str(arg)
@@ -52,41 +49,24 @@ def _collapse_entry_args(args: list[str], root: Path) -> list[str]:
 def build_mcp_install_export_document(store: SqliteStore) -> dict[str, Any]:
     rows = McpRegistry(store).list_servers(enabled_only=False)
     root = PROJECT_ROOT.resolve()
-    servers: list[dict[str, Any]] = []
+    collapsed: list[dict[str, Any]] = []
     for r in rows:
         if not isinstance(r, dict):
             continue
-        raw_args = r.get("entry_args")
+        row = dict(r)
+        raw_args = row.get("entry_args")
         if isinstance(raw_args, list):
-            entry_args = _collapse_entry_args([str(x) for x in raw_args if str(x).strip()], root)
+            row["entry_args"] = _collapse_entry_args([str(x) for x in raw_args if str(x).strip()], root)
         else:
-            entry_args = []
-        es = r.get("env_schema")
-        env_schema = es if isinstance(es, dict) else {}
-        perms = r.get("required_permissions")
-        if not isinstance(perms, list):
-            perms = []
-        servers.append(
-            {
-                "server_id": str(r.get("server_id") or ""),
-                "source_type": str(r.get("source_type") or ""),
-                "source_ref": str(r.get("source_ref") or ""),
-                "version": str(r.get("version") or ""),
-                "entry_command": str(r.get("entry_command") or ""),
-                "entry_args": entry_args,
-                "env_schema": env_schema,
-                "required_permissions": [str(x) for x in perms if str(x).strip()],
-                "risk_level": str(r.get("risk_level") or "high"),
-                "enabled": bool(r.get("enabled")),
-                "timeout_s": float(r.get("timeout_s") or 30.0),
-                "dry_run": False,
-            }
-        )
-    return {
-        "_comment": "管理台导出 / 新安装后自动落盘。可粘到「Install from JSON」；`__REPO_ROOT__/` 在管理台与 seed 中展开为仓库根。已存在路径会写成占位符，其余参数保持原样。",
-        "exported_at": datetime.now(timezone.utc).isoformat(),
-        "servers": servers,
-    }
+            row["entry_args"] = []
+        collapsed.append(row)
+    doc = build_cursor_mcp_export(collapsed)
+    doc["_comment"] = (
+        "Cursor mcpServers export. Paste into Admin → Plugins → Install, "
+        "or feed to seed_mcp_registry.py. Paths under the repo may use __REPO_ROOT__/."
+    )
+    doc["exported_at"] = datetime.now(timezone.utc).isoformat()
+    return doc
 
 
 def persist_mcp_migrated_file(store: SqliteStore) -> str | None:

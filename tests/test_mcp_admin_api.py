@@ -93,11 +93,18 @@ class McpAdminApiTests(unittest.TestCase):
 
         ins = self.client.post(
             "/admin/api/mcp/install",
-            json={"source_type": "npm", "source_ref": "demo-mcp", "server_id": "demo-mcp", "entry_command": "python", "entry_args": ["-V"], "dry_run": True},
+            json={
+                "mcpServers": {
+                    "demo-mcp": {"command": "python", "args": ["-V"]},
+                },
+                "dry_run": True,
+            },
             headers=self._headers(),
         )
         self.assertEqual(ins.status_code, 200)
-        self.assertTrue(ins.json().get("ok"), ins.json())
+        data = ins.json()
+        self.assertTrue(data.get("ok"), data)
+        self.assertIn("demo-mcp", data.get("installed") or [])
 
         toggle = self.client.post(
             "/admin/api/mcp/toggle",
@@ -120,6 +127,52 @@ class McpAdminApiTests(unittest.TestCase):
         items = failures.json().get("items") or []
         self.assertTrue(any(str(x.get("server_id") or "") == "demo-mcp" for x in items))
 
+    def test_cursor_install_config_and_export(self) -> None:
+        ins = self.client.post(
+            "/admin/api/mcp/install",
+            json={
+                "mcpServers": {
+                    "remote-demo": {
+                        "url": "https://example.com/mcp",
+                        "headers": {"Authorization": "Bearer ${DEMO_TOKEN}"},
+                    }
+                },
+                "dry_run": True,
+            },
+            headers=self._headers(),
+        )
+        self.assertEqual(ins.status_code, 200)
+        self.assertTrue(ins.json().get("ok"), ins.json())
+
+        cfg = self.client.post(
+            "/admin/api/mcp/config",
+            json={
+                "server_id": "remote-demo",
+                "url": "https://example.com/mcp-v2",
+                "headers": {"Authorization": "Bearer ${DEMO_TOKEN}"},
+                "enabled": True,
+                "timeout_s": 45,
+            },
+            headers=self._headers(),
+        )
+        self.assertEqual(cfg.status_code, 200)
+        cfg_data = cfg.json()
+        self.assertTrue(cfg_data.get("ok"), cfg_data)
+        self.assertEqual(str((cfg_data.get("cursor") or {}).get("url") or ""), "https://example.com/mcp-v2")
+
+        servers = self.client.get("/admin/api/mcp/servers", headers=self._headers())
+        self.assertEqual(servers.status_code, 200)
+        rows = servers.json().get("servers") or []
+        row = next((x for x in rows if str(x.get("server_id") or "") == "remote-demo"), None)
+        self.assertTrue(isinstance(row, dict), rows)
+        self.assertEqual(str((row.get("cursor") or {}).get("url") or ""), "https://example.com/mcp-v2")
+
+        export = self.client.get("/admin/api/mcp/export", headers=self._headers())
+        self.assertEqual(export.status_code, 200)
+        doc = export.json().get("document") or {}
+        self.assertIn("mcpServers", doc)
+        self.assertIn("remote-demo", doc.get("mcpServers") or {})
+        self.assertNotIn("servers", doc)
     def test_healthcheck_and_tools_sync(self) -> None:
         script = self._write_mcp_server()
         store = get_assistant_store()

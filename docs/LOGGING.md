@@ -14,7 +14,7 @@
 |------|------|
 | `gateway.out.log` / `gateway.err.log` | `start_service` 重定向子进程的 stdout/stderr；裸 `print`、未走 `logging` 的输出等。**追加写，无应用内轮转**；生产可配合系统 logrotate。 |
 | `channel_*.out.log` / `.err.log` | 同上，渠道名中的 `:` 会替换为 `_`。 |
-| `app/oclaw.log` | **轮转**：应用与 uvicorn 主日志（`RotatingFileHandler`）。 |
+| `app/oclaw.log` | **轮转**：应用与 uvicorn 主日志（`SafeRotatingFileHandler`，容忍 Windows 文件锁）。 |
 | `app/uvicorn-access.log` | **轮转**：HTTP access（仅网关 uvicorn 模式）。 |
 | `weixin_sidecar.log` / `weixin_sidecar.err.log` | `weixin_start.ps1` 重定向 sidecar 进程输出（原在 `data/channel_sidecar/.../logs`，已统一到运行日志根）。 |
 | `whatsapp_sidecar.log` / `whatsapp_sidecar.err.log` | `whatsapp_start.ps1` 同上。 |

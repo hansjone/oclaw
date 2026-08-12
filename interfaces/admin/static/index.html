@@ -5,9 +5,9 @@
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>oliver</title>
     <!-- Avoid render-blocking external fonts (can stall first paint ~30s on blocked networks). -->
-    <link rel="stylesheet" href="/admin/assets/styles.css" />
-    <link rel="stylesheet" href="/admin/assets/theme-deepseek.css" />
-    <link rel="stylesheet" href="/admin/assets/theme-presets.css" />
+    <link rel="stylesheet" href="/admin/assets/styles.css?v=20260812-17" />
+    <link rel="stylesheet" href="/admin/assets/theme-deepseek.css?v=20260812-17" />
+    <link rel="stylesheet" href="/admin/assets/theme-presets.css?v=20260812-17" />
     <style>
       /* First paint before app.js runs: keep admin from showing a blank dark screen. */
       .admin-boot-splash {
@@ -63,25 +63,25 @@
         </div>
         <nav class="nav">
           <div class="nav__group">
-            <div class="nav__groupTitle">系统与运行</div>
+            <div class="nav__groupTitle" data-i18n="nav.group.system">系统与运行</div>
             <a class="nav__item" data-page="stack" href="#/stack" data-i18n="nav.stack">Runtime</a>
             <a class="nav__item" data-page="scheduled-jobs" href="#/scheduled-jobs" data-i18n="nav.scheduledJobs">定时任务</a>
             <a class="nav__item" data-page="workspace-paths" href="#/workspace-paths" data-i18n="nav.workspacePaths">工作区路径</a>
             <a class="nav__item" data-page="attachments" href="#/attachments" data-i18n="nav.attachments">附件</a>
           </div>
           <div class="nav__group">
-            <div class="nav__groupTitle">模型与插件</div>
+            <div class="nav__groupTitle" data-i18n="nav.group.models">模型与插件</div>
             <a class="nav__item" data-page="models" href="#/models" data-i18n="nav.models">模型管理</a>
             <a class="nav__item" data-page="plugins" href="#/plugins" data-i18n="nav.plugins">Plugins</a>
             <a class="nav__item" data-page="skills" href="#/skills" data-i18n="nav.skills">Skills</a>
           </div>
           <div class="nav__group">
-            <div class="nav__groupTitle">治理与审计</div>
+            <div class="nav__groupTitle" data-i18n="nav.group.governance">治理与审计</div>
             <a class="nav__item" data-page="memory" href="#/memory" data-i18n="nav.memory">Memory</a>
             <a class="nav__item" data-page="audit" href="#/audit" data-i18n="nav.audit">Audit & Trace</a>
           </div>
           <div class="nav__group">
-            <div class="nav__groupTitle">用户与配置</div>
+            <div class="nav__groupTitle" data-i18n="nav.group.users">用户与配置</div>
             <a class="nav__item" data-page="users" href="#/users" data-i18n="nav.users">用户管理</a>
             <a class="nav__item" data-page="profile" href="#/profile" data-i18n="nav.profile">设置</a>
           </div>
@@ -118,17 +118,44 @@
           <div id="admin-boot-splash" class="admin-boot-splash" role="status" aria-live="polite">
             <div class="admin-boot-splash__title">
               <span class="admin-boot-splash__spinner" aria-hidden="true"></span>
-              <span>正在加载管理台…</span>
+              <span data-i18n="boot.loading">正在加载管理台…</span>
             </div>
-            <div class="admin-boot-splash__muted">若长时间停留在此，请检查网络/代理是否拦截外部资源。</div>
+            <div class="admin-boot-splash__muted" data-i18n="boot.loadingHint">若长时间停留在此，请检查网络/代理是否拦截外部资源。</div>
           </div>
         </section>
       </main>
     </div>
-    <script
-      defer
-      src="/admin/assets/app.js?v=20260507-2"
-      onerror="(function(){var s=document.getElementById('admin-boot-splash');if(s){s.querySelector('.admin-boot-splash__title span:last-child').textContent='无法加载 app.js';s.querySelector('.admin-boot-splash__muted').textContent='请确认 /admin/assets/app.js 可访问。';}})()"
-    ></script>
+    <!-- Keep in sync with js/asset-v.js ADMIN_ASSET_V. Remaps resolved module URLs so nested imports bust cache. -->
+    <script type="importmap">
+      {
+        "imports": {
+          "/admin/assets/app.js": "/admin/assets/app.js?v=20260812-17",
+          "/admin/assets/js/asset-v.js": "/admin/assets/js/asset-v.js?v=20260812-17",
+          "/admin/assets/js/core.js": "/admin/assets/js/core.js?v=20260812-17",
+          "/admin/assets/js/i18n/index.js": "/admin/assets/js/i18n/index.js?v=20260812-17",
+          "/admin/assets/js/i18n/messages-en.js": "/admin/assets/js/i18n/messages-en.js?v=20260812-17",
+          "/admin/assets/js/i18n/messages-zh.js": "/admin/assets/js/i18n/messages-zh.js?v=20260812-17",
+          "/admin/assets/js/main.js": "/admin/assets/js/main.js?v=20260812-17",
+          "/admin/assets/js/pages/attachments.js": "/admin/assets/js/pages/attachments.js?v=20260812-17",
+          "/admin/assets/js/pages/audit.js": "/admin/assets/js/pages/audit.js?v=20260812-17",
+          "/admin/assets/js/pages/authz.js": "/admin/assets/js/pages/authz.js?v=20260812-17",
+          "/admin/assets/js/pages/legacy-admin.js": "/admin/assets/js/pages/legacy-admin.js?v=20260812-17",
+          "/admin/assets/js/pages/legacy.js": "/admin/assets/js/pages/legacy.js?v=20260812-17",
+          "/admin/assets/js/pages/login.js": "/admin/assets/js/pages/login.js?v=20260812-17",
+          "/admin/assets/js/pages/memory.js": "/admin/assets/js/pages/memory.js?v=20260812-17",
+          "/admin/assets/js/pages/models.js": "/admin/assets/js/pages/models.js?v=20260812-17",
+          "/admin/assets/js/pages/plugins.js": "/admin/assets/js/pages/plugins.js?v=20260812-17",
+          "/admin/assets/js/pages/profile.js": "/admin/assets/js/pages/profile.js?v=20260812-17",
+          "/admin/assets/js/pages/scheduled-jobs.js": "/admin/assets/js/pages/scheduled-jobs.js?v=20260812-17",
+          "/admin/assets/js/pages/skills.js": "/admin/assets/js/pages/skills.js?v=20260812-17",
+          "/admin/assets/js/pages/stack.js": "/admin/assets/js/pages/stack.js?v=20260812-17",
+          "/admin/assets/js/pages/users.js": "/admin/assets/js/pages/users.js?v=20260812-17",
+          "/admin/assets/js/pages/workspace-paths.js": "/admin/assets/js/pages/workspace-paths.js?v=20260812-17",
+          "/admin/assets/js/router.js": "/admin/assets/js/router.js?v=20260812-17",
+          "/admin/assets/js/state.js": "/admin/assets/js/state.js?v=20260812-17"
+        }
+      }
+    </script>
+    <script type="module" src="/admin/assets/app.js?v=20260812-17" onerror="(function(){var lang='zh';try{lang=String(localStorage.getItem('ops_admin_lang')||'zh').toLowerCase();}catch(e){}if(lang!=='en')lang='zh';var msg=lang==='en'?{t:'Failed to load admin scripts',h:'Confirm /admin/assets/app.js and /admin/assets/js/ are reachable.'}:{t:'无法加载管理台脚本',h:'请确认 /admin/assets/app.js 与 /admin/assets/js/ 可访问。'};var s=document.getElementById('admin-boot-splash');if(s){var a=s.querySelector('.admin-boot-splash__title span:last-child');var b=s.querySelector('.admin-boot-splash__muted');if(a)a.textContent=msg.t;if(b)b.textContent=msg.h;}})()"></script>
   </body>
 </html>

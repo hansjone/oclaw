@@ -89,6 +89,13 @@ class AdminScheduledJobsApiTests(unittest.TestCase):
         runs = self.client.get(f"/admin/api/scheduled-jobs/{job_id}/runs", headers=headers)
         self.assertTrue(runs.json().get("ok"))
 
+        stats = self.client.get("/admin/api/scheduled-jobs/stats", headers=headers)
+        self.assertEqual(stats.status_code, 200, stats.text)
+        body = stats.json()
+        self.assertTrue(body.get("ok"), body)
+        self.assertIn("recent_fail_rate_pct", body)
+        self.assertIn("jobs_by_status", body)
+
         patch = self.client.patch(
             f"/admin/api/scheduled-jobs/{job_id}",
             headers=headers,

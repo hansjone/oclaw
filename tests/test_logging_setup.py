@@ -89,3 +89,50 @@ def test_oclaw_hooks_log_dir_legacy_when_env_set(
     state.mkdir()
     d = log_paths.oclaw_hooks_log_dir(state_dir_if_legacy=state)
     assert d == (state / "logs").resolve()
+
+
+def test_safe_rotating_handler_swallows_permission_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import logging.handlers
+
+    from svc.observability.logging_setup import SafeRotatingFileHandler
+
+    path = tmp_path / "oclaw.log"
+    path.write_text("seed\n", encoding="utf-8")
+    handler = SafeRotatingFileHandler(str(path), maxBytes=1_000_000, backupCount=1, encoding="utf-8")
+
+    def _boom(self) -> None:  # noqa: ANN001
+        raise PermissionError("WinError 32 simulated")
+
+    monkeypatch.setattr(logging.handlers.RotatingFileHandler, "doRollover", _boom)
+    handler.doRollover()  # must not raise
+    handler.close()
+
+
+def test_safe_rotating_handler_swallows_winerror_32(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import logging.handlers
+
+    from svc.observability.logging_setup import SafeRotatingFileHandler
+
+    path = tmp_path / "oclaw2.log"
+    path.write_text("seed\n", encoding="utf-8")
+    handler = SafeRotatingFileHandler(str(path), maxBytes=1_000_000, backupCount=1, encoding="utf-8")
+
+    def _boom(self) -> None:  # noqa: ANN001
+        err = OSError("locked")
+        err.winerror = 32  # type: ignore[attr-defined]
+        raise err
+
+    monkeypatch.setattr(logging.handlers.RotatingFileHandler, "doRollover", _boom)
+    handler.doRollover()
+    handler.close()
+
+
+def test_worker_dict_config_uses_safe_rotating_handler(tmp_path: Path) -> None:
+    cfg = logging_setup.build_worker_logging_dict_config(log_root=tmp_path / "logs")
+    assert cfg["handlers"]["oclaw_file"]["class"] == "svc.observability.logging_setup.SafeRotatingFileHandler"

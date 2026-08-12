@@ -9,40 +9,41 @@ _BOT_MENTION_RE = re.compile(r"@\S+")
 
 # intent -> (en hint, zh hint)
 _HINTS: dict[str, tuple[str, str]] = {
+    "excel_export": (
+        "[Ops short-intent: Excel export. Call ume_alarm_xlsx_report(..., deliverable=true) now. "
+        "write_xlsx / inventory / CLI / run_command are hidden this turn — do not build xlsx via shell.]",
+        "[短指令：导出 Excel。立即 ume_alarm_xlsx_report(..., deliverable=true)。"
+        "本轮已隐藏 write_xlsx/清单/CLI/run_command，禁止用 shell 搓表。]",
+    ),
+    "license": (
+        "[Ops short-intent: license/capacity. Call ume_alarm_xlsx_report(mode=list, keyword=license, deliverable=true) "
+        "or aggregateUmeAlarms/queryUmeAlarmsRaw; write_xlsx/CLI/inventory are hidden this turn.]",
+        "[短指令：License/容量。立即 ume_alarm_xlsx_report(mode=list, keyword=license, deliverable=true) "
+        "或 aggregate/queryUmeAlarmsRaw；本轮已隐藏 write_xlsx/CLI/清单。]",
+    ),
+    "congestion": (
+        "[Ops short-intent: bandwidth congestion. Call ume_alarm_xlsx_report(mode=list, deliverable=true) "
+        "or aggregateUmeAlarms/queryUmeAlarmsRaw; write_xlsx/CLI/inventory/sql are hidden this turn.]",
+        "[短指令：带宽拥塞。立即 ume_alarm_xlsx_report(mode=list, deliverable=true) 或 aggregate/query；"
+        "本轮已隐藏 write_xlsx/CLI/清单/sql。]",
+    ),
     "fiber_cut": (
         "[Ops short-intent: fiber/LOS. Call ume_alarm_xlsx_report(mode=fiber_cut, deliverable=true) now. "
-        "Inventory/CLI tools are hidden this turn — do not try listCliTargets/execManagedNe.]",
+        "write_xlsx / inventory / CLI are hidden this turn — do not try listCliTargets/execManagedNe/write_xlsx.]",
         "[短指令：断纤/LOS。立即 ume_alarm_xlsx_report(mode=fiber_cut, deliverable=true)。"
-        "本轮已隐藏清单/CLI 工具，勿调用 listCliTargets/execManagedNe。]",
+        "本轮已隐藏 write_xlsx/清单/CLI，勿调用 listCliTargets/execManagedNe/write_xlsx。]",
     ),
     "offline": (
         "[Ops short-intent: offline NE. Call ume_alarm_xlsx_report(mode=offline, deliverable=true) now. "
-        "Inventory/CLI tools are hidden this turn.]",
-        "[短指令：离线网元。立即 ume_alarm_xlsx_report(mode=offline, deliverable=true)。本轮已隐藏清单/CLI。]",
+        "write_xlsx / inventory / CLI are hidden this turn.]",
+        "[短指令：离线网元。立即 ume_alarm_xlsx_report(mode=offline, deliverable=true)。"
+        "本轮已隐藏 write_xlsx/清单/CLI。]",
     ),
     "alarm_tally": (
-        "[Ops short-intent: alarm tally/top. Prefer ume_alarm_xlsx_report(mode=aggregate_by_host) or "
-        "aggregateUmeAlarms; inventory/CLI tools are hidden this turn.]",
-        "[短指令：告警统计/Top。优先 ume_alarm_xlsx_report(mode=aggregate_by_host) 或 aggregateUmeAlarms；"
-        "本轮已隐藏清单/CLI。]",
-    ),
-    "excel_export": (
-        "[Ops short-intent: Excel export. Prefer ume_alarm_xlsx_report or write_xlsx(deliverable=true). "
-        "Inventory/CLI/run_command are hidden this turn — do not build xlsx via shell.]",
-        "[短指令：导出 Excel。优先 ume_alarm_xlsx_report 或 write_xlsx(deliverable=true)；"
-        "本轮已隐藏清单/CLI/run_command。]",
-    ),
-    "license": (
-        "[Ops short-intent: license/capacity. Prefer ume_alarm_xlsx_report(mode=list, keyword=license) or "
-        "aggregateUmeAlarms/queryUmeAlarmsRaw; CLI/inventory tools are hidden this turn.]",
-        "[短指令：License/容量。优先 ume_alarm_xlsx_report(mode=list, keyword=license) 或 "
-        "aggregate/queryUmeAlarmsRaw；本轮已隐藏 CLI/清单。]",
-    ),
-    "congestion": (
-        "[Ops short-intent: bandwidth congestion. Prefer ume_alarm_xlsx_report(mode=list) or "
-        "aggregateUmeAlarms/queryUmeAlarmsRaw; CLI/inventory/sql are hidden this turn.]",
-        "[短指令：带宽拥塞。优先 ume_alarm_xlsx_report(mode=list) 或 aggregate/query；"
-        "本轮已隐藏 CLI/清单/sql。]",
+        "[Ops short-intent: alarm tally/top. Call ume_alarm_xlsx_report(mode=aggregate_by_host, deliverable=true) "
+        "or aggregateUmeAlarms; write_xlsx / inventory / CLI are hidden this turn.]",
+        "[短指令：告警统计/Top。立即 ume_alarm_xlsx_report(mode=aggregate_by_host, deliverable=true) "
+        "或 aggregateUmeAlarms；本轮已隐藏 write_xlsx/清单/CLI。]",
     ),
     "continue": (
         "[Ops short-intent: continue/confirm. Resume the unfinished prior task immediately; "
@@ -68,6 +69,7 @@ _SUPPRESSED_TOOL_NAMES = frozenset(
         "findtopologypaths",
         "sqlqueryume",
         "run_command",
+        "write_xlsx",
         "netx_list_managed_ne",
         "netx_get_managed_ne",
         "netx_exec_managed_ne",

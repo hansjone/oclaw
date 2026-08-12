@@ -150,6 +150,13 @@ class _McpBoundTool:
 
         def _handler(args: dict[str, Any]) -> dict[str, Any]:
             call_args = dict(args or {})
+            from runtime.chat.exec_managed_ne_guard import (
+                is_exec_managed_ne_tool,
+                normalize_exec_managed_ne_args,
+            )
+
+            if is_exec_managed_ne_tool(tool_name):
+                call_args = normalize_exec_managed_ne_args(call_args)
             cache_ttl = _mcp_list_cache_ttl(tool_name)
             cache_key = ""
             if cache_ttl is not None:
@@ -180,7 +187,7 @@ class _McpBoundTool:
                 res["hint"] = (
                     f"Cache {tool_name} results briefly; reuse ids/rows instead of listing again in the same turn."
                 )
-            if tool_name == "execManagedNe" and res.get("ok") is False:
+            if is_exec_managed_ne_tool(tool_name) and res.get("ok") is False:
                 from runtime.tools.tool_error_hints import enrich_exec_managed_ne_error
 
                 res = enrich_exec_managed_ne_error(res)

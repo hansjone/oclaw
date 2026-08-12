@@ -779,11 +779,7 @@
     <script defer src="/admin/assets/vendor/marked.min.js"></script>
     <script defer src="/admin/assets/vendor/purify.min.js"></script>
     <script defer src="/admin/assets/admin-theme.js"></script>
-    <script
-      defer
-      src="/admin/assets/chat.js?v=20260811-history-page"
-      onerror="(function(){var s=document.getElementById('chat-boot-splash');if(s){s.querySelector('.chat-boot-splash__title span:last-child').textContent='无法加载 chat.js';s.querySelector('.chat-boot-splash__muted').textContent='请确认网关已启动且 /admin/assets/chat.js 可访问。';}})()"
-    ></script>
+    <script type="module" src="/admin/assets/chat.js?v=20260812-chat-2" onerror="(function(){var lang='zh';try{lang=String(localStorage.getItem('ops_admin_lang')||'zh').toLowerCase();}catch(e){}if(lang!=='en')lang='zh';var msg=lang==='en'?{t:'Failed to load chat.js',h:'Confirm the gateway is up and /admin/assets/chat.js is reachable.'}:{t:'无法加载 chat.js',h:'请确认网关已启动且 /admin/assets/chat.js 可访问。'};var s=document.getElementById('chat-boot-splash');if(s){var a=s.querySelector('.chat-boot-splash__title span:last-child');var b=s.querySelector('.chat-boot-splash__muted');if(a)a.textContent=msg.t;if(b)b.textContent=msg.h;}})()"></script>
     <!-- Mermaid is larger; load after chat.js so login is not delayed by parse. -->
     <script
       defer
@@ -792,15 +788,28 @@
     ></script>
     <script>
       (function () {
+        var lang = "zh";
+        try {
+          lang = String(localStorage.getItem("ops_admin_lang") || "zh").toLowerCase();
+        } catch (e) {}
+        if (lang !== "en") lang = "zh";
+        var copy =
+          lang === "en"
+            ? {
+                still: "Still loading…",
+                hint: "If the login form does not appear, refresh after confirming the gateway is up. Desktop: desktop.log / backend.log.",
+              }
+            : {
+                still: "加载仍在进行…",
+                hint: "若超过数秒仍无登录框，请确认网关已启动后刷新。桌面端可查看 desktop.log / backend.log。",
+              };
         setTimeout(function () {
           var s = document.getElementById("chat-boot-splash");
           if (!s || !document.body.contains(s)) return;
           var title = s.querySelector(".chat-boot-splash__title span:last-child");
           var muted = s.querySelector(".chat-boot-splash__muted");
-          if (title) title.textContent = "加载仍在进行…";
-          if (muted) {
-            muted.textContent = "若超过数秒仍无登录框，请确认网关已启动后刷新。桌面端可查看 desktop.log / backend.log。";
-          }
+          if (title) title.textContent = copy.still;
+          if (muted) muted.textContent = copy.hint;
         }, 4000);
       })();
     </script>
@@ -811,9 +820,9 @@
         <div class="chat-boot-splash__card">
           <div class="chat-boot-splash__title">
             <span class="chat-boot-splash__spinner" aria-hidden="true"></span>
-            <span>正在加载…</span>
+            <span data-i18n="boot.loading">正在加载…</span>
           </div>
-          <div class="chat-boot-splash__muted">
+          <div class="chat-boot-splash__muted" data-i18n="boot.loadingHint">
             正在启动本地界面；若长时间停留，请确认网关已启动。桌面端可查看 desktop.log / backend.log。
           </div>
         </div>

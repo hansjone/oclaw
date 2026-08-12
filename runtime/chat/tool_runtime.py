@@ -1087,6 +1087,24 @@ class ToolExecutor:
             session_id=ctx.session_id,
             turn_uuid=str(ctx.turn_uuid or ""),
         )
+        from runtime.chat.exec_managed_ne_guard import (
+            budget_block_payload,
+            exec_managed_ne_fail_budget,
+            exec_managed_ne_single_budget,
+            is_batch_exec_args,
+            is_exec_managed_ne_tool,
+            load_turn_exec_managed_ne_stats,
+        )
+
+        prior_single_exec, _prior_batch_exec, prior_exec_fails = load_turn_exec_managed_ne_stats(
+            ctx.store,
+            session_id=ctx.session_id,
+            turn_uuid=str(ctx.turn_uuid or ""),
+        )
+        single_exec_budget = exec_managed_ne_single_budget()
+        fail_exec_budget = exec_managed_ne_fail_budget()
+        local_single_exec = 0
+        local_exec_fails = 0
 
         results_by_id: dict[str, tuple[dict[str, Any], int]] = {}
         runnable_tool_uses: list[LLMToolCall] = []
@@ -1216,6 +1234,48 @@ class ToolExecutor:
                     },
                 )
                 continue
+            if is_exec_managed_ne_tool(tool_name):
+                batchish = is_batch_exec_args(dict(tc.arguments or {}))
+                single_used = int(prior_single_exec) + int(local_single_exec)
+                fail_used = int(prior_exec_fails) + int(local_exec_fails)
+                if (not batchish) and fail_used >= int(fail_exec_budget):
+                    results_by_id[tc.id] = (
+                        budget_block_payload(
+                            reason="fail_budget",
+                            lang=str(ctx.lang or "en"),
+                            single_used=single_used,
+                            single_budget=single_exec_budget,
+                            fail_used=fail_used,
+                            fail_budget=fail_exec_budget,
+                        ),
+                        0,
+                    )
+                    _trace(
+                        "cli_fail_budget_exceeded",
+                        {"tool_name": tc.name, "fail_used": fail_used, "fail_budget": fail_exec_budget},
+                    )
+                    continue
+                if (not batchish) and single_used >= int(single_exec_budget):
+                    results_by_id[tc.id] = (
+                        budget_block_payload(
+                            reason="call_budget",
+                            lang=str(ctx.lang or "en"),
+                            single_used=single_used,
+                            single_budget=single_exec_budget,
+                            fail_used=fail_used,
+                            fail_budget=fail_exec_budget,
+                        ),
+                        0,
+                    )
+                    _trace(
+                        "cli_call_budget_exceeded",
+                        {
+                            "tool_name": tc.name,
+                            "single_used": single_used,
+                            "single_budget": single_exec_budget,
+                        },
+                    )
+                    continue
             count = int(sig_seen.get(sig, 0))
             name_low = str(tc.name or "").strip().lower()
             listish = name_low.endswith(
@@ -1270,6 +1330,8 @@ class ToolExecutor:
                 )
                 continue
             first_tool_call_id_by_signature[sig] = str(tc.id or "")
+            if is_exec_managed_ne_tool(tool_name) and not is_batch_exec_args(dict(tc.arguments or {})):
+                local_single_exec += 1
             runnable_tool_uses.append(tc)
 
         for batch in partition_tool_use_batches(runnable_tool_uses, ctx.tools):
@@ -1332,6 +1394,16 @@ class ToolExecutor:
             result = normalize_tool_result(result)
             if isinstance(result, dict) and result.get("ok") is False:
                 failed_signatures.add(f"{tc.name}:{self._json_dumps_safe(dict(tc.arguments or {}))}")
+                if is_exec_managed_ne_tool(str(tc.name or "")):
+                    # Count blocked budget responses too so fail-budget can engage same turn.
+                    if str(result.get("error_code") or "") not in {
+                        "cli_call_budget_exceeded",
+                        "cli_fail_budget_exceeded",
+                        "identical_retry_blocked",
+                        "retry_forbidden_blocked",
+                        "tool_loop_guard",
+                    }:
+                        local_exec_fails += 1
             if isinstance(result, dict) and _result_is_retry_forbidden(result):
                 retry_forbidden_tools.add(str(tc.name or ""))
             persisted_result, ingested_refs = ingest_embedded_image_blobs_as_refs(
@@ -1376,6 +1448,9 @@ class ToolExecutor:
             tool_content = self._json_dumps_safe(result_for_llm)
             t_db2 = time.perf_counter()
             tool_sig = f"{tc.name}:{self._json_dumps_safe(dict(tc.arguments or {}))}"
+            exec_ne_mode = ""
+            if is_exec_managed_ne_tool(str(tc.name or "")):
+                exec_ne_mode = "batch" if is_batch_exec_args(dict(tc.arguments or {})) else "single"
             msg_row = ctx.store.add_message(
                 session_id=ctx.session_id,
                 role="tool",
@@ -1393,6 +1468,7 @@ class ToolExecutor:
                     "retry_forbidden": bool(
                         isinstance(result, dict) and _result_is_retry_forbidden(result)
                     ),
+                    **({"exec_ne_mode": exec_ne_mode} if exec_ne_mode else {}),
                 },
             )
             try:

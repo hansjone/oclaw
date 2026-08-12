@@ -660,21 +660,101 @@ class ScheduledJobStoreMixin:
                 delivery_status = raw
         except Exception:
             delivery_status = {}
+        from runtime.scheduler.failure_class import enrich_scheduled_job_run_dict
+
+        return enrich_scheduled_job_run_dict(
+            {
+                "id": run.id,
+                "job_id": run.job_id,
+                "tenant_id": run.tenant_id,
+                "status": run.status,
+                "scheduled_at": run.scheduled_at,
+                "started_at": run.started_at,
+                "finished_at": run.finished_at,
+                "session_id": run.session_id,
+                "oclaw_task_id": run.oclaw_task_id,
+                "run_id": run.run_id,
+                "reply_text": run.reply_text,
+                "delivery_status": delivery_status,
+                "error": run.error,
+                "created_at": run.created_at,
+            }
+        )
+
+    def scheduled_job_failure_summary(
+        self,
+        *,
+        tenant_id: str,
+        recent_limit: int = 80,
+    ) -> dict[str, Any]:
+        """Aggregate recent run outcomes + jobs whose last_run_status is failed."""
+        from collections import Counter
+
+        from runtime.scheduler.failure_class import classify_scheduled_job_error
+
+        tid = str(tenant_id or "").strip()
+        lim = max(10, min(int(recent_limit or 80), 300))
+        jobs = self.scheduled_job_list(tenant_id=tid, status=None, limit=200)
+        by_status = Counter(str(j.status or "") for j in jobs)
+        last_failed_jobs: list[dict[str, Any]] = []
+        for j in jobs:
+            if str(j.last_run_status or "").strip().lower() != "failed":
+                continue
+            d = self.scheduled_job_to_dict(j)
+            last_failed_jobs.append(
+                {
+                    "id": d.get("id"),
+                    "name": d.get("name"),
+                    "status": d.get("status"),
+                    "last_run_at": d.get("last_run_at"),
+                    "last_run_status": d.get("last_run_status"),
+                    "specialist": d.get("specialist"),
+                }
+            )
+        with self._connect() as conn:  # type: ignore[attr-defined]
+            rows = conn.execute(
+                """
+                SELECT r.id, r.job_id, r.tenant_id, r.status, r.scheduled_at, r.started_at, r.finished_at,
+                       r.session_id, r.oclaw_task_id, r.run_id, r.reply_text, r.delivery_status_json, r.error, r.created_at,
+                       j.name AS job_name
+                FROM scheduled_job_run r
+                LEFT JOIN scheduled_job j ON j.id = r.job_id
+                WHERE r.tenant_id = ?
+                ORDER BY r.created_at DESC
+                LIMIT ?
+                """,
+                (tid, lim),
+            ).fetchall()
+        status_counts: Counter[str] = Counter()
+        fail_classes: Counter[str] = Counter()
+        recent_fails: list[dict[str, Any]] = []
+        for row in rows:
+            st = str(row["status"] or "")
+            status_counts[st] += 1
+            err = str(row["error"] or "")
+            fc = classify_scheduled_job_error(err, status=st)
+            if fc:
+                fail_classes[fc] += 1
+            if st.lower() in {"failed", "error"}:
+                item = self.scheduled_job_run_to_dict(_row_to_run(row))
+                item["job_name"] = str(row["job_name"] or "") or None
+                if len(recent_fails) < 25:
+                    recent_fails.append(item)
+        finished = sum(int(v) for k, v in status_counts.items() if str(k).lower() not in {"queued", "running", ""})
+        failed_n = int(status_counts.get("failed", 0)) + int(status_counts.get("error", 0))
+        success_n = int(status_counts.get("success", 0))
+        fail_rate = round(100.0 * failed_n / finished, 1) if finished else 0.0
         return {
-            "id": run.id,
-            "job_id": run.job_id,
-            "tenant_id": run.tenant_id,
-            "status": run.status,
-            "scheduled_at": run.scheduled_at,
-            "started_at": run.started_at,
-            "finished_at": run.finished_at,
-            "session_id": run.session_id,
-            "oclaw_task_id": run.oclaw_task_id,
-            "run_id": run.run_id,
-            "reply_text": run.reply_text,
-            "delivery_status": delivery_status,
-            "error": run.error,
-            "created_at": run.created_at,
+            "jobs_total": len(jobs),
+            "jobs_by_status": dict(by_status),
+            "jobs_last_failed": last_failed_jobs,
+            "recent_runs": lim,
+            "recent_status_counts": dict(status_counts),
+            "recent_fail_classes": dict(fail_classes.most_common()),
+            "recent_fail_rate_pct": fail_rate,
+            "recent_success": success_n,
+            "recent_failed": failed_n,
+            "recent_failures": recent_fails,
         }
 
 
