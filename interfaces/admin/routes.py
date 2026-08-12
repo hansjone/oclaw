@@ -3884,7 +3884,13 @@ def build_admin_router() -> APIRouter:
                 invalidate_tool_wire_cache(reason=f"mcp_admin_sync:{server_id}")
             except Exception:
                 pass
-            return {"ok": True, "server_id": server_id, "tools": norm, "compat_mode": "bailian_webparser"}
+            return {
+                "ok": True,
+                "server_id": server_id,
+                "synced_tools": len(norm),
+                "tool_names": [str(t.get("tool_name") or "") for t in norm if str(t.get("tool_name") or "").strip()],
+                "compat_mode": "bailian_webparser",
+            }
         rt = mcp_runtime_for_row(row, store=store)
         try:
             response = rt.tools_list()
@@ -3913,7 +3919,12 @@ def build_admin_router() -> APIRouter:
                 invalidate_tool_wire_cache(reason=f"mcp_admin_sync:{server_id}")
             except Exception:
                 pass
-            return {"ok": True, "server_id": server_id, "tools": norm}
+            return {
+                "ok": True,
+                "server_id": server_id,
+                "synced_tools": len(norm),
+                "tool_names": [str(t.get("tool_name") or "") for t in norm if str(t.get("tool_name") or "").strip()],
+            }
         finally:
             rt.stop()
 

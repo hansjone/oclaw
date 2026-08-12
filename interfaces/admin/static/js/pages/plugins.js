@@ -2,6 +2,52 @@ import { t, el, tdCell, apiGet, apiGetNoHang, apiPost, renderPageShell, markPrew
 
 const PLUGINS_PAGE_SIZE = 15;
 
+/** Compact Admin status line — never dump full tools[] / schemas (blows page width + noise). */
+function summarizeApiStatus(prefix, r) {
+  const p = String(prefix || "").trim() || "[api]";
+  if (r == null) return `${p} (empty)`;
+  if (typeof r !== "object") return `${p} ${String(r).slice(0, 160)}`;
+  if (r.ok === false) {
+    const err = String(r.error_code || r.error || r.detail || "error").slice(0, 120);
+    return `${p} fail: ${err}`;
+  }
+  if (Array.isArray(r.tools)) {
+    const names = r.tools
+      .map((x) => String((x && (x.tool_name || x.name)) || "").trim())
+      .filter(Boolean);
+    const shown = names.slice(0, 10).join(", ");
+    const more = names.length > 10 ? ` (+${names.length - 10})` : "";
+    const sid = r.server_id ? ` server=${r.server_id}` : "";
+    return `${p} ok${sid} · ${names.length} tools${shown ? `: ${shown}${more}` : ""}`;
+  }
+  if (Array.isArray(r.tool_names)) {
+    const names = r.tool_names.map((x) => String(x || "").trim()).filter(Boolean);
+    const shown = names.slice(0, 10).join(", ");
+    const more = names.length > 10 ? ` (+${names.length - 10})` : "";
+    const n = Number(r.synced_tools || names.length || 0);
+    const sid = r.server_id ? ` server=${r.server_id}` : "";
+    return `${p} ok${sid} · ${n} tools${shown ? `: ${shown}${more}` : ""}`;
+  }
+  if (Array.isArray(r.items)) {
+    return `${p} ok · ${r.items.length} item(s)`;
+  }
+  if (Array.isArray(r.results)) {
+    const okN = r.results.filter((x) => x && x.ok !== false).length;
+    return `${p} ok · ${okN}/${r.results.length} result(s)`;
+  }
+  if (r.status != null) {
+    const sid = r.server_id ? ` server=${r.server_id}` : "";
+    return `${p} ${String(r.status)}${sid}`;
+  }
+  const bits = [];
+  for (const k of ["ok", "server_id", "enabled", "deleted", "synced_tools", "compat_mode"]) {
+    if (r[k] == null || typeof r[k] === "object") continue;
+    bits.push(`${k}=${String(r[k]).slice(0, 40)}`);
+    if (bits.length >= 5) break;
+  }
+  return bits.length ? `${p} ${bits.join(" · ")}` : `${p} ok`;
+}
+
 function pluginsFold(summaryText, innerNodes) {
   const det = el("details", { class: "details plugins-fold" });
   det.appendChild(el("summary", { text: summaryText }));
@@ -135,9 +181,9 @@ async function renderPlugins() {
   repaintPlugins();
   const pluginPager = pluginsPagerBar(pluginTotalHolder, pluginPageRef, repaintPlugins);
 
-  const bindingStatus = el("div", { class: "muted", text: "" });
-  const installStatus = el("div", { class: "muted", text: "" });
-  const toolPolicyStatus = el("div", { class: "muted", text: "" });
+  const bindingStatus = el("div", { class: "muted plugins-status", text: "" });
+  const installStatus = el("div", { class: "muted plugins-status", text: "" });
+  const toolPolicyStatus = el("div", { class: "muted plugins-status", text: "" });
 
   const turnMaxWorkersInput = el("input", {
     class: "input u-max-w-120",
@@ -248,9 +294,10 @@ async function renderPlugins() {
       const unknownRetry = Array.isArray(r.unknown_retryable_error_codes) ? r.unknown_retryable_error_codes : [];
       if (unknownRetry.length) {
         toolPolicyStatus.textContent =
-          `[tool-policy] saved with warnings: unknown_retryable_error_codes=${unknownRetry.join(", ")} | ` + JSON.stringify(r);
+          summarizeApiStatus("[tool-policy]", r) +
+          ` · warn unknown_retryable_error_codes=${unknownRetry.join(", ")}`;
       } else {
-        toolPolicyStatus.textContent = `[tool-policy] ` + JSON.stringify(r);
+        toolPolicyStatus.textContent = summarizeApiStatus("[tool-policy]", r);
       }
       toolPolicyStatus.textContent += " | restart gateway/desktop to apply run_command toggle";
     },
@@ -411,7 +458,7 @@ async function renderPlugins() {
     text: t("plugins.action.saveBinding"),
     onclick: async () => {
       const r = await apiPost("/admin/api/mcp/binding", { mapping: bindingDraft });
-      bindingStatus.textContent = `[binding] ` + JSON.stringify(r);
+      bindingStatus.textContent = summarizeApiStatus("[binding]", r);
       markPrewarmReminder("mcp_binding_changed");
       try {
         const fresh = await apiGet("/admin/api/mcp/binding");
@@ -462,7 +509,7 @@ async function renderPlugins() {
       installStatus.textContent = "[install] installing...";
       try {
         const res = await apiPost("/admin/api/mcp/install", parsed);
-        installStatus.textContent = JSON.stringify(res);
+        installStatus.textContent = summarizeApiStatus("[install]", res);
         if (res && res.ok) {
           markPrewarmReminder("mcp_installed");
           await softReloadMcpServers();
@@ -485,7 +532,7 @@ async function renderPlugins() {
         return;
       }
       if (!r || r.ok !== true || !r.document) {
-        installStatus.textContent = "[export] failed: " + JSON.stringify(r);
+        installStatus.textContent = "[export] failed: " + summarizeApiStatus("[export]", r);
         return;
       }
       const text = JSON.stringify(r.document, null, 2) + "\n";
@@ -594,7 +641,7 @@ async function renderPlugins() {
           enabled: !!editEnabledCb.checked,
           timeout_s: Number(editTimeoutInput.value || 30),
         });
-        editStatus.textContent = JSON.stringify(r);
+        editStatus.textContent = summarizeApiStatus("[edit]", r);
         if (r && r.ok) {
           closeEditModal();
           markPrewarmReminder("mcp_config_updated");
@@ -663,7 +710,7 @@ async function renderPlugins() {
         label: t("plugins.action.health"),
         onClick: async () => {
           const r = await apiPost("/admin/api/mcp/healthcheck", { server_id: sid });
-          installStatus.textContent = `[health:${sid}] ` + JSON.stringify(r);
+          installStatus.textContent = summarizeApiStatus(`[health:${sid}]`, r);
           await softReloadMcpServers();
         },
       },
@@ -671,7 +718,7 @@ async function renderPlugins() {
         label: t("plugins.action.syncTools"),
         onClick: async () => {
           const r = await apiPost("/admin/api/mcp/tools/sync", { server_id: sid });
-          installStatus.textContent = `[sync:${sid}] ` + JSON.stringify(r);
+          installStatus.textContent = summarizeApiStatus(`[sync:${sid}]`, r);
           await softReloadMcpServers();
         },
       },
@@ -681,7 +728,7 @@ async function renderPlugins() {
         onClick: async () => {
           if (!window.confirm(tf("plugins.confirm.delete", { sid }))) return;
           const r = await apiPost("/admin/api/mcp/delete", { server_id: sid });
-          installStatus.textContent = `[delete:${sid}] ` + JSON.stringify(r);
+          installStatus.textContent = summarizeApiStatus(`[delete:${sid}]`, r);
           markPrewarmReminder("mcp_deleted");
           await softReloadMcpServers();
         },

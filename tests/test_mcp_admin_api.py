@@ -190,9 +190,14 @@ class McpAdminApiTests(unittest.TestCase):
 
         sync = self.client.post("/admin/api/mcp/tools/sync", json={"server_id": "dummy"}, headers=self._headers())
         self.assertEqual(sync.status_code, 200)
-        self.assertTrue(sync.json().get("ok"), sync.json())
-        tools = sync.json().get("tools") or []
-        self.assertTrue(any(str(t.get("tool_name") or "") == "ping" for t in tools))
+        body = sync.json()
+        self.assertTrue(body.get("ok"), body)
+        self.assertNotIn("tools", body)  # avoid dumping full schemas into Admin UI
+        names = body.get("tool_names") or []
+        self.assertIn("ping", names)
+        self.assertEqual(int(body.get("synced_tools") or 0), len(names))
+        stored = store.list_mcp_server_tools(server_id="dummy")
+        self.assertTrue(any(str(t.get("tool_name") or "") == "ping" for t in stored))
 
     def test_healthcheck_and_tools_sync_bailian_webparser_compat(self) -> None:
         store = get_assistant_store()
@@ -217,9 +222,13 @@ class McpAdminApiTests(unittest.TestCase):
 
         sync = self.client.post("/admin/api/mcp/tools/sync", json={"server_id": "webparser-compat"}, headers=self._headers())
         self.assertEqual(sync.status_code, 200)
-        self.assertTrue(sync.json().get("ok"), sync.json())
-        tools = sync.json().get("tools") or []
-        self.assertTrue(any(str(t.get("tool_name") or "") == "bailian_webparser_parse" for t in tools))
+        body = sync.json()
+        self.assertTrue(body.get("ok"), body)
+        self.assertNotIn("tools", body)
+        names = body.get("tool_names") or []
+        self.assertIn("bailian_webparser_parse", names)
+        stored = store.list_mcp_server_tools(server_id="webparser-compat")
+        self.assertTrue(any(str(t.get("tool_name") or "") == "bailian_webparser_parse" for t in stored))
 
     def test_reinstall_from_saved_manifest(self) -> None:
         script = self._write_mcp_server()
