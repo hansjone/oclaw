@@ -75,8 +75,7 @@ function cursorCommandSummary(cursor) {
 async function renderPlugins() {
   document.querySelectorAll("[data-mcp-edit-modal]").forEach((n) => n.remove());
   document.querySelectorAll("body > .row-actions__menu, body > .chat-sess-menu-pop.row-actions__menu").forEach((n) => n.remove());
-  const p = await apiGet("/admin/api/plugins");
-  let toolPolicy = {
+  const defaultToolPolicy = {
     disable_tool_confirm: false,
     enforced_retry_mode: "first_round_only",
     tool_loop_state_machine: true,
@@ -100,17 +99,17 @@ async function renderPlugins() {
     wecom_longconn_workers: 2,
     wecom_longconn_inbound_queue_maxsize: 200,
   };
-  let mcp = { servers: [] };
-  let mcpBinding = { available_specialists: ["generalist"], servers: [], mapping: {} };
-  try {
-    mcp = await apiGet("/admin/api/mcp/servers");
-  } catch (_) {}
-  try {
-    mcpBinding = await apiGet("/admin/api/mcp/binding");
-  } catch (_) {}
-  try {
-    toolPolicy = await apiGet("/admin/api/tool-policy");
-  } catch (_) {}
+  const [p, mcp, mcpBinding, toolPolicyRaw] = await Promise.all([
+    apiGet("/admin/api/plugins"),
+    apiGet("/admin/api/mcp/servers").catch(() => ({ servers: [] })),
+    apiGet("/admin/api/mcp/binding").catch(() => ({
+      available_specialists: ["generalist"],
+      servers: [],
+      mapping: {},
+    })),
+    apiGet("/admin/api/tool-policy").catch(() => null),
+  ]);
+  let toolPolicy = toolPolicyRaw && typeof toolPolicyRaw === "object" ? toolPolicyRaw : defaultToolPolicy;
 
   const pluginCatalog = Array.isArray(p.plugins) ? p.plugins : [];
   const pluginPageRef = { value: 1 };
@@ -222,7 +221,7 @@ async function renderPlugins() {
   });
   const saveToolPolicyBtn = el("button", {
     class: "btn",
-    text: "Save Tool Policy",
+    text: t("plugins.action.saveToolPolicy"),
     onclick: async () => {
       const r = await apiPost("/admin/api/tool-policy", {
         turn_max_tool_workers: Number(turnMaxWorkersInput.value || 8),
@@ -312,7 +311,7 @@ async function renderPlugins() {
       });
       const locateBtn = el("button", {
         class: "btn btn--small",
-        text: "Locate",
+        text: t("plugins.action.locate"),
         onclick: () => flashInstalledRow(sid),
       });
       return el("tr", {}, [
@@ -327,9 +326,9 @@ async function renderPlugins() {
         el("table", { class: "table table--compact" }, [
           el("thead", {}, [
             el("tr", {}, [
-              el("th", { text: "server_id" }),
-              el("th", { text: "bound specialists" }),
-              el("th", { text: "action" }),
+              el("th", { text: t("plugins.col.serverId") }),
+              el("th", { text: t("plugins.col.boundSpecialists") }),
+              el("th", { text: t("plugins.col.action") }),
             ]),
           ]),
           el("tbody", {}, rows.length ? rows : [el("tr", {}, [el("td", { text: "-", colspan: "3" })])]),
@@ -350,7 +349,7 @@ async function renderPlugins() {
     const slice = bindingServers.slice(start, start + PLUGINS_PAGE_SIZE);
     bindingListRowsMount.innerHTML = "";
     if (!bindingServers.length) {
-      bindingListRowsMount.appendChild(el("div", { class: "muted", text: "No MCP servers installed yet." }));
+      bindingListRowsMount.appendChild(el("div", { class: "muted", text: t("plugins.binding.empty") }));
       bindingListPagerMount.innerHTML = "";
       const blBar0 = pluginsPagerBar(bindingListTotalHolder, bindingListPageRef, renderBindingList);
       bindingListPagerMount.appendChild(blBar0.wrap);
@@ -386,7 +385,7 @@ async function renderPlugins() {
   });
   const selectAllBindingBtn = el("button", {
     class: "btn",
-    text: "Select All",
+    text: t("plugins.action.selectAll"),
     onclick: () => {
       const current = String(specialistSelect.value || "");
       bindingDraft[current] = bindingServers.map((x) => String(x.server_id || "")).filter((x) => x);
@@ -396,7 +395,7 @@ async function renderPlugins() {
   });
   const clearBindingBtn = el("button", {
     class: "btn",
-    text: "Clear",
+    text: t("plugins.action.clear"),
     onclick: () => {
       const current = String(specialistSelect.value || "");
       bindingDraft[current] = [];
@@ -406,7 +405,7 @@ async function renderPlugins() {
   });
   const saveBindingBtn = el("button", {
     class: "btn",
-    text: "Save Binding",
+    text: t("plugins.action.saveBinding"),
     onclick: async () => {
       const r = await apiPost("/admin/api/mcp/binding", { mapping: bindingDraft });
       bindingStatus.textContent = `[binding] ` + JSON.stringify(r);
@@ -435,7 +434,7 @@ async function renderPlugins() {
   });
   const installBtn = el("button", {
     class: "btn",
-    text: "Install",
+    text: t("plugins.action.install"),
     onclick: async () => {
       const raw = String(jsonInstallInput.value || "").trim();
       if (!raw) {
@@ -472,8 +471,8 @@ async function renderPlugins() {
   });
   const mcpExportJsonBtn = el("button", {
     class: "btn",
-    text: "Export JSON",
-    title: "Download Cursor mcpServers snapshot for reinstall / migration",
+    text: t("plugins.action.exportJson"),
+    title: t("plugins.action.exportJsonTitle"),
     onclick: async () => {
       let r;
       try {
@@ -525,7 +524,7 @@ async function renderPlugins() {
 
   let editingServer = null;
   const editModal = el("div", { class: "session-monitor-modal u-hidden", "data-mcp-edit-modal": "1" });
-  const editTitle = el("div", { class: "card__title", text: "Edit MCP server" });
+  const editTitle = el("div", { class: "card__title", text: t("plugins.edit.title") });
   const editServerIdLab = el("div", { class: "muted", text: "" });
   const editCursorInput = el("textarea", {
     class: "input",
@@ -551,8 +550,8 @@ async function renderPlugins() {
     if (!row) return;
     editingServer = row;
     const sid = String(row.server_id || "");
-    editTitle.textContent = `Edit MCP: ${sid}`;
-    editServerIdLab.textContent = `server_id: ${sid}`;
+    editTitle.textContent = tf("plugins.edit.titleNamed", { sid });
+    editServerIdLab.textContent = `${t("plugins.col.serverId")}: ${sid}`;
     const cursor = row.cursor && typeof row.cursor === "object" ? row.cursor : {};
     editCursorInput.value = JSON.stringify(cursor, null, 2);
     editEnabledCb.checked = !!row.enabled;
@@ -568,7 +567,7 @@ async function renderPlugins() {
   });
   const editSaveBtn = el("button", {
     class: "btn btn--primary",
-    text: "Save",
+    text: t("plugins.action.save"),
     onclick: async () => {
       if (!editingServer) return;
       const sid = String(editingServer.server_id || "").trim();
@@ -608,16 +607,16 @@ async function renderPlugins() {
     el("div", { class: "card session-monitor-modal__card", style: "width:min(720px,96vw);" }, [
       editTitle,
       editServerIdLab,
-      el("div", { class: "muted", text: "Cursor server config (single mcpServers value)" }),
+      el("div", { class: "muted", text: t("plugins.edit.configHint") }),
       editCursorInput,
       el("div", { class: "row", style: "align-items:center;gap:10px;flex-wrap:wrap;" }, [
-        el("label", { class: "kv" }, [editEnabledCb, document.createTextNode(" Enabled")]),
+        el("label", { class: "kv" }, [editEnabledCb, document.createTextNode(` ${t("plugins.edit.enabled")}`)]),
         el("label", { text: "timeout_s" }),
         editTimeoutInput,
       ]),
       editStatus,
       el("div", { class: "row u-row-end", style: "gap:8px;margin-top:10px;" }, [
-        el("button", { class: "btn", text: "Cancel", onclick: closeEditModal }),
+        el("button", { class: "btn", text: t("plugins.action.cancel"), onclick: closeEditModal }),
         editSaveBtn,
       ]),
     ]),
@@ -645,11 +644,11 @@ async function renderPlugins() {
     const cursor = x.cursor && typeof x.cursor === "object" ? x.cursor : {};
     const actions = rowActions("⋯", [
       {
-        label: "Edit",
+        label: t("plugins.action.edit"),
         onClick: () => openEditModal(x),
       },
       {
-        label: x.enabled ? "Disable" : "Enable",
+        label: x.enabled ? t("plugins.action.disable") : t("plugins.action.enable"),
         onClick: async () => {
           await apiPost("/admin/api/mcp/toggle", { server_id: sid, enabled: !x.enabled });
           markPrewarmReminder("mcp_toggled");
@@ -658,7 +657,7 @@ async function renderPlugins() {
         },
       },
       {
-        label: "Health",
+        label: t("plugins.action.health"),
         onClick: async () => {
           const r = await apiPost("/admin/api/mcp/healthcheck", { server_id: sid });
           installStatus.textContent = `[health:${sid}] ` + JSON.stringify(r);
@@ -666,7 +665,7 @@ async function renderPlugins() {
         },
       },
       {
-        label: "Sync Tools",
+        label: t("plugins.action.syncTools"),
         onClick: async () => {
           const r = await apiPost("/admin/api/mcp/tools/sync", { server_id: sid });
           installStatus.textContent = `[sync:${sid}] ` + JSON.stringify(r);
@@ -674,10 +673,10 @@ async function renderPlugins() {
         },
       },
       {
-        label: "Delete",
+        label: t("plugins.action.delete"),
         danger: true,
         onClick: async () => {
-          if (!window.confirm(`Delete ${sid} from MCP registry?`)) return;
+          if (!window.confirm(tf("plugins.confirm.delete", { sid }))) return;
           const r = await apiPost("/admin/api/mcp/delete", { server_id: sid });
           installStatus.textContent = `[delete:${sid}] ` + JSON.stringify(r);
           markPrewarmReminder("mcp_deleted");
@@ -809,11 +808,11 @@ async function renderPlugins() {
       el("table", { class: "table table--compact" }, [
         el("thead", {}, [
           el("tr", {}, [
-            el("th", { text: "server_id" }),
-            el("th", { text: "command / url" }),
-            el("th", { text: "tools" }),
-            el("th", { text: "enabled" }),
-            el("th", { text: "health" }),
+            el("th", { text: t("plugins.col.serverId") }),
+            el("th", { text: t("plugins.col.commandUrl") }),
+            el("th", { text: t("plugins.col.tools") }),
+            el("th", { text: t("plugins.col.enabled") }),
+            el("th", { text: t("plugins.col.health") }),
             el("th", { class: "table__cell--actions", text: t("tenants.rowActions") }),
           ]),
         ]),
@@ -845,16 +844,16 @@ async function renderPlugins() {
   ]);
 
   const foldMcpBinding = pluginsFold(t("plugins.fold.bindingEdit"), [
-    el("div", { class: "muted", text: "Bind MCP servers to specialists (many-to-many)." }),
+    el("div", { class: "muted", text: t("plugins.binding.hint") }),
     el("div", { class: "row" }, [
-      el("label", { text: "Specialist" }),
+      el("label", { text: t("plugins.binding.specialist") }),
       specialistSelect,
       selectAllBindingBtn,
       clearBindingBtn,
       saveBindingBtn,
     ]),
     bindingListWrap,
-    el("div", { class: "muted", text: "Reverse view: server -> specialists" }),
+    el("div", { class: "muted", text: t("plugins.binding.reverse") }),
     bindingReverseWrap,
     bindingStatus,
   ]);

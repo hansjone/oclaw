@@ -1220,18 +1220,13 @@ async function renderSkills() {
   };
 
   const refreshSkillsState = async () => {
-    await loadRows();
-    await loadAudits();
-    await loadSkillBinding();
+    await Promise.all([loadRows(), loadAudits(), loadSkillBinding()]);
     repaint();
     renderSkillBindingList();
   };
 
   try {
-    await loadRows();
-    await loadAudits();
-    await loadSkillBinding();
-    await loadSkillMode();
+    await Promise.all([loadRows(), loadAudits(), loadSkillBinding(), loadSkillMode()]);
     const rolesForPreview = (
       Array.isArray(skillBindingState.roles) && skillBindingState.roles.length
         ? skillBindingState.roles
@@ -1378,8 +1373,7 @@ async function renderSkills() {
   llmToolsBox.addEventListener("toggle", async () => {
     if (!llmToolsBox.open || lazyLoadState.llmLoaded) return;
     lazyLoadState.llmLoaded = true;
-    await loadExposureTraceSetting();
-    await loadLLMToolsPreview(llmRoleSelect.value);
+    await Promise.all([loadExposureTraceSetting(), loadLLMToolsPreview(llmRoleSelect.value)]);
   });
   selfCheckBox.addEventListener("toggle", async () => {
     if (!selfCheckBox.open || lazyLoadState.selfCheckLoaded) return;
