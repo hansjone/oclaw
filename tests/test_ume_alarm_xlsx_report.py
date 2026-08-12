@@ -113,12 +113,22 @@ def test_filter_preset_and_row_helpers() -> None:
     items = [
         {"alarm_event_type": "Communication LOS", "alarm_host_name": "A"},
         {"alarm_event_type": "fan fail", "alarm_host_name": "B"},
+        {
+            "alarm_native_probable_cause": "Ethernet physical (ETPI) Input optical power(dBm) threshold crossed",
+            "alarm_host_name": "C",
+        },
+        {"alarm_native_probable_cause": "Fiber Break", "alarm_host_name": "D"},
+        {"alarm_native_probable_cause": "BN EMS alarm NE communication failure", "alarm_host_name": "E"},
     ]
     filtered = _filter_preset_items("fiber_cut", items)
-    assert len(filtered) == 1
+    hosts = {r["alarm_host_name"] for r in filtered}
+    assert hosts == {"A", "D"}
+    assert "C" not in hosts  # optical-power threshold is not fiber_cut
+    offline = _filter_preset_items("offline", items)
+    assert {r["alarm_host_name"] for r in offline} == {"E"}
     headers, rows = _rows_from_list_items(filtered)
     assert headers[0] == "host_name"
-    assert rows[0][0] == "A"
+    assert rows[0][0] in {"A", "D"}
     _, agg_rows, meta = _rows_from_aggregate_buckets(
         {"buckets": [{"key": "H1", "count": 2}], "total": 2, "by_ne_missing": 0}
     )

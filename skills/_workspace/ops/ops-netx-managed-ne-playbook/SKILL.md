@@ -35,12 +35,17 @@ description: 面向 ops 专家的 netx 纳管网元（网元管理）作业手�
 
 ### Capacity / optical power between two names
 
-When user says **capacity**, **bandwidth between A and B**, or **optical power A <> B** (prod vocabulary):
+When user says **capacity**, **bandwidth between A and B**, **optical power A <> B**, or site pairs (`SEMBAWA <> ANGKATAN_EP`, `SMD-PSB <> SMD-PNTE`):
 
 1. Resolve nicknames → real `host_name` via inventory/wiki (`SEMBAWA` → e.g. `PLG-SMW-EN1-…`).
 2. Find interconnect: `findTopologyPaths` and/or LLDP (`show lldp …` / vendor equivalent) — identify **both ports**.
 3. Read optics on **both** ends with the correct vendor command (below). Summarize: interface, RX/TX power, threshold, whether link is up.
-4. Do **not** answer with only UME bandwidth-usage-rate alarms unless the user asked for congestion alarms.
+4. Do **not** answer with only UME bandwidth-usage-rate **or** optical-power-threshold alarm tallies unless the user asked for those alarm lists.
+5. CRC + optical on a link: same path — resolve ports once, then optic CLI (+ CRC counters if allowlisted) on **both** ends in **one** batch when possible (`targets` if vendors differ).
+
+### Area optical-power **alarm** list (UME only)
+
+`optical power threshold crossed` under area BPP/PBR/PAL/… → UME keyword=`optical power` + hostname prefix — **not** this CLI recipe and **not** fiber_cut.
 
 ### ZTE optical CLI (prod corrections)
 

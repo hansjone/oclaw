@@ -31,10 +31,13 @@
 |------|------|
 | Critical Top | `aggregateUmeAlarms(severity=critical, top_ne=20)` |
 | 按 host 统计+Excel | `ume_alarm_xlsx_report(mode=aggregate_by_host, severity=critical)` |
-| 断纤/离线清单+Excel | `ume_alarm_xlsx_report(mode=fiber_cut\|offline)` |
+| 断纤/LOS 清单+Excel | `ume_alarm_xlsx_report(mode=fiber_cut)`（默认 keyword=`LOS`）；纯 Fiber Break 再加 `keyword=Fiber Break` |
+| 离线/BN EMS+Excel | `ume_alarm_xlsx_report(mode=offline)`（默认 `BN EMS`） |
+| 区域光功率门限 | `queryUmeAlarmsRaw(keyword=optical power)` → 保留 `AREA-` 前缀；**不要** fiber_cut |
 | 发 Excel（已有表数据） | `write_xlsx(..., deliverable=true)` |
-| 区域 + 关键字（CRC/bandwidth/power） | `queryUmeAlarmsRaw(keyword=…)` → 过滤 `host` 前缀 `AREA-` |
+| 区域 + 关键字（CRC/bandwidth/license） | `queryUmeAlarmsRaw(keyword=…)` → 过滤 `host` 前缀 `AREA-` |
 | 单网元当前告警 | `queryUmeAlarms(host_name=…)` — **禁止**误跑 License 定时 playbook |
+| dying gasp | 本端 dying gasp → 对端 BN EMS（近时间窗）+ 端口/拓扑；见 SKILL |
 | 两端 capacity/optical | 解析两端 hostname → `findTopologyPaths` / LLDP → CLI optic（见 managed-ne） |
 | 时间窗历史（WIB） | freshness → `time_from`/`time_to`（按 Asia/Jakarta） |
 
@@ -42,11 +45,28 @@
 
 | 用户说法 | 正确理解 |
 |----------|----------|
-| congestion / bandwidth usage in ACH | UME keyword bandwidth + hostname `ACH-`；要验真再 CLI top N |
-| capacity A to B / optical power A <> B | **链路口 SFP/光功率**，不是单独告警 tally |
+| congestion / bandwidth usage in ACH | UME keyword=`bandwidth` + hostname `ACH-`；要验真再 CLI top N |
+| optical power threshold in BPP/PBR/PAL | keyword=`optical power` + 区域前缀；≠ fiber cut |
+| fiber cut / LOS sitelist | `mode=fiber_cut` / keyword=`LOS` 或 `Fiber Break`；回 host 列表 |
+| capacity A to B / optical power A <> B / SEMBAWA <> ANGKATAN | **链路口 SFP/光功率 CLI**，不是单独告警 tally |
+| dying gasp on HOST + port | 关联对端 **BN EMS** near timestamp（现场强制配方） |
+| which segment cut? + LOS host | `object_name` + topology/LLDP 找对端 |
+| BGP/OSPF/LDP on HOST / A <> B | 双端协议告警 + 时间对齐；peer 可按后两段 octet |
 | site SEMBAWA / ANGKATAN_EP | 先 inventory/wiki 解析成真实 `host_name` |
 | `17.50 - 18.15` | WIB 当天 17:50–18:15 |
 | check alarm on MDN-xxx | **仅该 host**；勿触发 daily license 等无关 playbook |
+| alarm code 4758 | 按 code 过滤；列出 **host_name** |
+
+## 3d) 现场 cause 关键字（CSV 高频）
+
+- LOS / Fiber Break / Missing laser → 断纤类
+- Input/Output optical power(dBm) threshold → 光功率门限（区域清单）
+- bandwidth usage rate threshold → 拥塞
+- CRC error → CRC
+- BN EMS … communication failure → 离线/非管
+- Remote dying gasp → 临终掉电类，必做对端关联
+- Permanent license / No enough license → license
+- BGP/OSPF/ISIS/LDP Neighbour down、State of PW、Tunnel down → 控制面/伪线噪声，勿当断纤
 
 ## 4) 诊断
 

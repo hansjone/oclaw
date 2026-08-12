@@ -59,15 +59,20 @@ Prefer these fixed paths for short group/DM asks (EN first; ZH aliases still wor
 
 | User says (examples) | Recipe |
 |----------------------|--------|
-| fiber cut / LOS / cable cut / 断纤 | Prefer `ume_alarm_xlsx_report(mode=fiber_cut)` (xlsx + deliver); or summarize via `queryUmeAlarmsRaw` |
-| offline NE / board offline / 离线 | Prefer `ume_alarm_xlsx_report(mode=offline)` |
+| fiber cut / LOS / cable cut / 断纤 / sitelist | Prefer `ume_alarm_xlsx_report(mode=fiber_cut)` (defaults keyword=`LOS` → ETPI LOS; not optical-power threshold). For explicit **Fiber Break** rows also/instead `keyword=Fiber Break` or `queryUmeAlarmsRaw(keyword=Fiber Break)`. Reply with **host_name list** + counts |
+| offline NE / board offline / unmanaged / 离线 | Prefer `ume_alarm_xlsx_report(mode=offline)` (defaults `BN EMS` / NE communication failure). Unmanaged ME list → same family + clarify BN EMS / unreachable |
 | Critical Top / alarm tally | ① `aggregateUmeAlarms(severity=critical, top_ne=20)`; for file: `ume_alarm_xlsx_report(mode=aggregate_by_host, severity=critical)` |
-| how many alarms / tally | ① `runUmeDiagnostics` or `aggregateUmeAlarms`; ② report by_severity + freshness |
+| how many alarms / tally / 现网告警数量 | ① `runUmeDiagnostics` or `aggregateUmeAlarms`; ② report by_severity + freshness |
 | export Excel / send spreadsheet | `ume_alarm_xlsx_report` **or** `write_xlsx(..., deliverable=true)`; never split into 3 steps |
 | CRC in area PAD / ACH / … | `queryUmeAlarmsRaw(keyword=CRC)` then keep rows whose `alarm_host_name` / `ne_host_name` starts with area prefix (`PAD-`, `ACH-`, …). Optional xlsx via `write_xlsx(deliverable=true)` |
-| bandwidth / congestion / usage rate (+ area) | keyword=`bandwidth` (do **not** require event_type unless user asks); filter hostname prefix for area; if CLI confirm false positives: top 3–5 NEs in **one** batch — same show → `ume_ne_ids=[…]`+`commands`; mixed vendors → `targets=[{ume_ne_id, commands},…]` — never one-NE loops |
-| BN EMS / dying gasp / unmanaged (+ area) | keyword or native cause match (`BN EMS` / `dying gasp`); filter area prefix; short EN summary + optional xlsx |
-| power / temperature / fan alarms (+ area/NE) | keyword=`power` / `temperature` / `fan`; scope to host or area prefix |
+| bandwidth / congestion / usage rate (+ area) | keyword=`bandwidth` (matches *Send/Receive bandwidth usage rate threshold crossed*; do **not** require event_type). Filter hostname prefix for area; if CLI confirm: top 3–5 NEs in **one** batch |
+| optical power **threshold** in area (BPP/PBR/PAL/…) | keyword=`optical power` (or `Input optical power`) + keep `AREA-` hosts. **Not** fiber_cut mode. Distinct from capacity A<>B CLI |
+| BN EMS / dying gasp / unmanaged (+ area) | See **Dying gasp / BN EMS correlation** below — do not stop at one NE |
+| power / temperature / fan / undervoltage / System Power off | keyword=`power` / `temperature` / `fan` / `undervoltage` / `Power off`; scope to host or area prefix. Optical *power(dBm)* ≠ board voltage |
+| license | keyword=`License` (causes: *Permanent license abnormal*, *No enough license resource*) |
+| BGP / OSPF / ISIS / LDP / PW / Tunnel on host | `queryUmeAlarmsRaw(host or keyword=BGP\|OSPF\|LDP\|…)` on named host(s); for peer correlation see below |
+| Port down / ETPI / which segment cut? | keyword=`Port down` or `LOS` on the named host; use `object_name` + `findTopologyPaths` / LLDP to name the far end |
+| alarm code NNNN | `queryUmeAlarmsRaw` / diagnostics `top_alarm_codes`; keyword or raw filter on code; return **host_name** list |
 | alarm on **one hostname** (e.g. `MDN-PLSP`, `MKS-SWBP-EN1`) | `queryUmeAlarms` / `queryUmeAlarmsRaw` with `host_name` / keyword=hostname. **Never** start a scheduled License/daily playbook |
 | alarm history / time range (e.g. `17.50-18.15`) | Resolve **WIB (UTC+7)** wall clock → `time_from`/`time_to` on `last_seen_at` / history fields; first check freshness; name hosts exactly (`MKS-KIM-CN1`) |
 | is NE rebooted? / alarm history for NE | Host-scoped alarm history (reboot/reload/power related causes); answer yes/no + evidence times |
@@ -80,10 +85,48 @@ Delivery rules:
 
 ### Field vocabulary (prod-learned; enforce)
 
-- **Area** = hostname **prefix** before first extra segment: `BTM-`, `ACH-`, `MKS-`, `PAD-`, `MDN-`, `KND-`, `SMD-`, `MDO-`, `PLG-`, … Case-insensitive starts-with.
-- **Capacity / bandwidth between A and B** (user correction in field): means **SFP/optical link capacity between two hostnames**, not UME bandwidth-usage-rate alarms alone. Resolve both NEs → interconnect ports (`findTopologyPaths` / LLDP) → optical/SFP CLI. See `ops-netx-managed-ne-playbook`.
-- **Site nicknames** (SEMBAWA, ANGKATAN_EP, …): resolve via inventory/wiki/`queryUmeNeInventory(keyword=…)` **before** CLI; never invent hostnames.
+- **Area** = hostname **prefix** before first `-`: `MDN-`, `LPG-`, `MKS-`, `PLG-`, `BJM-`, `PTK-`, `ACH-`, `PBR-`, `MDO-`, `SMD-`, `PAD-`, `BTM-`, `PLK-`, `BPP-`, `BKL-`, `JBI-`, `KND-`, `PAL-`, `GRO-`, `JAP-`, … Case-insensitive starts-with.
+- **Capacity / bandwidth between A and B** / `A <> B` / site nicknames (SEMBAWA, ANGKATAN_EP): means **SFP/optical link** on the interconnect — **not** UME *bandwidth usage rate* alarms alone. Resolve both NEs → ports (`findTopologyPaths` / LLDP) → optic CLI. See `ops-netx-managed-ne-playbook`.
+- **Optical power threshold crossed** (area list): UME cause *Input/Output optical power(dBm) threshold crossed* — keyword=`optical power`; **not** `mode=fiber_cut`.
+- **Fiber cut / LOS sitelist**: causes *Ethernet physical (ETPI) LOS*, *Fiber Break*, *Missing laser module* — report `mode=fiber_cut` (LOS-biased) and/or `keyword=Fiber Break`.
+- **Site nicknames**: resolve via inventory/wiki/`queryUmeNeInventory(keyword=…)` **before** CLI; never invent hostnames.
 - **Local clock phrases** (`17.50`, `today`, `yesterday`): treat as **Asia/Jakarta (WIB, UTC+7)** unless user says otherwise.
+
+### Field cause cheat-sheet (2026-08 snapshot vocabulary)
+
+Use these as `keyword` / evidence labels (exact strings appear in `native_probable_cause`):
+
+| Intent | Typical cause substrings |
+|--------|---------------------------|
+| Fiber / LOS | `ETPI) LOS`, `Fiber Break`, `Missing laser module` |
+| Optical threshold | `Input optical power(dBm) threshold crossed`, `Output optical power` |
+| Congestion | `Send bandwidth usage rate`, `Receive bandwidth usage rate` |
+| CRC | `Receive CRC error frames`, `Received CRC error packet` |
+| Offline / unmanaged | `BN EMS alarm NE communication failure` |
+| Dying gasp | `Remote dying gasp event` |
+| License | `Permanent license abnormal`, `No enough license resource` |
+| Power / env | `System Power off`, `Input undervoltage`, `temperature`, `Fan module` |
+| Control-plane (noisy) | `BGP Neighbour down`, `OSPF Neighbour`, `ISIS Neighbour`, `LDP Neighbour`, `State of PW in L2VPN`, `Tunnel down`, `NTP server` |
+
+Do **not** treat PW/BGP volume leaders as “fiber cut” unless the user asked for those families.
+
+### Dying gasp / BN EMS correlation (field-mandated)
+
+When user mentions **dying gasp** (or correlates BN EMS with a port):
+
+1. On the named NE: `queryUmeAlarmsRaw` with keyword=`dying gasp` (and/or host_name) — note `object_name` / slot-port and `last_seen_at`.
+2. Find peer: `findTopologyPaths` and/or LLDP/CLI on that port; identify far-end `host_name`.
+3. On the **peer**: look for **BN EMS** / `NE communication failure` (and related offline) with **near timestamp** (± window from step 1).
+4. Reply with both sides + times + whether correlation holds. Save this as the default dying-gasp playbook — do not answer only one NE.
+
+### Peer / protocol correlation (BGP·OSPF·LDP)
+
+Field pattern: alarms on `HOST-A` with peer IP → confirm on `HOST-B` (or peer from topology).
+
+1. Query both hosts (or keyword + both host filters) for the protocol family.
+2. Align **occurrence / clear** times when asked.
+3. Peer match: prefer exact peer / router-id; if user says so, also match **identical 3rd+4th octet** of the peer address from the alarm text.
+4. Keep answers scoped to the named link (`A <> B`); do not dump unrelated area noise.
 
 ### Anti-patterns seen in field (do not repeat)
 
@@ -93,6 +136,8 @@ Delivery rules:
 4. **Apology loops** — If user asks “are you still running / why no response?”, resume the **quoted task** immediately; one short status line, then results. Do not ask what a Run ID might mean if `schedule_list` / job tools can answer.
 5. **Group noise** — Pure emoji / mention-only / “hi” with no ops ask: stay minimal or silent per group policy; do not give a long “how can I help” menu.
 6. **Blind CLI retries** — Wrong ZTE optic command once → switch to `show opticalinfo brief` (see managed-ne skill); do not retry the failed spelling.
+7. **fiber_cut vs optical power** — Area “optical power threshold” lists must **not** use `mode=fiber_cut` (that is LOS/Fiber Break biased).
+8. **Unfiltered dump** — Snapshot has ~80k uncleared rows; never list without severity/keyword/host/area/time.
 
 ### Answer shape (WhatsApp EN) — strict ops bot
 

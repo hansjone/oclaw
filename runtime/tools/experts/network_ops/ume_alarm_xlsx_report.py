@@ -24,9 +24,32 @@ _LIST_FIELDS = [
 ]
 
 # Server keyword is single-substring; presets filter client-side after a wider pull.
+# fiber_cut: do NOT use bare "optical" — that pulls optical-power threshold (field CSV noise).
+# Default server keyword (when caller omits keyword) biases the page toward real cut/LOS rows.
 _PRESET_CLIENT_TERMS: dict[str, tuple[str, ...]] = {
-    "fiber_cut": ("los", "fiber", "断纤", "光缆", "光路", "optical"),
-    "offline": ("离线", "offline", "通信中断", "单板离线", "ne communication"),
+    "fiber_cut": (
+        "los",
+        "fiber break",
+        "fiber",
+        "断纤",
+        "光缆",
+        "光路",
+        "missing laser",
+        "optical module is faulty",
+    ),
+    "offline": (
+        "离线",
+        "offline",
+        "通信中断",
+        "单板离线",
+        "ne communication",
+        "bn ems",
+        "communication failure",
+    ),
+}
+_PRESET_DEFAULT_KEYWORD: dict[str, str] = {
+    "fiber_cut": "LOS",
+    "offline": "BN EMS",
 }
 
 _MODE_DEFAULT_NAMES: dict[str, str] = {
@@ -196,9 +219,14 @@ def ume_alarm_xlsx_report_tool() -> ToolSpec:
         time_from = str(args.get("time_from") or "").strip()
         time_to = str(args.get("time_to") or "").strip()
         page_size = max(1, min(500, int(args.get("page_size") or args.get("limit") or 100)))
+        # Preset modes: bias API keyword so the page is not drowned by PW/BGP noise (~80k rows).
+        preset_kw_applied = False
+        if mode in _PRESET_DEFAULT_KEYWORD and not keyword:
+            keyword = _PRESET_DEFAULT_KEYWORD[mode]
+            preset_kw_applied = True
         # Preset modes pull a wider page then filter client-side (API keyword is single substring).
         fetch_size = page_size
-        if mode in _PRESET_CLIENT_TERMS and not keyword:
+        if mode in _PRESET_CLIENT_TERMS:
             fetch_size = max(page_size, min(500, page_size * 3))
         deliverable = _truthy(args.get("deliverable"), default=True)
         filename = str(args.get("name") or args.get("filename") or "").strip() or _MODE_DEFAULT_NAMES[mode]
@@ -206,7 +234,12 @@ def ume_alarm_xlsx_report_tool() -> ToolSpec:
             filename = f"{filename}.xlsx"
 
         sheet_name = "alarms"
-        summary_meta: dict[str, Any] = {"mode": mode, "keyword": keyword or None, "severity": severity or None}
+        summary_meta: dict[str, Any] = {
+            "mode": mode,
+            "keyword": keyword or None,
+            "severity": severity or None,
+            "preset_default_keyword": preset_kw_applied,
+        }
 
         if mode == "aggregate_by_host":
             upstream = _fetch_aggregate_by_host(
@@ -235,7 +268,7 @@ def ume_alarm_xlsx_report_tool() -> ToolSpec:
                 return {"ok": False, "error": "ume_query_failed", "upstream": upstream}
             data = upstream.get("data") if isinstance(upstream.get("data"), dict) else {}
             items = data.get("items") if isinstance(data.get("items"), list) else []
-            if mode in _PRESET_CLIENT_TERMS and not keyword:
+            if mode in _PRESET_CLIENT_TERMS:
                 items = _filter_preset_items(mode, items)[:page_size]
             headers, rows = _rows_from_list_items(items)
             summary_meta["total"] = data.get("total")
@@ -278,6 +311,8 @@ def ume_alarm_xlsx_report_tool() -> ToolSpec:
         description=(
             "One-shot UME alarm Excel for WhatsApp ops: query netx alarms and build .xlsx "
             "(optionally mark deliverable). Modes: list, aggregate_by_host, fiber_cut, offline. "
+            "fiber_cut defaults keyword=LOS (ETPI LOS / Fiber Break family; not optical-power threshold). "
+            "offline defaults keyword=BN EMS. Pass keyword=Fiber Break for explicit fiber-break rows. "
             "Prefer this over query+write_xlsx+save_deliverable_attachment for short WA requests."
         ),
         parameters={
@@ -289,7 +324,8 @@ def ume_alarm_xlsx_report_tool() -> ToolSpec:
                     "default": "list",
                     "description": (
                         "list=raw alarm rows; aggregate_by_host=count by host_name; "
-                        "fiber_cut/offline=preset keyword filters for common WA intents."
+                        "fiber_cut defaults keyword=LOS (not optical-power threshold); "
+                        "offline defaults keyword=BN EMS."
                     ),
                 },
                 "severity": {
@@ -298,7 +334,10 @@ def ume_alarm_xlsx_report_tool() -> ToolSpec:
                 },
                 "keyword": {
                     "type": "string",
-                    "description": "Optional keyword; fiber_cut/offline apply defaults when omitted.",
+                    "description": (
+                        "Optional keyword. If omitted: fiber_cut→LOS, offline→BN EMS. "
+                        "Pass Fiber Break for explicit fiber-break rows."
+                    ),
                 },
                 "time_from": {"type": "string", "description": "ISO time; filters last_seen_at >="},
                 "time_to": {"type": "string", "description": "ISO time; filters last_seen_at <="},
