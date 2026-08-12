@@ -218,6 +218,12 @@ async function apiPost(path, body) {
     data = null;
   }
   if (res.status === 401) {
+    const isAuthEndpoint =
+      url.includes("/admin/api/auth/login") || url.includes("/admin/api/auth/bootstrap");
+    // Login/bootstrap must never hang on the never-resolving 401 sentinel.
+    if (isAuthEndpoint) {
+      return data && typeof data === "object" ? data : { ok: false, error: "unauthorized" };
+    }
     scheduleReauthAfter401(url);
     return await _haltAfter401();
   }

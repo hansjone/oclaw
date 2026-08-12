@@ -72,6 +72,7 @@ export default {
   "auth.disabled": "Account is disabled",
   "auth.invalid": "Login failed",
   "auth.login": "Login",
+  "auth.loggingIn": "Signing in…",
   "auth.logout": "Logout",
   "auth.password": "Password",
   "auth.username": "Username",

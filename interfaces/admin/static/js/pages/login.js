@@ -1,4 +1,4 @@
-import { state, t, el, applyI18nStatic, apiPost, authStoreSet, AUTH_TOKEN_KEY, AUTH_SESSION_KEY, navigateAdmin } from "../core.js";
+import { state, t, el, mount, applyI18nStatic, apiPost, authStoreSet, AUTH_TOKEN_KEY, AUTH_SESSION_KEY, navigateAdmin } from "../core.js";
 
 async function renderLogin() {
   applyI18nStatic();
@@ -6,24 +6,51 @@ async function renderLogin() {
   const userHint = el("div", { class: "muted", text: t("auth.consoleUsernameHint") });
   const password = el("input", { class: "input", type: "password", placeholder: t("auth.password") });
   const status = el("div", { class: "muted", text: "" });
-  const doLogin = async () => {
-    const resp = await apiPost("/admin/api/auth/login", {
-      tenant_id: "",
-      username: username.value.trim(),
-      password: password.value.trim(),
-      purpose: "console",
-    });
-    if (!resp.ok || !resp.token) {
-      const err = String(resp.error || "");
-      status.textContent = err === "user_disabled" ? t("auth.disabled") : t("auth.invalid");
-      return;
-    }
-    const newTok = String(resp.token || "").trim();
-    authStoreSet(AUTH_TOKEN_KEY, newTok);
-    authStoreSet(AUTH_SESSION_KEY, JSON.stringify(resp.session || {}));
-    state.authSession = resp.session || null;
-    await navigateAdmin();
+  const btn = el("button", { class: "btn btn--primary", type: "button", text: t("auth.login") });
+  let busy = false;
+
+  const setBusy = (on) => {
+    busy = !!on;
+    btn.disabled = busy;
+    btn.textContent = busy ? t("auth.loggingIn") : t("auth.login");
   };
+
+  const doLogin = async () => {
+    if (busy) return;
+    setBusy(true);
+    status.textContent = t("auth.loggingIn");
+    try {
+      const resp = await apiPost("/admin/api/auth/login", {
+        tenant_id: "",
+        username: username.value.trim(),
+        password: password.value.trim(),
+        purpose: "console",
+      });
+      if (!resp || !resp.ok || !resp.token) {
+        const err = String((resp && resp.error) || "");
+        status.textContent = err === "user_disabled" ? t("auth.disabled") : t("auth.invalid");
+        setBusy(false);
+        return;
+      }
+      const newTok = String(resp.token || "").trim();
+      authStoreSet(AUTH_TOKEN_KEY, newTok);
+      authStoreSet(AUTH_SESSION_KEY, JSON.stringify(resp.session || {}));
+      state.authSession = resp.session || null;
+      // Leave the login form immediately so the click feels responsive.
+      mount(
+        el("div", { class: "card" }, [
+          el("div", { class: "card__title", text: t("title.stack") }),
+          el("div", { class: "muted", text: t("chat.loading") }),
+        ]),
+      );
+      await new Promise((resolve) => requestAnimationFrame(() => resolve()));
+      await navigateAdmin();
+    } catch (err) {
+      status.textContent = String((err && err.message) || err || t("auth.invalid"));
+      setBusy(false);
+    }
+  };
+
   const onEnterLogin = (ev) => {
     if (ev.key !== "Enter") return;
     ev.preventDefault();
@@ -31,7 +58,10 @@ async function renderLogin() {
   };
   username.addEventListener("keydown", onEnterLogin);
   password.addEventListener("keydown", onEnterLogin);
-  const btn = el("button", { class: "btn btn--primary", text: t("auth.login"), onclick: doLogin });
+  btn.addEventListener("click", (ev) => {
+    ev.preventDefault();
+    doLogin();
+  });
   // Focus after mount so users can type immediately.
   setTimeout(() => {
     try {
@@ -47,6 +77,5 @@ async function renderLogin() {
     status,
   ]);
 }
-
 
 export { renderLogin };

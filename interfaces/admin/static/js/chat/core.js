@@ -1073,7 +1073,18 @@ async function apiPost(path, body) {
     headers,
     body: JSON.stringify(body ?? {}),
   });
+  const text = await res.text();
+  let data = null;
+  try {
+    data = text ? JSON.parse(text) : null;
+  } catch (_) {
+    data = null;
+  }
   if (res.status === 401) {
+    const u = String(path || "");
+    if (u.includes("/admin/api/auth/login") || u.includes("/admin/api/auth/bootstrap")) {
+      return data && typeof data === "object" ? data : { ok: false, error: "unauthorized" };
+    }
     localStorage.removeItem(AUTH_TOKEN_KEY);
     localStorage.removeItem(AUTH_SESSION_KEY);
     state.authSession = null;
@@ -1081,7 +1092,7 @@ async function apiPost(path, body) {
     return await new Promise(() => {});
   }
   if (!res.ok) throw new Error(`POST ${path} ${res.status}`);
-  return await res.json();
+  return data ?? {};
 }
 
 async function apiPatch(path, body) {
@@ -2890,27 +2901,56 @@ async function renderLogin() {
   const username = el("input", { class: "input", placeholder: t("auth.username") });
   const password = el("input", { class: "input", type: "password", placeholder: t("auth.password") });
   const status = el("div", { class: "muted", text: "" });
+  const btn = el("button", {
+    class: "btn btn--primary",
+    type: "button",
+    text: t("auth.login"),
+  });
+  let busy = false;
+  const setBusy = (on) => {
+    busy = !!on;
+    btn.disabled = busy;
+    btn.textContent = busy ? t("auth.loggingIn") : t("auth.login");
+  };
   const doLogin = async () => {
-    const resp = await apiPost("/admin/api/auth/login", {
-      tenant_id: "",
-      username: username.value.trim().toLowerCase(),
-      password: password.value.trim(),
-      purpose: "chat",
-    });
-    if (!resp.ok || !resp.token) {
-      const err = String(resp.error || "");
-      status.textContent =
-        err === "user_disabled"
-          ? t("auth.disabled")
-          : err === "admin_role_required"
-            ? t("auth.chatLoginDenied")
-            : t("auth.invalid");
-      return;
+    if (busy) return;
+    setBusy(true);
+    status.textContent = t("auth.loggingIn");
+    try {
+      const resp = await apiPost("/admin/api/auth/login", {
+        tenant_id: "",
+        username: username.value.trim().toLowerCase(),
+        password: password.value.trim(),
+        purpose: "chat",
+      });
+      if (!resp || !resp.ok || !resp.token) {
+        const err = String((resp && resp.error) || "");
+        status.textContent =
+          err === "user_disabled"
+            ? t("auth.disabled")
+            : err === "admin_role_required"
+              ? t("auth.chatLoginDenied")
+              : t("auth.invalid");
+        setBusy(false);
+        return;
+      }
+      localStorage.setItem(AUTH_TOKEN_KEY, String(resp.token));
+      localStorage.setItem(AUTH_SESSION_KEY, JSON.stringify(resp.session || {}));
+      state.authSession = resp.session || null;
+      mount(
+        el("div", { class: "chat-app--login" }, [
+          el("div", { class: "card u-modal-card-sm" }, [
+            el("div", { class: "card__title", text: t("auth.login") }),
+            el("div", { class: "muted", text: t("chat.loading") }),
+          ]),
+        ]),
+      );
+      await new Promise((resolve) => requestAnimationFrame(() => resolve()));
+      await boot();
+    } catch (err) {
+      status.textContent = String((err && err.message) || err || t("auth.invalid"));
+      setBusy(false);
     }
-    localStorage.setItem(AUTH_TOKEN_KEY, String(resp.token));
-    localStorage.setItem(AUTH_SESSION_KEY, JSON.stringify(resp.session || {}));
-    state.authSession = resp.session || null;
-    await boot();
   };
   const onEnterLogin = (ev) => {
     if (ev.key !== "Enter") return;
@@ -2919,10 +2959,9 @@ async function renderLogin() {
   };
   username.addEventListener("keydown", onEnterLogin);
   password.addEventListener("keydown", onEnterLogin);
-  const btn = el("button", {
-    class: "btn btn--primary",
-    text: t("auth.login"),
-    onclick: doLogin,
+  btn.addEventListener("click", (ev) => {
+    ev.preventDefault();
+    doLogin();
   });
   const card = el("div", { class: "card u-modal-card-sm" }, [
     el("div", { class: "card__title", text: t("auth.login") }),

@@ -72,6 +72,7 @@ export default {
   "auth.disabled": "账号已被禁用，请联系管理员",
   "auth.invalid": "登录失败，请检查凭据",
   "auth.login": "登录",
+  "auth.loggingIn": "登录中…",
   "auth.logout": "退出登录",
   "auth.password": "密码",
   "auth.username": "用户名",
