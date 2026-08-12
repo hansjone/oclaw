@@ -38,7 +38,7 @@ description: 面向 ops 专家的 netx UME 运维作业手册。覆盖告警查�
 4. 自定义聚合：`aggregateUmeAlarmsRaw`（`group_by=alarm_host_name` 等）。
 5. SQL：`sqlQueryUme`（仅 SELECT；设 `statement_timeout_ms`）。
 6. **告警关联拓扑**：两台相关网元取 `ne_id` → `findTopologyPaths`（最短路径优先）。
-7. **登设备查 CLI**：见 `ops-netx-managed-ne-playbook`；多台同命令用 `execManagedNe(ne_ids|ume_ne_ids=…)` 一批，勿逐台循环。
+7. **登设备查 CLI**：见 `ops-netx-managed-ne-playbook`；多台用一次 `execManagedNe` batch（同命令用 `ne_ids|ume_ne_ids`；每台命令不同用 `targets=[{ume_ne_id, commands},…]`），勿逐台循环。
 
 ## 快速决策树
 
@@ -64,7 +64,7 @@ Prefer these fixed paths for short group/DM asks (EN first; ZH aliases still wor
 | how many alarms / tally | ① `runUmeDiagnostics` or `aggregateUmeAlarms`; ② report by_severity + freshness |
 | export Excel / send spreadsheet | `ume_alarm_xlsx_report` **or** `write_xlsx(..., deliverable=true)`; never split into 3 steps |
 | CRC in area PAD / ACH / … | `queryUmeAlarmsRaw(keyword=CRC)` then keep rows whose `alarm_host_name` / `ne_host_name` starts with area prefix (`PAD-`, `ACH-`, …). Optional xlsx via `write_xlsx(deliverable=true)` |
-| bandwidth / congestion / usage rate (+ area) | keyword=`bandwidth` (do **not** require event_type unless user asks); filter hostname prefix for area; if CLI confirm false positives: top 3–5 `ume_ne_ids` in **one** `execManagedNe(ume_ne_ids=[…], commands=[…])` batch — never one-NE loops |
+| bandwidth / congestion / usage rate (+ area) | keyword=`bandwidth` (do **not** require event_type unless user asks); filter hostname prefix for area; if CLI confirm false positives: top 3–5 NEs in **one** batch — same show → `ume_ne_ids=[…]`+`commands`; mixed vendors → `targets=[{ume_ne_id, commands},…]` — never one-NE loops |
 | BN EMS / dying gasp / unmanaged (+ area) | keyword or native cause match (`BN EMS` / `dying gasp`); filter area prefix; short EN summary + optional xlsx |
 | power / temperature / fan alarms (+ area/NE) | keyword=`power` / `temperature` / `fan`; scope to host or area prefix |
 | alarm on **one hostname** (e.g. `MDN-PLSP`, `MKS-SWBP-EN1`) | `queryUmeAlarms` / `queryUmeAlarmsRaw` with `host_name` / keyword=hostname. **Never** start a scheduled License/daily playbook |

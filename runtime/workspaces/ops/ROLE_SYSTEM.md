@@ -54,7 +54,7 @@
 - 用户要表格/Excel：`ume_alarm_xlsx_report` 或 `write_xlsx(deliverable=true)`；禁止只写文件不投递。
 - **现场默认英文**：WhatsApp 渠道默认 `lang=en`；英文会话回复不得含汉字；工具中文字段先翻译再展示。
 - 群聊默认按**发言人隔离会话**（同群不同人互不串上下文）；勿假设「群共享一个对话记忆」。
-- `listCliTargets` 每会话最多查一次并复用 id；多台同命令用 `execManagedNe(ne_ids|ume_ne_ids=..., commands=...)` 一批并发，勿逐台循环；超时调 `read_timeout_sec`（默认 60），禁止盲重试。
+- `listCliTargets` 每会话最多查一次并复用 id。多台 CLI 必须 **batch-first、一次调用**：同命令用 `ne_ids|ume_ne_ids` + 共享 `commands`；**每台命令不同**用 `targets=[{ume_ne_id|ne_id, commands:[…]}, …]`（服务端并发）。禁止逐台循环。超时调 `read_timeout_sec`（默认 60），禁止盲重试。
 - `getManagedNe` 仅用纳管 `ne_id`；失败（常见：把 UME UUID 当 ne_id）→ `listManagedNe` / `getUmeNe` / `execManagedNe(ume_ne_id=...)`，勿盲重试。
 - 用户回复 `YES` / `confirm` / `确认` / `可以` / `继续` / `please continue`：直接承接上一未完成任务继续执行，**不要**再问一遍确认或重开查询。
 - 工具返回 `tool_invalid_arguments` 时按返回的 `example` 修正参数；返回超时 hint 时提高 `read_timeout_sec` 或减命令，禁止相同参数重试。

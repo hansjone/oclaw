@@ -63,7 +63,7 @@ Hard preferences:
 - Spreadsheet delivery: `ume_alarm_xlsx_report` or `write_xlsx(deliverable=true)` — never claim a file was sent without deliverable marking.
 - **Field default is English**: WhatsApp channel dispatch defaults to `lang=en`; user-visible replies must contain **zero CJK**. Translate Chinese tool fields before display.
 - Group chats default to **per-speaker session isolation** (members do not share dialogue memory within the same group).
-- Call `listCliTargets` at most once per session and reuse ids; for many NEs with the same show commands use one `execManagedNe(ne_ids|ume_ne_ids=..., commands=...)` (server concurrency) — do not loop one-NE calls; default `read_timeout_sec=60` — on timeout raise it, no blind retries.
+- Call `listCliTargets` at most once per session and reuse ids. Multi-NE CLI must be **batch-first** in one `execManagedNe`: same show → `ne_ids|ume_ne_ids` + shared `commands`; **different commands per NE** → `targets=[{ume_ne_id|ne_id, commands:[…]}, …]` (server concurrency). Do not loop one-NE calls. Default `read_timeout_sec=60` — on timeout raise it, no blind retries.
 - `getManagedNe` needs a *managed* `ne_id` only; on failure (often a UME UUID was passed) switch to `listManagedNe` / `getUmeNe` / `execManagedNe(ume_ne_id=...)` — no blind retries.
 - Replies like `YES` / `confirm` / `继续` / `please continue`: continue the previous unfinished task — do **not** re-ask for confirmation or restart the query.
 - On `tool_invalid_arguments`, fix args using the returned `example`; on timeout hints, raise `read_timeout_sec` or shrink commands.

@@ -436,13 +436,14 @@ def _batch_cli_constraint(*, lang: str) -> str:
     is_en = str(lang or "").lower().startswith("en")
     if is_en:
         return (
-            "Multi-NE CLI default: one execManagedNe with ne_ids[] or ume_ne_ids[] "
-            "(or targets[]) + shared commands (server concurrent batch). "
-            "Do not loop one-NE execManagedNe for the same show commands. Cap to top ~5–20."
+            "Multi-NE CLI batch-first: one execManagedNe — same show → ne_ids[]/ume_ne_ids[] + shared commands; "
+            "different CLI per NE → targets=[{ume_ne_id|ne_id, commands:[…]}, …] (server concurrent). "
+            "Do not loop one-NE execManagedNe. Cap to top ~5–20."
         )
     return (
-        "多台 CLI 默认：一次 execManagedNe 传 ne_ids[] / ume_ne_ids[]（或 targets[]）+ 共享 commands"
-        "（服务端并发 batch）。禁止对同一 show 命令逐台循环。建议最多 top 5–20 台。"
+        "多台 CLI 必须 batch-first、一次调用：同命令用 ne_ids[]/ume_ne_ids[] + 共享 commands；"
+        "每台命令不同用 targets=[{ume_ne_id|ne_id, commands:[…]}, …]（服务端并发）。"
+        "禁止逐台循环。建议最多 top 5–20 台。"
     )
 
 

@@ -134,22 +134,27 @@ def budget_block_payload(
         code = "cli_fail_budget_exceeded"
         hint = (
             f"execManagedNe already failed {fail_used}/{fail_budget} times this turn. "
-            "Stop one-NE loops; use one execManagedNe(ne_ids|ume_ne_ids=..., commands=...) batch "
-            "or summarize reachable failures — do not keep probing."
+            "Stop one-NE loops; use ONE execManagedNe batch: "
+            "ne_ids|ume_ne_ids + shared commands, or targets=[{ume_ne_id, commands},…] when commands differ — "
+            "or summarize reachable failures; do not keep probing."
             if en
             else f"本轮 execManagedNe 已失败 {fail_used}/{fail_budget} 次。"
-            "停止单台循环；改用一次 ne_ids/ume_ne_ids 批量，或汇总可达性失败，勿继续盲探。"
+            "停止单台循环；改用一次 batch："
+            "同命令用 ne_ids/ume_ne_ids，每台命令不同用 targets=[{ume_ne_id, commands},…]；"
+            "或汇总可达性失败，勿继续盲探。"
         )
         err = "cli_fail_budget_exceeded"
     else:
         code = "cli_call_budget_exceeded"
         hint = (
             f"Single-NE execManagedNe budget exhausted ({single_used}/{single_budget} this turn). "
-            "For more NEs call ONE execManagedNe with ne_ids[] or ume_ne_ids[] (shared commands). "
-            "Do not loop one-NE execManagedNe."
+            "For more NEs call ONE execManagedNe batch: "
+            "ne_ids[]/ume_ne_ids[] + shared commands, OR targets=[{ume_ne_id|ne_id, commands:[…]}, …] "
+            "when each NE needs different CLI. Do not loop one-NE execManagedNe."
             if en
             else f"单台 execManagedNe 预算已用尽（本轮 {single_used}/{single_budget}）。"
-            "更多网元请一次传入 ne_ids[] / ume_ne_ids[] 批量执行，禁止逐台循环。"
+            "更多网元请一次 batch：同命令用 ne_ids[]/ume_ne_ids[]；"
+            "每台命令不同用 targets=[{ume_ne_id|ne_id, commands:[…]}, …]。禁止逐台循环。"
         )
         err = "cli_call_budget_exceeded"
     return {
@@ -161,6 +166,14 @@ def budget_block_payload(
         "example": {
             "ume_ne_ids": ["<id1>", "<id2>", "<id3>"],
             "commands": ["show version"],
+            "read_timeout_sec": 90,
+            "concurrency": 4,
+        },
+        "example_hetero_targets": {
+            "targets": [
+                {"ume_ne_id": "<huawei-id>", "commands": ["display optical-module brief"]},
+                {"ume_ne_id": "<cisco-id>", "commands": ["show interface transceiver"]},
+            ],
             "read_timeout_sec": 90,
             "concurrency": 4,
         },
