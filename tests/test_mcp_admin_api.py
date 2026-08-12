@@ -196,6 +196,7 @@ class McpAdminApiTests(unittest.TestCase):
         names = body.get("tool_names") or []
         self.assertIn("ping", names)
         self.assertEqual(int(body.get("synced_tools") or 0), len(names))
+        self.assertTrue((body.get("prewarm") or {}).get("accepted"))
         stored = store.list_mcp_server_tools(server_id="dummy")
         self.assertTrue(any(str(t.get("tool_name") or "") == "ping" for t in stored))
 
@@ -227,6 +228,7 @@ class McpAdminApiTests(unittest.TestCase):
         self.assertNotIn("tools", body)
         names = body.get("tool_names") or []
         self.assertIn("bailian_webparser_parse", names)
+        self.assertTrue((body.get("prewarm") or {}).get("accepted"))
         stored = store.list_mcp_server_tools(server_id="webparser-compat")
         self.assertTrue(any(str(t.get("tool_name") or "") == "bailian_webparser_parse" for t in stored))
 

@@ -129,6 +129,23 @@ def _bailian_webparser_virtual_tools() -> list[dict[str, Any]]:
     return bailian_webparser_virtual_tools()
 
 
+def _spawn_async_runtime_prewarm(*, reason: str) -> dict[str, Any]:
+    """Fire-and-forget prewarm after Admin MCP catalog changes (does not block the HTTP response)."""
+    import threading
+
+    reason_s = str(reason or "mcp_admin_sync").strip() or "mcp_admin_sync"
+
+    def _run() -> None:
+        try:
+            run_runtime_prewarm(reason=reason_s, store=get_assistant_store())
+        except Exception:
+            pass
+
+    th = threading.Thread(target=_run, name="oclaw-mcp-sync-prewarm", daemon=True)
+    th.start()
+    return {"accepted": True, "mode": "async", "reason": reason_s}
+
+
 def _http_get_json(url: str, *, timeout: float = 8.0) -> dict[str, Any]:
     req = urllib_request.Request(
         url,
@@ -3884,12 +3901,14 @@ def build_admin_router() -> APIRouter:
                 invalidate_tool_wire_cache(reason=f"mcp_admin_sync:{server_id}")
             except Exception:
                 pass
+            prewarm = _spawn_async_runtime_prewarm(reason=f"mcp_admin_sync:{server_id}")
             return {
                 "ok": True,
                 "server_id": server_id,
                 "synced_tools": len(norm),
                 "tool_names": [str(t.get("tool_name") or "") for t in norm if str(t.get("tool_name") or "").strip()],
                 "compat_mode": "bailian_webparser",
+                "prewarm": prewarm,
             }
         rt = mcp_runtime_for_row(row, store=store)
         try:
@@ -3919,11 +3938,13 @@ def build_admin_router() -> APIRouter:
                 invalidate_tool_wire_cache(reason=f"mcp_admin_sync:{server_id}")
             except Exception:
                 pass
+            prewarm = _spawn_async_runtime_prewarm(reason=f"mcp_admin_sync:{server_id}")
             return {
                 "ok": True,
                 "server_id": server_id,
                 "synced_tools": len(norm),
                 "tool_names": [str(t.get("tool_name") or "") for t in norm if str(t.get("tool_name") or "").strip()],
+                "prewarm": prewarm,
             }
         finally:
             rt.stop()

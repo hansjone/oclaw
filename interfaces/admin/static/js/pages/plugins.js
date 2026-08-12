@@ -11,6 +11,8 @@ function summarizeApiStatus(prefix, r) {
     const err = String(r.error_code || r.error || r.detail || "error").slice(0, 120);
     return `${p} fail: ${err}`;
   }
+  const prewarmTail =
+    r.prewarm && typeof r.prewarm === "object" && r.prewarm.accepted ? " · prewarm=async" : "";
   if (Array.isArray(r.tools)) {
     const names = r.tools
       .map((x) => String((x && (x.tool_name || x.name)) || "").trim())
@@ -18,7 +20,7 @@ function summarizeApiStatus(prefix, r) {
     const shown = names.slice(0, 10).join(", ");
     const more = names.length > 10 ? ` (+${names.length - 10})` : "";
     const sid = r.server_id ? ` server=${r.server_id}` : "";
-    return `${p} ok${sid} · ${names.length} tools${shown ? `: ${shown}${more}` : ""}`;
+    return `${p} ok${sid} · ${names.length} tools${shown ? `: ${shown}${more}` : ""}${prewarmTail}`;
   }
   if (Array.isArray(r.tool_names)) {
     const names = r.tool_names.map((x) => String(x || "").trim()).filter(Boolean);
@@ -26,18 +28,18 @@ function summarizeApiStatus(prefix, r) {
     const more = names.length > 10 ? ` (+${names.length - 10})` : "";
     const n = Number(r.synced_tools || names.length || 0);
     const sid = r.server_id ? ` server=${r.server_id}` : "";
-    return `${p} ok${sid} · ${n} tools${shown ? `: ${shown}${more}` : ""}`;
+    return `${p} ok${sid} · ${n} tools${shown ? `: ${shown}${more}` : ""}${prewarmTail}`;
   }
   if (Array.isArray(r.items)) {
-    return `${p} ok · ${r.items.length} item(s)`;
+    return `${p} ok · ${r.items.length} item(s)${prewarmTail}`;
   }
   if (Array.isArray(r.results)) {
     const okN = r.results.filter((x) => x && x.ok !== false).length;
-    return `${p} ok · ${okN}/${r.results.length} result(s)`;
+    return `${p} ok · ${okN}/${r.results.length} result(s)${prewarmTail}`;
   }
   if (r.status != null) {
     const sid = r.server_id ? ` server=${r.server_id}` : "";
-    return `${p} ${String(r.status)}${sid}`;
+    return `${p} ${String(r.status)}${sid}${prewarmTail}`;
   }
   const bits = [];
   for (const k of ["ok", "server_id", "enabled", "deleted", "synced_tools", "compat_mode"]) {
@@ -45,6 +47,7 @@ function summarizeApiStatus(prefix, r) {
     bits.push(`${k}=${String(r[k]).slice(0, 40)}`);
     if (bits.length >= 5) break;
   }
+  if (prewarmTail) bits.push("prewarm=async");
   return bits.length ? `${p} ${bits.join(" · ")}` : `${p} ok`;
 }
 
