@@ -40,6 +40,19 @@ class ScheduledFailureTextTests(unittest.TestCase):
         self.assertIn("Attachments: 1", text)
         self.assertIn("Critical: 3", text)
 
+    def test_success_summary_keeps_long_body_intact(self) -> None:
+        long_body = "Result: scanned.\n" + "\n".join(
+            f"- NE-{i} send 0.99{i % 10} (detail line for cluster {i})" for i in range(80)
+        )
+        text = format_scheduled_success_summary(
+            job_name="Hourly Bandwidth Congestion",
+            reply_text=long_body,
+            lang="en",
+        )
+        self.assertGreater(len(long_body), 1200)
+        self.assertIn(long_body, text)
+        self.assertTrue(text.endswith(long_body.splitlines()[-1]))
+
     def test_reminder_fallback_english(self) -> None:
         self.assertIn("Reminder", format_scheduled_user_reminder("stretch", lang="en"))
         self.assertIn("提醒", format_scheduled_user_reminder("活动一下", lang="zh"))

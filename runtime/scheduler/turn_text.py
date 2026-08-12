@@ -23,18 +23,14 @@ def format_scheduled_success_summary(
     reply_text: str = "",
     attachment_count: int = 0,
     lang: str = "en",
-    max_body_chars: int = 1200,
 ) -> str:
-    """Short user-facing success notice; keeps body but caps length for WhatsApp."""
+    """User-facing success notice; keeps the model reply intact (no hard truncate)."""
     name = str(job_name or "").strip() or str(job_id or "").strip() or "scheduled job"
     body = str(reply_text or "").strip()
     # Drop pure reminder fallbacks that just echo the job prompt.
     if body.startswith("⏰"):
         body = ""
     att_n = max(0, int(attachment_count or 0))
-    cap = max(200, int(max_body_chars or 1200))
-    if body and len(body) > cap:
-        body = body[: cap - 3].rstrip() + "..."
     if str(lang or "").lower().startswith("zh"):
         head = f"[定时任务完成] {name}"
         if att_n:
@@ -183,15 +179,19 @@ def scheduled_turn_system_suffix(*, lang: str, playbook: bool = False) -> str:
                 "\n\n[Scheduled playbook mode] You are executing a recurring workflow for the user. "
                 "Follow the playbook steps, use tools as needed, and deliver a useful update "
                 "(including save_deliverable_attachment for generated files). "
-                "Lead the final reply with a short English summary (3–8 lines: what ran, key counts, "
-                "ok/failed highlights), then optional detail. "
+                "Final reply must be concise and complete: lead with conclusions "
+                "(what ran, key counts, ok/failed highlights, top issues), then only the detail "
+                "needed to act—no raw dumps, no unfinished sentences. Prefer a short full answer "
+                "over a long partial one. "
                 "For multi-NE CLI, prefer one execManagedNe(ne_ids|ume_ne_ids=..., commands=...) batch. "
                 "Do not pretend the user just messaged you."
             )
         return (
             "\n\n【定时工作流模式】你正在执行周期性工作流。"
             "按 playbook 步骤完成任务，按需调用工具；若生成文件须 save_deliverable_attachment。"
-            "最终回复先给 3–8 行摘要（做了什么、关键计数、成败），再写细节。"
+            "最终回复须简明且写完：先给结论（做了什么、关键计数、成败、主要问题），"
+            "再只保留可行动的细节；不要堆原始数据，不要半截句子。"
+            "宁可短而完整，也不要长而截断感。"
             "多台 CLI 优先一次 execManagedNe(ne_ids|ume_ne_ids=..., commands=...) 批量并发。"
             "不要假装用户刚刚发了消息，不要只回一句空提醒。"
         )
