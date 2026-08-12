@@ -88,4 +88,20 @@ limit 50
 ## 6) 登设备
 
 - 见 `ops-netx-managed-ne-playbook`
-- UME `ne_id` → `listCliTargets` / `execManagedNe(ume_ne_id=…)`（需已配 UME→CLI）；多台同 show → `execManagedNe(ume_ne_ids=[…], commands=[…])` 一批；每台命令不同 → `execManagedNe(targets=[{ume_ne_id, commands},…])` 一批，勿逐台循环
+- UME `ne_id` → `listCliTargets` / `execManagedNe(ume_ne_id=…)`（需已配 UME→CLI）；多台同 show → `execManagedNe(ume_ne_ids=[…], commands=[…])` **一次**；每台命令不同 → `execManagedNe(targets=[{ume_ne_id, commands},…])` **一次**。同轮 N 次单台调用会串行，不算并行；勿逐台循环 / fan-out
+
+示例：
+
+```json
+// ✓ 同命令
+{"ume_ne_ids": ["uuid-1", "uuid-2"], "commands": ["show version"], "read_timeout_sec": 60}
+
+// ✓ 混厂商
+{"targets": [
+  {"ume_ne_id": "uuid-zte", "commands": ["show opticalinfo brief"]},
+  {"ume_ne_id": "uuid-hw", "commands": ["display optical-module brief"]}
+]}
+
+// ✗ 同轮三次单台（串行）— 禁止
+// execManagedNe(ume_ne_id=uuid-1, …); execManagedNe(ume_ne_id=uuid-2, …); …
+```

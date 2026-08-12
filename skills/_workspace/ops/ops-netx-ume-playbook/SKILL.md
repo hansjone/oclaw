@@ -38,7 +38,8 @@ description: 面向 ops 专家的 netx UME 运维作业手册。覆盖告警查�
 4. 自定义聚合：`aggregateUmeAlarmsRaw`（`group_by=alarm_host_name` 等）。
 5. SQL：`sqlQueryUme`（仅 SELECT；设 `statement_timeout_ms`）。
 6. **告警关联拓扑**：两台相关网元取 `ne_id` → `findTopologyPaths`（最短路径优先）。
-7. **登设备查 CLI**：见 `ops-netx-managed-ne-playbook`；多台用一次 `execManagedNe` batch（同命令用 `ne_ids|ume_ne_ids`；每台命令不同用 `targets=[{ume_ne_id, commands},…]`），勿逐台循环。
+7. **登设备查 CLI**：见 `ops-netx-managed-ne-playbook`（含对/错 JSON 示例）；多台必须 **一次** `execManagedNe` batch（同命令用 `ne_ids|ume_ne_ids`；每台命令不同用 `targets=[{ume_ne_id, commands},…]`）。同轮连发多次单台 `execManagedNe` **不会并行**（stdio 串行），禁止。
+   - 例：`{"ume_ne_ids":["uuid-a","uuid-b"],"commands":["show version"]}`；混厂商用 `targets=[…]` 仍一次调用。
 
 ## 快速决策树
 

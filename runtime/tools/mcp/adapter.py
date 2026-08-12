@@ -240,21 +240,21 @@ def materialize_mcp_tools_for_specialist(
     if sp in {"manager", "manager_self", "main"}:
         sp = "generalist"
     # Preferred mapping: specialist -> server_ids
+    # - missing/null key while a binding map exists → treat as [] (no MCP)
+    # - empty binding setting or {} → fall back to coarse allowlist (all enabled MCP)
     binding_server_ids: set[str] | None = None
     try:
         if store is not None and sp:
             raw_binding = str(store.get_setting("mcp_specialist_server_binding") or "").strip()
             if raw_binding:
                 obj = json.loads(raw_binding)
-                if isinstance(obj, dict):
+                if isinstance(obj, dict) and obj:
                     rows = obj.get(sp)
                     # Legacy: if this specialist has no key, try manager bindings for generalist.
                     if rows is None and sp == "generalist" and "manager" in obj:
                         rows = obj.get("manager")
-                    # 缺键或 null：视为未配置该专家的绑定 → 走下方「仅 coarse allowlist」逻辑（可见全部已启用 MCP）。
-                    # 仅当键存在且为 JSON 数组时，才按白名单过滤（含空数组 = 刻意不给该专家任何 MCP）。
                     if rows is None:
-                        binding_server_ids = None
+                        binding_server_ids = set()
                     elif isinstance(rows, list):
                         binding_server_ids = {str(x).strip() for x in rows if str(x).strip()}
                     else:

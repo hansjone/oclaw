@@ -154,6 +154,29 @@ class McpAdapterTests(unittest.TestCase):
             self.assertIn("mcp__echo-a__ping", names)
             self.assertIn("mcp__echo-b__ping", names)
 
+    def test_binding_missing_key_denies_mcp_when_map_exists(self) -> None:
+        """Sibling keys present but this specialist missing → treat as [] (no MCP)."""
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as td:
+            store = SqliteStore(str(Path(td) / "ops.sqlite"))
+            store.upsert_mcp_server(
+                server_id="echo-a",
+                source_type="github",
+                source_ref="https://github.com/acme/a",
+                entry_command="python",
+                entry_args=["-m", "a"],
+                enabled=True,
+            )
+            store.replace_mcp_server_tools(
+                server_id="echo-a",
+                tools=[{"tool_name": "ping", "description": "P", "parameters": {"type": "object", "properties": {}}}],
+            )
+            store.set_setting("mcp_specialist_server_binding", '{"ops":["echo-a"]}')
+            g_specs = materialize_mcp_tools_for_specialist(store, specialist="generalist")
+            o_specs = materialize_mcp_tools_for_specialist(store, specialist="ops")
+            self.assertEqual(len(g_specs), 0)
+            self.assertEqual(len(o_specs), 1)
+            self.assertEqual(o_specs[0].name, "mcp__echo-a__ping")
+
     def test_mcp_local_env_file_path_prefers_src_local(self) -> None:
         from runtime.operations import mcp_env
 

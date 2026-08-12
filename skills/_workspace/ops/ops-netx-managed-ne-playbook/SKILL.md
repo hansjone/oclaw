@@ -22,11 +22,12 @@ description: 面向 ops 专家的 netx 纳管网元（网元管理）作业手�
    - **UME 清单（无需逐台纳管）**：`mcp__netx__listCliTargets`（`source=ume`）或 `queryUmeNeInventory` 取 `ne_id`，再用 `ume_ne_id` 执行 CLI（需先在 netx **UME → CLI 连接** 配置统一凭据/跳板）
 2. **登录查信息**
    - `mcp__netx__execManagedNe`：`ne_id` **或** `ume_ne_id` + `commands`（默认最多 5 条，可由 `NETX_NE_EXEC_MAX_COMMANDS` 调高，硬上限 50）
-   - **多台必须 batch-first（一次调用，服务端并发登录，默认 concurrency=4，最多 20 台）**：
+   - **多台必须 batch-first（一次工具调用，netx 侧并发登录，默认 concurrency=4，最多 20 台）**：
      - **同命令**：`ne_ids` / `ume_ne_ids` + 共享 `commands`
      - **每台命令不同（厂商/角色不同）**：用 `targets=[{ume_ne_id|ne_id, commands:[…]}, …]` 一次提交；**不要**因为命令不同就退化成逐台 `execManagedNe`
      - 可按厂商拆成 1～2 次 batch（华为一批、Cisco 一批），仍远好于 N 次单台
-   - **禁止**对多台排查逐台循环 `execManagedNe`（stdio 串行 + 重复登录）
+   - **关键：一轮里连发多次 `execManagedNe` ≠ 并行**。该工具不走只读并行调度，且同一 MCP stdio 串行排队——5 次单台调用就是串行 5 次。多台排查只允许 **一次** batch（`ne_ids`/`ume_ne_ids`/`targets`），不要「并行」下 N 个单台 tool call。
+   - **禁止**对多台排查逐台循环 / 同轮 fan-out 多个单台 `execManagedNe`（stdio 串行 + 重复登录 + 易撞预算）
    - **一次会话内**：`listCliTargets` 最多调用一次，缓存返回的 id；同台多条 show 合并进该台的 `commands[]`，禁止「list→exec→list→exec」循环
    - 超时：提高 `read_timeout_sec`（默认 60，慢命令 90–120）或减少命令条数，禁止对同一命令盲重试
 
@@ -55,10 +56,49 @@ Cisco/Huawei: use `show interface transceiver` / `display optical-module` style 
 
 ### Multi-NE CLI (batch-first)
 
-- **Same show on many NEs**: `execManagedNe(ume_ne_ids=[…], commands=[…])` once.
-- **Different commands per NE** (vendor / role): one call with
-  `targets=[{ume_ne_id, commands:[…]}, {ume_ne_id, commands:[…]}, …]` — still concurrent on the server.
-- Cap to NEs on the asked path (usually 2–5). Never one-NE `execManagedNe` loops.
+- **Same show on many NEs**: `execManagedNe(ume_ne_ids=[…], commands=[…])` **once**.
+- **Different commands per NE** (vendor / role): **one** call with
+  `targets=[{ume_ne_id, commands:[…]}, {ume_ne_id, commands:[…]}, …]` — concurrency is inside that batch on netx.
+- **Wrong**: emit N× `execManagedNe(ume_ne_id=…)` in the same turn hoping they run in parallel — they run **serial** (no read-only parallel batch; MCP stdio lock).
+- Cap to NEs on the asked path (usually 2–5). Never one-NE loops / fan-out.
+
+#### Examples（对 / 错）
+
+**✓ 同命令多台（一次调用，服务端并发）**
+
+```json
+{
+  "ume_ne_ids": ["uuid-a", "uuid-b", "uuid-c"],
+  "commands": ["show version"],
+  "read_timeout_sec": 60,
+  "concurrency": 4
+}
+```
+
+纳管 id 同理：`ne_ids` + `commands`。
+
+**✓ 每台命令不同（仍一次调用）**
+
+```json
+{
+  "targets": [
+    {"ume_ne_id": "uuid-zte", "commands": ["show opticalinfo brief"]},
+    {"ume_ne_id": "uuid-hw", "commands": ["display optical-module brief"]},
+    {"ume_ne_id": "uuid-cisco", "commands": ["show interface transceiver"]}
+  ],
+  "read_timeout_sec": 90
+}
+```
+
+**✗ 错误：同轮 fan-out 三次单台（会串行，且易撞预算）**
+
+```text
+call1: execManagedNe({ "ume_ne_id": "uuid-a", "commands": ["show version"] })
+call2: execManagedNe({ "ume_ne_id": "uuid-b", "commands": ["show version"] })
+call3: execManagedNe({ "ume_ne_id": "uuid-c", "commands": ["show version"] })
+```
+
+应合并成上面的 `ume_ne_ids` 一次调用。
 
 ## CLI 约束（服务端强制）
 

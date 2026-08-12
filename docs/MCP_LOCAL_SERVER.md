@@ -181,6 +181,7 @@ for raw in sys.stdin:
 
 - 管理台 Plugins：**【6】专家 MCP 绑定看板**、**【7】MCP 专家绑定（编辑）**
 - 持久化键：`mcp_specialist_server_binding`（及粗粒度兜底 `mcp_allowed_specialists` / `AIA_MCP_SPECIALISTS`）
+- 语义：绑定 JSON **已有条目**时，某专家**缺键 / null / `[]`** → 该专家 **不挂任何 MCP**；仅当绑定未配置或为 `{}` 时才回退粗粒度 allowlist（可见全部已启用 MCP）
 - 运行时：`materialize_mcp_tools_for_specialist`；上送前仅做 schema complete 与可选 JSON 体积压缩（`prepare_openai_tools_for_llm_api`）
 
 ---
