@@ -849,6 +849,56 @@ class ToolExecutor:
             if timeout_s is None and "plugin" in getattr(tool, "tags", frozenset()):
                 timeout_s = 30.0
 
+            # Large execManagedNe batches: return job_id immediately and run in background.
+            try:
+                from runtime.chat.exec_managed_ne_guard import is_exec_managed_ne_tool
+                from svc.jobs.ne_exec_jobs import (
+                    should_run_exec_managed_ne_async,
+                    start_ne_exec_job,
+                    strip_async_flag,
+                )
+
+                if is_exec_managed_ne_tool(str(tc.name or "")):
+                    decision_args = dict(tool_args if isinstance(tool_args, dict) else {})
+                    if isinstance(raw_args, dict) and "async" in raw_args:
+                        decision_args["async"] = raw_args.get("async")
+                    if should_run_exec_managed_ne_async(decision_args):
+                        sync_args = strip_async_flag(tool_args if isinstance(tool_args, dict) else {})
+
+                        def _bg_call() -> dict[str, Any]:
+                            ws_ns = ""
+                            raw_ws = str(ctx.workspace_dir or "").strip()
+                            if raw_ws:
+                                try:
+                                    wp = Path(raw_ws)
+                                    ws_ns = str(wp.name or wp.stem or "").strip()
+                                except Exception:
+                                    ws_ns = ""
+                            with workspace_path_access_scope(
+                                ctx.store,
+                                ctx.session_id,
+                                owner_fallback_session_id=ctx.workspace_owner_session_id,
+                                allowlist_tenant_id=ctx.path_policy_tenant_id,
+                                allowlist_user_id=ctx.path_policy_user_id,
+                            ), workspace_write_namespace_scope(ws_ns), tool_workspace_lane_scope(
+                                workspace_owner_session_id=ctx.workspace_owner_session_id,
+                                session_id=ctx.session_id,
+                                workspace_lane_role=ctx.workspace_lane_role,
+                            ):
+                                raw = tool.handler(sync_args)
+                                return normalize_tool_result(raw)
+
+                        ack = start_ne_exec_job(
+                            tool_name=str(tc.name or ""),
+                            arguments=sync_args,
+                            runner=_bg_call,
+                            session_id=str(ctx.session_id or ""),
+                            timeout_s=int(float(timeout_s)) if isinstance(timeout_s, (int, float)) and float(timeout_s) > 0 else None,
+                        )
+                        return normalize_tool_result(ack), int((time.perf_counter() - t0) * 1000)
+            except Exception:
+                pass
+
             def _call() -> Any:
                 ws_ns = ""
                 raw_ws = str(ctx.workspace_dir or "").strip()
@@ -1096,6 +1146,10 @@ class ToolExecutor:
             load_turn_exec_managed_ne_stats,
         )
         from runtime.application.gateway.ops_short_intent import ops_short_intent_cli_soft_budgets
+        from runtime.chat.ops_report_first_guard import (
+            is_report_path_tool,
+            maybe_block_cli_before_report,
+        )
 
         prior_single_exec, prior_batch_exec, prior_exec_fails = load_turn_exec_managed_ne_stats(
             ctx.store,
@@ -1105,9 +1159,11 @@ class ToolExecutor:
         single_exec_budget = exec_managed_ne_single_budget()
         fail_exec_budget = exec_managed_ne_fail_budget()
         batch_exec_budget = 0  # 0 = unlimited (global default)
+        short_intent = None
         try:
             md_budget = ctx.inbound_metadata if isinstance(ctx.inbound_metadata, dict) else {}
-            soft = ops_short_intent_cli_soft_budgets(str(md_budget.get("ops_short_intent") or "").strip() or None)
+            short_intent = str(md_budget.get("ops_short_intent") or "").strip() or None
+            soft = ops_short_intent_cli_soft_budgets(short_intent)
             if soft:
                 single_exec_budget = int(soft.get("single") or single_exec_budget)
                 fail_exec_budget = int(soft.get("fail") or fail_exec_budget)
@@ -1117,6 +1173,17 @@ class ToolExecutor:
         local_single_exec = 0
         local_batch_exec = 0
         local_exec_fails = 0
+        local_report_ok = False
+        try:
+            from runtime.chat.ops_report_first_guard import turn_has_successful_report_path
+
+            local_report_ok = turn_has_successful_report_path(
+                ctx.store,
+                session_id=str(ctx.session_id or ""),
+                turn_uuid=str(ctx.turn_uuid or ""),
+            )
+        except Exception:
+            local_report_ok = False
 
         results_by_id: dict[str, tuple[dict[str, Any], int]] = {}
         runnable_tool_uses: list[LLMToolCall] = []
@@ -1244,6 +1311,22 @@ class ToolExecutor:
                         "tool_name": tc.name,
                         "signature": sig[:300],
                     },
+                )
+                continue
+            report_block = maybe_block_cli_before_report(
+                tool_name=tool_name,
+                intent=short_intent,
+                store=ctx.store,
+                session_id=str(ctx.session_id or ""),
+                turn_uuid=str(ctx.turn_uuid or ""),
+                lang=str(ctx.lang or "en"),
+                local_report_ok=local_report_ok,
+            )
+            if report_block is not None:
+                results_by_id[tc.id] = (report_block, 0)
+                _trace(
+                    "report_first_required",
+                    {"tool_name": tc.name, "intent": short_intent or ""},
                 )
                 continue
             if is_exec_managed_ne_tool(tool_name):
@@ -1446,8 +1529,11 @@ class ToolExecutor:
                         "identical_retry_blocked",
                         "retry_forbidden_blocked",
                         "tool_loop_guard",
+                        "report_first_required",
                     }:
                         local_exec_fails += 1
+            if isinstance(result, dict) and result.get("ok") is True and is_report_path_tool(str(tc.name or "")):
+                local_report_ok = True
             if isinstance(result, dict) and _result_is_retry_forbidden(result):
                 retry_forbidden_tools.add(str(tc.name or ""))
             persisted_result, ingested_refs = ingest_embedded_image_blobs_as_refs(

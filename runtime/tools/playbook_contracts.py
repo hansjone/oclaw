@@ -151,10 +151,12 @@ def build_turn_checklist(
         lines.append(f"- goal: {goal_s[:160]}")
     if step:
         tool, example = step
-        lines.append(f"- step1: {tool}({_fmt_args(example)})")
+        lines.append(f"- step1 (REQUIRED first): {tool}({_fmt_args(example)})")
         if is_zh:
+            lines.append("- 未完成 step1 前禁止 listCliTargets/execManagedNe/清单循环")
             lines.append("- 完成后用 Result/Evidence 短答；勿翻页或开无关 playbook")
         else:
+            lines.append("- Do NOT call listCliTargets/execManagedNe/inventory before step1 succeeds")
             lines.append("- then reply with Result/Evidence; no pagination / unrelated playbooks")
     elif is_zh:
         lines.append("- 需要证据时立刻调用工具；失败时改参数或换 fallback，禁止相同参数盲重试")

@@ -73,7 +73,7 @@ def test_ops_short_intent_hint_english_default() -> None:
     hint = maybe_ops_short_intent_system_hint(text="LOS on these sites", lang="en")
     assert "fiber" in hint.lower() or "LOS" in hint
     assert "ume_alarm_xlsx_report" in hint
-    assert "soft budget" in hint.lower() or "targets" in hint.lower()
+    assert "FIRST" in hint or "first" in hint.lower()
     assert "断纤" not in hint
 
 

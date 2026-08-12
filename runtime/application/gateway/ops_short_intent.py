@@ -9,49 +9,45 @@ _BOT_MENTION_RE = re.compile(r"@\S+")
 
 # intent -> (en hint, zh hint)
 # Prefer report path strongly; keep CLI/inventory available with soft budget (not hard-hidden).
+# Runtime also enforces report-first: CLI/inventory blocked until report/aggregate succeeds this turn.
 _HINTS: dict[str, tuple[str, str]] = {
     "excel_export": (
-        "[Ops short-intent: Excel export. Prefer ume_alarm_xlsx_report(..., deliverable=true) now. "
+        "[Ops short-intent: Excel export. FIRST tool call MUST be ume_alarm_xlsx_report(..., deliverable=true). "
         "write_xlsx / run_command are hidden this turn. "
-        "CLI/inventory stay available with a soft budget for device checks — prefer one hetero targets batch, not single-NE loops.]",
-        "[短指令：导出 Excel。优先 ume_alarm_xlsx_report(..., deliverable=true)。"
-        "本轮已隐藏 write_xlsx/run_command。"
-        "CLI/清单仍可用（soft budget）：核实设备优先一次 hetero targets batch，勿单台循环。]",
+        "CLI/inventory only AFTER report ok — one hetero targets batch max for device checks.]",
+        "[短指令：导出 Excel。本轮第一个工具必须是 ume_alarm_xlsx_report(..., deliverable=true)。"
+        "已隐藏 write_xlsx/run_command。"
+        "报表 ok 之后才允许 CLI/清单；设备核实最多一次 hetero targets batch。]",
     ),
     "license": (
-        "[Ops short-intent: license/capacity. Prefer ume_alarm_xlsx_report(mode=list, keyword=license, deliverable=true) "
-        "or aggregateUmeAlarms/queryUmeAlarmsRaw. write_xlsx/run_command hidden; "
-        "CLI available with soft budget for confirmation (one targets batch preferred).]",
-        "[短指令：License/容量。优先 ume_alarm_xlsx_report(mode=list, keyword=license, deliverable=true) "
-        "或 aggregate/queryUmeAlarmsRaw；write_xlsx/run_command 已隐藏；"
-        "CLI 可用（soft budget），确认阶段优先一次 targets batch。]",
+        "[Ops short-intent: license/capacity. FIRST call ume_alarm_xlsx_report(mode=list, keyword=license, deliverable=true) "
+        "(or aggregateUmeAlarms). write_xlsx/run_command hidden; CLI only after report ok.]",
+        "[短指令：License/容量。先 ume_alarm_xlsx_report(mode=list, keyword=license, deliverable=true) "
+        "（或 aggregate）；write_xlsx/run_command 已隐藏；报表 ok 后再 CLI。]",
     ),
     "congestion": (
-        "[Ops short-intent: bandwidth congestion. Prefer ume_alarm_xlsx_report(mode=list, deliverable=true) "
-        "or aggregateUmeAlarms/queryUmeAlarmsRaw. write_xlsx/run_command hidden; "
-        "CLI available with soft budget (one targets batch preferred).]",
-        "[短指令：带宽拥塞。优先 ume_alarm_xlsx_report(mode=list, deliverable=true) 或 aggregate/query；"
-        "write_xlsx/run_command 已隐藏；CLI 可用（soft budget），优先一次 targets batch。]",
+        "[Ops short-intent: bandwidth congestion. FIRST call ume_alarm_xlsx_report(mode=list, deliverable=true) "
+        "(or aggregate). write_xlsx/run_command hidden; CLI only after report ok.]",
+        "[短指令：带宽拥塞。先 ume_alarm_xlsx_report(mode=list, deliverable=true)（或 aggregate）；"
+        "write_xlsx/run_command 已隐藏；报表 ok 后再 CLI。]",
     ),
     "fiber_cut": (
-        "[Ops short-intent: fiber/LOS. Prefer ume_alarm_xlsx_report(mode=fiber_cut, deliverable=true) now. "
-        "write_xlsx/run_command hidden. CLI/inventory available with soft budget — "
-        "use at most one hetero targets batch for device confirmation, not listCliTargets→single-NE loops.]",
-        "[短指令：断纤/LOS。优先 ume_alarm_xlsx_report(mode=fiber_cut, deliverable=true)。"
-        "write_xlsx/run_command 已隐藏。CLI/清单可用（soft budget）："
-        "设备核实最多一次 hetero targets batch，勿 listCliTargets→单台循环。]",
+        "[Ops short-intent: fiber/LOS. FIRST tool MUST be ume_alarm_xlsx_report(mode=fiber_cut, deliverable=true). "
+        "write_xlsx/run_command hidden. CLI/inventory ONLY after report ok — at most one hetero targets batch.]",
+        "[短指令：断纤/LOS。本轮第一个工具必须是 ume_alarm_xlsx_report(mode=fiber_cut, deliverable=true)。"
+        "write_xlsx/run_command 已隐藏。报表 ok 之后才允许 CLI/清单（最多一次 hetero targets batch）。]",
     ),
     "offline": (
-        "[Ops short-intent: offline NE. Prefer ume_alarm_xlsx_report(mode=offline, deliverable=true) now. "
-        "write_xlsx/run_command hidden; CLI/inventory with soft budget (one targets batch preferred).]",
-        "[短指令：离线网元。优先 ume_alarm_xlsx_report(mode=offline, deliverable=true)。"
-        "write_xlsx/run_command 已隐藏；CLI/清单 soft budget（优先一次 targets batch）。]",
+        "[Ops short-intent: offline NE. FIRST tool MUST be ume_alarm_xlsx_report(mode=offline, deliverable=true). "
+        "write_xlsx/run_command hidden; CLI only after report ok.]",
+        "[短指令：离线网元。本轮第一个工具必须是 ume_alarm_xlsx_report(mode=offline, deliverable=true)。"
+        "write_xlsx/run_command 已隐藏；报表 ok 后再 CLI。]",
     ),
     "alarm_tally": (
-        "[Ops short-intent: alarm tally/top. Prefer ume_alarm_xlsx_report(mode=aggregate_by_host, deliverable=true) "
-        "or aggregateUmeAlarms. write_xlsx/run_command hidden; CLI soft budget for spot checks.]",
-        "[短指令：告警统计/Top。优先 ume_alarm_xlsx_report(mode=aggregate_by_host, deliverable=true) "
-        "或 aggregateUmeAlarms；write_xlsx/run_command 已隐藏；CLI soft budget 仅作抽检。]",
+        "[Ops short-intent: alarm tally/top. FIRST call ume_alarm_xlsx_report(mode=aggregate_by_host, deliverable=true) "
+        "or aggregateUmeAlarms. write_xlsx/run_command hidden; CLI only after report ok.]",
+        "[短指令：告警统计/Top。先 ume_alarm_xlsx_report(mode=aggregate_by_host, deliverable=true) "
+        "或 aggregateUmeAlarms；write_xlsx/run_command 已隐藏；报表 ok 后再 CLI。]",
     ),
     "continue": (
         "[Ops short-intent: continue/confirm. Resume the unfinished prior task immediately; "

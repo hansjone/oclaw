@@ -48,8 +48,12 @@ def is_batch_exec_args(args: dict[str, Any] | None) -> bool:
 
 
 def normalize_exec_managed_ne_args(args: dict[str, Any] | None) -> dict[str, Any]:
-    """Default / clamp read_timeout_sec so agents stop hitting 30s walls."""
+    """Default / clamp read_timeout_sec so agents stop hitting 30s walls.
+
+    Also strips oclaw-only ``async`` flag before the MCP HTTP call.
+    """
     out = dict(args or {})
+    out.pop("async", None)
     rts = out.get("read_timeout_sec")
     if rts is None or str(rts).strip() == "":
         out["read_timeout_sec"] = 60

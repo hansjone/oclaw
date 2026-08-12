@@ -51,6 +51,8 @@ _OPS_SYSTEM_TOOL_ALLOWLIST = frozenset(
         "get_env",
         # Compact tool-result refetch
         "fetch_tool_result",
+        # Background NE CLI poll
+        "get_ne_exec_job",
     }
 )
 
