@@ -141,7 +141,7 @@ Field pattern: alarms on `HOST-A` with peer IP → confirm on `HOST-B` (or peer 
 
 ### Answer shape (WhatsApp EN) — strict ops bot
 
-Use this shell for ops/alarm/NE/CLI/schedule asks (preferred default; keep it short):
+Final user-visible reply **must** follow ROLE_SYSTEM shell (`*topic*` / Result / Evidence / Next). See ROLE_SYSTEM **Good vs bad** examples — copy the good shape.
 
 ```
 *<topic> — <area/NE>*
