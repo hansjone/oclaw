@@ -144,22 +144,37 @@ function getStoredAuthToken() {
 }
 
 /** 会话在服务端失效或本地缺 token 时清理，并下一帧回到登录（避免在 router 内部 await router 盖住登录页） */
+let _reauthTimer = null;
 function scheduleReauthAfter401(requestUrl) {
   const u = String(requestUrl || "");
   if (u.includes("/admin/api/auth/login") || u.includes("/admin/api/auth/bootstrap")) return;
   authStoreRemove(AUTH_TOKEN_KEY);
   authStoreRemove(AUTH_SESSION_KEY);
   state.authSession = null;
-  setTimeout(() => {
+  // Coalesce: many parallel 401s must not remount login repeatedly (wipes username while typing).
+  if (_reauthTimer != null) return;
+  _reauthTimer = setTimeout(() => {
+    _reauthTimer = null;
     const fn = state.reauthHandler;
     if (typeof fn === "function") fn();
   }, 0);
 }
 
+function isAuthRequiredError(err) {
+  return !!(err && (err.authRequired === true || err.name === "AuthRequiredError"));
+}
+
+function _authRequiredError() {
+  const err = new Error("auth_required");
+  err.name = "AuthRequiredError";
+  err.authRequired = true;
+  return err;
+}
+
 function _haltAfter401() {
-  // 401 means "login required". We re-route to login; callers should not show a "request failed" popup.
-  // Returning a never-resolving promise avoids bubbling errors into UI code that would flash an alert.
-  return new Promise(() => {});
+  // 401 means "login required". Re-auth is already scheduled; reject so page boots
+  // (Promise.all / await) do not hang forever on a never-resolving promise.
+  return Promise.reject(_authRequiredError());
 }
 
 async function apiGet(path) {
@@ -711,6 +726,7 @@ export {
   getStoredAuthToken,
   scheduleReauthAfter401,
   _haltAfter401,
+  isAuthRequiredError,
   apiGet,
   apiGetOptional,
   apiGetNoHang,

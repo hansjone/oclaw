@@ -1048,6 +1048,21 @@ function withTimeout(promise, ms, label) {
   });
 }
 
+function invokeChatBoot() {
+  const fn = state.boot;
+  if (typeof fn === "function") return fn();
+  return Promise.reject(new Error("chat_boot_uninitialized"));
+}
+
+let _chatReauthTimer = null;
+function scheduleChatReauth() {
+  if (_chatReauthTimer != null) return;
+  _chatReauthTimer = setTimeout(() => {
+    _chatReauthTimer = null;
+    invokeChatBoot().catch(() => {});
+  }, 0);
+}
+
 async function apiGet(path) {
   const token = localStorage.getItem(AUTH_TOKEN_KEY) || "";
   const headers = { accept: "application/json" };
@@ -1057,8 +1072,11 @@ async function apiGet(path) {
     localStorage.removeItem(AUTH_TOKEN_KEY);
     localStorage.removeItem(AUTH_SESSION_KEY);
     state.authSession = null;
-    setTimeout(() => boot().catch(() => {}), 0);
-    return await new Promise(() => {});
+    setTimeout(() => scheduleChatReauth(), 0);
+    const err = new Error("auth_required");
+    err.name = "AuthRequiredError";
+    err.authRequired = true;
+    throw err;
   }
   if (!res.ok) throw new Error(`GET ${path} ${res.status}`);
   return await res.json();
@@ -1088,8 +1106,11 @@ async function apiPost(path, body) {
     localStorage.removeItem(AUTH_TOKEN_KEY);
     localStorage.removeItem(AUTH_SESSION_KEY);
     state.authSession = null;
-    setTimeout(() => boot().catch(() => {}), 0);
-    return await new Promise(() => {});
+    setTimeout(() => scheduleChatReauth(), 0);
+    const err = new Error("auth_required");
+    err.name = "AuthRequiredError";
+    err.authRequired = true;
+    throw err;
   }
   if (!res.ok) throw new Error(`POST ${path} ${res.status}`);
   return data ?? {};
@@ -1108,8 +1129,11 @@ async function apiPatch(path, body) {
     localStorage.removeItem(AUTH_TOKEN_KEY);
     localStorage.removeItem(AUTH_SESSION_KEY);
     state.authSession = null;
-    setTimeout(() => boot().catch(() => {}), 0);
-    return await new Promise(() => {});
+    setTimeout(() => scheduleChatReauth(), 0);
+    const err = new Error("auth_required");
+    err.name = "AuthRequiredError";
+    err.authRequired = true;
+    throw err;
   }
   if (!res.ok) throw new Error(`PATCH ${path} ${res.status}`);
   return await res.json();
@@ -1124,8 +1148,11 @@ async function apiDelete(path) {
     localStorage.removeItem(AUTH_TOKEN_KEY);
     localStorage.removeItem(AUTH_SESSION_KEY);
     state.authSession = null;
-    setTimeout(() => boot().catch(() => {}), 0);
-    return await new Promise(() => {});
+    setTimeout(() => scheduleChatReauth(), 0);
+    const err = new Error("auth_required");
+    err.name = "AuthRequiredError";
+    err.authRequired = true;
+    throw err;
   }
   if (!res.ok) throw new Error(`DELETE ${path} ${res.status}`);
   return await res.json();
@@ -2898,8 +2925,22 @@ async function fileToPayloadEntry(file) {
 
 async function renderLogin() {
   applyI18nStatic();
-  const username = el("input", { class: "input", placeholder: t("auth.username") });
-  const password = el("input", { class: "input", type: "password", placeholder: t("auth.password") });
+  if (!state.loginDraft) state.loginDraft = { username: "", password: "" };
+  const draft = state.loginDraft;
+  const username = el("input", {
+    class: "input",
+    placeholder: t("auth.username"),
+    autocomplete: "username",
+    spellcheck: "false",
+  });
+  username.value = draft.username || "";
+  const password = el("input", {
+    class: "input",
+    type: "password",
+    placeholder: t("auth.password"),
+    autocomplete: "current-password",
+  });
+  password.value = draft.password || "";
   const status = el("div", { class: "muted", text: "" });
   const btn = el("button", {
     class: "btn btn--primary",
@@ -2907,6 +2948,12 @@ async function renderLogin() {
     text: t("auth.login"),
   });
   let busy = false;
+  const syncDraft = () => {
+    draft.username = String(username.value || "");
+    draft.password = String(password.value || "");
+  };
+  username.addEventListener("input", syncDraft);
+  password.addEventListener("input", syncDraft);
   const setBusy = (on) => {
     busy = !!on;
     btn.disabled = busy;
@@ -2914,6 +2961,7 @@ async function renderLogin() {
   };
   const doLogin = async () => {
     if (busy) return;
+    syncDraft();
     setBusy(true);
     status.textContent = t("auth.loggingIn");
     try {
@@ -2934,6 +2982,8 @@ async function renderLogin() {
         setBusy(false);
         return;
       }
+      draft.username = "";
+      draft.password = "";
       localStorage.setItem(AUTH_TOKEN_KEY, String(resp.token));
       localStorage.setItem(AUTH_SESSION_KEY, JSON.stringify(resp.session || {}));
       state.authSession = resp.session || null;
@@ -2946,10 +2996,25 @@ async function renderLogin() {
         ]),
       );
       await new Promise((resolve) => requestAnimationFrame(() => resolve()));
-      await boot();
+      await invokeChatBoot();
     } catch (err) {
-      status.textContent = String((err && err.message) || err || t("auth.invalid"));
-      setBusy(false);
+      if (err && err.authRequired) return;
+      mount(
+        el("div", { class: "chat-app--login" }, [
+          el("div", { class: "card u-modal-card-sm" }, [
+            el("div", { class: "card__title", text: t("auth.login") }),
+            el("div", { class: "muted", text: String((err && err.message) || err || t("auth.invalid")) }),
+            el("div", { class: "row" }, [
+              el("button", {
+                class: "btn btn--primary",
+                type: "button",
+                text: t("auth.login"),
+                onclick: () => invokeChatBoot().catch(() => {}),
+              }),
+            ]),
+          ]),
+        ]),
+      );
     }
   };
   const onEnterLogin = (ev) => {
@@ -2963,7 +3028,7 @@ async function renderLogin() {
     ev.preventDefault();
     doLogin();
   });
-  const card = el("div", { class: "card u-modal-card-sm" }, [
+  const card = el("div", { class: "card u-modal-card-sm", "data-chat-login": "1" }, [
     el("div", { class: "card__title", text: t("auth.login") }),
     el("div", { class: "chat-login-fields" }, [username, password]),
     el("div", { class: "row chat-login-actions" }, [btn]),
@@ -2971,7 +3036,9 @@ async function renderLogin() {
   ]);
   setTimeout(() => {
     try {
-      username.focus();
+      if (document.activeElement === username || document.activeElement === password) return;
+      if (draft.username && !draft.password) password.focus();
+      else username.focus();
     } catch (_) {}
   }, 0);
   return el("div", { class: "chat-app--login" }, [card]);

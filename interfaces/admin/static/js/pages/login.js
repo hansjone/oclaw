@@ -1,13 +1,35 @@
 import { state, t, el, mount, applyI18nStatic, apiPost, authStoreSet, AUTH_TOKEN_KEY, AUTH_SESSION_KEY, navigateAdmin } from "../core.js";
 
+/** Survive login remounts (reauth races) so typing is not wiped. */
+const loginDraft = { username: "", password: "" };
+
 async function renderLogin() {
   applyI18nStatic();
-  const username = el("input", { class: "input", placeholder: t("auth.username"), value: "" });
+  const username = el("input", {
+    class: "input",
+    placeholder: t("auth.username"),
+    autocomplete: "username",
+    spellcheck: "false",
+  });
+  username.value = loginDraft.username;
   const userHint = el("div", { class: "muted", text: t("auth.consoleUsernameHint") });
-  const password = el("input", { class: "input", type: "password", placeholder: t("auth.password") });
+  const password = el("input", {
+    class: "input",
+    type: "password",
+    placeholder: t("auth.password"),
+    autocomplete: "current-password",
+  });
+  password.value = loginDraft.password;
   const status = el("div", { class: "muted", text: "" });
   const btn = el("button", { class: "btn btn--primary", type: "button", text: t("auth.login") });
   let busy = false;
+
+  const syncDraft = () => {
+    loginDraft.username = String(username.value || "");
+    loginDraft.password = String(password.value || "");
+  };
+  username.addEventListener("input", syncDraft);
+  password.addEventListener("input", syncDraft);
 
   const setBusy = (on) => {
     busy = !!on;
@@ -17,6 +39,7 @@ async function renderLogin() {
 
   const doLogin = async () => {
     if (busy) return;
+    syncDraft();
     setBusy(true);
     status.textContent = t("auth.loggingIn");
     try {
@@ -32,6 +55,8 @@ async function renderLogin() {
         setBusy(false);
         return;
       }
+      loginDraft.username = "";
+      loginDraft.password = "";
       const newTok = String(resp.token || "").trim();
       authStoreSet(AUTH_TOKEN_KEY, newTok);
       authStoreSet(AUTH_SESSION_KEY, JSON.stringify(resp.session || {}));
@@ -46,8 +71,20 @@ async function renderLogin() {
       await new Promise((resolve) => requestAnimationFrame(() => resolve()));
       await navigateAdmin();
     } catch (err) {
-      status.textContent = String((err && err.message) || err || t("auth.invalid"));
-      setBusy(false);
+      mount(
+        el("div", { class: "card" }, [
+          el("div", { class: "card__title", text: t("auth.login") }),
+          el("div", { class: "muted", text: String((err && err.message) || err || t("auth.invalid")) }),
+          el("div", { class: "row" }, [
+            el("button", {
+              class: "btn btn--primary",
+              type: "button",
+              text: t("auth.login"),
+              onclick: () => navigateAdmin(),
+            }),
+          ]),
+        ]),
+      );
     }
   };
 
@@ -62,13 +99,15 @@ async function renderLogin() {
     ev.preventDefault();
     doLogin();
   });
-  // Focus after mount so users can type immediately.
+  // Focus after mount so users can type immediately (keep caret if already typing).
   setTimeout(() => {
     try {
-      username.focus();
+      if (document.activeElement === username || document.activeElement === password) return;
+      if (loginDraft.username && !loginDraft.password) password.focus();
+      else username.focus();
     } catch (_) {}
   }, 0);
-  return el("div", { class: "card" }, [
+  return el("div", { class: "card", "data-admin-login": "1" }, [
     el("div", { class: "card__title", text: t("auth.login") }),
     el("div", { class: "row" }, [username]),
     userHint,

@@ -27,6 +27,13 @@ async function boot() {
     localStorage.removeItem(AUTH_TOKEN_KEY);
     localStorage.removeItem(AUTH_SESSION_KEY);
     state.authSession = null;
+    const existingLogin = document.querySelector("#app [data-chat-login='1']");
+    const ae = document.activeElement;
+    if (existingLogin && ae && existingLogin.contains(ae)) {
+      applyI18nStatic();
+      syncAuthUserLabel();
+      return;
+    }
     try {
       await withTimeout(apiPost("/admin/api/auth/bootstrap", {}), 2500, "auth_bootstrap_timeout");
     } catch (_) {}
@@ -56,6 +63,8 @@ async function boot() {
   applyI18nStatic();
   syncAuthUserLabel();
 }
+
+state.boot = boot;
 
 document.body.addEventListener("click", async (e) => {
   const menuBtn = e.target.closest && e.target.closest(".chat-sess-menu-item[data-menu-action]");

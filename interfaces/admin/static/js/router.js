@@ -1,6 +1,7 @@
 import {
   state, t, el, mount, setActive, applyI18nStatic, getRoute,
   authStoreRemove, AUTH_TOKEN_KEY, AUTH_SESSION_KEY, getStoredAuthToken, apiPost,
+  isAuthRequiredError,
 } from "./core.js";
 import { hasPermission, canManageApiGrants, isAdministratorUsername } from "./pages/authz.js";
 import { renderStack } from "./pages/stack.js";
@@ -25,6 +26,12 @@ async function router() {
       authStoreRemove(AUTH_TOKEN_KEY);
       authStoreRemove(AUTH_SESSION_KEY);
       state.authSession = null;
+    }
+    const existingLogin = document.querySelector("#content [data-admin-login='1']");
+    const ae = document.activeElement;
+    // Avoid wiping username/password while the user is typing on an already-shown login form.
+    if (existingLogin && ae && existingLogin.contains(ae)) {
+      return;
     }
     try {
       await apiPost("/admin/api/auth/bootstrap", {});
@@ -57,6 +64,11 @@ async function router() {
   }
   const forbiddenCard = () =>
     el("div", { class: "card" }, [el("div", { class: "card__title", text: t("common.forbidden") })]);
+  const errorCard = (err) =>
+    el("div", { class: "card" }, [
+      el("div", { class: "card__title", text: t("common.error") }),
+      el("div", { class: "pre", text: String((err && err.message) || err || "") }),
+    ]);
   const mountPageLoading = (titleKey) => {
     mount(
       el("div", { class: "card" }, [
@@ -71,55 +83,55 @@ async function router() {
       requestAnimationFrame(() => resolve());
     });
   let view;
-  if (page === "stack") {
-    mountPageLoading("title.stack");
-    await yieldForPaint();
-    view = await renderStack();
-  }
-  else if (page === "scheduled-jobs") {
-    view = hasPermission("admin:read") ? await renderScheduledJobs() : forbiddenCard();
-  }
-  else if (page === "users") {
-    view = hasPermission("admin:user:read") ? await renderUserManagement() : forbiddenCard();
-  } else if (page === "memory") view = await renderMemory();
-  else if (page === "models") view = await renderModels();
-  else if (page === "api-grants" || page === "session-monitor" || page === "admin-audit") {
-    view = el("div", { class: "card" }, [
-      el("div", { class: "card__title", text: t("common.notFound") }),
-      el("div", { class: "muted", text: t("common.pageRemoved") }),
-    ]);
-  } else if (page === "audit") view = await renderAudit(route.params.get("session_id") || "");
-  else if (false && page === "session-monitor") {
-    view = isAdministratorUsername() ? await renderSessionMonitor() : el("div", { class: "card" }, [el("div", { class: "card__title", text: t("sessionMonitor.onlyAdministrator") })]);
-  } else if (false && page === "admin-audit") {
-    view = hasPermission("admin:user:write") ? await renderAdminAudit() : forbiddenCard();
-  } else if (page === "plugins") {
-    if (!hasPermission("admin:user:write")) {
-      view = forbiddenCard();
-    } else {
-      mountPageLoading("title.plugins");
+  try {
+    if (page === "stack") {
+      mountPageLoading("title.stack");
       await yieldForPaint();
-      view = await renderPlugins();
-    }
-  } else if (page === "skills") {
-    if (!hasPermission("admin:read")) {
-      view = forbiddenCard();
-    } else {
-      mountPageLoading("title.skills");
-      await yieldForPaint();
-      view = await renderSkills();
-    }
-  } else if (page === "attachments") {
-    view = isAdministratorUsername() ? await renderAttachments() : forbiddenCard();
-  } else if (page === "workspace-paths") {
-    view =
-      hasPermission("admin:user:read") || hasPermission("admin:workspace_paths:read")
-        ? await renderWorkspacePaths()
-        : forbiddenCard();
-  } else if (page === "profile") {
-    view = await renderProfile();
-  } else view = el("div", { class: "card" }, [el("div", { class: "card__title", text: t("common.notFound") })]);
-  mount(view);
+      view = await renderStack();
+    } else if (page === "scheduled-jobs") {
+      view = hasPermission("admin:read") ? await renderScheduledJobs() : forbiddenCard();
+    } else if (page === "users") {
+      view = hasPermission("admin:user:read") ? await renderUserManagement() : forbiddenCard();
+    } else if (page === "memory") view = await renderMemory();
+    else if (page === "models") view = await renderModels();
+    else if (page === "api-grants" || page === "session-monitor" || page === "admin-audit") {
+      view = el("div", { class: "card" }, [
+        el("div", { class: "card__title", text: t("common.notFound") }),
+        el("div", { class: "muted", text: t("common.pageRemoved") }),
+      ]);
+    } else if (page === "audit") view = await renderAudit(route.params.get("session_id") || "");
+    else if (page === "plugins") {
+      if (!hasPermission("admin:user:write")) {
+        view = forbiddenCard();
+      } else {
+        mountPageLoading("title.plugins");
+        await yieldForPaint();
+        view = await renderPlugins();
+      }
+    } else if (page === "skills") {
+      if (!hasPermission("admin:read")) {
+        view = forbiddenCard();
+      } else {
+        mountPageLoading("title.skills");
+        await yieldForPaint();
+        view = await renderSkills();
+      }
+    } else if (page === "attachments") {
+      view = isAdministratorUsername() ? await renderAttachments() : forbiddenCard();
+    } else if (page === "workspace-paths") {
+      view =
+        hasPermission("admin:user:read") || hasPermission("admin:workspace_paths:read")
+          ? await renderWorkspacePaths()
+          : forbiddenCard();
+    } else if (page === "profile") {
+      view = await renderProfile();
+    } else view = el("div", { class: "card" }, [el("div", { class: "card__title", text: t("common.notFound") })]);
+  } catch (err) {
+    // Re-auth already scheduled; do not paint an error over the login redirect.
+    if (isAuthRequiredError(err)) return;
+    view = errorCard(err);
+  }
+  if (view) mount(view);
 }
 
 

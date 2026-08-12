@@ -22,4 +22,6 @@ export const state = {
   statusReasonPairs: [],
   jobsBadgeEl: null,
   jobsBtnLabelEl: null,
+  /** @type {null | (() => Promise<any>)} set by main.js to avoid circular imports */
+  boot: null,
 };

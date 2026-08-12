@@ -1,4 +1,4 @@
-import { t, el, tdCell, apiGet, apiPost, renderPageShell, markPrewarmReminder, tf, rowActions } from "../core.js";
+import { t, el, tdCell, apiGet, apiGetNoHang, apiPost, renderPageShell, markPrewarmReminder, tf, rowActions } from "../core.js";
 
 const PLUGINS_PAGE_SIZE = 15;
 
@@ -100,14 +100,17 @@ async function renderPlugins() {
     wecom_longconn_inbound_queue_maxsize: 200,
   };
   const [p, mcp, mcpBinding, toolPolicyRaw] = await Promise.all([
-    apiGet("/admin/api/plugins"),
-    apiGet("/admin/api/mcp/servers").catch(() => ({ servers: [] })),
-    apiGet("/admin/api/mcp/binding").catch(() => ({
-      available_specialists: ["generalist"],
-      servers: [],
-      mapping: {},
-    })),
-    apiGet("/admin/api/tool-policy").catch(() => null),
+    apiGetNoHang("/admin/api/plugins").then((r) => r || { plugins: [] }),
+    apiGetNoHang("/admin/api/mcp/servers").then((r) => r || { servers: [] }),
+    apiGetNoHang("/admin/api/mcp/binding").then(
+      (r) =>
+        r || {
+          available_specialists: ["generalist"],
+          servers: [],
+          mapping: {},
+        },
+    ),
+    apiGetNoHang("/admin/api/tool-policy"),
   ]);
   let toolPolicy = toolPolicyRaw && typeof toolPolicyRaw === "object" ? toolPolicyRaw : defaultToolPolicy;
 
