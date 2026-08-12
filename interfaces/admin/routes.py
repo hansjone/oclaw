@@ -3092,6 +3092,12 @@ def build_admin_router() -> APIRouter:
             mapping=mapping_raw,
         )
         store.set_setting("mcp_specialist_server_binding", json.dumps(mapping, ensure_ascii=False))
+        try:
+            from runtime.direct_loop import invalidate_tool_wire_cache
+
+            invalidate_tool_wire_cache(reason="mcp_binding_update")
+        except Exception:
+            pass
         store.add_admin_audit_log(
             actor_tenant_id=ctx["tenant_id"],
             actor_user_id=ctx["user_id"],
@@ -3685,6 +3691,12 @@ def build_admin_router() -> APIRouter:
             for sp, sids in list(mapping.items()):
                 mapping[sp] = [sid for sid in sids if sid != manifest.server_id]
             store.set_setting("mcp_specialist_server_binding", json.dumps(mapping, ensure_ascii=False))
+            try:
+                from runtime.direct_loop import invalidate_tool_wire_cache
+
+                invalidate_tool_wire_cache(reason=f"mcp_uninstall_binding:{manifest.server_id}")
+            except Exception:
+                pass
         store.add_admin_audit_log(
             actor_tenant_id=ctx["tenant_id"],
             actor_user_id=ctx["user_id"],
@@ -3716,6 +3728,12 @@ def build_admin_router() -> APIRouter:
         for sp, sids in list(mapping.items()):
             mapping[sp] = [sid for sid in sids if sid != server_id]
         store.set_setting("mcp_specialist_server_binding", json.dumps(mapping, ensure_ascii=False))
+        try:
+            from runtime.direct_loop import invalidate_tool_wire_cache
+
+            invalidate_tool_wire_cache(reason=f"mcp_delete_binding:{server_id}")
+        except Exception:
+            pass
         store.add_admin_audit_log(
             actor_tenant_id=ctx["tenant_id"],
             actor_user_id=ctx["user_id"],

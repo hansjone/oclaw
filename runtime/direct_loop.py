@@ -199,6 +199,18 @@ def _tool_wire_settings_signature(store: Any) -> tuple[bool, str]:
     except Exception:
         runtime_enabled = True
     mcp_fp = _mcp_tools_fingerprint(store)
+    ops_slim = "0"
+    try:
+        from runtime.tools.ops_system_tool_allowlist import (
+            ops_system_tool_allowlist,
+            ops_system_tool_slim_enabled,
+        )
+
+        if ops_system_tool_slim_enabled():
+            names = ",".join(sorted(ops_system_tool_allowlist()))
+            ops_slim = "1:" + _stable_short_hash(names)
+    except Exception:
+        ops_slim = "x"
     sig = "|".join(
         [
             f"rt={int(bool(runtime_enabled))}",
@@ -208,10 +220,28 @@ def _tool_wire_settings_signature(store: Any) -> tuple[bool, str]:
             f"skill_disabled={str(store.get_setting('AIA_SKILL_DISABLED_NAMES') or '')}",
             f"bind_en={str(store.get_setting('AIA_SKILL_ROLE_BINDING_ENABLED') or '')}",
             f"mcp_tools={mcp_fp}",
+            f"ops_slim={ops_slim}",
+            f"mcp_bind={_mcp_binding_fingerprint(store)}",
         ]
     )
     return runtime_enabled, sig
 
+
+def _mcp_binding_fingerprint(store: Any) -> str:
+    """Hash specialist↔MCP server binding so wire freeze drops after Admin binding changes."""
+    try:
+        raw = str(store.get_setting("mcp_specialist_server_binding") or "").strip()
+    except Exception:
+        raw = ""
+    if not raw:
+        return "0"
+    return _stable_short_hash(raw)
+
+
+def _stable_short_hash(raw: str) -> str:
+    import hashlib
+
+    return hashlib.sha256(str(raw or "").encode("utf-8", errors="ignore")).hexdigest()[:12]
 
 def invalidate_tool_wire_cache(*, reason: str = "") -> dict[str, Any]:
     """Clear frozen tool-wire cache so the next turn rebuilds from current catalogs."""

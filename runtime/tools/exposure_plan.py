@@ -74,11 +74,28 @@ def build_internal_tool_specs(
     If preview=True, bypass caches and include skipped reasons.
     """
     r = str(role or "").strip().lower()
+    # Map specialist id → expert composition (ops → network_ops+memory).
+    expert_key = r
+    try:
+        from runtime.agents.specialists import expert_name_for_specialist
+
+        expert_key = str(expert_name_for_specialist(r) or r).strip() or r
+    except Exception:
+        expert_key = r
+
     pub_diag = preview_public_tools() if preview else {"tools": materialize_public_tools(), "skipped": []}
-    exp_diag = preview_expert_tools(r) if preview else {"tools": materialize_tools_for_expert(r), "skipped": []}
+    exp_diag = preview_expert_tools(expert_key) if preview else {"tools": materialize_tools_for_expert(expert_key), "skipped": []}
 
     pub_tools = list(pub_diag.get("tools") or [])
     pub_tools, allow_high, blocked = _risk_gate_public_tools(pub_tools)
+    try:
+        from runtime.tools.ops_system_tool_allowlist import filter_system_tool_specs
+
+        before_n = len(pub_tools)
+        pub_tools = filter_system_tool_specs(pub_tools, specialist=r)
+        diag_slim_dropped = max(0, before_n - len(pub_tools))
+    except Exception:
+        diag_slim_dropped = 0
     exp_tools = list(exp_diag.get("tools") or [])
     source_by_name: dict[str, str] = {}
 
@@ -109,11 +126,14 @@ def build_internal_tool_specs(
         "merged_count": len(merged),
         "public_risk_gate_allow_high": allow_high,
         "public_blocked_high_risk_tools": blocked,
+        "ops_system_slim_dropped": int(diag_slim_dropped),
+        "expert_key": expert_key,
         "skipped_public": list(pub_diag.get("skipped") or []),
         "skipped_expert": list(exp_diag.get("skipped") or []),
         "source_by_name": source_by_name,
     }
     plugin_rows = materialize_plugin_tools()
+    plugin_kept = 0
     for row in plugin_rows:
         spec = getattr(row, "tool", None)
         if not isinstance(spec, ToolSpec):
@@ -121,10 +141,21 @@ def build_internal_tool_specs(
         nm = str(spec.name or "").strip()
         if not nm or nm in seen:
             continue
+        try:
+            from runtime.tools.ops_system_tool_allowlist import (
+                is_ops_system_tool_allowed,
+                should_slim_system_tools_for_specialist,
+            )
+
+            if should_slim_system_tools_for_specialist(r) and not is_ops_system_tool_allowed(nm):
+                continue
+        except Exception:
+            pass
         seen.add(nm)
         merged.append(spec)
         source_by_name[nm] = "plugin"
-    diag["plugin_count"] = len(plugin_rows)
+        plugin_kept += 1
+    diag["plugin_count"] = plugin_kept
     return merged, diag
 
 

@@ -219,8 +219,18 @@ def materialize_tool_specs(
             logger.warning("mcp tool load skipped: %s", exc)
 
     # collect: plugin (Admin AIA_ENABLE_PLUGIN_TOOLS / env alias AIA_PLUGIN_TOOLS_ENABLED)
+    def _finalize(rows: list[tuple[str, ToolSpec]]) -> list[ToolSpec]:
+        # Field ops: slim public/plugin wire; MCP + expert stay intact.
+        try:
+            from runtime.tools.ops_system_tool_allowlist import filter_collected_tool_sources
+
+            rows = filter_collected_tool_sources(rows, specialist=specialist)
+        except Exception as exc:
+            logger.warning("ops system tool slim skipped: %s", exc)
+        return _resolve_tool_conflicts(rows)
+
     if not _plugin_tools_enabled(store):
-        return _resolve_tool_conflicts(collected)
+        return _finalize(collected)
 
     try:
         only_ids_raw = str(os.getenv("AIA_PLUGIN_TOOL_IDS") or "").strip()
@@ -265,8 +275,7 @@ def materialize_tool_specs(
             ))
     except Exception as exc:
         logger.warning("plugin tool load skipped: %s", exc)
-    # normalize/policy/resolve_conflict/finalize
-    return _resolve_tool_conflicts(collected)
+    return _finalize(collected)
 
 
 def default_registry(
