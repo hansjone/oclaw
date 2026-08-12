@@ -44,6 +44,14 @@
           "topic_routing": {
             "rules": [
               {
+                "topic": "ops-field",
+                "keywords": [
+                  "fiber", "optical", "lldp", "ume", "alarm", "host_name", "sfp",
+                  "capacity", "los", "bgp", "mpls", "nickname", "alias", "sembawa",
+                  "光功率", "断纤", "告警", "网元", "以后", "记住", "别再"
+                ]
+              },
+              {
                 "topic": "network",
                 "keywords": ["vlan", "router", "switch", "network", "dns", "gateway"]
               },
