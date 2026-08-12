@@ -128,6 +128,8 @@ def budget_block_payload(
     single_budget: int,
     fail_used: int = 0,
     fail_budget: int = 0,
+    batch_used: int = 0,
+    batch_budget: int = 0,
 ) -> dict[str, Any]:
     en = str(lang or "").strip().lower().startswith("en")
     if reason == "fail_budget":
@@ -136,14 +138,24 @@ def budget_block_payload(
             f"execManagedNe already failed {fail_used}/{fail_budget} times this turn. "
             "Stop one-NE loops; use ONE execManagedNe batch: "
             "ne_ids|ume_ne_ids + shared commands, or targets=[{ume_ne_id, commands},…] when commands differ — "
-            "or summarize reachable failures; do not keep probing."
+            "or summarize reachable failures / switch to ume_alarm_xlsx_report; do not keep probing."
             if en
             else f"本轮 execManagedNe 已失败 {fail_used}/{fail_budget} 次。"
             "停止单台循环；改用一次 batch："
             "同命令用 ne_ids/ume_ne_ids，每台命令不同用 targets=[{ume_ne_id, commands},…]；"
-            "或汇总可达性失败，勿继续盲探。"
+            "或汇总可达性失败 / 改走 ume_alarm_xlsx_report，勿继续盲探。"
         )
         err = "cli_fail_budget_exceeded"
+    elif reason == "batch_budget":
+        code = "cli_batch_budget_exceeded"
+        hint = (
+            f"execManagedNe batch soft budget exhausted ({batch_used}/{batch_budget} this turn). "
+            "Prefer ume_alarm_xlsx_report / alarm aggregate for the answer; do not start another CLI batch."
+            if en
+            else f"本轮 execManagedNe batch soft budget 已用尽（{batch_used}/{batch_budget}）。"
+            "优先 ume_alarm_xlsx_report / 告警聚合收口，勿再开新 CLI batch。"
+        )
+        err = "cli_batch_budget_exceeded"
     else:
         code = "cli_call_budget_exceeded"
         hint = (
@@ -181,6 +193,8 @@ def budget_block_payload(
         "single_budget": int(single_budget),
         "fail_used": int(fail_used),
         "fail_budget": int(fail_budget),
+        "batch_used": int(batch_used),
+        "batch_budget": int(batch_budget),
     }
 
 

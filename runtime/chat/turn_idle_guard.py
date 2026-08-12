@@ -100,6 +100,7 @@ class TurnIdleTracker:
                 "tool_loop_guard",
                 "cli_call_budget_exceeded",
                 "cli_fail_budget_exceeded",
+                "cli_batch_budget_exceeded",
             }:
                 guard += 1
         stats = RoundStats(

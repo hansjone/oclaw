@@ -46,6 +46,7 @@ def _guard_tool_result_text_for_history(
     cap_chars: int,
     image_cap_chars: int,
     video_cap_chars: int,
+    session_id: str = "",
 ) -> tuple[str, bool]:
     """Return (new_raw, changed) following the same strategy as context replay guard."""
     text = str(raw or "")
@@ -110,6 +111,33 @@ def _guard_tool_result_text_for_history(
     if len(text) <= int(cap_chars):
         return text, False
 
+    existing_ref = ""
+    if isinstance(obj, dict):
+        existing_ref = str(obj.get("result_ref") or "").strip()
+    if not existing_ref:
+        try:
+            from runtime.chat.tool_result_store import save_tool_result_blob
+
+            sid = str(session_id or getattr(store, "_history_compact_session_id", "") or "").strip() or "_history"
+            parsed_full = obj if isinstance(obj, dict) else None
+            if parsed_full is None:
+                try:
+                    p = json.loads(text)
+                    parsed_full = p if isinstance(p, dict) else {"ok": None, "raw": text}
+                except Exception:
+                    parsed_full = {"ok": None, "raw": text[: min(len(text), 200_000)]}
+            existing_ref = str(
+                save_tool_result_blob(
+                    session_id=sid,
+                    tool_call_id=f"history-{hash(text) & 0xFFFFFFFF:08x}",
+                    result=parsed_full,
+                    force=True,
+                )
+                or ""
+            )
+        except Exception:
+            existing_ref = ""
+
     preview = text[: max(1, min(4000, int(cap_chars) - 400))] + "\n...<tool_result_guard_truncated>"
     guarded_obj = {
         "ok": bool(ok) if ok is not None else None,
@@ -121,12 +149,14 @@ def _guard_tool_result_text_for_history(
         "preview": preview,
         "hint": (
             "Tool output was too large for safe context replay; it was truncated for history storage. "
-            "Use narrower queries (e.g., smaller glob/max_results) or adjust AIA_TOOL_LLM_MESSAGE_MAX_CHARS. / "
-            "工具输出过大，已压缩写回历史；请缩小范围或配置 AIA_TOOL_LLM_MESSAGE_MAX_CHARS。"
+            "Use fetch_tool_result(result_ref=...) when present, or narrower queries. / "
+            "工具输出过大，已压缩写回历史；有 result_ref 时用 fetch_tool_result 取全文。"
         ),
     }
+    if existing_ref:
+        guarded_obj["result_ref"] = existing_ref
+        guarded_obj["fetch_tool"] = "fetch_tool_result"
     return _json_dumps_safe(guarded_obj), True
-
 
 def compact_tool_results_in_session_history(
     *,
@@ -150,6 +180,10 @@ def compact_tool_results_in_session_history(
     max_seen = 0
 
     # We only need to scan tool messages; fetching ids+content is enough.
+    try:
+        store._history_compact_session_id = sid  # noqa: SLF001
+    except Exception:
+        pass
     with store._connect() as conn:  # noqa: SLF001
         cur = conn.execute(
             "select id, content from chat_message where session_id=? and role='tool' "
@@ -168,6 +202,7 @@ def compact_tool_results_in_session_history(
                 cap_chars=cap,
                 image_cap_chars=image_cap,
                 video_cap_chars=video_cap,
+                session_id=sid,
             )
             # Defensive fallback: if content is still over cap but guard didn't report change,
             # force a minimal guard so polluted history can always be compacted.

@@ -10,6 +10,14 @@ class _DummyStore:
     def get_setting(self, key: str) -> str:
         return str(self.settings.get(key, ""))
 
+    def list_mcp_servers(self, *, enabled_only: bool = False):
+        del enabled_only
+        return []
+
+    def list_mcp_server_tools(self, *, server_id: str):
+        del server_id
+        return []
+
 
 def test_tool_wire_freeze_default_on(monkeypatch) -> None:
     monkeypatch.setattr(dl, "_prepare_llm_tools", lambda **kwargs: [])
@@ -52,3 +60,35 @@ def test_warm_tool_wire_cache_clears_frozen_stale_entries(monkeypatch) -> None:
     st = dl.tool_wire_freeze_status(store=store)
     assert st["frozen"] is True
     assert st["last_warm_count"] == 2
+
+
+def test_invalidate_tool_wire_cache_clears_freeze(monkeypatch) -> None:
+    monkeypatch.setattr(dl, "_prepare_llm_tools", lambda **kwargs: [])
+    store = _DummyStore({"AIA_TOOL_WIRE_FROZEN_ON_STARTUP": "1"})
+    _ = dl.warm_tool_wire_cache(store=store, tools=object(), base_url="", roles=["generalist"])
+    assert dl.tool_wire_freeze_status(store=store)["frozen"] is True
+    out = dl.invalidate_tool_wire_cache(reason="test")
+    assert out["ok"] is True
+    assert dl.tool_wire_freeze_status(store=store)["frozen"] is False
+
+
+def test_mcp_tools_fingerprint_changes_with_catalog() -> None:
+    class _Store(_DummyStore):
+        def __init__(self):
+            super().__init__()
+            self.tools = [{"tool_name": "a"}]
+
+        def list_mcp_servers(self, *, enabled_only: bool = False):
+            del enabled_only
+            return [{"server_id": "netx"}]
+
+        def list_mcp_server_tools(self, *, server_id: str):
+            del server_id
+            return list(self.tools)
+
+    store = _Store()
+    fp1 = dl._mcp_tools_fingerprint(store)
+    store.tools = [{"tool_name": "a"}, {"tool_name": "b"}]
+    fp2 = dl._mcp_tools_fingerprint(store)
+    assert fp1 != fp2
+    assert fp1 != "x"

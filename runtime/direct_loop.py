@@ -155,6 +155,41 @@ def _tool_wire_freeze_enabled(store: Any) -> bool:
     return raw in {"1", "true", "yes", "on"}
 
 
+def _mcp_tools_fingerprint(store: Any) -> str:
+    """Stable hash of enabled MCP server tool catalogs (invalidates freeze after sync)."""
+    try:
+        import hashlib
+
+        rows = store.list_mcp_servers(enabled_only=True) if store else []
+        parts: list[str] = []
+        for row in rows or []:
+            if not isinstance(row, dict):
+                continue
+            sid = str(row.get("server_id") or "").strip()
+            if not sid:
+                continue
+            tools = []
+            try:
+                tools = store.list_mcp_server_tools(server_id=sid) or []
+            except Exception:
+                tools = []
+            names: list[str] = []
+            for t in tools:
+                if isinstance(t, dict):
+                    n = str(t.get("tool_name") or t.get("name") or "").strip()
+                    if n:
+                        names.append(n)
+            names.sort()
+            parts.append(f"{sid}:{','.join(names)}")
+        parts.sort()
+        raw = "|".join(parts)
+        if not raw:
+            return "0"
+        return hashlib.sha256(raw.encode("utf-8", errors="ignore")).hexdigest()[:16]
+    except Exception:
+        return "x"
+
+
 def _tool_wire_settings_signature(store: Any) -> tuple[bool, str]:
     runtime_enabled = True
     try:
@@ -163,6 +198,7 @@ def _tool_wire_settings_signature(store: Any) -> tuple[bool, str]:
             runtime_enabled = raw_flag in {"1", "true", "yes", "on"}
     except Exception:
         runtime_enabled = True
+    mcp_fp = _mcp_tools_fingerprint(store)
     sig = "|".join(
         [
             f"rt={int(bool(runtime_enabled))}",
@@ -171,10 +207,20 @@ def _tool_wire_settings_signature(store: Any) -> tuple[bool, str]:
             f"skill_rt={str(store.get_setting('AIA_SKILL_RUNTIME_ENABLED') or '')}",
             f"skill_disabled={str(store.get_setting('AIA_SKILL_DISABLED_NAMES') or '')}",
             f"bind_en={str(store.get_setting('AIA_SKILL_ROLE_BINDING_ENABLED') or '')}",
+            f"mcp_tools={mcp_fp}",
         ]
     )
     return runtime_enabled, sig
 
+
+def invalidate_tool_wire_cache(*, reason: str = "") -> dict[str, Any]:
+    """Clear frozen tool-wire cache so the next turn rebuilds from current catalogs."""
+    global _TOOL_WIRE_FROZEN_SIGNATURE
+    with _TOOL_WIRE_CACHE_LOCK:
+        _TOOL_WIRE_FROZEN_SIGNATURE = None
+        n = len(_TOOL_WIRE_CACHE)
+        _TOOL_WIRE_CACHE.clear()
+    return {"ok": True, "cleared_entries": int(n), "reason": str(reason or "")}
 
 def _tool_wire_cache_key(
     *,
@@ -416,6 +462,9 @@ def _guard_tool_results_for_llm_context(
         if len(raw) <= cap:
             out.append(_tool_message_with_content(m, raw, sid=session_id))
             continue
+        existing_ref = ""
+        if isinstance(obj, dict):
+            existing_ref = str(obj.get("result_ref") or "").strip()
         preview = raw[: max(1, min(4000, cap - 400))] + "\n...<tool_result_guard_truncated>"
         guarded_obj = {
             "ok": bool(ok) if ok is not None else None,
@@ -427,10 +476,29 @@ def _guard_tool_results_for_llm_context(
             "preview": preview,
             "hint": (
                 "Tool output was too large for safe context replay; it was truncated for the model context. "
-                "Use narrower queries (e.g., smaller glob/max_results) or adjust AIA_TOOL_LLM_MESSAGE_MAX_CHARS. / "
-                "工具输出过大，已在发给模型的上下文中强制截断；请缩小范围或配置 AIA_TOOL_LLM_MESSAGE_MAX_CHARS。"
+                "Call fetch_tool_result(result_ref=...) when result_ref is present, or use narrower queries. / "
+                "工具输出过大，已在上下文中截断；有 result_ref 时用 fetch_tool_result 取全文。"
             ),
         }
+        if existing_ref:
+            guarded_obj["result_ref"] = existing_ref
+            guarded_obj["fetch_tool"] = "fetch_tool_result"
+        else:
+            try:
+                from runtime.chat.tool_result_store import save_tool_result_blob
+
+                full_obj = obj if isinstance(obj, dict) else {"ok": ok, "raw": raw}
+                ref = save_tool_result_blob(
+                    session_id=str(session_id or ""),
+                    tool_call_id=f"msg-{int(getattr(m, 'id', 0) or 0)}",
+                    result=full_obj if isinstance(full_obj, dict) else {"payload": full_obj},
+                    force=True,
+                )
+                if ref:
+                    guarded_obj["result_ref"] = ref
+                    guarded_obj["fetch_tool"] = "fetch_tool_result"
+            except Exception:
+                pass
         guarded = _json_dumps_safe(guarded_obj)
         out.append(_tool_message_with_content(m, guarded, sid=session_id))
         if trace_id:
@@ -445,6 +513,7 @@ def _guard_tool_results_for_llm_context(
                     "original_chars": int(len(raw)),
                     "guarded_chars": int(len(guarded)),
                     "guard_cap_chars": int(cap),
+                    "result_ref": str(guarded_obj.get("result_ref") or ""),
                 },
                 run_id=run_id,
                 attempt_no=attempt_no,
@@ -728,13 +797,23 @@ def _prepare_llm_tools(
 ) -> list[dict[str, Any]]:
     global _TOOL_WIRE_FROZEN_SIGNATURE
     now = time.time()
-    runtime_enabled, sig = _tool_wire_settings_signature(store)
+    runtime_enabled, live_sig = _tool_wire_settings_signature(store)
     freeze_enabled = _tool_wire_freeze_enabled(store)
-    frozen_sig = _TOOL_WIRE_FROZEN_SIGNATURE if freeze_enabled else None
+    expected_frozen = f"rt={int(bool(runtime_enabled))}|{live_sig}"
+    with _TOOL_WIRE_CACHE_LOCK:
+        frozen_sig = _TOOL_WIRE_FROZEN_SIGNATURE if freeze_enabled else None
+        if isinstance(frozen_sig, str) and frozen_sig.strip():
+            # Reuse freeze only while settings + MCP catalog fingerprint still match.
+            if frozen_sig == expected_frozen:
+                sig = frozen_sig
+            else:
+                _TOOL_WIRE_FROZEN_SIGNATURE = None
+                _TOOL_WIRE_CACHE.clear()
+                sig = live_sig
+                frozen_sig = None
+        else:
+            sig = live_sig
     if isinstance(frozen_sig, str) and frozen_sig.strip():
-        # Startup-prewarmed frozen mode: execution path reuses precomputed tool wiring
-        # and does not perform per-turn policy revalidation.
-        sig = frozen_sig
         try:
             rt_head = str(frozen_sig).split("|", 1)[0].strip().lower()
             runtime_enabled = rt_head == "rt=1"
@@ -1670,5 +1749,11 @@ def run_direct_loop(**kwargs: Any) -> TurnRunOutcome:
     return run_oclaw_direct_loop(**kwargs)
 
 
-__all__ = ["run_oclaw_direct_loop", "run_direct_loop", "warm_tool_wire_cache", "tool_wire_freeze_status"]
+__all__ = [
+    "run_oclaw_direct_loop",
+    "run_direct_loop",
+    "warm_tool_wire_cache",
+    "invalidate_tool_wire_cache",
+    "tool_wire_freeze_status",
+]
 

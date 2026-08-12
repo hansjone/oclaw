@@ -5,9 +5,9 @@ from runtime.application.gateway.ops_short_intent import (
     filter_tool_specs_for_ops_short_intent,
     is_ops_short_intent_suppressed_tool,
     maybe_ops_short_intent_system_hint,
+    ops_short_intent_cli_soft_budgets,
 )
 from runtime.tools.base import ToolSpec
-from runtime.tools.tool_error_hints import enrich_exec_managed_ne_error, enrich_get_managed_ne_error
 
 
 def test_detect_ops_short_intent_english_field() -> None:
@@ -20,18 +20,19 @@ def test_detect_ops_short_intent_english_field() -> None:
     assert detect_ops_short_intent("hello there how are you doing today with something else") is None
 
 
-def test_ops_short_intent_suppresses_inventory_cli_tools() -> None:
-    assert is_ops_short_intent_suppressed_tool("mcp__netx__listCliTargets", intent="fiber_cut")
-    assert is_ops_short_intent_suppressed_tool("mcp__netx__execManagedNe", intent="offline")
+def test_ops_short_intent_suppresses_diy_xlsx_shell_only() -> None:
     assert is_ops_short_intent_suppressed_tool("run_command", intent="excel_export")
     assert is_ops_short_intent_suppressed_tool("write_xlsx", intent="fiber_cut")
     assert is_ops_short_intent_suppressed_tool("write_xlsx", intent="excel_export")
+    # Soft preference: CLI/inventory stay available for device confirmation.
+    assert not is_ops_short_intent_suppressed_tool("mcp__netx__listCliTargets", intent="fiber_cut")
+    assert not is_ops_short_intent_suppressed_tool("mcp__netx__execManagedNe", intent="offline")
     assert not is_ops_short_intent_suppressed_tool("ume_alarm_xlsx_report", intent="fiber_cut")
     assert not is_ops_short_intent_suppressed_tool("mcp__netx__queryUmeAlarmsRaw", intent="alarm_tally")
     assert not is_ops_short_intent_suppressed_tool("mcp__netx__execManagedNe", intent="continue")
 
 
-def test_filter_tool_specs_for_ops_short_intent_keeps_report_path() -> None:
+def test_filter_tool_specs_for_ops_short_intent_keeps_cli_and_report() -> None:
     def _spec(name: str) -> ToolSpec:
         return ToolSpec(
             name=name,
@@ -52,18 +53,31 @@ def test_filter_tool_specs_for_ops_short_intent_keeps_report_path() -> None:
     names = {t.name for t in kept}
     assert "ume_alarm_xlsx_report" in names
     assert "mcp__netx__aggregateUmeAlarms" in names
+    assert "mcp__netx__listCliTargets" in names
+    assert "mcp__netx__execManagedNe" in names
     assert "write_xlsx" not in names
-    assert "mcp__netx__listCliTargets" not in names
-    assert "mcp__netx__execManagedNe" not in names
     assert "run_command" not in names
     assert len(filter_tool_specs_for_ops_short_intent(tools, intent="continue")) == len(tools)
+
+
+def test_ops_short_intent_cli_soft_budgets() -> None:
+    soft = ops_short_intent_cli_soft_budgets("fiber_cut")
+    assert soft is not None
+    assert int(soft["single"]) <= 2
+    assert int(soft["batch"]) == 1
+    assert ops_short_intent_cli_soft_budgets("continue") is None
+    assert ops_short_intent_cli_soft_budgets(None) is None
 
 
 def test_ops_short_intent_hint_english_default() -> None:
     hint = maybe_ops_short_intent_system_hint(text="LOS on these sites", lang="en")
     assert "fiber" in hint.lower() or "LOS" in hint
     assert "ume_alarm_xlsx_report" in hint
+    assert "soft budget" in hint.lower() or "targets" in hint.lower()
     assert "断纤" not in hint
+
+
+from runtime.tools.tool_error_hints import enrich_exec_managed_ne_error, enrich_get_managed_ne_error
 
 
 def test_enrich_exec_timeout() -> None:

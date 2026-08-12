@@ -85,6 +85,12 @@ def sync_mcp_server_tools(store: Any, row: dict[str, Any]) -> dict[str, Any] | N
         store.replace_mcp_server_tools(server_id=sid, tools=tools)
         detail = {"synced_tools": len(tools), "compat_mode": "bailian_webparser"}
         store.set_mcp_server_health(server_id=sid, status="ok", detail=detail)
+        try:
+            from runtime.direct_loop import invalidate_tool_wire_cache
+
+            invalidate_tool_wire_cache(reason=f"mcp_sync:{sid}")
+        except Exception:
+            pass
         return {"server_id": sid, "ok": True, "health": detail, "tools_synced": len(tools)}
 
     rt = mcp_runtime_for_row(row, store=store)
@@ -128,6 +134,12 @@ def sync_mcp_server_tools(store: Any, row: dict[str, Any]) -> dict[str, Any] | N
                 "health": health,
             },
         )
+        try:
+            from runtime.direct_loop import invalidate_tool_wire_cache
+
+            invalidate_tool_wire_cache(reason=f"mcp_sync:{sid}")
+        except Exception:
+            pass
         return {
             "server_id": sid,
             "ok": True,

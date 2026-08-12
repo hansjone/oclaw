@@ -1095,15 +1095,27 @@ class ToolExecutor:
             is_exec_managed_ne_tool,
             load_turn_exec_managed_ne_stats,
         )
+        from runtime.application.gateway.ops_short_intent import ops_short_intent_cli_soft_budgets
 
-        prior_single_exec, _prior_batch_exec, prior_exec_fails = load_turn_exec_managed_ne_stats(
+        prior_single_exec, prior_batch_exec, prior_exec_fails = load_turn_exec_managed_ne_stats(
             ctx.store,
             session_id=ctx.session_id,
             turn_uuid=str(ctx.turn_uuid or ""),
         )
         single_exec_budget = exec_managed_ne_single_budget()
         fail_exec_budget = exec_managed_ne_fail_budget()
+        batch_exec_budget = 0  # 0 = unlimited (global default)
+        try:
+            md_budget = ctx.inbound_metadata if isinstance(ctx.inbound_metadata, dict) else {}
+            soft = ops_short_intent_cli_soft_budgets(str(md_budget.get("ops_short_intent") or "").strip() or None)
+            if soft:
+                single_exec_budget = int(soft.get("single") or single_exec_budget)
+                fail_exec_budget = int(soft.get("fail") or fail_exec_budget)
+                batch_exec_budget = int(soft.get("batch") or 0)
+        except Exception:
+            pass
         local_single_exec = 0
+        local_batch_exec = 0
         local_exec_fails = 0
 
         results_by_id: dict[str, tuple[dict[str, Any], int]] = {}
@@ -1237,7 +1249,31 @@ class ToolExecutor:
             if is_exec_managed_ne_tool(tool_name):
                 batchish = is_batch_exec_args(dict(tc.arguments or {}))
                 single_used = int(prior_single_exec) + int(local_single_exec)
+                batch_used = int(prior_batch_exec) + int(local_batch_exec)
                 fail_used = int(prior_exec_fails) + int(local_exec_fails)
+                if batchish and int(batch_exec_budget) > 0 and batch_used >= int(batch_exec_budget):
+                    results_by_id[tc.id] = (
+                        budget_block_payload(
+                            reason="batch_budget",
+                            lang=str(ctx.lang or "en"),
+                            single_used=single_used,
+                            single_budget=single_exec_budget,
+                            fail_used=fail_used,
+                            fail_budget=fail_exec_budget,
+                            batch_used=batch_used,
+                            batch_budget=batch_exec_budget,
+                        ),
+                        0,
+                    )
+                    _trace(
+                        "cli_batch_budget_exceeded",
+                        {
+                            "tool_name": tc.name,
+                            "batch_used": batch_used,
+                            "batch_budget": batch_exec_budget,
+                        },
+                    )
+                    continue
                 if (not batchish) and fail_used >= int(fail_exec_budget):
                     results_by_id[tc.id] = (
                         budget_block_payload(
@@ -1247,6 +1283,8 @@ class ToolExecutor:
                             single_budget=single_exec_budget,
                             fail_used=fail_used,
                             fail_budget=fail_exec_budget,
+                            batch_used=batch_used,
+                            batch_budget=batch_exec_budget,
                         ),
                         0,
                     )
@@ -1264,6 +1302,8 @@ class ToolExecutor:
                             single_budget=single_exec_budget,
                             fail_used=fail_used,
                             fail_budget=fail_exec_budget,
+                            batch_used=batch_used,
+                            batch_budget=batch_exec_budget,
                         ),
                         0,
                     )
@@ -1330,8 +1370,11 @@ class ToolExecutor:
                 )
                 continue
             first_tool_call_id_by_signature[sig] = str(tc.id or "")
-            if is_exec_managed_ne_tool(tool_name) and not is_batch_exec_args(dict(tc.arguments or {})):
-                local_single_exec += 1
+            if is_exec_managed_ne_tool(tool_name):
+                if is_batch_exec_args(dict(tc.arguments or {})):
+                    local_batch_exec += 1
+                else:
+                    local_single_exec += 1
             runnable_tool_uses.append(tc)
 
         for batch in partition_tool_use_batches(runnable_tool_uses, ctx.tools):
@@ -1399,6 +1442,7 @@ class ToolExecutor:
                     if str(result.get("error_code") or "") not in {
                         "cli_call_budget_exceeded",
                         "cli_fail_budget_exceeded",
+                        "cli_batch_budget_exceeded",
                         "identical_retry_blocked",
                         "retry_forbidden_blocked",
                         "tool_loop_guard",
@@ -1427,11 +1471,21 @@ class ToolExecutor:
                 duration_ms=duration_ms,
             )
             tool_log_write_ms = int((time.perf_counter() - t_db1) * 1000)
-            # Keep full payload during the active turn. History compaction is deferred
-            # until the turn finishes, so current-round model context remains lossless.
+            # Persist full blob when large; model context gets compact + result_ref.
             t_trunc = time.perf_counter()
             observed_rows_this_call = int(_estimate_observed_rows(result))
             result_for_llm = dict(persisted_result or {})
+            result_ref: str | None = None
+            try:
+                from runtime.chat.tool_result_store import attach_result_ref, save_tool_result_blob
+
+                result_ref = save_tool_result_blob(
+                    session_id=str(ctx.session_id or ""),
+                    tool_call_id=str(tc.id or ""),
+                    result=persisted_result if isinstance(persisted_result, dict) else result_for_llm,
+                )
+            except Exception:
+                result_ref = None
             if tc.name in _SQL_REPLAY_COMPACT_TOOL_NAMES:
                 current = int(local_turn_tool_name_counts.get(tc.name, 0))
                 current_rows = int(local_turn_tool_observed_rows.get(tc.name, 0))
@@ -1444,6 +1498,27 @@ class ToolExecutor:
                     result_for_llm["_tool_observed_rows_this_call"] = int(observed_rows_this_call)
                     result_for_llm["_tool_observed_rows_cumulative_in_turn"] = int(cumulative_rows)
                     result_for_llm["audit_note"] = "Result compacted for history replay safety."
+            # Compact oversized payloads for the model wire; full body remains in blob/tool_log.
+            try:
+                capped = truncate_tool_result_for_llm_messages(result_for_llm)
+                if isinstance(capped, dict) and capped.get("_truncated_for_llm"):
+                    result_for_llm = capped
+                    if not result_ref:
+                        from runtime.chat.tool_result_store import save_tool_result_blob
+
+                        result_ref = save_tool_result_blob(
+                            session_id=str(ctx.session_id or ""),
+                            tool_call_id=str(tc.id or ""),
+                            result=persisted_result if isinstance(persisted_result, dict) else dict(result_for_llm),
+                            force=True,
+                        )
+                if result_ref:
+                    from runtime.chat.tool_result_store import attach_result_ref
+
+                    result_for_llm = attach_result_ref(result_for_llm, result_ref=result_ref)
+            except Exception:
+                if result_ref and isinstance(result_for_llm, dict):
+                    result_for_llm["result_ref"] = result_ref
             trunc_ms = int((time.perf_counter() - t_trunc) * 1000)
             tool_content = self._json_dumps_safe(result_for_llm)
             t_db2 = time.perf_counter()
@@ -1469,6 +1544,7 @@ class ToolExecutor:
                         isinstance(result, dict) and _result_is_retry_forbidden(result)
                     ),
                     **({"exec_ne_mode": exec_ne_mode} if exec_ne_mode else {}),
+                    **({"result_ref": result_ref} if result_ref else {}),
                 },
             )
             try:
