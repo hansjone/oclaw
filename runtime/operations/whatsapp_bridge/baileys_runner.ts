@@ -9,13 +9,14 @@ import makeWASocket, {
   downloadMediaMessage,
   extensionForMediaMessage,
   fetchLatestBaileysVersion,
+  fetchLatestWaWebVersion,
   getContentType,
   jidNormalizedUser,
   proto,
 } from "@whiskeysockets/baileys";
 import { HttpsProxyAgent } from "https-proxy-agent";
 
-import { loadAuthState } from "./auth";
+import { loadAuthState, resolveAuthDir } from "./auth";
 import { printQrToTerminal, writeQrImage } from "./qr";
 import { writeBridgeStatus } from "./status";
 
@@ -1052,6 +1053,62 @@ function _ipLooksHijackedOrUnroutable(ip: string): boolean {
   return false;
 }
 
+const STALE_WA_BUILD = 1027934701;
+const FALLBACK_WA_VERSION: [number, number, number] = [2, 3000, 1043857760];
+
+function isUsableWaVersion(version: unknown): version is [number, number, number] {
+  if (!Array.isArray(version) || version.length < 3) return false;
+  const build = Number(version[2]);
+  return Number.isFinite(build) && build > STALE_WA_BUILD;
+}
+
+async function proxyFetchInit(): Promise<Record<string, unknown>> {
+  if (!PROXY_URL) return {};
+  try {
+    const undici = await import("node:undici");
+    return { dispatcher: new undici.ProxyAgent(PROXY_URL) };
+  } catch {
+    return {};
+  }
+}
+
+async function resolveWhatsAppVersion(): Promise<[number, number, number]> {
+  const fromEnv = String(process.env.AIA_WHATSAPP_WA_VERSION || "").trim();
+  if (fromEnv) {
+    const parts = fromEnv.split(/[.,]/).map((n) => Number(n));
+    if (isUsableWaVersion(parts)) {
+      log(`wa version from AIA_WHATSAPP_WA_VERSION=${parts.join(".")}`);
+      return [parts[0], parts[1], parts[2]];
+    }
+    log(`ignore invalid AIA_WHATSAPP_WA_VERSION=${fromEnv}`);
+  }
+  const fetchInit = await proxyFetchInit();
+  try {
+    const latest = await withTimeout(fetchLatestBaileysVersion(fetchInit as any), 8000, "fetchLatestBaileysVersion");
+    if (isUsableWaVersion(latest.version)) {
+      log(`wa version from Baileys master=${latest.version.join(".")} isLatest=${String(latest.isLatest)}`);
+      return [latest.version[0], latest.version[1], latest.version[2]];
+    }
+    log(
+      `fetchLatestBaileysVersion unusable version=${JSON.stringify(latest.version)} error=${String((latest as any).error || "")}`,
+    );
+  } catch (err) {
+    log(`fetchLatestBaileysVersion failed: ${String(err)}`);
+  }
+  try {
+    const web = await withTimeout(fetchLatestWaWebVersion(fetchInit as any), 8000, "fetchLatestWaWebVersion");
+    if (isUsableWaVersion(web.version)) {
+      log(`wa version from WhatsApp Web=${web.version.join(".")}`);
+      return [web.version[0], web.version[1], web.version[2]];
+    }
+    log(`fetchLatestWaWebVersion unusable version=${JSON.stringify(web.version)}`);
+  } catch (err) {
+    log(`fetchLatestWaWebVersion failed: ${String(err)}`);
+  }
+  log(`wa version fallback=${FALLBACK_WA_VERSION.join(".")} (rc.9 default ${STALE_WA_BUILD} is rejected with 405)`);
+  return FALLBACK_WA_VERSION;
+}
+
 async function logNetworkHints(): Promise<void> {
   try {
     const a = await dns.resolve4("web.whatsapp.com").catch(() => []);
@@ -1076,6 +1133,11 @@ async function logNetworkHints(): Promise<void> {
   }
   if (PROXY_URL) {
     log(`proxy configured for Baileys via PROXY_URL=${PROXY_URL}`);
+    try {
+      fs.writeFileSync(path.join(STATE_DIR, "proxy.url"), PROXY_URL, "utf8");
+    } catch {
+      // ignore
+    }
   }
 }
 
@@ -1109,8 +1171,22 @@ function makeDeduper(params: { ttlMs: number; max: number }) {
 
 async function main(): Promise<void> {
   ensureDir(STATE_DIR);
-  const { state, saveCreds } = await loadAuthState(STATE_DIR);
-  const { version } = await fetchLatestBaileysVersion();
+  log(
+    `runner booting local=${LOCAL_BASE_URL} stateDir=${STATE_DIR} verbose=${VERBOSE} node=${process.version} proxy=${PROXY_URL ? "set" : "unset"}`,
+  );
+  writeBridgeStatus(STATE_DIR, {
+    connection: "connecting",
+    me: "",
+    phone: "",
+    qr: "",
+    qr_data_url: "",
+    qr_png: "",
+    last_error: "runner_starting",
+    reconnect_attempt: 0,
+    login_only: LOGIN_ONLY,
+  });
+  let { state, saveCreds } = await loadAuthState(STATE_DIR);
+  const version = await resolveWhatsAppVersion();
   const dedupe = makeDeduper({ ttlMs: 10 * 60 * 1000, max: 20_000 });
 
   let reconnectAttempt = 0;
@@ -1169,6 +1245,7 @@ async function main(): Promise<void> {
 
     sock.ev.on("connection.update", async (update) => {
       if (update.qr) {
+        reconnectAttempt = 0;
         log("QR received. Scan it from WhatsApp -> Linked devices.");
         printQrToTerminal(update.qr);
         const qrArt = await writeQrImage(STATE_DIR, update.qr);
@@ -1177,6 +1254,9 @@ async function main(): Promise<void> {
           qr: String(update.qr || ""),
           qr_data_url: qrArt.dataUrl,
           qr_png: qrArt.pngPath ? path.basename(qrArt.pngPath) : "",
+          last_error: "",
+          last_disconnect_reason: "",
+          last_disconnect_status: null,
           reconnect_attempt: reconnectAttempt,
           login_only: LOGIN_ONLY,
         });
@@ -1216,10 +1296,16 @@ async function main(): Promise<void> {
         const reason = statusCode ? (DisconnectReason as any)[statusCode] || String(statusCode) : "unknown";
         const errText = String(update.lastDisconnect?.error || "").slice(0, 200);
         log(`disconnected reason=${reason} statusCode=${String(statusCode || "")} err=${errText}`);
+        const hasLinkedSession = Boolean(
+          jidPhone(String((state.creds as any)?.me?.id || sock?.user?.id || "")),
+        );
         if (statusCode === DisconnectReason.loggedOut) {
           log("logged out: delete data/channel_sidecar/whatsapp/state/auth to re-link.");
           writeBridgeStatus(STATE_DIR, {
             connection: "logged_out",
+            qr: "",
+            qr_data_url: "",
+            qr_png: "",
             last_disconnect_reason: String(reason),
             last_disconnect_status: typeof statusCode === "number" ? statusCode : null,
             last_error: errText,
@@ -1233,10 +1319,13 @@ async function main(): Promise<void> {
           DisconnectReason.badSession,
           405,
         ]);
-        if (typeof statusCode === "number" && rebindCodes.has(statusCode)) {
+        if (hasLinkedSession && typeof statusCode === "number" && rebindCodes.has(statusCode)) {
           log(`session invalid statusCode=${statusCode}: clear state/auth and scan QR again.`);
           writeBridgeStatus(STATE_DIR, {
             connection: "needs_rebind",
+            qr: "",
+            qr_data_url: "",
+            qr_png: "",
             last_disconnect_reason: String(reason),
             last_disconnect_status: statusCode,
             last_error: errText,
@@ -1245,16 +1334,55 @@ async function main(): Promise<void> {
           });
           return;
         }
+        if (!hasLinkedSession && statusCode === 405) {
+          reconnectAttempt += 1;
+          log(`pairing 405: WhatsApp rejected this identity. Resetting auth keys attempt=${reconnectAttempt}`);
+          writeBridgeStatus(STATE_DIR, {
+            connection: "connecting",
+            me: "",
+            phone: "",
+            qr: "",
+            qr_data_url: "",
+            qr_png: "",
+            last_disconnect_reason: "405",
+            last_disconnect_status: 405,
+            last_error: "pairing_rejected_resetting_keys",
+            reconnect_attempt: reconnectAttempt,
+            login_only: LOGIN_ONLY,
+          });
+          try {
+            sock?.end(undefined as any);
+          } catch {
+            // ignore
+          }
+          sock = null;
+          try {
+            fs.rmSync(resolveAuthDir(STATE_DIR), { recursive: true, force: true });
+          } catch {
+            // ignore
+          }
+          const fresh = await loadAuthState(STATE_DIR);
+          state = fresh.state;
+          saveCreds = fresh.saveCreds;
+          await sleep(2000);
+          await connectOnce();
+          return;
+        }
         reconnectAttempt += 1;
         writeBridgeStatus(STATE_DIR, {
-          connection: "close",
+          connection: hasLinkedSession ? "close" : "connecting",
+          qr: "",
+          qr_data_url: "",
+          qr_png: "",
           last_disconnect_reason: String(reason),
           last_disconnect_status: typeof statusCode === "number" ? statusCode : null,
           last_error: errText,
           reconnect_attempt: reconnectAttempt,
           login_only: LOGIN_ONLY,
         });
-        const base = Math.min(30_000, 1000 * Math.pow(2, Math.min(6, reconnectAttempt)));
+        const base = hasLinkedSession
+          ? Math.min(30_000, 1000 * Math.pow(2, Math.min(6, reconnectAttempt)))
+          : 1500;
         const jitter = Math.floor(Math.random() * 500);
         const delay = base + jitter;
         log(`reconnecting in ${delay}ms attempt=${reconnectAttempt}`);
@@ -1379,7 +1507,9 @@ async function main(): Promise<void> {
     });
   };
 
-  log(`runner started local=${LOCAL_BASE_URL} stateDir=${STATE_DIR} verbose=${VERBOSE} node=${process.version}`);
+  log(
+    `runner started local=${LOCAL_BASE_URL} stateDir=${STATE_DIR} verbose=${VERBOSE} node=${process.version} waVersion=${version.join(".")}`,
+  );
   await logNetworkHints();
   startOutboundPoller(() => sock);
   await connectOnce();

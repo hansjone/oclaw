@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime
 from pathlib import Path
 
 from runtime.operations import whatsapp_sidecar as wa
@@ -24,6 +25,12 @@ def test_whatsapp_install_copies_status_and_qrcode_pkg() -> None:
     assert "qrcode@$qrcodeVersion" in text
     start = (REPO_ROOT / "runtime/operations/scripts/whatsapp_start.ps1").read_text(encoding="utf-8")
     assert "status.ts" in start
+    assert "ResolveWhatsAppProxy.ps1" in start
+    assert "tsx\\dist\\cli.mjs" in start or "tsx/dist/cli.mjs" in start.replace("\\\\", "/")
+    assert "npx.cmd -y tsx" not in start
+    login = (REPO_ROOT / "runtime/operations/scripts/whatsapp_login.ps1").read_text(encoding="utf-8")
+    assert "pid.txt" in login
+    assert "ResolveWhatsAppProxy.ps1" in login
 
 
 def test_whatsapp_session_status_unbound(tmp_path, monkeypatch) -> None:
@@ -81,11 +88,48 @@ def test_whatsapp_unbind_removes_auth(tmp_path, monkeypatch) -> None:
     auth.mkdir(parents=True)
     (auth / "creds.json").write_text("{}", encoding="utf-8")
     (root / "state" / "qr.png").write_bytes(b"png")
+    (root / "state" / "bridge_status.json").write_text(
+        json.dumps(
+            {
+                "connection": "needs_rebind",
+                "last_disconnect_status": 405,
+                "last_error": "Error: Connection Failure",
+            }
+        ),
+        encoding="utf-8",
+    )
     out = wa.unbind_session(channel_id="whatsapp")
     assert out["ok"] is True
     assert out["removed_auth"] is True
     assert not auth.exists()
     assert out["status"]["lifecycle"] == "unbound"
+    assert not out["status"]["last_error"]
+    assert not out["status"]["last_disconnect_reason"]
+
+
+def test_whatsapp_session_status_ignores_stale_405_when_unbound(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(wa, "PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr(wa, "is_pid_running", lambda pid: True)
+    root = tmp_path / "data" / "channel_sidecar" / "whatsapp"
+    state = root / "state"
+    state.mkdir(parents=True)
+    (root / "baileys_runner.ts").write_text("// stub\n", encoding="utf-8")
+    (root / "pid.txt").write_text("4242\n", encoding="utf-8")
+    (state / "bridge_status.json").write_text(
+        json.dumps(
+            {
+                "connection": "needs_rebind",
+                "last_disconnect_status": 405,
+                "last_error": "Error: Connection Failure",
+            }
+        ),
+        encoding="utf-8",
+    )
+    st = wa.session_status(channel_id="whatsapp")
+    assert st["bound"] is False
+    assert st["lifecycle"] == "connecting"
+    assert st["last_error"] == "Error: Connection Failure"
+    assert int(st["last_disconnect_status"] or 0) == 405
 
 
 def test_whatsapp_session_status_needs_rebind_on_405(tmp_path, monkeypatch) -> None:
@@ -119,9 +163,76 @@ def test_whatsapp_session_status_needs_rebind_on_405(tmp_path, monkeypatch) -> N
     assert st["status_hint"] == "session_invalid_need_rebind"
 
 
+def test_whatsapp_session_status_qr_without_pid(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(wa, "PROJECT_ROOT", tmp_path)
+    root = tmp_path / "data" / "channel_sidecar" / "whatsapp"
+    state = root / "state"
+    state.mkdir(parents=True)
+    (root / "baileys_runner.ts").write_text("// stub\n", encoding="utf-8")
+    (state / "bridge_status.json").write_text(
+        json.dumps(
+            {
+                "connection": "qr",
+                "qr": "2@testqr",
+                "login_only": True,
+                "updated_at": "2026-08-17T15:29:18.721Z",
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(wa.time, "time", lambda: datetime.fromisoformat("2026-08-17T15:29:21+00:00").timestamp())
+    st = wa.session_status(channel_id="whatsapp")
+    assert st["lifecycle"] == "awaiting_scan"
+    assert st["sidecar_running"] is True
+    assert st["qr"] == "2@testqr"
+    assert str(st["qr_data_url"]).startswith("data:image/png;base64,")
+    assert st["login_only"] is True
+
+
+def test_start_bind_keeps_existing_daemon_qr(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(wa, "PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr(wa, "is_pid_running", lambda pid: True)
+    monkeypatch.setattr(wa, "stop_sidecar", lambda *a, **k: (_ for _ in ()).throw(AssertionError("should not stop")))
+    monkeypatch.setattr(wa, "start_sidecar", lambda *a, **k: (_ for _ in ()).throw(AssertionError("should not start")))
+    root = tmp_path / "data" / "channel_sidecar" / "whatsapp"
+    state = root / "state"
+    state.mkdir(parents=True)
+    (root / "baileys_runner.ts").write_text("// stub\n", encoding="utf-8")
+    (root / "pid.txt").write_text("4242\n", encoding="utf-8")
+    (state / "bridge_status.json").write_text(
+        json.dumps(
+            {
+                "connection": "qr",
+                "qr": "2@keepme",
+                "login_only": False,
+                "updated_at": "2026-08-17T15:29:18.721Z",
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(wa.time, "time", lambda: datetime.fromisoformat("2026-08-17T15:29:21+00:00").timestamp())
+    out = wa.start_bind(channel_id="whatsapp", clear_auth=False)
+    assert out["ok"] is True
+    assert out["already_awaiting_scan"] is True
+    assert out["status"]["qr"] == "2@keepme"
+
+
 def test_qr_to_data_url_generates_png() -> None:
     url = wa._qr_to_data_url("2@testqr")
     assert url.startswith("data:image/png;base64,")
+
+
+def test_start_bind_does_not_block_for_qr() -> None:
+    text = (REPO_ROOT / "runtime/operations/whatsapp_sidecar.py").read_text(encoding="utf-8")
+    fn = text[text.index("def start_bind") : text.index("def start_bind") + 1800]
+    assert "for _ in range(45)" not in fn
+    stack = (REPO_ROOT / "interfaces/admin/static/js/pages/stack.js").read_text(encoding="utf-8")
+    assert "watchWaBindUntilOnline" in stack
+    assert "waSessionBindRequested" in stack
+    assert 'initLife === "awaiting_scan" || initLife === "connecting"' not in stack
+    assert "10 * 60 * 1000" in stack
+    assert 'clear_auth: Boolean(needClear)' in stack
+    assert 'curLife === "unbound"' not in stack
 
 
 def test_admin_routes_expose_whatsapp_session_apis() -> None:
@@ -137,3 +248,8 @@ def test_admin_routes_expose_whatsapp_session_apis() -> None:
     assert "pollWaSession" in stack
     runner = (REPO_ROOT / "runtime/operations/whatsapp_bridge/baileys_runner.ts").read_text(encoding="utf-8")
     assert "needs_rebind" in runner
+    assert "pairing 405" in runner
+    assert "Resetting auth keys" in runner
+    assert "resolveWhatsAppVersion" in runner
+    assert "1043857760" in runner
+    assert "1027934701" in runner

@@ -7,6 +7,7 @@ import os
 import shutil
 import subprocess
 import time
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -59,18 +60,39 @@ def _read_pid(channel_id: str = DEFAULT_CHANNEL_ID) -> int:
         return 0
 
 
-def _write_local_status(channel_id: str, patch: dict[str, Any]) -> dict[str, Any]:
+def _empty_bridge_status() -> dict[str, Any]:
+    return {
+        "connection": "stopped",
+        "me": "",
+        "phone": "",
+        "qr": "",
+        "qr_data_url": "",
+        "qr_png": "",
+        "last_disconnect_reason": "",
+        "last_disconnect_status": None,
+        "last_error": "",
+        "reconnect_attempt": 0,
+        "login_only": False,
+    }
+
+
+def _write_local_status(
+    channel_id: str,
+    patch: dict[str, Any],
+    *,
+    replace: bool = False,
+) -> dict[str, Any]:
     path = bridge_status_file(channel_id)
     path.parent.mkdir(parents=True, exist_ok=True)
     prev: dict[str, Any] = {}
-    if path.exists():
+    if not replace and path.exists():
         try:
             obj = json.loads(path.read_text(encoding="utf-8"))
             if isinstance(obj, dict):
                 prev = obj
         except Exception:
             prev = {}
-    next_obj = dict(prev)
+    next_obj = dict(_empty_bridge_status() if replace else prev)
     next_obj.update(patch or {})
     next_obj["updated_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     path.write_text(json.dumps(next_obj, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -165,6 +187,17 @@ def installed(channel_id: str = DEFAULT_CHANNEL_ID) -> bool:
     return (sidecar_root(channel_id) / "baileys_runner.ts").exists()
 
 
+def _bridge_updated_age_s(bridge: dict[str, Any]) -> float | None:
+    updated = str(bridge.get("updated_at") or "").strip()
+    if not updated:
+        return None
+    try:
+        ts = datetime.fromisoformat(updated.replace("Z", "+00:00")).timestamp()
+        return max(0.0, time.time() - ts)
+    except Exception:
+        return None
+
+
 def _needs_rebind_disconnect(bridge: dict[str, Any]) -> bool:
     code = bridge.get("last_disconnect_status")
     try:
@@ -210,11 +243,25 @@ def session_status(
     auth_exists = auth_dir(cid).exists() and any(auth_dir(cid).glob("*.json"))
     bound = bool(bound_info.get("me") or auth_exists)
     connection = str(bridge.get("connection") or "").strip().lower()
+    last_error = str(bridge.get("last_error") or "")
+    last_disconnect_reason = str(bridge.get("last_disconnect_reason") or "")
+    last_disconnect_status = bridge.get("last_disconnect_status")
+    login_only = bool(bridge.get("login_only"))
+    qr_text = str(bridge.get("qr") or "").strip()
+    age_s = _bridge_updated_age_s(bridge)
+    # whatsapp_login.ps1 prints QR in the foreground and does not write pid.txt.
+    live_qr = connection == "qr" and bool(qr_text) and (age_s is None or age_s <= 90)
+    live_login = login_only and connection in ("qr", "connecting", "open") and (age_s is None or age_s <= 90)
+    if live_qr or live_login:
+        running = True
     if not running:
         if bound:
             lifecycle = "bound_stopped"
         else:
             lifecycle = "unbound"
+            last_error = ""
+            last_disconnect_reason = ""
+            last_disconnect_status = None
         connection = "stopped"
     else:
         if connection == "open":
@@ -223,23 +270,30 @@ def session_status(
             lifecycle = "awaiting_scan"
         elif connection == "connecting":
             lifecycle = "connecting"
-        elif connection == "logged_out":
+        elif bound and connection == "logged_out":
             lifecycle = "logged_out"
-        elif connection == "needs_rebind" or _needs_rebind_disconnect(bridge):
+        elif bound and (connection == "needs_rebind" or _needs_rebind_disconnect(bridge)):
             lifecycle = "needs_rebind"
         elif bound:
             lifecycle = "bound_offline"
             if not connection:
                 connection = "close"
         else:
+            # Auth already cleared; leftover 405/close must not keep the UI on "needs rebind".
             lifecycle = "connecting"
-            if not connection:
+            if connection not in ("connecting", "qr"):
+                if connection == "stopped" and not last_error:
+                    last_error = "runner_waiting"
                 connection = "connecting"
     me = str(bridge.get("me") or bound_info.get("me") or "").strip()
     phone = str(bridge.get("phone") or bound_info.get("phone") or "").strip()
     name = str(bound_info.get("name") or "").strip()
     qr = str(bridge.get("qr") or "").strip()
-    qr_data_url = str(bridge.get("qr_data_url") or "").strip()
+    qr_data_url = ""
+    if qr:
+        qr_data_url = _qr_to_data_url(qr)
+    if not qr_data_url:
+        qr_data_url = str(bridge.get("qr_data_url") or "").strip()
     qr_png_name = str(bridge.get("qr_png") or "").strip()
     qr_png_path = state_dir(cid) / qr_png_name if qr_png_name else state_dir(cid) / "qr.png"
     if (not qr_data_url) and qr_png_path.exists():
@@ -250,18 +304,13 @@ def session_status(
             qr_data_url = "data:image/png;base64," + base64.b64encode(raw).decode("ascii")
         except Exception:
             qr_data_url = ""
-    if (not qr_data_url) and qr:
-        qr_data_url = _qr_to_data_url(qr)
     stale_qr = False
-    if qr or qr_data_url:
+    if lifecycle == "awaiting_scan" and (qr or qr_data_url):
         try:
             updated = str(bridge.get("updated_at") or "").strip()
             if updated:
-                # QR older than 2 minutes is usually expired.
-                from datetime import datetime, timezone
-
                 ts = datetime.fromisoformat(updated.replace("Z", "+00:00")).timestamp()
-                stale_qr = (time.time() - ts) > 120
+                stale_qr = (time.time() - ts) > 20
         except Exception:
             stale_qr = False
     log_path = oclaw_log_root() / "whatsapp_sidecar.log"
@@ -282,13 +331,14 @@ def session_status(
         "qr": qr if lifecycle == "awaiting_scan" else "",
         "qr_data_url": qr_data_url if lifecycle == "awaiting_scan" else "",
         "qr_stale": bool(stale_qr) if lifecycle == "awaiting_scan" else False,
-        "last_disconnect_reason": str(bridge.get("last_disconnect_reason") or ""),
-        "last_disconnect_status": bridge.get("last_disconnect_status"),
-        "last_error": str(bridge.get("last_error") or ""),
+        "last_disconnect_reason": last_disconnect_reason,
+        "last_disconnect_status": last_disconnect_status,
+        "last_error": last_error,
         "reconnect_attempt": int(bridge.get("reconnect_attempt") or 0),
         "bridge_updated_at": str(bridge.get("updated_at") or ""),
         "auth_dir": str(auth_dir(cid)),
         "log_path": str(log_path),
+        "login_only": login_only,
         "status_hint": {
             "unbound": "not_bound",
             "bound_stopped": "bound_but_sidecar_stopped",
@@ -308,6 +358,11 @@ def stop_sidecar(channel_id: str = DEFAULT_CHANNEL_ID, *, force: bool = True) ->
     if force:
         args.append("-Force")
     result = _run_ps1("whatsapp_stop.ps1", args, timeout_s=60.0)
+    for _ in range(10):
+        pid = _read_pid(cid)
+        if not pid or not is_pid_running(pid):
+            break
+        time.sleep(0.3)
     _write_local_status(
         cid,
         {
@@ -316,8 +371,11 @@ def stop_sidecar(channel_id: str = DEFAULT_CHANNEL_ID, *, force: bool = True) ->
             "qr_data_url": "",
             "qr_png": "",
             "last_error": "",
+            "last_disconnect_reason": "",
+            "last_disconnect_status": None,
             "reconnect_attempt": 0,
         },
+        replace=True,
     )
     return {"ok": bool(result.get("ok")), "action": "stop", **result}
 
@@ -360,7 +418,7 @@ def unbind_session(
     if auth.exists():
         shutil.rmtree(auth, ignore_errors=True)
         removed_auth = not auth.exists()
-    for extra in (state_dir(cid) / "qr.png", bridge_status_file(cid)):
+    for extra in (state_dir(cid) / "qr.png",):
         try:
             if extra.exists():
                 extra.unlink()
@@ -380,6 +438,7 @@ def unbind_session(
             "last_error": "",
             "reconnect_attempt": 0,
         },
+        replace=True,
     )
     status = session_status(channel_id=cid, gateway_base_url=gateway_base_url)
     return {
@@ -400,21 +459,28 @@ def start_bind(
     """Ensure sidecar is running so a QR can appear (optionally after clearing auth)."""
     cid = str(channel_id or DEFAULT_CHANNEL_ID).strip() or DEFAULT_CHANNEL_ID
     base = str(gateway_base_url or DEFAULT_GATEWAY_BASE_URL).rstrip("/") or DEFAULT_GATEWAY_BASE_URL
+    cur = session_status(channel_id=cid, gateway_base_url=base)
+    # Keep an already-visible daemon QR. Replace login-only (cmd) so Admin can stay online after scan.
+    if (
+        not clear_auth
+        and str(cur.get("lifecycle") or "") == "awaiting_scan"
+        and (cur.get("qr") or cur.get("qr_data_url"))
+        and not bool(cur.get("login_only"))
+        and bool(cur.get("sidecar_running"))
+    ):
+        return {
+            "ok": True,
+            "action": "bind",
+            "clear_auth": False,
+            "already_awaiting_scan": True,
+            "status": cur,
+        }
     if clear_auth:
         unbind_session(cid, gateway_base_url=base)
     else:
         stop_sidecar(cid, force=True)
     started = start_sidecar(cid, gateway_base_url=base)
-    # Poll for QR / online (fresh sidecar may take 10-40s to emit QR).
     status = started.get("status") if isinstance(started.get("status"), dict) else session_status(channel_id=cid, gateway_base_url=base)
-    for _ in range(45):
-        life = str(status.get("lifecycle") or "")
-        if life == "online":
-            break
-        if life == "awaiting_scan" and (status.get("qr_data_url") or status.get("qr")):
-            break
-        time.sleep(1.0)
-        status = session_status(channel_id=cid, gateway_base_url=base)
     return {
         "ok": bool(started.get("ok")),
         "action": "bind",

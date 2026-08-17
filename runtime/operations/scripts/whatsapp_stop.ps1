@@ -46,4 +46,14 @@ if (Test-Path $sidecarPidFile) {
   Remove-Item -Force $sidecarPidFile -ErrorAction SilentlyContinue
 }
 
+# cmd.exe wrapper can leave node/tsx children; sweep leftover runners for this channel.
+$needle = "channel_sidecar\$ChannelId"
+Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
+  $_.CommandLine -and
+  $_.CommandLine -like "*$needle*" -and
+  $_.CommandLine -like "*baileys_runner*"
+} | ForEach-Object {
+  [void](Invoke-TaskKillQuiet -ProcessId ([string]$_.ProcessId) -ForceKill)
+}
+
 Write-Host "[ok] stopped whatsapp channel=$ChannelId"

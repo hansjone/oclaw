@@ -18,6 +18,7 @@ $sidecarPidFile = Join-Path $sidecarRoot "pid.txt"
 
 $env:PYTHONPATH = $oclawRoot
 . (Join-Path $PSScriptRoot "lib\ResolveRuntimeLogDir.ps1")
+. (Join-Path $PSScriptRoot "lib\ResolveWhatsAppProxy.ps1")
 $runtimeLogDir = Get-OclawRuntimeLogDir -RepoRoot $oclawRoot
 
 New-Item -ItemType Directory -Force -Path $sidecarRoot | Out-Null
@@ -61,10 +62,23 @@ if (-not $resp -or $resp.StatusCode -ne 200) {
   throw "oclaw gateway is not reachable at $healthUrl. Start it first: powershell -ExecutionPolicy Bypass -File .\\scripts\\start_gateway.ps1 -SkipInstall -Background"
 }
 
-$args = @(
-  "/c",
-  "cd /d $sidecarRoot && set OCLAW_STATE_DIR=$stateDir&& set AIA_GATEWAY_BASE_URL=$GatewayBaseUrl&& npx.cmd -y tsx baileys_runner.ts"
-)
-$p = Start-Process -FilePath "cmd.exe" -ArgumentList $args -WorkingDirectory $sidecarRoot -PassThru -WindowStyle Hidden -RedirectStandardOutput $logPath -RedirectStandardError $errPath
+$proxyUrl = Get-OclawWhatsAppProxyUrl -StateDir $stateDir -Persist
+if ($proxyUrl) {
+  $env:AIA_WHATSAPP_PROXY_URL = $proxyUrl
+  $env:HTTPS_PROXY = $proxyUrl
+  $env:HTTP_PROXY = $proxyUrl
+  Write-Host "[info] whatsapp sidecar proxy=$proxyUrl"
+}
+
+$nodeExe = Join-Path $systemNodeDir "node.exe"
+if (-not (Test-Path $nodeExe)) { $nodeExe = "node.exe" }
+$tsxCli = Join-Path $sidecarRoot "node_modules\tsx\dist\cli.mjs"
+if (-not (Test-Path $tsxCli)) {
+  throw "tsx not installed under $sidecarRoot. Run whatsapp_install.ps1 first."
+}
+
+$env:OCLAW_STATE_DIR = $stateDir
+$env:AIA_GATEWAY_BASE_URL = $GatewayBaseUrl
+$p = Start-Process -FilePath $nodeExe -ArgumentList @($tsxCli, "baileys_runner.ts") -WorkingDirectory $sidecarRoot -PassThru -WindowStyle Hidden -RedirectStandardOutput $logPath -RedirectStandardError $errPath
 Set-Content -Path $sidecarPidFile -Value $p.Id
 Write-Host "[ok] started whatsapp sidecar pid=$($p.Id) mode=baileys out=$logPath err=$errPath"
