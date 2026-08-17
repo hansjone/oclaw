@@ -611,6 +611,9 @@ function markPrewarmReminder(reason) {
   const base = t("stack.configChangedPrewarm");
   runtimePrewarmReminder = why ? `${base} [${why}]` : base;
 }
+function clearPrewarmReminder() {
+  runtimePrewarmReminder = "";
+}
 
 /**
  * Compact row action menu (button + fixed popover).
@@ -754,6 +757,7 @@ export {
   yesNo,
   runtimePrewarmReminder,
   markPrewarmReminder,
+  clearPrewarmReminder,
   rowActions,
   navigateAdmin,
   state,

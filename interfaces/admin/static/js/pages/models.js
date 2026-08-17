@@ -117,7 +117,7 @@ async function renderModels() {
   evalDetails.appendChild(evalSummary);
   evalDetails.appendChild(evalInner);
 
-  let state = null;
+  let modelsState = null;
   let evalPack = null;
   let secretsStatus = null;
   let expertsState = { items: [] };
@@ -179,7 +179,7 @@ async function renderModels() {
   }
 
   function labelFor(pid) {
-    const profiles = (state && state.profiles) || [];
+    const profiles = (modelsState && modelsState.profiles) || [];
     const p = profiles.find((x) => String(x.id) === String(pid));
     const base = (p && String(p.name || "").trim()) || pid;
     const vr = p && p.visibility_reason;
@@ -215,7 +215,7 @@ async function renderModels() {
   async function refresh() {
     try {
       const data = await apiGet("/admin/api/models");
-      state = data;
+      modelsState = data;
       status.textContent = "";
       paint();
       try {
@@ -239,7 +239,7 @@ async function renderModels() {
       }
       paintExperts();
     } catch (e) {
-      state = null;
+      modelsState = null;
       evalPack = null;
       secretsStatus = null;
       expertsState = { ok: false, items: [] };
@@ -314,21 +314,21 @@ async function renderModels() {
 
   function paintBindings() {
     bindingWrap.innerHTML = "";
-    if (!state || !state.bindings) return;
-    const profiles = state.profiles || [];
+    if (!modelsState || !modelsState.bindings) return;
+    const profiles = modelsState.profiles || [];
     const profileIds = profiles.map((p) => String(p.id));
-    const roleIds = Array.isArray(state.role_ids) ? state.role_ids : [];
+    const roleIds = Array.isArray(modelsState.role_ids) ? modelsState.role_ids : [];
     roleIds.forEach((rid) => {
       const sel = el("select", { class: "input", disabled: !canConfigureBindings });
       sel.appendChild(el("option", { value: "", text: t("models.useGlobal") }));
       profiles.forEach((p) => {
         sel.appendChild(el("option", { value: String(p.id), text: labelFor(p.id) }));
       });
-      const v = String(state.bindings[rid] || "").trim();
+      const v = String(modelsState.bindings[rid] || "").trim();
       sel.value = profileIds.includes(v) ? v : "";
       sel.addEventListener("change", async () => {
         if (!canConfigureBindings) return;
-        const next = Object.assign({}, state.bindings);
+        const next = Object.assign({}, modelsState.bindings);
         next[rid] = String(sel.value || "");
         try {
           await apiPost("/admin/api/models/bindings", { bindings: next });
@@ -345,10 +345,10 @@ async function renderModels() {
   }
 
   function paintOpsAiBindings() {
-    if (!state || !state.ops_ai_bindings) return;
-    const profiles = state.profiles || [];
+    if (!modelsState || !modelsState.ops_ai_bindings) return;
+    const profiles = modelsState.profiles || [];
     const profileIds = profiles.map((p) => String(p.id));
-    const roleIds = (Array.isArray(state.role_ids) ? state.role_ids : []).filter((rid) => String(rid || "") !== "manager");
+    const roleIds = (Array.isArray(modelsState.role_ids) ? modelsState.role_ids : []).filter((rid) => String(rid || "") !== "manager");
 
     const curSpecialist = String(opsAiSpecialistSelect.value || "").trim();
     opsAiSpecialistSelect.innerHTML = "";
@@ -363,7 +363,7 @@ async function renderModels() {
     profiles.forEach((p) => {
       opsAiProfileSelect.appendChild(el("option", { value: String(p.id), text: labelFor(p.id) }));
     });
-    const v = String((state.ops_ai_bindings && state.ops_ai_bindings[rid]) || "").trim();
+    const v = String((modelsState.ops_ai_bindings && modelsState.ops_ai_bindings[rid]) || "").trim();
     opsAiProfileSelect.value = profileIds.includes(v) ? v : "";
   }
 
@@ -414,22 +414,22 @@ async function renderModels() {
   }
 
   function paint() {
-    if (!state) return;
-    if (state.ok !== true) {
+    if (!modelsState) return;
+    if (modelsState.ok !== true) {
       status.textContent = status.textContent || t("models.loadFailed");
       return;
     }
-    const profiles = Array.isArray(state.profiles) ? state.profiles : [];
-    const builtin = String(state.builtin_ollama_profile_id || "");
+    const profiles = Array.isArray(modelsState.profiles) ? modelsState.profiles : [];
+    const builtin = String(modelsState.builtin_ollama_profile_id || "");
     activeSelect.innerHTML = "";
     profiles.forEach((p) => {
       activeSelect.appendChild(el("option", { value: String(p.id), text: labelFor(p.id) }));
     });
-    const aid = String(state.active_llm_profile_id || "");
+    const aid = String(modelsState.active_llm_profile_id || "");
     if (profiles.some((p) => String(p.id) === aid)) activeSelect.value = aid;
     activeSelect.disabled = !canPickActive;
     chatModelSelectorVisibleCb.disabled = !canConfigureChatUi;
-    chatModelSelectorVisibleCb.checked = state.chat_model_selector_visible !== false;
+    chatModelSelectorVisibleCb.checked = modelsState.chat_model_selector_visible !== false;
     opsAiSpecialistSelect.disabled = !canConfigureBindings;
     opsAiProfileSelect.disabled = !canConfigureBindings;
 
@@ -460,7 +460,7 @@ async function renderModels() {
     baseInp.value = String(selProf.base_url || "");
     thinkingModeCb.checked = !!selProf.thinking_mode_enabled;
     reasoningEffortSel.value = String(selProf.reasoning_effort || "");
-    keyInp.value = String(state.profile_secret || "");
+    keyInp.value = String(modelsState.profile_secret || "");
     rememberCb.checked = !!selProf.has_key;
 
     profName.disabled = !canEditFields;
@@ -477,7 +477,7 @@ async function renderModels() {
     ollamaHint.textContent = "";
     if (m === "openai" || m === "openai_responses") {
       ollamaHint.textContent = "";
-      if (state.has_openai_api_key_env) openaiHint.textContent = t("models.openaiKeyHint");
+      if (modelsState.has_openai_api_key_env) openaiHint.textContent = t("models.openaiKeyHint");
       if (selProf.has_key && !String(keyInp.value || "").trim()) {
         warnKey.textContent = t("models.warnKeyInDb");
       }
@@ -491,7 +491,7 @@ async function renderModels() {
     btnDelete.disabled = !canMutateProfiles || !rowMutable || pid === builtin;
 
     modelsGrantsLinkRow.innerHTML = "";
-    if (state.can_manage_llm_grants) {
+    if (modelsState.can_manage_llm_grants) {
       modelsGrantsLinkRow.style.display = "block";
       modelsGrantsLinkRow.appendChild(el("span", { text: `${t("models.grantsNavHint")} ` }));
       modelsGrantsLinkRow.appendChild(el("a", { href: "#/api-grants", text: t("models.linkApiGrants") }));
@@ -529,7 +529,7 @@ async function renderModels() {
     if (!canConfigureBindings) return;
     try {
       const rid = String(opsAiSpecialistSelect.value || "").trim();
-      const next = Object.assign({}, (state && state.ops_ai_bindings) || {});
+      const next = Object.assign({}, (modelsState && modelsState.ops_ai_bindings) || {});
       next[rid] = String(opsAiProfileSelect.value || "");
       await apiPost("/admin/api/models/ops-ai/bindings", { bindings: next });
       await refresh();
@@ -554,10 +554,10 @@ async function renderModels() {
 
   const btnSave = el("button", { class: "btn btn--primary", text: t("models.save"), onclick: async () => {
     if (!canMutateProfiles) return;
-    const sel = (state.profiles || []).find((p) => String(p.id) === String(state.active_llm_profile_id || ""));
+    const sel = (modelsState.profiles || []).find((p) => String(p.id) === String(modelsState.active_llm_profile_id || ""));
     if (sel && sel.mutable === false) return;
-    const pid = String(state.active_llm_profile_id || "");
-    const builtin = String(state.builtin_ollama_profile_id || "");
+    const pid = String(modelsState.active_llm_profile_id || "");
+    const builtin = String(modelsState.builtin_ollama_profile_id || "");
     try {
       let modeSave = modeSel.value;
       if (pid === builtin) modeSave = "ollama";
@@ -581,8 +581,8 @@ async function renderModels() {
 
   const btnDelete = el("button", { class: "btn btn--danger", text: t("models.delete"), onclick: async () => {
     if (!canMutateProfiles) return;
-    const pid = String(state.active_llm_profile_id || "");
-    const builtin = String(state.builtin_ollama_profile_id || "");
+    const pid = String(modelsState.active_llm_profile_id || "");
+    const builtin = String(modelsState.builtin_ollama_profile_id || "");
     if (pid === builtin) {
       status.textContent = t("models.cannotDeleteBuiltin");
       return;
@@ -709,7 +709,7 @@ async function renderModels() {
 
   await refresh();
 
-  if (!state) {
+  if (!modelsState) {
     return el("div", {}, [
       el("div", { class: "card" }, [
         el("div", { class: "card__title", text: t("title.models") }),
@@ -719,32 +719,32 @@ async function renderModels() {
     ]);
   }
 
-  if (state.ok === true && Array.isArray(state.profiles) && state.profiles.length === 0) {
+  if (modelsState.ok === true && Array.isArray(modelsState.profiles) && modelsState.profiles.length === 0) {
     const noProfBody = [
       el("div", { class: "card__title", text: t("title.models") }),
       el("div", { class: "muted", text: t("models.noProfiles") }),
     ];
-    if (state.db_path) {
-      noProfBody.push(el("div", { class: "muted", text: `${t("models.dbPath")}: ${state.db_path}` }));
+    if (modelsState.db_path) {
+      noProfBody.push(el("div", { class: "muted", text: `${t("models.dbPath")}: ${modelsState.db_path}` }));
     }
     noProfBody.push(status);
     return el("div", {}, [el("div", { class: "card" }, noProfBody)]);
   }
 
-  if (state.ok !== true) {
+  if (modelsState.ok !== true) {
     return el("div", {}, [
       el("div", { class: "card" }, [
         el("div", { class: "card__title", text: t("title.models") }),
         el("div", { class: "muted", text: t("models.loadFailed") }),
-        el("pre", { class: "pre", text: JSON.stringify(state, null, 2) }),
+        el("pre", { class: "pre", text: JSON.stringify(modelsState, null, 2) }),
         status,
       ]),
     ]);
   }
 
   const topBits = [readonlyHint, status, modelsGrantsLinkRow];
-  if (state.db_path) {
-    topBits.push(el("div", { class: "muted", text: `${t("models.dbPath")}: ${state.db_path}` }));
+  if (modelsState.db_path) {
+    topBits.push(el("div", { class: "muted", text: `${t("models.dbPath")}: ${modelsState.db_path}` }));
   }
   // Show secret migration helper when legacy secrets exist.
   topBits.push(secretsCard);

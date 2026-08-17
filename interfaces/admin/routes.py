@@ -1767,6 +1767,83 @@ def build_admin_router() -> APIRouter:
         )
         return {"ok": deleted, "deleted": deleted}
 
+    @router.get("/admin/api/whatsapp/session")
+    def api_whatsapp_session_get(
+        channel_id: str = Query(default="whatsapp"),
+        account_id: str = Query(default=""),
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        from runtime.operations.whatsapp_sidecar import session_status
+
+        store = get_assistant_store()
+        ctx = _resolve_auth(store, authorization)
+        _require_permission(ctx, "admin:read")
+        aid = str(account_id or os.getenv("AIA_WHATSAPP_ACCOUNT_ID") or "wa-default").strip()
+        return session_status(channel_id=str(channel_id or "whatsapp").strip() or "whatsapp", account_id=aid)
+
+    @router.post("/admin/api/whatsapp/session/start")
+    def api_whatsapp_session_start(
+        payload: dict[str, Any] | None = Body(default=None),
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        from runtime.operations.whatsapp_sidecar import start_sidecar
+
+        store = get_assistant_store()
+        ctx = _resolve_auth(store, authorization)
+        _require_permission(ctx, "admin:runtime:write")
+        body = payload or {}
+        cid = str(body.get("channel_id") or "whatsapp").strip() or "whatsapp"
+        base = str(body.get("gateway_base_url") or os.getenv("AIA_GATEWAY_BASE_URL") or "http://127.0.0.1:8787").strip()
+        return start_sidecar(cid, gateway_base_url=base)
+
+    @router.post("/admin/api/whatsapp/session/stop")
+    def api_whatsapp_session_stop(
+        payload: dict[str, Any] | None = Body(default=None),
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        from runtime.operations.whatsapp_sidecar import session_status, stop_sidecar
+
+        store = get_assistant_store()
+        ctx = _resolve_auth(store, authorization)
+        _require_permission(ctx, "admin:runtime:write")
+        body = payload or {}
+        cid = str(body.get("channel_id") or "whatsapp").strip() or "whatsapp"
+        force = str(body.get("force") or "1").strip().lower() not in ("0", "false", "no", "off")
+        result = stop_sidecar(cid, force=force)
+        result["status"] = session_status(channel_id=cid)
+        return result
+
+    @router.post("/admin/api/whatsapp/session/unbind")
+    def api_whatsapp_session_unbind(
+        payload: dict[str, Any] | None = Body(default=None),
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        from runtime.operations.whatsapp_sidecar import unbind_session
+
+        store = get_assistant_store()
+        ctx = _resolve_auth(store, authorization)
+        _require_permission(ctx, "admin:runtime:write")
+        body = payload or {}
+        cid = str(body.get("channel_id") or "whatsapp").strip() or "whatsapp"
+        base = str(body.get("gateway_base_url") or os.getenv("AIA_GATEWAY_BASE_URL") or "http://127.0.0.1:8787").strip()
+        return unbind_session(cid, gateway_base_url=base)
+
+    @router.post("/admin/api/whatsapp/session/bind")
+    def api_whatsapp_session_bind(
+        payload: dict[str, Any] | None = Body(default=None),
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        from runtime.operations.whatsapp_sidecar import start_bind
+
+        store = get_assistant_store()
+        ctx = _resolve_auth(store, authorization)
+        _require_permission(ctx, "admin:runtime:write")
+        body = payload or {}
+        cid = str(body.get("channel_id") or "whatsapp").strip() or "whatsapp"
+        base = str(body.get("gateway_base_url") or os.getenv("AIA_GATEWAY_BASE_URL") or "http://127.0.0.1:8787").strip()
+        clear_auth = str(body.get("clear_auth") or "").strip().lower() in ("1", "true", "yes", "on")
+        return start_bind(cid, gateway_base_url=base, clear_auth=clear_auth)
+
     @router.get("/admin/api/users")
     def api_users(
         tenant_id: str,

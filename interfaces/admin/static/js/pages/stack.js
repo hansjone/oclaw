@@ -1,4 +1,4 @@
-import { t, el, tdCell, apiGet, apiGetNoHang, apiPost, apiDeleteJson, formatSystemLocalDateTime, renderMetaChips, navigateAdmin, tf } from "../core.js";
+import { t, el, tdCell, apiGet, apiGetNoHang, apiPost, apiDeleteJson, formatSystemLocalDateTime, renderMetaChips, navigateAdmin, tf, runtimePrewarmReminder, clearPrewarmReminder } from "../core.js";
 
 async function renderStack() {
   const results = await Promise.allSettled([
@@ -10,6 +10,7 @@ async function renderStack() {
     apiGetNoHang("/admin/api/chat/settings/channel-dispatch/whatsapp"),
     apiGetNoHang("/admin/api/whatsapp/groups?tenant_id=default"),
     apiGetNoHang("/admin/api/whatsapp/access?tenant_id=default"),
+    apiGetNoHang("/admin/api/whatsapp/session"),
   ]);
   const scanResp = results[0].status === "fulfilled" ? results[0].value : null;
   const prewarmStatusResp = results[1].status === "fulfilled" ? results[1].value : null;
@@ -19,6 +20,7 @@ async function renderStack() {
   const whatsappDispatchResp = results[5].status === "fulfilled" ? results[5].value : null;
   const whatsappGroupsResp = results[6].status === "fulfilled" ? results[6].value : null;
   const whatsappAccessResp = results[7].status === "fulfilled" ? results[7].value : null;
+  const whatsappSessionResp = results[8].status === "fulfilled" ? results[8].value : null;
 
   // If auth failed (401), show a gentle message instead of an infinite spinner.
   if (!channelSpecResp && !weixinDispatchResp && !prewarmStatusResp) {
@@ -91,6 +93,206 @@ async function renderStack() {
   };
   const weixinDispatchCard = createChannelDispatchCard("weixin", "Weixin dispatch", weixinDispatchResp || {});
   const whatsappDispatchCard = createChannelDispatchCard("whatsapp", "WhatsApp dispatch", whatsappDispatchResp || {});
+  let waSessionLatest = whatsappSessionResp && typeof whatsappSessionResp === "object" ? whatsappSessionResp : {};
+  let waSessionBindInProgress = false;
+  const waSessionHintAlert = el("div", { class: "alert alert--warning u-hidden", text: "" });
+  const paintWaSession = (st) => {
+    const s = st && typeof st === "object" ? st : {};
+    waSessionLatest = s;
+    const lifecycle = String(s.lifecycle || "unbound").trim() || "unbound";
+    const lifeLabel = t(`wa.lifecycle.${lifecycle}`) || lifecycle;
+    const chips = renderMetaChips({
+      lifecycle: lifeLabel,
+      connection: String(s.connection || "-"),
+      phone: String(s.phone || "-"),
+      sidecar: s.sidecar_running ? `pid ${s.pid || "-"}` : "stopped",
+      reconnect: Number(s.reconnect_attempt || 0),
+    });
+    waSessionStatus.replaceChildren(...Array.from(chips.childNodes));
+    const detailBits = [
+      s.display_name ? `name=${s.display_name}` : "",
+      s.me ? `me=${s.me}` : "",
+      s.last_error ? `err=${String(s.last_error).slice(0, 120)}` : "",
+      s.last_disconnect_reason ? `disconnect=${s.last_disconnect_reason}` : "",
+      s.bridge_updated_at ? `updated=${s.bridge_updated_at}` : "",
+    ].filter(Boolean);
+    waSessionDetail.textContent = detailBits.join(" | ") || (s.installed ? "" : t("wa.sessionNotInstalled"));
+    if (lifecycle === "needs_rebind" || lifecycle === "logged_out") {
+      waSessionHintAlert.textContent = t("wa.sessionNeedsRebind");
+      waSessionHintAlert.classList.remove("u-hidden");
+    } else {
+      waSessionHintAlert.textContent = "";
+      waSessionHintAlert.classList.add("u-hidden");
+    }
+    const qrUrl = String(s.qr_data_url || "").trim();
+    const awaiting = lifecycle === "awaiting_scan" || waSessionBindInProgress;
+    waSessionQrWrap.style.display = awaiting ? "" : "none";
+    waSessionQrHint.textContent = awaiting
+      ? (s.qr_stale ? t("wa.sessionQrStale") : t("wa.sessionScanHint"))
+      : "";
+    if (awaiting && qrUrl) {
+      waSessionQrImg.src = qrUrl;
+      waSessionQrImg.style.display = "";
+      waSessionQrWaiting.style.display = "none";
+    } else if (awaiting) {
+      waSessionQrImg.removeAttribute("src");
+      waSessionQrImg.style.display = "none";
+      waSessionQrWaiting.style.display = "";
+      waSessionQrWaiting.textContent = t("wa.sessionQrWaiting");
+    } else {
+      waSessionQrImg.removeAttribute("src");
+      waSessionQrImg.style.display = "none";
+      waSessionQrWaiting.style.display = "none";
+    }
+    const bindModes = new Set(["unbound", "logged_out", "awaiting_scan", "needs_rebind"]);
+    if (waSessionBindBtn) {
+      waSessionBindBtn.textContent = bindModes.has(lifecycle)
+        ? t("wa.sessionBind")
+        : t("wa.sessionRebind");
+      waSessionBindBtn.disabled = Boolean(waSessionBindInProgress);
+    }
+  };
+  const waSessionStatus = el("div", { class: "muted" });
+  const waSessionDetail = el("div", { class: "muted u-mt-8" });
+  const waSessionBindBtn = el("button", {
+    class: "btn btn--primary",
+    text: t("wa.sessionBind"),
+  });
+  const waSessionQrImg = el("img", {
+    alt: "WhatsApp QR",
+    style: "width:240px;height:240px;background:#fff;border:1px solid var(--border, #ddd);display:none;",
+  });
+  const waSessionQrWaiting = el("div", { class: "muted", style: "display:none;" });
+  const waSessionQrHint = el("div", { class: "card__hint" });
+  const waSessionQrWrap = el("div", { class: "u-mt-10", style: "display:none;" }, [
+    waSessionQrHint,
+    waSessionQrImg,
+    waSessionQrWaiting,
+  ]);
+  const waSessionActionStatus = el("div", { class: "muted u-mt-8", text: "" });
+  const pollWaSession = async (opts = {}) => {
+    const maxMs = Number(opts.maxMs || 60000);
+    const stepMs = Number(opts.stepMs || 2000);
+    const stopWhen = opts.stopWhen || ((st) => {
+      const life = String((st && st.lifecycle) || "");
+      return ["online", "awaiting_scan", "needs_rebind", "logged_out", "bound_stopped", "unbound"].includes(life);
+    });
+    waSessionActionStatus.textContent = t("wa.sessionPolling");
+    let waited = 0;
+    let latest = waSessionLatest;
+    while (waited < maxMs) {
+      const st = await apiGet("/admin/api/whatsapp/session");
+      paintWaSession(st);
+      latest = st;
+      if (stopWhen(st)) break;
+      await new Promise((r) => setTimeout(r, stepMs));
+      waited += stepMs;
+    }
+    waSessionActionStatus.textContent = "";
+    return latest;
+  };
+  const withWaSessionAction = async (fn, opts = {}) => {
+    waSessionActionStatus.textContent = "…";
+    try {
+      const resp = await fn();
+      const st = (resp && resp.status) || resp || {};
+      paintWaSession(st.ok === false && !st.lifecycle ? (await apiGet("/admin/api/whatsapp/session")) : st);
+      if (resp && resp.ok === false) {
+        waSessionActionStatus.textContent = String(resp.error || resp.stderr || "failed");
+      } else {
+        waSessionActionStatus.textContent = "ok";
+      }
+      if (opts.poll !== false && resp && resp.ok !== false) {
+        await pollWaSession(opts.poll || {});
+      }
+      return resp;
+    } catch (err) {
+      waSessionActionStatus.textContent = String(err);
+      throw err;
+    }
+  };
+  const waSessionRefreshBtn = el("button", {
+    class: "btn",
+    text: t("wa.sessionRefresh"),
+    onclick: async () => {
+      await withWaSessionAction(async () => apiGet("/admin/api/whatsapp/session"), { poll: false });
+    },
+  });
+  const waSessionStartBtn = el("button", {
+    class: "btn",
+    text: t("wa.sessionStart"),
+    onclick: async () => {
+      await withWaSessionAction(async () => apiPost("/admin/api/whatsapp/session/start", {}));
+    },
+  });
+  const waSessionStopBtn = el("button", {
+    class: "btn",
+    text: t("wa.sessionStop"),
+    onclick: async () => {
+      await withWaSessionAction(async () => apiPost("/admin/api/whatsapp/session/stop", { force: true }), { poll: false });
+    },
+  });
+  const waSessionBindBtnClick = async () => {
+    const curLife = String((waSessionLatest && waSessionLatest.lifecycle) || "").trim();
+    const autoClear = ["needs_rebind", "logged_out"].includes(curLife);
+    const needClear = autoClear || (curLife && !["unbound", "awaiting_scan"].includes(curLife));
+    if (needClear && !autoClear && !window.confirm(t("wa.sessionRebindConfirm"))) return;
+    waSessionBindInProgress = true;
+    paintWaSession(waSessionLatest);
+    try {
+      await withWaSessionAction(async () => apiPost("/admin/api/whatsapp/session/bind", {
+        clear_auth: Boolean(needClear),
+      }), {
+        poll: {
+          maxMs: 120000,
+          stopWhen: (st) => {
+            const life = String((st && st.lifecycle) || "");
+            if (life === "online") return true;
+            return life === "awaiting_scan" && Boolean(st && (st.qr_data_url || st.qr));
+          },
+        },
+      });
+    } finally {
+      waSessionBindInProgress = false;
+      paintWaSession(waSessionLatest);
+    }
+  };
+  waSessionBindBtn.onclick = waSessionBindBtnClick;
+  const waSessionUnbindBtn = el("button", {
+    class: "btn btn--danger",
+    text: t("wa.sessionUnbind"),
+    onclick: async () => {
+      if (!window.confirm(t("wa.sessionUnbindConfirm"))) return;
+      await withWaSessionAction(async () => apiPost("/admin/api/whatsapp/session/unbind", {}), { poll: false });
+    },
+  });
+  const whatsappSessionCard = el("div", { class: "card" }, [
+    el("div", { class: "card__head" }, [
+      el("div", { class: "card__headline" }, [
+        el("div", { class: "card__title", text: t("wa.sessionTitle") }),
+        el("div", { class: "card__subtitle", text: t("wa.sessionHint") }),
+      ]),
+      el("div", { class: "card__actions" }, [
+        waSessionRefreshBtn,
+        waSessionStartBtn,
+        waSessionStopBtn,
+        waSessionBindBtn,
+        waSessionUnbindBtn,
+      ]),
+    ]),
+    waSessionStatus,
+    waSessionHintAlert,
+    waSessionDetail,
+    waSessionQrWrap,
+    waSessionActionStatus,
+  ]);
+  paintWaSession(whatsappSessionResp || {});
+  if (whatsappSessionResp && whatsappSessionResp.sidecar_running) {
+    const initLife = String(whatsappSessionResp.lifecycle || "");
+    if (["connecting", "bound_offline"].includes(initLife)) {
+      void pollWaSession({ maxMs: 30000 });
+    }
+  }
   const waGroups = Array.isArray(whatsappGroupsResp && whatsappGroupsResp.items) ? whatsappGroupsResp.items : [];
   const waBinding = (whatsappGroupsResp && whatsappGroupsResp.binding) || {};
   const waGroupSel = el(
@@ -605,7 +807,7 @@ async function renderStack() {
       }
       prewarmStatus.textContent =
         t("auto.prewarm_running_in_background_refreshing_this_page_when_");
-      runtimePrewarmReminder = "";
+      clearPrewarmReminder();
       const maxWaitMs = 120000;
       const stepMs = 400;
       let waited = 0;
@@ -696,6 +898,7 @@ async function renderStack() {
       weixinDispatchCard,
       whatsappDispatchCard,
     ]),
+    whatsappSessionCard,
     whatsappAccessCard,
     whatsappAlertBindingCard,
     el("div", { class: "card" }, [

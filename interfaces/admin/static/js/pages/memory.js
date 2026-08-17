@@ -1,4 +1,4 @@
-import { t, el, tdCell, apiGet, apiPost, CHAT_MEMORY_MODE_KEY, navigateAdmin } from "../core.js";
+import { t, el, tdCell, apiGet, apiPost, CHAT_MEMORY_MODE_KEY, navigateAdmin, getRoute } from "../core.js";
 
 async function renderMemory() {
   const route = getRoute();

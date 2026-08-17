@@ -16,7 +16,8 @@ import makeWASocket, {
 import { HttpsProxyAgent } from "https-proxy-agent";
 
 import { loadAuthState } from "./auth";
-import { printQrToTerminal } from "./qr";
+import { printQrToTerminal, writeQrImage } from "./qr";
+import { writeBridgeStatus } from "./status";
 
 type Json = Record<string, unknown>;
 
@@ -1118,6 +1119,18 @@ async function main(): Promise<void> {
   const wsAgent = PROXY_URL ? new HttpsProxyAgent(PROXY_URL) : undefined;
   const groupNameCache = new Map<string, { name: string; ts: number }>();
   const GROUP_NAME_TTL_MS = 10 * 60 * 1000;
+  const initialMe = String((state.creds as any)?.me?.id || "").trim();
+  writeBridgeStatus(STATE_DIR, {
+    connection: "connecting",
+    me: initialMe ? jidNormalizedUser(initialMe) : "",
+    phone: jidPhone(initialMe),
+    qr: "",
+    qr_data_url: "",
+    qr_png: "",
+    last_error: "",
+    reconnect_attempt: 0,
+    login_only: LOGIN_ONLY,
+  });
 
   const resolveGroupName = async (chatId: string): Promise<string> => {
     const key = String(chatId || "").trim();
@@ -1158,6 +1171,15 @@ async function main(): Promise<void> {
       if (update.qr) {
         log("QR received. Scan it from WhatsApp -> Linked devices.");
         printQrToTerminal(update.qr);
+        const qrArt = await writeQrImage(STATE_DIR, update.qr);
+        writeBridgeStatus(STATE_DIR, {
+          connection: "qr",
+          qr: String(update.qr || ""),
+          qr_data_url: qrArt.dataUrl,
+          qr_png: qrArt.pngPath ? path.basename(qrArt.pngPath) : "",
+          reconnect_attempt: reconnectAttempt,
+          login_only: LOGIN_ONLY,
+        });
       }
       if (update.connection === "open") {
         reconnectAttempt = 0;
@@ -1165,6 +1187,25 @@ async function main(): Promise<void> {
         const botIds = collectBotIdentityJids(sock, sock?.user?.id ? String(sock.user.id) : "", state.creds);
         cachedBotIdentityJids = botIds;
         log(`connected. me=${me || "unknown"} botIds=${botIds.join(",") || "none"} loginOnly=${LOGIN_ONLY}`);
+        writeBridgeStatus(STATE_DIR, {
+          connection: "open",
+          me,
+          phone: jidPhone(me),
+          qr: "",
+          qr_data_url: "",
+          qr_png: "",
+          last_error: "",
+          last_disconnect_reason: "",
+          last_disconnect_status: null,
+          reconnect_attempt: 0,
+          login_only: LOGIN_ONLY,
+        });
+        try {
+          const qrPng = path.join(STATE_DIR, "qr.png");
+          if (fs.existsSync(qrPng)) fs.unlinkSync(qrPng);
+        } catch {
+          // ignore
+        }
         if (LOGIN_ONLY) {
           log("login-only mode: exiting after successful link.");
           process.exit(0);
@@ -1177,9 +1218,42 @@ async function main(): Promise<void> {
         log(`disconnected reason=${reason} statusCode=${String(statusCode || "")} err=${errText}`);
         if (statusCode === DisconnectReason.loggedOut) {
           log("logged out: delete data/channel_sidecar/whatsapp/state/auth to re-link.");
+          writeBridgeStatus(STATE_DIR, {
+            connection: "logged_out",
+            last_disconnect_reason: String(reason),
+            last_disconnect_status: typeof statusCode === "number" ? statusCode : null,
+            last_error: errText,
+            reconnect_attempt: reconnectAttempt,
+            login_only: LOGIN_ONLY,
+          });
+          return;
+        }
+        const rebindCodes = new Set<number>([
+          DisconnectReason.forbidden,
+          DisconnectReason.badSession,
+          405,
+        ]);
+        if (typeof statusCode === "number" && rebindCodes.has(statusCode)) {
+          log(`session invalid statusCode=${statusCode}: clear state/auth and scan QR again.`);
+          writeBridgeStatus(STATE_DIR, {
+            connection: "needs_rebind",
+            last_disconnect_reason: String(reason),
+            last_disconnect_status: statusCode,
+            last_error: errText,
+            reconnect_attempt: reconnectAttempt,
+            login_only: LOGIN_ONLY,
+          });
           return;
         }
         reconnectAttempt += 1;
+        writeBridgeStatus(STATE_DIR, {
+          connection: "close",
+          last_disconnect_reason: String(reason),
+          last_disconnect_status: typeof statusCode === "number" ? statusCode : null,
+          last_error: errText,
+          reconnect_attempt: reconnectAttempt,
+          login_only: LOGIN_ONLY,
+        });
         const base = Math.min(30_000, 1000 * Math.pow(2, Math.min(6, reconnectAttempt)));
         const jitter = Math.floor(Math.random() * 500);
         const delay = base + jitter;

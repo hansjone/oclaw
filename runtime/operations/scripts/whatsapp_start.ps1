@@ -37,7 +37,7 @@ if (-not (Test-Path (Join-Path $sidecarRoot "baileys_runner.ts"))) {
 
 $bridgeSrc = Join-Path $oclawRoot "runtime\\operations\\whatsapp_bridge"
 if (Test-Path $bridgeSrc) {
-  foreach ($name in @("baileys_runner.ts", "auth.ts", "qr.ts")) {
+  foreach ($name in @("baileys_runner.ts", "auth.ts", "qr.ts", "status.ts")) {
     $srcPath = Join-Path $bridgeSrc $name
     if (Test-Path $srcPath) {
       Copy-Item -Path $srcPath -Destination (Join-Path $sidecarRoot $name) -Force
