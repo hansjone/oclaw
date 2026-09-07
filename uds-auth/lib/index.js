@@ -33,7 +33,7 @@ function registerWebRoute(ctx) {
     ctx.logger?.info?.('[uds-auth] Route registered: prefix /uds-auth')
     return () => dispose?.()
   }
-  const present = tryGet(ctx, 'webServer')
+  const present = tryGet(ctx, 'webServer') ?? ctx.webServer
   if (present !== undefined) return register(present)
   const disposers = []
   let registered = false
@@ -684,10 +684,10 @@ function installSettingsSection(ctx, entry, hooks) {
 export async function apply(ctx, config = {}) {
   let source = () => mergeConfig(config)
   _currentConfig = source()
+  _logger = ctx.logger || console
 
   ctx.logger?.info?.('[uds-auth] Loading...')
 
-  // Settings 注册 + RPC 注册：不依赖 webServer
   installSettingsSection(ctx, source(), {
     setSource: (current) => {
       source = typeof current === 'function' ? current : () => current
@@ -699,38 +699,15 @@ export async function apply(ctx, config = {}) {
     }
   })
 
-  ctx.inject(['connection'], (connCtx) => {
-    const rpc = connCtx.connection?.rpc
-    if (!rpc || typeof rpc.handle !== 'function') {
-      ctx.logger?.warn?.('[uds-auth] connection.rpc.handle unavailable — client config UI disabled')
-      return
-    }
-    connCtx.effect(() => {
-      const dispose = rpc.handle(UDS_AUTH_RPC_CHANNEL, async (endpoint) => {
-        if (endpoint === 'config.get') {
-          const c = source()
-          return {
-            ok: true,
-            value: {
-              uacBaseUrl: c.uacBaseUrl,
-              userSearchUrl: c.userSearchUrl,
-              loginSystemCode: c.loginSystemCode,
-              originSystemCode: c.originSystemCode,
-            }
-          }
-        }
-        return { ok: false, error: 'unknown_endpoint' }
-      })
-      return () => dispose?.()
-    }, 'uds-auth: rpc')
-  })
-  
-  // 初始化内部服务（session store, roles, auth middleware 等）
+  // Do NOT rpc.handle('/uds-auth') — same path as webServer prefix → duplicate route / 415.
+  // Client uses HTTP /uds-auth/config.get instead.
   await initServices(ctx, source())
 
-  // 注册 webServer 路由（可能 webServer 已就绪，也可能需要等待）
-  registerWebRoute(ctx)
-  
+  // Register prefix once; wrap in effect so reload disposes cleanly.
+  ctx.inject(['webServer'], (wctx) => {
+    wctx.effect(() => registerWebRoute(wctx), 'uds-auth: web route')
+  })
+
   ctx.logger?.info?.('[uds-auth] Host ready')
 }
 
