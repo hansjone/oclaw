@@ -311,11 +311,9 @@ async function handleConfigGet(req, res) {
 }
 
 // Calculate verifyCode using Node.js crypto (reliable)
-import crypto from 'node:crypto'
-
 function calculateVerifyCode(qrCodeKey, qrCodeValue, loginClientIp, loginSystemCode, originSystemCode) {
   const source = qrCodeKey + qrCodeValue + loginClientIp + loginSystemCode + originSystemCode
-  return crypto.createHash('md5').update(source).digest('hex')
+  return createHash('md5').update(source).digest('hex')
 }
 
 // VerifyCode calculation endpoint
@@ -441,38 +439,33 @@ async function handleFallbackLogin(req, res) {
     return sendJSON(res, 401, { error: '用户名或密码错误' })
   }
 
-  // 登录成功：服务端会话 + HttpOnly cookie（禁止仅伪造 Cookie 提权）
+  // 登录成功：创建 session，角色 = fallback_admin (等同 super_admin)
   const empNo = 'administrator'
   const userContext = {
     empNo,
     username: 'Fallback Administrator',
-    displayName: '应急管理员',
     isAuthenticated: true,
     role: 'fallback_admin',
-    authMode: 'fallback',
     authenticatedAt: new Date().toISOString(),
     lastActiveAt: new Date().toISOString(),
   }
   await _sessionStore.setex(empNo, Math.floor(INTERNAL.session.cookieMaxAge / 1000), userContext)
 
-  const maxAge = Math.floor(INTERNAL.session.cookieMaxAge / 1000)
-  const proto = String(req.headers['x-forwarded-proto'] || '')
-  const secure = proto === 'https' || req.socket?.encrypted === true
-  const parts = [
+  // 给浏览器设 cookie，让后续请求 auth-middleware 能识别
+  res.setHeader('Set-Cookie', [
     'UDS_FALLBACK_USER=administrator',
-    `Max-Age=${maxAge}`,
+    `Max-Age=${Math.floor(INTERNAL.session.cookieMaxAge / 1000)}`,
     'Path=/',
+    'Secure',
     'HttpOnly',
     'SameSite=Lax',
-  ]
-  if (secure) parts.push('Secure')
-  res.setHeader('Set-Cookie', parts.join('; '))
+  ].join('; '))
 
   sendJSON(res, 200, {
     success: true,
     empNo,
     role: 'fallback_admin',
-    message: '应急管理员登录成功（UAC 不可用时使用）',
+    message: '兜底管理员登录成功',
   })
 }
 
@@ -558,13 +551,13 @@ async function handleAllRoutes(req, res) {
 function handleRequest(req, res) {
   const ctx2 = { req, res }
   _authMiddleware(ctx2, async () => {
-    // 空表首位 = super_admin；其余首次登录写入 user
-    if (ctx2.empNo && ctx2.empNo !== 'administrator') {
+    // 首次部署 bootstrap: 第一个有 UDS 凭证的用户 = super_admin
+    if (ctx2.empNo && !ctx2.role) {
       const { role, bootstrapped } = await _rolesStore.bootstrapFirstUser(ctx2.empNo)
       ctx2.role = role
       ctx2.permissions = computePermissions(role)
       if (bootstrapped) {
-        _logger?.info?.(`[uds-auth] BOOTSTRAP: ${ctx2.empNo} is now super_admin`)
+        ctx.logger?.info?.(`[uds-auth] BOOTSTRAP: ${ctx2.empNo} is now super_admin`)
       }
     }
 
@@ -686,9 +679,9 @@ export async function apply(ctx, config = {}) {
   let source = () => mergeConfig(config)
   _currentConfig = source()
 
-  _logger = ctx.logger || console
   ctx.logger?.info?.('[uds-auth] Loading...')
 
+  // Settings 注册 + RPC 注册：不依赖 webServer
   installSettingsSection(ctx, source(), {
     setSource: (current) => {
       source = typeof current === 'function' ? current : () => current
@@ -700,20 +693,38 @@ export async function apply(ctx, config = {}) {
     }
   })
 
-  // 勿在 connection.rpc 注册 /uds-auth（与 webServer prefix 冲突）
+  ctx.inject(['connection'], (connCtx) => {
+    const rpc = connCtx.connection?.rpc
+    if (!rpc || typeof rpc.handle !== 'function') {
+      ctx.logger?.warn?.('[uds-auth] connection.rpc.handle unavailable — client config UI disabled')
+      return
+    }
+    connCtx.effect(() => {
+      const dispose = rpc.handle(UDS_AUTH_RPC_CHANNEL, async (endpoint) => {
+        if (endpoint === 'config.get') {
+          const c = source()
+          return {
+            ok: true,
+            value: {
+              uacBaseUrl: c.uacBaseUrl,
+              userSearchUrl: c.userSearchUrl,
+              loginSystemCode: c.loginSystemCode,
+              originSystemCode: c.originSystemCode,
+            }
+          }
+        }
+        return { ok: false, error: 'unknown_endpoint' }
+      })
+      return () => dispose?.()
+    }, 'uds-auth: rpc')
+  })
+  
+  // 初始化内部服务（session store, roles, auth middleware 等）
   await initServices(ctx, source())
 
-  ctx.inject(['webServer'], (wctx) => {
-    wctx.effect(
-      () => wctx.webServer.register({
-        kind: 'prefix',
-        path: '/uds-auth',
-        handler: handleAllRoutes,
-      }),
-      'uds-auth: web route',
-    )
-  })
-
+  // 注册 webServer 路由（可能 webServer 已就绪，也可能需要等待）
+  registerWebRoute(ctx)
+  
   ctx.logger?.info?.('[uds-auth] Host ready')
 }
 
@@ -750,9 +761,7 @@ async function initServices(ctx, config) {
         systemCode: config.loginSystemCode,
         empNoHeader: INTERNAL.empNoHeader,
         authValueHeader: INTERNAL.authValueHeader,
-        authMode: 'token+profile',
       },
-      userSearchUrl: config.userSearchUrl,
       session: INTERNAL.session,
     }, _sessionStore, _rolesStore)
     _apiHandlers = createApiHandlers({ session: INTERNAL.session }, _sessionStore, _rolesStore)
