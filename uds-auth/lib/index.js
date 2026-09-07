@@ -8,6 +8,7 @@ import { readFile, writeFile } from 'node:fs/promises'
 import { resolve, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createRequire } from 'node:module'
+import { createHash, randomBytes } from 'node:crypto'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const require = createRequire(import.meta.url)
@@ -144,8 +145,8 @@ async function loadQRCodeLib() {
 function createQrChallenge(config = _currentConfig || {}) {
   const loginSystemCode = String(config.loginSystemCode || CONFIG_DEFAULTS.loginSystemCode)
   const originSystemCode = String(config.originSystemCode || '')
-  const qrCodeKey = crypto.randomBytes(16).toString('hex')
-  const qrCodeValue = crypto.randomBytes(16).toString('hex')
+  const qrCodeKey = randomBytes(16).toString('hex')
+  const qrCodeValue = randomBytes(16).toString('hex')
   const qrCodeStr = `TwoDIMAuth:${qrCodeKey}:${qrCodeValue}`
   return { qrCodeStr, qrCodeKey, qrCodeValue, loginSystemCode, originSystemCode }
 }
@@ -509,6 +510,11 @@ async function handleAllRoutes(req, res) {
     // QR 生成
     if (pathname === '/uds-auth/qr' && method === 'GET') {
       return await handleQRCode(req, res)
+    }
+
+    // QR 挑战（扫码登录入口）
+    if (pathname === '/uds-auth/qr-start' && (method === 'GET' || method === 'POST')) {
+      return await handleQrStart(req, res)
     }
 
     // QR 代理
