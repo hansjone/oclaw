@@ -30,13 +30,33 @@ export const ROLE_LABELS = {
 export function computePermissions(role) {
   switch (role) {
     case ROLES.SUPER_ADMIN:
-      return { canManageUsers: true, canAccessSettings: true, canViewAllSessions: true }
+      return {
+        canManageUsers: true,
+        canAccessSettings: true,
+        canViewAllSessions: true,
+        canCreateWorkspace: true,
+      }
     case ROLES.FALLBACK_ADMIN:
-      return { canManageUsers: true, canAccessSettings: true, canViewAllSessions: true }
+      return {
+        canManageUsers: true,
+        canAccessSettings: true,
+        canViewAllSessions: true,
+        canCreateWorkspace: true,
+      }
     case ROLES.ADMIN:
-      return { canManageUsers: false, canAccessSettings: true, canViewAllSessions: false }
+      return {
+        canManageUsers: false,
+        canAccessSettings: true,
+        canViewAllSessions: false,
+        canCreateWorkspace: false,
+      }
     default: // user / undefined
-      return { canManageUsers: false, canAccessSettings: false, canViewAllSessions: false }
+      return {
+        canManageUsers: false,
+        canAccessSettings: false,
+        canViewAllSessions: false,
+        canCreateWorkspace: false,
+      }
   }
 }
 
@@ -195,16 +215,9 @@ export class RolesStore {
    * 设置用户角色
    * 保护性 invariant: 至少保留 1 个 super_admin
    */
-  _assertAdmin(currentAdminRole) {
-    if (currentAdminRole !== ROLES.SUPER_ADMIN && currentAdminRole !== ROLES.FALLBACK_ADMIN) {
-      throw new Error('只有超级管理员可以执行此操作')
-    }
-  }
-
   async setRole(empNo, newRole, currentAdminRole) {
-    this._assertAdmin(currentAdminRole)
-    if (newRole === ROLES.FALLBACK_ADMIN) {
-      throw new Error('不能将普通工号设为兜底管理员（请使用应急账号）')
+    if (currentAdminRole !== ROLES.SUPER_ADMIN) {
+      throw new Error('只有超级管理员可以修改角色')
     }
 
     // invariant: 不能让系统变成 0 个 super_admin
@@ -223,7 +236,9 @@ export class RolesStore {
 
   /** 删除用户 */
   async removeUser(empNo, currentAdminRole) {
-    this._assertAdmin(currentAdminRole)
+    if (currentAdminRole !== ROLES.SUPER_ADMIN) {
+      throw new Error('只有超级管理员可以删除用户')
+    }
     const currentRole = this._roles.get(empNo)
     if (currentRole === ROLES.SUPER_ADMIN) {
       const superAdmins = await this.countByRole(ROLES.SUPER_ADMIN)
@@ -238,7 +253,9 @@ export class RolesStore {
 
   /** 确保用户存在 (如果不存在设为 user) */
   ensureUser(empNo, currentAdminRole) {
-    this._assertAdmin(currentAdminRole)
+    if (currentAdminRole !== ROLES.SUPER_ADMIN) {
+      throw new Error('只有超级管理员可以添加用户')
+    }
     if (!this._roles.has(empNo)) {
       this._roles.set(empNo, ROLES.USER)
       this._markDirty()
@@ -249,7 +266,9 @@ export class RolesStore {
   // === Fallback Administrator ===
 
   setFallbackPassword(password, currentAdminRole) {
-    this._assertAdmin(currentAdminRole)
+    if (currentAdminRole !== ROLES.SUPER_ADMIN) {
+      throw new Error('只有超级管理员可以设置兜底管理员密码')
+    }
     if (!password || password.length < 6) {
       throw new Error('密码至少 6 位')
     }
@@ -259,7 +278,9 @@ export class RolesStore {
   }
 
   clearFallbackPassword(currentAdminRole) {
-    this._assertAdmin(currentAdminRole)
+    if (currentAdminRole !== ROLES.SUPER_ADMIN) {
+      throw new Error('只有超级管理员可以清除兜底管理员密码')
+    }
     this._fallbackPasswordHash = null
     this._markDirty()
     return true

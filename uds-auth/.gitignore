@@ -6,3 +6,5 @@ config.runtime.json
 *.log
 .DS_Store
 Thumbs.db
+session-owners.json
+user-workspaces.json

@@ -8,3 +8,4 @@
         userSearchUrl: https://icenterapi.zte.com.cn/zte-km-icenter-addresearch/user/plain/docs/search
         loginSystemCode: '100000455558'
         originSystemCode: ''
+        workspaceRoot: ''

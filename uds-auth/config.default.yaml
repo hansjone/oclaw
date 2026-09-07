@@ -12,3 +12,6 @@ loginSystemCode: '100000455558'
 
 # 登录时传给 UAC 的来源系统 Code (留空则不传)
 originSystemCode: ''
+
+# Per-user workspaces under workspaceRoot/<empNo>; empty => $DSH_HOME/user-workspaces
+workspaceRoot: ""

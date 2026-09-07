@@ -61,6 +61,7 @@ const CONFIG_DEFAULTS = {
   userSearchUrl: 'https://icenterapi.zte.com.cn/zte-km-icenter-addresearch/user/plain/docs/search',
   loginSystemCode: '100000455558',
   originSystemCode: '',
+  workspaceRoot: '',
 }
 
 // 内部常量（不暴露给用户，UDS 固定协议）
@@ -95,6 +96,7 @@ function loadConfigSchemaAndSettings(ctx) {
       userSearchUrl: z.string().default(CONFIG_DEFAULTS.userSearchUrl),
       loginSystemCode: z.string().default(CONFIG_DEFAULTS.loginSystemCode),
       originSystemCode: z.string().default(CONFIG_DEFAULTS.originSystemCode),
+      workspaceRoot: z.string().default(CONFIG_DEFAULTS.workspaceRoot),
     })
     _DshSettings = require('@deepseek-ai/dsh-settings')
     ctx?.logger?.info?.('[uds-auth] schemastery + dsh-settings loaded')
@@ -116,6 +118,9 @@ let _apiHandlers = null
 let _rolesStore = null
 let _currentConfig = null
 let _qrcodeLib = null
+let _sessionAcl = null
+let _userWorkspaces = null
+let _pluginCtx = null
 let _logger = console
 
 function buildVerifyUrl(uacBaseUrl, uacQrVerifyPath) {
@@ -307,7 +312,8 @@ async function handleConfigGet(req, res) {
       userSearchUrl: c.userSearchUrl,
       loginSystemCode: c.loginSystemCode,
       originSystemCode: c.originSystemCode,
-    },
+              workspaceRoot: c.workspaceRoot,
+            },
   }))
 }
 
@@ -440,6 +446,7 @@ async function handleFallbackLogin(req, res) {
     lastActiveAt: new Date().toISOString(),
   }
   await _sessionStore.setex(empNo, Math.floor(INTERNAL.session.cookieMaxAge / 1000), userContext)
+  await ensureUserWorkspace(empNo)
 
   // 给浏览器设 cookie，让后续请求 auth-middleware 能识别
   res.setHeader('Set-Cookie', [
@@ -465,7 +472,7 @@ const RUNTIME_CONFIG_FILE = resolve(__dirname, '..', 'config.runtime.json')
 async function saveRuntimeConfig(partial) {
   if (!_currentConfig) throw new Error('配置未初始化')
   // 只允许修改 4 个可配置字段
-  const allowed = ['uacBaseUrl', 'userSearchUrl', 'loginSystemCode', 'originSystemCode']
+  const allowed = ['uacBaseUrl', 'userSearchUrl', 'loginSystemCode', 'originSystemCode', 'workspaceRoot']
   for (const k of allowed) {
     if (partial[k] !== undefined) {
       _currentConfig[k] = String(partial[k])
@@ -546,6 +553,9 @@ async function handleAllRoutes(req, res) {
 function handleRequest(req, res) {
   const ctx2 = { req, res }
   _authMiddleware(ctx2, async () => {
+    if (ctx2.empNo && ctx2.empNo !== 'administrator') {
+      try { await ensureUserWorkspace(ctx2.empNo) } catch { /* ignore */ }
+    }
     // bootstrap 已在 auth-middleware.resolveRole 中完成（勿用 !ctx2.role，getRole 恒有值）
 
     const url = new URL(req.url, 'http://localhost').pathname.replace(API_PREFIX, '') || '/'
@@ -662,6 +672,21 @@ function installSettingsSection(ctx, entry, hooks) {
   })
 }
 
+
+async function ensureUserWorkspace(empNo) {
+  if (!_userWorkspaces || !_pluginCtx) return null
+  try {
+    return await _userWorkspaces.ensureUserWorkspace(
+      _pluginCtx,
+      _currentConfig?.workspaceRoot,
+      empNo,
+    )
+  } catch (err) {
+    console.warn('[uds-auth] ensureUserWorkspace failed:', err.message)
+    return null
+  }
+}
+
 export async function apply(ctx, config = {}) {
   let source = () => mergeConfig(config)
   _currentConfig = source()
@@ -698,10 +723,13 @@ async function initServices(ctx, config) {
     const { createAuthMiddleware } = await import('./middleware/auth-middleware.js')
     const { createApiHandlers } = await import('./api.js')
     const { RolesStore } = await import('./roles.js')
-    
+    const { SessionAclStore } = await import('./session-acl.js')
+    const { UserWorkspaceStore } = await import('./workspace-provision.js')
+    const { patchWebServerWithIdentity, resolveIdentityFromRequest, installDshAcl } = await import('./dsh-acl.js')
+
+    _pluginCtx = ctx
     _currentConfig = config
 
-    // 加载运行时配置覆盖（如果存在）
     try {
       const raw = await readFile(RUNTIME_CONFIG_FILE, 'utf-8')
       const rt = JSON.parse(raw)
@@ -710,29 +738,56 @@ async function initServices(ctx, config) {
           _currentConfig[k] = rt[k]
         }
       }
-    } catch { /* runtime config 不存在是正常的 */ }
-    
+    } catch { /* runtime config optional */ }
+
     _sessionStore = await createSessionStore(INTERNAL.session)
 
-    // RolesStore — 持久化到 roles.json
     const rolesFile = resolve(__dirname, '..', 'roles.json')
     _rolesStore = new RolesStore({ rolesFile })
     await _rolesStore.init()
-    
+
+    _sessionAcl = new SessionAclStore({ ownersFile: resolve(__dirname, '..', 'session-owners.json') })
+    await _sessionAcl.init()
+
+    _userWorkspaces = new UserWorkspaceStore({ mapFile: resolve(__dirname, '..', 'user-workspaces.json') })
+    await _userWorkspaces.init()
+
     _authMiddleware = createAuthMiddleware({
-      userSearchUrl: config.userSearchUrl,
+      userSearchUrl: _currentConfig.userSearchUrl,
       udsAuth: {
-        baseUrl: config.uacBaseUrl,
-        systemCode: config.loginSystemCode,
-        userSearchUrl: config.userSearchUrl,
+        baseUrl: _currentConfig.uacBaseUrl,
+        systemCode: _currentConfig.loginSystemCode,
+        userSearchUrl: _currentConfig.userSearchUrl,
         empNoHeader: INTERNAL.empNoHeader,
         authValueHeader: INTERNAL.authValueHeader,
       },
       session: INTERNAL.session,
     }, _sessionStore, _rolesStore)
     _apiHandlers = createApiHandlers({ session: INTERNAL.session }, _sessionStore, _rolesStore)
-    
-    ctx.logger?.info?.('[uds-auth] Initialized')
+
+    const resolveIdentity = (req) => resolveIdentityFromRequest(req, {
+      sessionStore: _sessionStore,
+      rolesStore: _rolesStore,
+    })
+
+    const patchServer = (server) => {
+      patchWebServerWithIdentity(server, resolveIdentity)
+    }
+    const present = tryGet(ctx, 'webServer')
+    if (present) patchServer(present)
+    ctx.inject(['webServer'], (wctx) => {
+      patchServer(wctx.webServer)
+    })
+
+    installDshAcl(ctx, {
+      sessionAcl: _sessionAcl,
+      userWorkspaces: _userWorkspaces,
+      getWorkspaceRoot: () => _currentConfig?.workspaceRoot,
+      rolesStore: _rolesStore,
+      ensureUserWorkspace,
+    })
+
+    ctx.logger?.info?.('[uds-auth] Initialized (ACL + workspaces)')
   } catch (err) {
     ctx.logger?.error?.('[uds-auth] Init failed: ' + (err.message || err))
   }

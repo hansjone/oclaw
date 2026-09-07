@@ -20,6 +20,7 @@ window.__ModuleLoader__.load({
 
     const CSS = [
       '.uds-auth-host{position:relative;display:inline-flex;align-items:center;height:32px;margin:0;flex-shrink:0;pointer-events:auto}.uds-auth-host.is-rail{justify-content:center;width:100%}[data-uds-auth-foot="row"]{display:flex!important;flex-direction:row!important;align-items:center!important;gap:8px;width:100%}[data-uds-auth-foot="row"]>*:nth-child(1){order:2;flex:none!important;width:auto!important;min-width:0;margin-left:auto!important}[data-uds-auth-foot="row"]>*:nth-child(2){order:1;flex:none!important;width:auto!important;min-width:0}',
+      'html[data-uds-can-settings="0"] [data-uds-auth-foot="row"]>*:not(:has([data-uds-auth-host])){display:none!important}html[data-uds-can-create-ws="0"] button[aria-label="添加工作区"],html[data-uds-can-create-ws="0"] button[aria-label="Add workspace"]{display:none!important}',
       '.uds-auth-badge{display:inline-flex;align-items:center;justify-content:center;gap:8px;max-width:min(180px,40vw);min-width:0;height:42px;padding:0 10px 0 8px;box-sizing:border-box;border:none;border-radius:12px;background:transparent;color:var(--dsw-alias-label-primary);font-family:inherit;font-size:14px;font-weight:400;line-height:22px;cursor:pointer;overflow:hidden}',
       '.uds-auth-badge:hover{background:var(--dsw-alias-interactive-bg-hover)}',
       '.uds-auth-host.is-rail .uds-auth-badge{width:36px;height:36px;padding:0;border-radius:50%;gap:0}',
@@ -280,6 +281,7 @@ window.__ModuleLoader__.load({
         userSearchUrl: '',
         loginSystemCode: '',
         originSystemCode: '',
+        workspaceRoot: '',
       })
       const [fallbackEnabled, setFallbackEnabled] = useState(false)
       const [fallbackPwd, setFallbackPwd] = useState('')
@@ -360,6 +362,7 @@ window.__ModuleLoader__.load({
           field('userSearchUrl', '\u7528\u6237\u641c\u7d22 URL\uff08token \u6821\u9a8c\uff09'),
           field('loginSystemCode', 'loginSystemCode'),
           field('originSystemCode', 'originSystemCode'),
+          field('workspaceRoot', '工作区根目录（空=$DSH_HOME/user-workspaces）'),
           h('div', { className: 'uds-auth-settings-actions' },
             h('button', {
               type: 'button',
@@ -456,6 +459,18 @@ window.__ModuleLoader__.load({
       const [fbBusy, setFbBusy] = useState(false)
       const [fbErr, setFbErr] = useState('')
       const qrRef = useRef({ key: null, value: null, timer: null })
+
+      useEffect(() => {
+        const perms = user?.permissions || {}
+        const canSettings = user ? !!perms.canAccessSettings : false
+        const canCreateWs = user ? !!perms.canCreateWorkspace : false
+        document.documentElement.setAttribute('data-uds-can-settings', canSettings ? '1' : '0')
+        document.documentElement.setAttribute('data-uds-can-create-ws', canCreateWs ? '1' : '0')
+        return () => {
+          document.documentElement.removeAttribute('data-uds-can-settings')
+          document.documentElement.removeAttribute('data-uds-can-create-ws')
+        }
+      }, [user])
 
       const stopQr = useCallback(() => {
         if (qrRef.current.timer) { clearInterval(qrRef.current.timer); qrRef.current.timer = null }
@@ -748,6 +763,37 @@ window.__ModuleLoader__.load({
         document.head.appendChild(tag)
         return () => tag.remove()
       }, 'uds-auth: styles')
+
+      ctx.effect(() => {
+        let settingsGateDispose = null
+        const syncSettingsGate = async () => {
+          let canSettings = false
+          try {
+            const me = await fetchJson('/uds-auth/api/me')
+            canSettings = !!(me?.data?.permissions?.canAccessSettings)
+          } catch { canSettings = false }
+          if (canSettings) {
+            if (settingsGateDispose) { try { settingsGateDispose() } catch {} settingsGateDispose = null }
+            return
+          }
+          if (settingsGateDispose) return
+          settingsGateDispose = ctx.slots.register({
+            name: 'sidebar.settings',
+            id: 'uds-auth-settings-gate',
+            order: 9999,
+          }, function UdsAuthSettingsGate() { return null })
+        }
+        syncSettingsGate()
+        const mePoll = setInterval(syncSettingsGate, 15000)
+        const onFocus = () => { syncSettingsGate() }
+        window.addEventListener('focus', onFocus)
+        return () => {
+          clearInterval(mePoll)
+          window.removeEventListener('focus', onFocus)
+          if (settingsGateDispose) { try { settingsGateDispose() } catch {} }
+        }
+      }, 'uds-auth: settings-gate')
+
       // sidebar.footer.action; layout effect lays footArea as one row: Settings | UDS login
       ctx.slots.inject('sidebar.footer.action', () => ctx.slots.register({
         name: 'sidebar.footer.action',
