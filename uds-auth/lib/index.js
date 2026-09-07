@@ -385,14 +385,21 @@ async function handleUserInfo(req, res) {
       'Origin': _currentConfig.uacBaseUrl,
       'Referer': _currentConfig.uacBaseUrl + '/'
     }
-    if (token) headers[INTERNAL.authValueHeader] = token
+    if (!token) {
+      res.writeHead(400, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ error: 'Missing token' }))
+      return
+    }
+    headers[INTERNAL.authValueHeader] = token
 
     const result = await new Promise((resolve, reject) => {
       const proxyReq = https.request({
         hostname: targetUrl.hostname,
-        path: targetUrl.pathname,
+        port: targetUrl.port || 443,
+        path: targetUrl.pathname + targetUrl.search,
         method: 'POST',
-        headers
+        headers,
+        timeout: 8000,
       }, (proxyRes) => {
         let data = ''
         proxyRes.on('data', chunk => data += chunk)
@@ -739,9 +746,11 @@ async function initServices(ctx, config) {
     await _rolesStore.init()
     
     _authMiddleware = createAuthMiddleware({
+      userSearchUrl: config.userSearchUrl,
       udsAuth: {
         baseUrl: config.uacBaseUrl,
         systemCode: config.loginSystemCode,
+        userSearchUrl: config.userSearchUrl,
         empNoHeader: INTERNAL.empNoHeader,
         authValueHeader: INTERNAL.authValueHeader,
       },

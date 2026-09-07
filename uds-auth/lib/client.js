@@ -508,6 +508,25 @@ window.__ModuleLoader__.load({
                 if (empNo && token) {
                   setCookie('PORTALSSOUser', empNo, 7)
                   setCookie('PORTALSSOCookie', token, 7)
+                  try {
+                    const info = await fetchJson(
+                      '/uds-auth/user-info?empNo=' + encodeURIComponent(empNo)
+                      + '&token=' + encodeURIComponent(token),
+                    )
+                    const ic = info?.code?.code ?? info?.code
+                    const list = Array.isArray(info?.bo) ? info.bo
+                      : Array.isArray(info?.bo?.rows) ? info.bo.rows
+                        : Array.isArray(info?.bo?.list) ? info.bo.list
+                          : []
+                    if ((ic !== '0000' && ic !== 0 && ic !== '0') || !list.length) {
+                      setQrStatus('\u7528\u6237\u4fe1\u606f\u67e5\u8be2\u5931\u8d25')
+                      console.warn('[uds-auth] user-info after QR failed', info)
+                      return
+                    }
+                  } catch (err) {
+                    setQrStatus('\u7528\u6237\u4fe1\u606f\u67e5\u8be2\u5931\u8d25: ' + (err.message || err))
+                    return
+                  }
                   setQrStatus('\u767b\u5f55\u6210\u529f\uff01')
                   await refreshUser()
                   setOpen(false)

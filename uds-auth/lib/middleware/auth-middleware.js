@@ -34,7 +34,12 @@ export function createAuthMiddleware(config, sessionStore, rolesStore) {
    * empNo + token → 调用户搜索接口；返回解析后的 profile 或 null
    */
   async function verifyEmpNoAndToken(empNo, token) {
-    if (!userSearchUrl || !empNo || !token) return null
+    if (!userSearchUrl || !empNo || !token) {
+      console.warn('[uds-auth] verifyEmpNoAndToken skipped: missing', {
+        hasUrl: !!userSearchUrl, hasEmpNo: !!empNo, hasToken: !!token,
+      })
+      return null
+    }
     try {
       const targetUrl = new URL(userSearchUrl)
       const body = JSON.stringify({
@@ -55,7 +60,7 @@ export function createAuthMiddleware(config, sessionStore, rolesStore) {
 
       const isHttps = targetUrl.protocol === 'https:'
       const mod = await import(isHttps ? 'node:https' : 'node:http')
-      const result = await new Promise((resolve, reject) => {
+      const { statusCode, result } = await new Promise((resolve, reject) => {
         const req = mod.request({
           hostname: targetUrl.hostname,
           port: targetUrl.port || (isHttps ? 443 : 80),
@@ -67,7 +72,9 @@ export function createAuthMiddleware(config, sessionStore, rolesStore) {
           let data = ''
           res.on('data', (c) => { data += c })
           res.on('end', () => {
-            try { resolve(JSON.parse(data)) } catch { resolve(null) }
+            let parsed = null
+            try { parsed = JSON.parse(data) } catch { parsed = { raw: String(data).slice(0, 300) } }
+            resolve({ statusCode: res.statusCode, result: parsed })
           })
         })
         req.on('error', reject)
@@ -76,12 +83,21 @@ export function createAuthMiddleware(config, sessionStore, rolesStore) {
         req.end()
       })
 
-      const code = result?.code?.code || result?.code
-      if (code !== '0000' && code !== 0 && code !== '0') return null
+      const code = result?.code?.code ?? result?.code
+      if (code !== '0000' && code !== 0 && code !== '0') {
+        console.warn('[uds-auth] userSearch failed:', {
+          empNo, statusCode, code, msg: result?.code?.msg || result?.msg || result?.raw,
+        })
+        return null
+      }
       const list = Array.isArray(result?.bo) ? result.bo
         : Array.isArray(result?.bo?.rows) ? result.bo.rows
-          : []
-      if (!list.length) return null
+          : Array.isArray(result?.bo?.list) ? result.bo.list
+            : []
+      if (!list.length) {
+        console.warn('[uds-auth] userSearch empty bo:', { empNo, statusCode, keys: result && Object.keys(result) })
+        return null
+      }
       const emp = list[0]
       const resolvedEmpNo = String(
         emp.employeeShortId || emp.employeeNO || emp.empUIID || emp.empNo || empNo,
