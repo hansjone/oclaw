@@ -1,5 +1,5 @@
 /**
- * uds-auth browser half — shell.overlay (always visible, no session required) + settings.section.
+ * uds-auth browser half — header.utilities when session exists; shell.overlay when not (no overlap).
  * Auth: empNo cookie + token verified server-side via user-info.
  * Fallback: username/password when UAC/QR unavailable.
  */
@@ -19,7 +19,7 @@ window.__ModuleLoader__.load({
     const PAGE_SIZE = 50
 
     const CSS = [
-      '.uds-auth-host{position:fixed;top:calc(8px + env(safe-area-inset-top,0px));right:12px;z-index:46;display:inline-flex;align-items:center;height:32px;margin:0;flex-shrink:0;pointer-events:auto}',
+      '.uds-auth-host{position:relative;display:inline-flex;align-items:center;height:32px;margin:0;flex-shrink:0;pointer-events:auto}.uds-auth-host.is-overlay{position:fixed;top:calc(8px + env(safe-area-inset-top,0px));right:12px;z-index:46}',
       '.uds-auth-badge{display:inline-flex;align-items:center;justify-content:center;gap:4px;max-width:min(180px,30vw);min-width:auto;height:32px;padding:6px 12px;border-radius:18px;background:transparent;border:1px solid var(--dsw-alias-border-l2);color:var(--dsw-alias-label-primary);font-size:13px;font-weight:400;line-height:20px;cursor:pointer;font-family:var(--dsw-font-family)}',
       '.uds-auth-badge:hover{background:var(--dsw-alias-interactive-bg-hover)}',
       '.uds-auth-badge-unauth{color:var(--dsw-alias-label-tertiary,#8f959e)}',
@@ -421,7 +421,7 @@ window.__ModuleLoader__.load({
       )
     }
 
-    function AuthBadge() {
+    function AuthBadge({ placement = 'overlay' } = {}) {
       const rootRef = useRef(null)
       const [open, setOpen] = useState(false)
       const [anchor, setAnchor] = useState(null)
@@ -439,6 +439,20 @@ window.__ModuleLoader__.load({
       const [fbBusy, setFbBusy] = useState(false)
       const [fbErr, setFbErr] = useState('')
       const qrRef = useRef({ key: null, value: null, timer: null })
+      const isOverlay = placement === 'overlay'
+      const [hideOverlay, setHideOverlay] = useState(false)
+      useEffect(() => {
+        if (!isOverlay) return undefined
+        const sync = () => {
+          setHideOverlay(!!document.querySelector('[data-uds-auth-host="header-utilities"]'))
+        }
+        sync()
+        const mo = new MutationObserver(sync)
+        mo.observe(document.body, { childList: true, subtree: true })
+        const t = setInterval(sync, 800)
+        return () => { mo.disconnect(); clearInterval(t) }
+      }, [isOverlay])
+      if (isOverlay && hideOverlay) return null
 
       const stopQr = useCallback(() => {
         if (qrRef.current.timer) { clearInterval(qrRef.current.timer); qrRef.current.timer = null }
@@ -625,8 +639,8 @@ window.__ModuleLoader__.load({
 
       return h('div', {
         ref: rootRef,
-        className: 'uds-auth-host',
-        'data-uds-auth-host': 'shell-overlay',
+        className: 'uds-auth-host' + (isOverlay ? ' is-overlay' : ''),
+        'data-uds-auth-host': isOverlay ? 'shell-overlay' : 'header-utilities',
       },
       open && anchor && h('section', {
         className: 'uds-auth-panel',
@@ -731,13 +745,21 @@ window.__ModuleLoader__.load({
         return () => tag.remove()
       }, 'uds-auth: styles')
 
-      // root-scoped: visible before any conversation/session exists (first deploy / empty home).
+      // In-session: sit left of official Session 日志 (@deepseek-ai/dsh-session-log-export).
+      ctx.slots.inject('conversation.session.header.utilities', () => ctx.slots.register({
+        name: 'conversation.session.header.utilities',
+        id: 'uds-auth-login-header',
+        order: -10,
+        label: 'UDS',
+      }, () => h(AuthBadge, { placement: 'header' })))
+
+      // No session yet: still show login (overlay hides itself once header instance mounts).
       ctx.slots.inject('shell.overlay', () => ctx.slots.register({
         name: 'shell.overlay',
-        id: 'uds-auth-login',
+        id: 'uds-auth-login-overlay',
         order: 40,
         label: 'UDS',
-      }, AuthBadge))
+      }, () => h(AuthBadge, { placement: 'overlay' })))
 
       ctx.slots.inject('settings.section', () => ctx.slots.register({
         name: 'settings.section',
