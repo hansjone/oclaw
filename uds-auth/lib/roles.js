@@ -147,6 +147,42 @@ export class RolesStore {
     return Array.from(this._roles.entries()).map(([empNo, role]) => ({ empNo, role }))
   }
 
+  /** 角色表是否为空（用于 bootstrap） */
+  isEmpty() {
+    return this._roles.size === 0
+  }
+
+  /**
+   * 分页 + 工号模糊搜索（上千用户场景）
+   * @param {{ page?: number, pageSize?: number, q?: string }} opts
+   */
+  listPage(opts = {}) {
+    const page = Math.max(1, Number(opts.page) || 1)
+    const pageSize = Math.min(200, Math.max(1, Number(opts.pageSize) || 50))
+    const q = String(opts.q || '').trim().toLowerCase()
+
+    let rows = Array.from(this._roles.entries()).map(([empNo, role]) => ({ empNo, role }))
+    if (q) {
+      rows = rows.filter((r) => String(r.empNo).toLowerCase().includes(q)
+        || String(ROLE_LABELS[r.role] || r.role).toLowerCase().includes(q))
+    }
+    rows.sort((a, b) => String(a.empNo).localeCompare(String(b.empNo), 'zh'))
+    const total = rows.length
+    const start = (page - 1) * pageSize
+    const users = rows.slice(start, start + pageSize).map(({ empNo, role }) => ({
+      empNo,
+      role,
+      roleLabel: ROLE_LABELS[role] || role,
+    }))
+    return {
+      users,
+      total,
+      page,
+      pageSize,
+      totalPages: Math.max(1, Math.ceil(total / pageSize)),
+    }
+  }
+
   async countByRole(role) {
     let n = 0
     for (const r of this._roles.values()) if (r === role) n++
@@ -159,9 +195,16 @@ export class RolesStore {
    * 设置用户角色
    * 保护性 invariant: 至少保留 1 个 super_admin
    */
+  _assertAdmin(currentAdminRole) {
+    if (currentAdminRole !== ROLES.SUPER_ADMIN && currentAdminRole !== ROLES.FALLBACK_ADMIN) {
+      throw new Error('只有超级管理员可以执行此操作')
+    }
+  }
+
   async setRole(empNo, newRole, currentAdminRole) {
-    if (currentAdminRole !== ROLES.SUPER_ADMIN) {
-      throw new Error('只有超级管理员可以修改角色')
+    this._assertAdmin(currentAdminRole)
+    if (newRole === ROLES.FALLBACK_ADMIN) {
+      throw new Error('不能将普通工号设为兜底管理员（请使用应急账号）')
     }
 
     // invariant: 不能让系统变成 0 个 super_admin
@@ -180,9 +223,7 @@ export class RolesStore {
 
   /** 删除用户 */
   async removeUser(empNo, currentAdminRole) {
-    if (currentAdminRole !== ROLES.SUPER_ADMIN) {
-      throw new Error('只有超级管理员可以删除用户')
-    }
+    this._assertAdmin(currentAdminRole)
     const currentRole = this._roles.get(empNo)
     if (currentRole === ROLES.SUPER_ADMIN) {
       const superAdmins = await this.countByRole(ROLES.SUPER_ADMIN)
@@ -197,9 +238,7 @@ export class RolesStore {
 
   /** 确保用户存在 (如果不存在设为 user) */
   ensureUser(empNo, currentAdminRole) {
-    if (currentAdminRole !== ROLES.SUPER_ADMIN) {
-      throw new Error('只有超级管理员可以添加用户')
-    }
+    this._assertAdmin(currentAdminRole)
     if (!this._roles.has(empNo)) {
       this._roles.set(empNo, ROLES.USER)
       this._markDirty()
@@ -210,9 +249,7 @@ export class RolesStore {
   // === Fallback Administrator ===
 
   setFallbackPassword(password, currentAdminRole) {
-    if (currentAdminRole !== ROLES.SUPER_ADMIN) {
-      throw new Error('只有超级管理员可以设置兜底管理员密码')
-    }
+    this._assertAdmin(currentAdminRole)
     if (!password || password.length < 6) {
       throw new Error('密码至少 6 位')
     }
@@ -222,9 +259,7 @@ export class RolesStore {
   }
 
   clearFallbackPassword(currentAdminRole) {
-    if (currentAdminRole !== ROLES.SUPER_ADMIN) {
-      throw new Error('只有超级管理员可以清除兜底管理员密码')
-    }
+    this._assertAdmin(currentAdminRole)
     this._fallbackPasswordHash = null
     this._markDirty()
     return true

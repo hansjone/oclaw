@@ -24,6 +24,15 @@ export function createApiHandlers(config, sessionStore, rolesStore) {
   async function logout(ctx) {
     const empNo = ctx.empNo
     if (empNo) await sessionStore.delete(empNo)
+    // 清掉兜底 / 提示客户端清 UDS cookie（UDS cookie 多为非 HttpOnly，服务端再清一遍兜底）
+    const clear = [
+      'UDS_FALLBACK_USER=; Max-Age=0; Path=/; HttpOnly; SameSite=Lax',
+      'PORTALSSOUser=; Max-Age=0; Path=/; SameSite=Lax',
+      'PORTALSSOCookie=; Max-Age=0; Path=/; SameSite=Lax',
+      'ZTEDPGSSOUser=; Max-Age=0; Path=/; SameSite=Lax',
+      'ZTEDPGSSOCookie=; Max-Age=0; Path=/; SameSite=Lax',
+    ]
+    ctx.res.setHeader('Set-Cookie', clear)
     await sendRes(ctx.res, 200, { message: 'Logged out' })
   }
 
@@ -45,10 +54,12 @@ export function createApiHandlers(config, sessionStore, rolesStore) {
     if (!requirePermission(ctx, 'super_admin')) {
       return sendRes(ctx.res, 403, { error: '只有超级管理员可以查看用户列表' })
     }
-    const users = rolesStore.getAll().map(({ empNo, role }) => ({
-      empNo, role, roleLabel: ROLE_LABELS[role] || role,
-    }))
-    await sendRes(ctx.res, 200, { users, total: users.length })
+    const url = new URL(ctx.req.url, 'http://localhost')
+    const page = url.searchParams.get('page')
+    const pageSize = url.searchParams.get('pageSize')
+    const q = url.searchParams.get('q') || ''
+    const result = rolesStore.listPage({ page, pageSize, q })
+    await sendRes(ctx.res, 200, result)
   }
 
   async function setUserRole(ctx) {

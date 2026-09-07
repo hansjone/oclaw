@@ -1,17 +1,17 @@
 {
   "name": "uds-auth",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "UDS authentication plugin for DeepSeek Harness with multi-tenant session isolation",
   "type": "module",
   "main": "lib/index.js",
   "exports": {
     ".": "./lib/index.js",
+    "./client": "./lib/client.js",
     "./config": "./lib/config.js",
     "./session": "./lib/session/factory.js",
     "./middleware": "./lib/middleware/auth-middleware.js",
     "./api": "./lib/api.js",
     "./context": "./lib/context.js",
-    "./client": "./lib/client.js",
     "./cordis.patch.yml": "./cordis.patch.yml",
     "./package.json": "./package.json"
   },
@@ -35,12 +35,23 @@
     "docs",
     "README.md",
     "README.zh.md",
-    "examples"
+    "LICENSE"
   ],
   "author": "",
   "license": "MIT",
   "engines": {
     "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "qrcode": "1.5.4"
+  },
+  "peerDependencies": {
+    "react": "^18.2.0 || ^19.0.0"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    }
   },
   "dsh": {
     "bundle": {
@@ -49,9 +60,9 @@
     "client": {
       "platform": "web",
       "immediately": true,
-      "entry": "./lib/client-cordis.js",
       "inject": [
-        "@deepseek-ai/dsh-client-connection"
+        "@deepseek-ai/dsh-client-ui-slots",
+        "@deepseek-ai/dsh-client-ui-layout"
       ]
     }
   }
