@@ -102,6 +102,17 @@ export function patchWebServerWithIdentity(server, resolveIdentity) {
     server.registerFallback = (handler) => origFallback(wrap(handler))
   }
 
+  const origRegisterUpgrade = server.registerUpgrade?.bind(server)
+  if (origRegisterUpgrade) {
+    server.registerUpgrade = (route) => origRegisterUpgrade({
+      ...route,
+      handler: async (req, socket, head) => {
+        const identity = await resolveIdentity(req)
+        return withUserContext(identity, () => route.handler(req, socket, head))
+      },
+    })
+  }
+
   return () => {
     /* leave patched — reload recreates webServer fiber */
   }
@@ -149,6 +160,32 @@ export function installDshAcl(ctx, {
     const sc = sctx.sessionController
     if (!sc || sc.__udsAcl) return
     sc.__udsAcl = true
+
+    // Deeper wrap: ApiSessionList.list (cold summaries)
+    if (sc.listState && typeof sc.listState.list === 'function' && !sc.listState.__udsAcl) {
+      sc.listState.__udsAcl = true
+      const origStateList = sc.listState.list.bind(sc.listState)
+      sc.listState.list = async (signal) => {
+        const items = await origStateList(signal)
+        const identity = getUserContext()
+        if (!identity?.empNo) return []
+        if (identity.permissions?.canViewAllSessions) return items
+        return (items || []).filter((row) => {
+          const id = row?.sessionId ?? row?.id
+          return id != null && sessionAcl.canViewSession(id)
+        })
+      }
+      if (typeof sc.listState.search === 'function') {
+        const origStateSearch = sc.listState.search.bind(sc.listState)
+        sc.listState.search = async (query, signal) => {
+          const value = await origStateSearch(query, signal)
+          const identity = getUserContext()
+          if (!identity?.empNo) return { items: [], hasMore: false }
+          if (identity.permissions?.canViewAllSessions) return value
+          return sessionAcl.filterListValue(value)
+        }
+      }
+    }
 
     const origList = sc.list.bind(sc)
     sc.list = async (request, signal) => {

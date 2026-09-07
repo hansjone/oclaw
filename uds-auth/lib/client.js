@@ -464,9 +464,11 @@ window.__ModuleLoader__.load({
         const perms = user?.permissions || {}
         const canSettings = user ? !!perms.canAccessSettings : false
         const canCreateWs = user ? !!perms.canCreateWorkspace : false
+        document.documentElement.setAttribute('data-uds-logged-in', user ? '1' : '0')
         document.documentElement.setAttribute('data-uds-can-settings', canSettings ? '1' : '0')
         document.documentElement.setAttribute('data-uds-can-create-ws', canCreateWs ? '1' : '0')
         return () => {
+          document.documentElement.removeAttribute('data-uds-logged-in')
           document.documentElement.removeAttribute('data-uds-can-settings')
           document.documentElement.removeAttribute('data-uds-can-create-ws')
         }
@@ -483,6 +485,7 @@ window.__ModuleLoader__.load({
           const me = await fetchJson('/uds-auth/api/me')
           if (!me?.authenticated || !me?.data) {
             setUser(null)
+            window.dispatchEvent(new Event('uds-auth-changed'))
             return
           }
           const d = me.data
@@ -495,8 +498,10 @@ window.__ModuleLoader__.load({
             role: d.role || 'user',
             permissions: d.permissions || {},
           })
+          window.dispatchEvent(new Event('uds-auth-changed'))
         } catch {
           setUser(null)
+          window.dispatchEvent(new Event('uds-auth-changed'))
         } finally {
           setLoading(false)
         }
@@ -793,6 +798,71 @@ window.__ModuleLoader__.load({
           if (settingsGateDispose) { try { settingsGateDispose() } catch {} }
         }
       }, 'uds-auth: settings-gate')
+
+
+      // Defense in depth: never show Host session rows while UDS cookies are absent.
+      // Covers ALS misses on /api and broadcast api-session/added leaks.
+      // Use ctx.get (optional) — sandboxed clients cannot ctx.inject undeclared services.
+      ctx.effect(() => {
+        let onAuthChanged = null
+        let installedRpc = false
+        let installedSessions = false
+
+        const install = () => {
+          const connection = ctx.get('connection')
+          const rpc = connection && connection.rpc
+          if (!installedRpc && rpc && typeof rpc.call === 'function' && !rpc.__udsAuthListGate) {
+            installedRpc = true
+            rpc.__udsAuthListGate = true
+            const origCall = rpc.call.bind(rpc)
+            rpc.call = async function udsAuthRpcCall(channel, endpoint, payload, signal) {
+              const result = await origCall(channel, endpoint, payload, signal)
+              if (getEmpNo()) return result
+              if (channel !== '/api') return result
+              if (endpoint === 'session/list') return { ok: true, value: { items: [] } }
+              if (endpoint === 'session/search') return { ok: true, value: { items: [], hasMore: false } }
+              return result
+            }
+          }
+
+          const sessions = ctx.get('sessions')
+          if (!installedSessions && sessions && !sessions.__udsAuthListGate) {
+            installedSessions = true
+            sessions.__udsAuthListGate = true
+            const origAdded = sessions.handleSessionAdded && sessions.handleSessionAdded.bind(sessions)
+            if (origAdded) {
+              sessions.handleSessionAdded = (summary) => {
+                if (!getEmpNo()) return
+                return origAdded(summary)
+              }
+            }
+            const origActivity = sessions.handleSessionActivity && sessions.handleSessionActivity.bind(sessions)
+            if (origActivity) {
+              sessions.handleSessionActivity = (sessionId, updatedAt) => {
+                if (!getEmpNo()) return
+                return origActivity(sessionId, updatedAt)
+              }
+            }
+            const refresh = () => {
+              if (typeof sessions.refresh === 'function') void sessions.refresh()
+            }
+            refresh()
+            onAuthChanged = refresh
+            window.addEventListener('uds-auth-changed', onAuthChanged)
+          }
+          return installedRpc && installedSessions
+        }
+
+        install()
+        const timer = installedRpc && installedSessions ? null : setInterval(() => {
+          if (install() && timer) clearInterval(timer)
+        }, 300)
+
+        return () => {
+          if (timer) clearInterval(timer)
+          if (onAuthChanged) window.removeEventListener('uds-auth-changed', onAuthChanged)
+        }
+      }, 'uds-auth: session-list-gate')
 
       // sidebar.footer.action; layout effect lays footArea as one row: Settings | UDS login
       ctx.slots.inject('sidebar.footer.action', () => ctx.slots.register({
