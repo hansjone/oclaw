@@ -1,5 +1,5 @@
 /**
- * uds-auth browser half — header.utilities when session exists; shell.overlay when not (no overlap).
+ * uds-auth browser half — sidebar.footer.action (same foot as Settings, right-aligned) + settings.section.
  * Auth: empNo cookie + token verified server-side via user-info.
  * Fallback: username/password when UAC/QR unavailable.
  */
@@ -19,7 +19,7 @@ window.__ModuleLoader__.load({
     const PAGE_SIZE = 50
 
     const CSS = [
-      '.uds-auth-host{position:relative;display:inline-flex;align-items:center;height:32px;margin:0;flex-shrink:0;pointer-events:auto}.uds-auth-host.is-overlay{position:fixed;top:calc(8px + env(safe-area-inset-top,0px));right:12px;z-index:46}',
+      '.uds-auth-host{position:relative;display:inline-flex;align-items:center;height:32px;margin:0 0 0 auto;flex-shrink:0;pointer-events:auto}.uds-auth-host.is-rail{margin-left:0;justify-content:center;width:100%}',
       '.uds-auth-badge{display:inline-flex;align-items:center;justify-content:center;gap:4px;max-width:min(180px,30vw);min-width:auto;height:32px;padding:6px 12px;border-radius:18px;background:transparent;border:1px solid var(--dsw-alias-border-l2);color:var(--dsw-alias-label-primary);font-size:13px;font-weight:400;line-height:20px;cursor:pointer;font-family:var(--dsw-font-family)}',
       '.uds-auth-badge:hover{background:var(--dsw-alias-interactive-bg-hover)}',
       '.uds-auth-badge-unauth{color:var(--dsw-alias-label-tertiary,#8f959e)}',
@@ -421,7 +421,8 @@ window.__ModuleLoader__.load({
       )
     }
 
-    function AuthBadge({ placement = 'overlay' } = {}) {
+    function AuthBadge(props = {}) {
+      const wide = props.wide !== false
       const rootRef = useRef(null)
       const [open, setOpen] = useState(false)
       const [anchor, setAnchor] = useState(null)
@@ -439,20 +440,6 @@ window.__ModuleLoader__.load({
       const [fbBusy, setFbBusy] = useState(false)
       const [fbErr, setFbErr] = useState('')
       const qrRef = useRef({ key: null, value: null, timer: null })
-      const isOverlay = placement === 'overlay'
-      const [hideOverlay, setHideOverlay] = useState(false)
-      useEffect(() => {
-        if (!isOverlay) return undefined
-        const sync = () => {
-          setHideOverlay(!!document.querySelector('[data-uds-auth-host="header-utilities"]'))
-        }
-        sync()
-        const mo = new MutationObserver(sync)
-        mo.observe(document.body, { childList: true, subtree: true })
-        const t = setInterval(sync, 800)
-        return () => { mo.disconnect(); clearInterval(t) }
-      }, [isOverlay])
-      if (isOverlay && hideOverlay) return null
 
       const stopQr = useCallback(() => {
         if (qrRef.current.timer) { clearInterval(qrRef.current.timer); qrRef.current.timer = null }
@@ -614,10 +601,11 @@ window.__ModuleLoader__.load({
         const place = () => {
           const rect = rootRef.current?.getBoundingClientRect()
           if (!rect) return
-          setAnchor({
-            left: Math.max(8, Math.min(rect.right - 300, window.innerWidth - 308)),
-            top: Math.min(rect.bottom + 8, window.innerHeight - 80),
-          })
+          const width = Math.min(300, window.innerWidth - 24)
+          const left = Math.max(8, Math.min(rect.left, window.innerWidth - width - 8))
+          // Open upward from sidebar foot
+          const top = Math.max(8, rect.top - 8 - Math.min(520, window.innerHeight * 0.65))
+          setAnchor({ left, top })
         }
         place()
         window.addEventListener('resize', place)
@@ -639,8 +627,8 @@ window.__ModuleLoader__.load({
 
       return h('div', {
         ref: rootRef,
-        className: 'uds-auth-host' + (isOverlay ? ' is-overlay' : ''),
-        'data-uds-auth-host': isOverlay ? 'shell-overlay' : 'header-utilities',
+        className: 'uds-auth-host' + (wide ? '' : ' is-rail'),
+        'data-uds-auth-host': 'sidebar-footer',
       },
       open && anchor && h('section', {
         className: 'uds-auth-panel',
@@ -744,22 +732,13 @@ window.__ModuleLoader__.load({
         document.head.appendChild(tag)
         return () => tag.remove()
       }, 'uds-auth: styles')
-
-      // In-session: sit left of official Session 日志 (@deepseek-ai/dsh-session-log-export).
-      ctx.slots.inject('conversation.session.header.utilities', () => ctx.slots.register({
-        name: 'conversation.session.header.utilities',
-        id: 'uds-auth-login-header',
-        order: -10,
+      // Same sidebar foot as Settings (root scope — always visible). margin-left:auto pins right in the action row.
+      ctx.slots.inject('sidebar.footer.action', () => ctx.slots.register({
+        name: 'sidebar.footer.action',
+        id: 'uds-auth-login',
+        order: 100,
         label: 'UDS',
-      }, () => h(AuthBadge, { placement: 'header' })))
-
-      // No session yet: still show login (overlay hides itself once header instance mounts).
-      ctx.slots.inject('shell.overlay', () => ctx.slots.register({
-        name: 'shell.overlay',
-        id: 'uds-auth-login-overlay',
-        order: 40,
-        label: 'UDS',
-      }, () => h(AuthBadge, { placement: 'overlay' })))
+      }, AuthBadge))
 
       ctx.slots.inject('settings.section', () => ctx.slots.register({
         name: 'settings.section',
