@@ -20,7 +20,6 @@ window.__ModuleLoader__.load({
 
     const CSS = [
       '.uds-auth-host{position:relative;display:inline-flex;align-items:center;pointer-events:auto;margin-left:4px;flex-shrink:0}',
-      ''
       '.uds-auth-badge{display:inline-flex;align-items:center;gap:6px;max-width:min(220px,40vw);height:28px;padding:0 10px;border-radius:999px;background:var(--dsw-alias-bg-layer-1,rgba(255,255,255,.92));border:1px solid var(--dsw-alias-border-l2,#dfe1e5);color:var(--dsw-alias-label-primary,#1f2329);font-size:12px;cursor:pointer;font-weight:500;line-height:1;box-shadow:0 1px 4px rgba(0,0,0,.06);backdrop-filter:blur(8px)}',
       '.uds-auth-badge:hover{background:var(--dsw-alias-interactive-bg-hover,rgba(247,248,250,1))}',
       '.uds-auth-badge-unauth{color:var(--dsw-alias-label-tertiary,#8f959e)}',
