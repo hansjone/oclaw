@@ -4,7 +4,7 @@
 # UAC 基础 URL (生产: https://uac.zte.com.cn, 测试: http://uactest.zte.com.cn:8080)
 uacBaseUrl: https://uac.zte.com.cn
 
-# icenterapi 用户搜索接口 (完整 URL)
+# icenterapi 用户搜索接口 (完整 URL；须内网直连，禁止走 HTTP(S)_PROXY)
 userSearchUrl: https://icenterapi.zte.com.cn/zte-km-icenter-addresearch/user/plain/docs/search
 
 # 登录时传给 UAC 的业务系统 Code

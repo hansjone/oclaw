@@ -13,7 +13,7 @@ export class UdsValidator {
     this.empNoHeader = (config.empNoHeader || 'X-Emp-No').toLowerCase()
     this.authValueHeader = (config.authValueHeader || 'X-Auth-Value').toLowerCase()
     this.langIdHeader = (config.langIdHeader || 'X-Lang-Id').toLowerCase()
-    this.authMode = config.authMode || 'trust'
+    this.authMode = config.authMode || 'token+profile'
     this.hrApiUrl = config.hrApiUrl || 'https://icosg.dt.zte.com.cn/ihol/usercenter/pginfo/usercenter/plain/queryPersonGeneralInfo'
   }
 
@@ -149,7 +149,12 @@ export class UdsValidator {
     } else {
       userData = {
         userId: credentialsOrResponse.empNo,
-        username: credentialsOrResponse.empNo,
+        username: credentialsOrResponse.username || credentialsOrResponse.empNo,
+        displayName: credentialsOrResponse.displayName || credentialsOrResponse.username || credentialsOrResponse.empNo,
+        department: credentialsOrResponse.department || '',
+        organization: credentialsOrResponse.organization || '',
+        email: credentialsOrResponse.email || '',
+        phone: credentialsOrResponse.phone || '',
         empNo: credentialsOrResponse.empNo,
         token: credentialsOrResponse.token,
         lang: credentialsOrResponse.lang,
@@ -173,7 +178,7 @@ export class UdsValidator {
       lastActiveAt: now,
       sessionCreatedAt: now,
       isAuthenticated: true,
-      authMode: this.authMode,
+      authMode: this.authMode || 'token+profile',
     }
   }
 

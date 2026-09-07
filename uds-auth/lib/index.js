@@ -355,7 +355,7 @@ async function handleVerifyCode(req, res) {
   }))
 }
 
-// User info proxy - bypasses CORS by server-side fetching icenterapi
+// User info proxy — intranet direct (no HTTP_PROXY), empNo+token headers
 async function handleUserInfo(req, res) {
   if (req.method !== 'GET') {
     res.writeHead(405, { 'Content-Type': 'application/json' })
@@ -367,53 +367,35 @@ async function handleUserInfo(req, res) {
   const empNo = url.searchParams.get('empNo')
   const token = url.searchParams.get('token')
 
-  if (!empNo) {
+  if (!empNo || !token) {
     res.writeHead(400, { 'Content-Type': 'application/json' })
-    res.end(JSON.stringify({ error: 'Missing empNo' }))
+    res.end(JSON.stringify({ error: 'Missing empNo or token' }))
     return
   }
 
   try {
-    const https = await import('node:https')
-    const targetUrl = new URL(_currentConfig.userSearchUrl)
-    const body = JSON.stringify({ employeeShortId: empNo, enableLabel: true, keyword: empNo })
-
-    const headers = {
-      'Content-Type': 'application/json;charset=UTF-8',
-      'Content-Length': Buffer.byteLength(body),
-      [INTERNAL.empNoHeader]: empNo,
-      'Origin': _currentConfig.uacBaseUrl,
-      'Referer': _currentConfig.uacBaseUrl + '/'
-    }
-    if (!token) {
-      res.writeHead(400, { 'Content-Type': 'application/json' })
-      res.end(JSON.stringify({ error: 'Missing token' }))
+    const { searchUserByEmpNoToken } = await import('./uds/user-search.js')
+    const out = await searchUserByEmpNoToken({
+      userSearchUrl: _currentConfig.userSearchUrl,
+      empNo,
+      token,
+      empNoHeader: INTERNAL.empNoHeader,
+      authValueHeader: INTERNAL.authValueHeader,
+      origin: _currentConfig.uacBaseUrl,
+    })
+    if (!out.ok) {
+      const status = out.statusCode === 401 || out.statusCode === 403 ? out.statusCode : 502
+      res.writeHead(status, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({
+        error: 'user search failed',
+        reason: out.reason,
+        hint: out.hint || 'Ensure userSearchUrl is intranet-reachable and Host does not force HTTP(S)_PROXY for *.zte.com.cn',
+        detail: { code: out.code, msg: out.msg, statusCode: out.statusCode },
+      }))
       return
     }
-    headers[INTERNAL.authValueHeader] = token
-
-    const result = await new Promise((resolve, reject) => {
-      const proxyReq = https.request({
-        hostname: targetUrl.hostname,
-        port: targetUrl.port || 443,
-        path: targetUrl.pathname + targetUrl.search,
-        method: 'POST',
-        headers,
-        timeout: 8000,
-      }, (proxyRes) => {
-        let data = ''
-        proxyRes.on('data', chunk => data += chunk)
-        proxyRes.on('end', () => {
-          try { resolve(JSON.parse(data)) } catch (e) { resolve({ raw: data }) }
-        })
-      })
-      proxyReq.on('error', reject)
-      proxyReq.write(body)
-      proxyReq.end()
-    })
-
     res.writeHead(200, { 'Content-Type': 'application/json' })
-    res.end(JSON.stringify(result))
+    res.end(JSON.stringify(out.result))
   } catch (err) {
     res.writeHead(502, { 'Content-Type': 'application/json' })
     res.end(JSON.stringify({ error: err.message }))
