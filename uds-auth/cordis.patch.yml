@@ -1,0 +1,13 @@
+# uds-auth Cordis 插件配置
+# Host: 服务端 API + 路由（在 uds-auth/lib/index.js 中）
+# Client: 登录徽章 UI（通过本插件的 client.js 注册到 sidebar.footer.action）
+- insert:
+    - id: uds-auth
+      name: uds-auth
+      config:
+        uacBaseUrl: https://uac.zte.com.cn
+        userSearchUrl: https://icenterapi.zte.com.cn/v2/user/search
+        loginSystemCode: '100000455558'
+        originSystemCode: ''
+      client:
+        entry: ./lib/client-cordis.js

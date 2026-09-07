@@ -12,10 +12,10 @@
 
 **运维专家（ops specialist）** 是 Oclaw 中的网络运维角色，对外 persona 为「**oclaw智能运维**」。它与 netx 深度集成，形成「数据面 + 推理面」的完整运维闭环。
 
-| 项目 | 角色 | 核心职责 |
-|------|------|----------|
-| Oclaw | AI 交互与编排层 | Agent 推理、工具调用、Skills、渠道回复 |
-| netx | 数据与设备执行层 | 告警采集/查询、网元纳管、安全 CLI |
+| 项目     | 角色                | 核心职责                               |
+| -------- | ------------------- | -------------------------------------- |
+| Oclaw    | AI 交互与编排层     | Agent 推理、工具调用、Skills、渠道回复 |
+| netx     | 数据与设备执行层    | 告警采集/查询、网元纳管、安全 CLI      |
 | 运维专家 | Oclaw 中的 ops 专家 | 查告警、诊断网元、生成报告、触发自动化 |
 
 ```mermaid
@@ -59,11 +59,11 @@ flowchart LR
 
 ### 2.2 专家体系
 
-| specialist | 说明 |
-|------------|------|
+| specialist    | 说明                     |
+| ------------- | ------------------------ |
 | **ops** | 网络运维专家（本文重点） |
-| generalist | 通用任务 |
-| memory | 知识/记忆 |
+| generalist    | 通用任务                 |
+| memory        | 知识/记忆                |
 
 ### 2.3 交互模式
 
@@ -101,13 +101,13 @@ flowchart TD
 
 ### 3.1 身份与实现
 
-| 项 | 值 |
-|----|-----|
-| specialist ID | `ops` |
-| 对外名称 | oclaw智能运维 |
-| 工具包 | `network_ops+memory` |
-| Agent 类 | `NetworkOpsAgent` |
-| 角色定义 | `runtime/workspaces/ops/ROLE_SYSTEM.md` |
+| 项            | 值                                        |
+| ------------- | ----------------------------------------- |
+| specialist ID | `ops`                                   |
+| 对外名称      | oclaw智能运维                             |
+| 工具包        | `network_ops+memory`                    |
+| Agent 类      | `NetworkOpsAgent`                       |
+| 角色定义      | `runtime/workspaces/ops/ROLE_SYSTEM.md` |
 
 ### 3.2 核心原则
 
@@ -137,11 +137,11 @@ flowchart TB
 
 netx 是面向 ZTE UME 环境的网络运维平台（v0.2），提供 Web UI、REST API 与 MCP 接入。
 
-| 组件 | 技术 |
-|------|------|
-| 后端 | Python 3.11+ / FastAPI / PostgreSQL / Netmiko |
-| 前端 | React 19 + Vite |
-| 默认端口 | API `:8890`，Web UI `:5173` |
+| 组件     | 技术                                          |
+| -------- | --------------------------------------------- |
+| 后端     | Python 3.11+ / FastAPI / PostgreSQL / Netmiko |
+| 前端     | React 19 + Vite                               |
+| 默认端口 | API`:8890`，Web UI `:5173`                |
 
 ### 4.2 数据来源
 
@@ -150,14 +150,14 @@ netx 是面向 ZTE UME 环境的网络运维平台（v0.2），提供 Web UI、R
 
 ### 4.3 核心模块
 
-| 模块 | 路径 | 能力 |
-|------|------|------|
-| UME 同步 | `netx_api/ume_sync_service.py` | 告警/网元定时与实时同步 |
-| 只读 CLI | `netx_api/ne_exec.py` | 安全的 show/display/ping 执行 |
-| 纳管网元 | `netx_api/managed_ne_router.py` | SSH/Telnet 设备 CRUD、跳板机 |
-| MCP 代理 | `packages/netx-mcp/` | stdio → HTTP，不直连数据库 |
-| Oclaw 桥接 | `netx_api/ap_client.py` | AI 分析回调 |
-| 告警推送 | `netx_api/oclaw_alarm_forwarder.py` | 关键告警 WebSocket 转发 |
+| 模块       | 路径                                  | 能力                          |
+| ---------- | ------------------------------------- | ----------------------------- |
+| UME 同步   | `netx_api/ume_sync_service.py`      | 告警/网元定时与实时同步       |
+| 只读 CLI   | `netx_api/ne_exec.py`               | 安全的 show/display/ping 执行 |
+| 纳管网元   | `netx_api/managed_ne_router.py`     | SSH/Telnet 设备 CRUD、跳板机  |
+| MCP 代理   | `packages/netx-mcp/`                | stdio → HTTP，不直连数据库   |
+| Oclaw 桥接 | `netx_api/ap_client.py`             | AI 分析回调                   |
+| 告警推送   | `netx_api/oclaw_alarm_forwarder.py` | 关键告警 WebSocket 转发       |
 
 ### 4.4 netx 内部架构
 
@@ -202,11 +202,11 @@ flowchart TB
 
 ### 5.1 三个集成方向
 
-| 方向 | 机制 | 用途 |
-|------|------|------|
-| Oclaw → netx | MCP（13 工具） | 运维专家查告警、网元、执行 CLI |
-| netx → Oclaw | `POST /v1/ap/analyze` | Web UI 一键 AI 告警分析 |
-| netx → Oclaw | WebSocket 告警推送 | 关键告警即时通知到渠道 |
+| 方向          | 机制                    | 用途                           |
+| ------------- | ----------------------- | ------------------------------ |
+| Oclaw → netx | MCP（13 工具）          | 运维专家查告警、网元、执行 CLI |
+| netx → Oclaw | `POST /v1/ap/analyze` | Web UI 一键 AI 告警分析        |
+| netx → Oclaw | WebSocket 告警推送      | 关键告警即时通知到渠道         |
 
 ### 5.2 集成时序
 
@@ -237,11 +237,11 @@ sequenceDiagram
 
 ### 5.3 认证与环境变量
 
-| 用途 | netx | Oclaw |
-|------|------|-------|
-| AI 分析桥 | `NETX_OCLAW_ANALYZE_TOKEN` | `OCLAW_OPS_AI_SHARED_TOKEN` |
-| 告警 WS | `NETX_OCLAW_ALARM_WS_URL` | `ws://127.0.0.1:8787/ws/netx-bridge` |
-| MCP 地址 | — | MCP env `NETX_API_URL=http://127.0.0.1:8890` |
+| 用途      | netx                         | Oclaw                                         |
+| --------- | ---------------------------- | --------------------------------------------- |
+| AI 分析桥 | `NETX_OCLAW_ANALYZE_TOKEN` | `OCLAW_OPS_AI_SHARED_TOKEN`                 |
+| 告警 WS   | `NETX_OCLAW_ALARM_WS_URL`  | `ws://127.0.0.1:8787/ws/netx-bridge`        |
+| MCP 地址  | —                           | MCP env`NETX_API_URL=http://127.0.0.1:8890` |
 
 详细说明见 [`docs/NETX_MCP_INTEGRATION.md`](../NETX_MCP_INTEGRATION.md)。
 
@@ -253,35 +253,35 @@ sequenceDiagram
 
 ### UME 告警
 
-| 工具 | 说明 |
-|------|------|
-| `queryUmeAlarms` | 分页查询当前告警 |
-| `aggregateUmeAlarms` | 按维度聚合统计 |
-| `runUmeDiagnostics` | 运行诊断规则 |
+| 工具                   | 说明             |
+| ---------------------- | ---------------- |
+| `queryUmeAlarms`     | 分页查询当前告警 |
+| `aggregateUmeAlarms` | 按维度聚合统计   |
+| `runUmeDiagnostics`  | 运行诊断规则     |
 
 ### UME 网元
 
-| 工具 | 说明 |
-|------|------|
+| 工具                    | 说明         |
+| ----------------------- | ------------ |
 | `queryUmeNeInventory` | 网元清单查询 |
-| `getUmeNe` | 单个网元详情 |
+| `getUmeNe`            | 单个网元详情 |
 
 ### 深查分析
 
-| 工具 | 说明 |
-|------|------|
-| `queryUmeAlarmsRaw` | 原始字段查询 |
-| `aggregateUmeAlarmsRaw` | 原始字段聚合 |
-| `listUmeAlarmFields` | 可用字段列表 |
-| `sqlQueryUme` | 只读 SQL 查询 |
+| 工具                      | 说明          |
+| ------------------------- | ------------- |
+| `queryUmeAlarmsRaw`     | 原始字段查询  |
+| `aggregateUmeAlarmsRaw` | 原始字段聚合  |
+| `listUmeAlarmFields`    | 可用字段列表  |
+| `sqlQueryUme`           | 只读 SQL 查询 |
 
 ### 纳管网元 CLI
 
-| 工具 | 说明 |
-|------|------|
-| `listManagedNe` | 列出纳管设备 |
-| `getManagedNe` | 设备详情 |
-| `execManagedNe` | 执行只读 CLI |
+| 工具               | 说明          |
+| ------------------ | ------------- |
+| `listManagedNe`  | 列出纳管设备  |
+| `getManagedNe`   | 设备详情      |
+| `execManagedNe`  | 执行只读 CLI  |
 | `listCliTargets` | 可用 CLI 目标 |
 
 ---
@@ -317,17 +317,17 @@ flowchart TD
 
 运维专家处理 netx 相关任务时，须加载对应技能：
 
-| Skill | 路径 | 场景 |
-|-------|------|------|
-| `ops-netx-ume-playbook` | `skills/_workspace/ops/ops-netx-ume-playbook/` | UME 告警查询/聚合/诊断、网元清单 |
-| `ops-netx-managed-ne-playbook` | `skills/_workspace/ops/ops-netx-managed-ne-playbook/` | 纳管设备 SSH/Telnet 只读巡检 |
+| Skill                            | 路径                                                    | 场景                             |
+| -------------------------------- | ------------------------------------------------------- | -------------------------------- |
+| `ops-netx-ume-playbook`        | `skills/_workspace/ops/ops-netx-ume-playbook/`        | UME 告警查询/聚合/诊断、网元清单 |
+| `ops-netx-managed-ne-playbook` | `skills/_workspace/ops/ops-netx-managed-ne-playbook/` | 纳管设备 SSH/Telnet 只读巡检     |
 
 所有专家也可使用的公共技能：
 
-| Skill | 场景 |
-|-------|------|
-| `scheduled-workflows` | 周期性多步运维任务（告警周报 → PDF → 发群） |
-| `channel-file-delivery` | CSV/PDF 报告通过渠道附件发送 |
+| Skill                     | 场景                                          |
+| ------------------------- | --------------------------------------------- |
+| `scheduled-workflows`   | 周期性多步运维任务（告警周报 → PDF → 发群） |
+| `channel-file-delivery` | CSV/PDF 报告通过渠道附件发送                  |
 
 Ops 私有技能安装目录：`skills/_workspace/ops/<name>/`（`public=false`）。
 
@@ -410,12 +410,12 @@ flowchart TB
 
 **关键路径：**
 
-| 环节 | 端点 / 脚本 |
-|------|-------------|
-| 入站 | sidecar → `POST /inbound/whatsapp` → 返回 `replies[]` |
-| 出站 | sidecar 轮询 `GET /whatsapp/outbound/pending` 并发送 |
-| 登录态 | `data/channel_sidecar/whatsapp/state/auth/` |
-| 扩展实现 | `runtime/extensions/whatsapp/` |
+| 环节     | 端点 / 脚本                                                |
+| -------- | ---------------------------------------------------------- |
+| 入站     | sidecar →`POST /inbound/whatsapp` → 返回 `replies[]` |
+| 出站     | sidecar 轮询`GET /whatsapp/outbound/pending` 并发送      |
+| 登录态   | `data/channel_sidecar/whatsapp/state/auth/`              |
+| 扩展实现 | `runtime/extensions/whatsapp/`                           |
 
 ### 10.2 安装与设备绑定
 
@@ -427,21 +427,21 @@ powershell -ExecutionPolicy Bypass -File .\runtime\operations\scripts\whatsapp_s
 powershell -ExecutionPolicy Bypass -File .\runtime\operations\scripts\whatsapp_status.ps1
 ```
 
-| 操作 | 说明 |
-|------|------|
-| 首次登录 | 手机 WhatsApp → 设置 → 已关联的设备 → 扫码 |
-| 重启 sidecar | 一般无需重复扫码（登录态落盘） |
-| 换号 / 解除关联 | 先 `whatsapp_stop.ps1 -Force`，删除 `state/auth`，再 `whatsapp_login.ps1` |
-| 随全栈启动 | `scripts/start_all.ps1`（未安装 sidecar 时自动跳过并告警） |
+| 操作            | 说明                                                                           |
+| --------------- | ------------------------------------------------------------------------------ |
+| 首次登录        | 手机 WhatsApp → 设置 → 已关联的设备 → 扫码                                  |
+| 重启 sidecar    | 一般无需重复扫码（登录态落盘）                                                 |
+| 换号 / 解除关联 | 先`whatsapp_stop.ps1 -Force`，删除 `state/auth`，再 `whatsapp_login.ps1` |
+| 随全栈启动      | `scripts/start_all.ps1`（未安装 sidecar 时自动跳过并告警）                   |
 
 ### 10.3 路由到运维专家
 
 在 Admin 将 WhatsApp 消息路由到 ops 专家，有两种配置入口：
 
-| 配置位置 | 操作 |
-|----------|------|
-| **Stack 页面** | `WhatsApp dispatch` 控制卡 → 选「绑定专家」→ specialist 选 `ops` |
-| **用户/渠道绑定** | `channel=whatsapp` → 按账号配置专家与模式 |
+| 配置位置                | 操作                                                                   |
+| ----------------------- | ---------------------------------------------------------------------- |
+| **Stack 页面**    | `WhatsApp dispatch` 控制卡 → 选「绑定专家」→ specialist 选 `ops` |
+| **用户/渠道绑定** | `channel=whatsapp` → 按账号配置专家与模式                           |
 
 **交互模式：**
 
@@ -458,11 +458,11 @@ powershell -ExecutionPolicy Bypass -File .\runtime\operations\scripts\whatsapp_s
 
 WhatsApp 群聊默认**不会响应每条消息**，避免群内噪声触发 Agent：
 
-| 规则 | 默认值 | 环境变量 |
-|------|--------|----------|
-| 需要 @ 机器人 | 开启 | `AIA_WHATSAPP_GROUP_REQUIRE_MENTION=1` |
-| 文本触发词 | `/oclaw`、`|oclaw` | `AIA_WHATSAPP_GROUP_TRIGGERS` |
-| 会话作用域 | 按群隔离 | `AIA_WHATSAPP_GROUP_SESSION_SCOPE` |
+| 规则          | 默认值        | 环境变量                                 |
+| ------------- | ------------- | ---------------------------------------- |
+| 需要 @ 机器人 | 开启          | `AIA_WHATSAPP_GROUP_REQUIRE_MENTION=1` |
+| 文本触发词    | `/oclaw`、` | oclaw`                                   |
+| 会话作用域    | 按群隔离      | `AIA_WHATSAPP_GROUP_SESSION_SCOPE`     |
 
 ```mermaid
 flowchart TD
@@ -572,13 +572,13 @@ Admin 可配置 WhatsApp 联系人白名单/黑名单（`GET /admin/api/whatsapp
 
 ### 10.7 相关环境变量
 
-| 变量 | 说明 |
-|------|------|
-| `AIA_WHATSAPP_ACCOUNT_ID` | 账号 ID，默认 `wa-default` |
-| `AIA_WHATSAPP_GROUP_REQUIRE_MENTION` | 群聊是否要求 @ 机器人 |
-| `AIA_WHATSAPP_GROUP_TRIGGERS` | 群聊文本触发词 |
-| `OCLAW_OPS_AI_SHARED_TOKEN` | netx-bridge 认证（告警推送） |
-| `NETX_OCLAW_ALARM_WS_URL` | netx 侧告警 WS 地址 |
+| 变量                                   | 说明                         |
+| -------------------------------------- | ---------------------------- |
+| `AIA_WHATSAPP_ACCOUNT_ID`            | 账号 ID，默认`wa-default`  |
+| `AIA_WHATSAPP_GROUP_REQUIRE_MENTION` | 群聊是否要求 @ 机器人        |
+| `AIA_WHATSAPP_GROUP_TRIGGERS`        | 群聊文本触发词               |
+| `OCLAW_OPS_AI_SHARED_TOKEN`          | netx-bridge 认证（告警推送） |
+| `NETX_OCLAW_ALARM_WS_URL`            | netx 侧告警 WS 地址          |
 
 ---
 
@@ -597,16 +597,16 @@ flowchart TD
   S9 --> S10[10. 绑定告警群 + 测试推送]
 ```
 
-| 步骤 | 命令/配置 |
-|------|-----------|
-| Oclaw | `powershell -File scripts/start_gateway.ps1 -Background` |
-| netx | `powershell -File scripts/start_netx.ps1` |
-| MCP | Admin → MCP Servers → 粘贴 `netx/mcp.json` |
-| Token | `OCLAW_OPS_AI_SHARED_TOKEN` ↔ `NETX_OCLAW_ANALYZE_TOKEN` |
-| 验证 | Chat 选 ops → 「查当前 UME Critical 告警 Top 5」 |
+| 步骤     | 命令/配置                                                                    |
+| -------- | ---------------------------------------------------------------------------- |
+| Oclaw    | `powershell -File scripts/start_gateway.ps1 -Background`                   |
+| netx     | `powershell -File scripts/start_netx.ps1`                                  |
+| MCP      | Admin → MCP Servers → 粘贴`netx/mcp.json`                                |
+| Token    | `OCLAW_OPS_AI_SHARED_TOKEN` ↔ `NETX_OCLAW_ANALYZE_TOKEN`                |
+| 验证     | Chat 选 ops → 「查当前 UME Critical 告警 Top 5」                            |
 | WhatsApp | `whatsapp_install.ps1` → `whatsapp_login.ps1` → `whatsapp_start.ps1` |
-| 路由 ops | Admin Stack → WhatsApp dispatch → 绑定专家 `ops` |
-| 告警群 | Admin → 绑定 `group_jid` → `alert-binding/test` |
+| 路由 ops | Admin Stack → WhatsApp dispatch → 绑定专家`ops`                          |
+| 告警群   | Admin → 绑定`group_jid` → `alert-binding/test`                         |
 
 一键运维栈：`scripts/start_ops.ps1`（Oclaw + netx）；全栈含渠道：`scripts/start_all.ps1`。
 
@@ -614,13 +614,13 @@ flowchart TD
 
 ## 12. 总结
 
-| 维度 | 要点 |
-|------|------|
-| Oclaw | 多专家 AI 平台，提供交互、编排、渠道 |
-| netx | 告警数据面 + 安全设备 CLI 执行 |
-| 运维专家 | 证据驱动、netx 深度集成、结构化 Playbook |
-| 集成契约 | MCP 13 工具 + 双向 API（分析 / 告警推送） |
-| 自动化 | 定时工作流 + 渠道附件 + 实时告警通知 |
+| 维度     | 要点                                         |
+| -------- | -------------------------------------------- |
+| Oclaw    | 多专家 AI 平台，提供交互、编排、渠道         |
+| netx     | 告警数据面 + 安全设备 CLI 执行               |
+| 运维专家 | 证据驱动、netx 深度集成、结构化 Playbook     |
+| 集成契约 | MCP 13 工具 + 双向 API（分析 / 告警推送）    |
+| 自动化   | 定时工作流 + 渠道附件 + 实时告警通知         |
 | WhatsApp | 移动端运维入口：交互查询、告警推送、周报投递 |
 
 **访问地址：**

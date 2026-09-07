@@ -1,0 +1,14 @@
+# uds-auth 部署配置
+# 在 DSH 设置面板中可修改以下字段
+
+# UAC 基础 URL (生产: https://uac.zte.com.cn, 测试: http://uactest.zte.com.cn:8080)
+uacBaseUrl: https://uac.zte.com.cn
+
+# icenterapi 用户搜索接口 (完整 URL)
+userSearchUrl: https://icenterapi.zte.com.cn/zte-km-icenter-addresearch/user/plain/docs/search
+
+# 登录时传给 UAC 的业务系统 Code
+loginSystemCode: '100000455558'
+
+# 登录时传给 UAC 的来源系统 Code (留空则不传)
+originSystemCode: ''
