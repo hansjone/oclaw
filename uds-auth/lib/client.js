@@ -347,7 +347,12 @@ window.__ModuleLoader__.load({
             '\u5de5\u53f7+token \u53cc\u6821\u9a8c\uff1bUAC \u6302\u6b7b\u65f6\u7528\u5e94\u6025\u8d26\u53f7 administrator \u5bc6\u7801\u767b\u5f55\u3002'),
         ),
         !me && h('div', { className: 'uds-auth-settings-empty' }, '\u8bf7\u5148\u767b\u5f55\u540e\u67e5\u770b\u6b64\u9875'),
-        me && !canSettings && !canManage && h('div', { className: 'uds-auth-settings-empty' }, '\u5f53\u524d\u8d26\u53f7\u65e0\u8bbe\u7f6e\u6743\u9650'),
+        me && !canSettings && !canManage && h('div', { className: 'uds-auth-settings-empty' },
+          '\u5f53\u524d\u89d2\u8272\uff1a' + (me.role || 'user')
+          + '\u3002\u9996\u4f4d\u626b\u7801\u767b\u5f55\u4e14 roles.json \u4e3a\u7a7a\u65f6\u4f1a\u81ea\u52a8\u6210\u4e3a\u8d85\u7ba1\uff1b'
+          + '\u666e\u901a admin \u9700\u8d85\u7ba1\u5728\u300c\u7528\u6237\u7ba1\u7406\u300d\u63d0\u6743\u540e\u518d\u626b\u7801\u767b\u5f55\u3002'
+          + '\u5e94\u6025\u8d26\u53f7 administrator \u9700\u8d85\u7ba1\u5148\u8bbe\u5bc6\u7801\uff0c\u518d\u5728\u767b\u5f55\u9762\u677f\u7528\u8d26\u5bc6\u767b\u5f55\u3002'
+        ),
         canSettings && h('div', { className: 'uds-auth-settings-card' },
           h('h3', null, '\u90e8\u7f72\u914d\u7f6e'),
           field('uacBaseUrl', 'UAC Base URL'),

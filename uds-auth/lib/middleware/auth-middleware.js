@@ -48,6 +48,19 @@ export function createAuthMiddleware(config, sessionStore, rolesStore) {
     return userContext
   }
 
+  async function resolveRole(empNo, kind) {
+    if (kind === 'fallback' || empNo === 'administrator') {
+      return rolesStore.getRole(empNo)
+    }
+    // 角色表空 → 首位登录者升为 super_admin；新用户默认 user；已有则返回原角色
+    // 注意：getRole() 对未知用户也会返回 'user'，绝不能用 !role 判断是否已 bootstrap
+    const { role, bootstrapped } = await rolesStore.bootstrapFirstUser(empNo)
+    if (bootstrapped) {
+      console.info('[uds-auth] BOOTSTRAP: ' + empNo + ' is now super_admin')
+    }
+    return role
+  }
+
   async function verifyEmpNoAndToken(empNo, token) {
     const out = await searchUserByEmpNoToken({
       userSearchUrl,
@@ -114,7 +127,7 @@ export function createAuthMiddleware(config, sessionStore, rolesStore) {
           userContext,
         )
       }
-      const role = rolesStore.getRole(extracted.empNo)
+      const role = await resolveRole(extracted.empNo, extracted.kind)
       ctx.userContext = userContext
       ctx.empNo = extracted.empNo
       ctx.role = role
@@ -160,7 +173,7 @@ export function createAuthMiddleware(config, sessionStore, rolesStore) {
       userContext,
     )
 
-    const role = rolesStore.getRole(profile.empNo)
+    const role = await resolveRole(profile.empNo, 'uds')
     ctx.userContext = userContext
     ctx.empNo = profile.empNo
     ctx.role = role

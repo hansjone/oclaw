@@ -546,15 +546,7 @@ async function handleAllRoutes(req, res) {
 function handleRequest(req, res) {
   const ctx2 = { req, res }
   _authMiddleware(ctx2, async () => {
-    // 首次部署 bootstrap: 第一个有 UDS 凭证的用户 = super_admin
-    if (ctx2.empNo && !ctx2.role) {
-      const { role, bootstrapped } = await _rolesStore.bootstrapFirstUser(ctx2.empNo)
-      ctx2.role = role
-      ctx2.permissions = computePermissions(role)
-      if (bootstrapped) {
-        ctx.logger?.info?.(`[uds-auth] BOOTSTRAP: ${ctx2.empNo} is now super_admin`)
-      }
-    }
+    // bootstrap 已在 auth-middleware.resolveRole 中完成（勿用 !ctx2.role，getRole 恒有值）
 
     const url = new URL(req.url, 'http://localhost').pathname.replace(API_PREFIX, '') || '/'
     const method = req.method
@@ -595,17 +587,17 @@ function handleRequest(req, res) {
       await _apiHandlers.clearFallbackPassword(ctx2); return
     }
 
-    // 配置端点 (super_admin only)
+    // 配置端点 (admin / super_admin：canAccessSettings)
     if (url === '/api/config' && method === 'GET') {
-      if (!requirePermission(ctx2, 'super_admin')) {
-        return sendJSON(res, 403, { error: '只有超级管理员可以查看配置' })
+      if (!requirePermission(ctx2, 'canAccessSettings')) {
+        return sendJSON(res, 403, { error: '当前账号无设置权限' })
       }
       sendJSON(res, 200, { config: _currentConfig })
       return
     }
     if (url === '/api/config' && method === 'POST') {
-      if (!requirePermission(ctx2, 'super_admin')) {
-        return sendJSON(res, 403, { error: '只有超级管理员可以修改配置' })
+      if (!requirePermission(ctx2, 'canAccessSettings')) {
+        return sendJSON(res, 403, { error: '当前账号无设置权限' })
       }
       let body = ''
       for await (const chunk of req) body += chunk
