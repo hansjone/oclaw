@@ -1,5 +1,5 @@
 /**
- * uds-auth browser half — sidebar.footer.action (same foot as Settings, right-aligned) + settings.section.
+ * uds-auth browser half — sidebar.footer.action + force foot row with Settings (side by side) + settings.section.
  * Auth: empNo cookie + token verified server-side via user-info.
  * Fallback: username/password when UAC/QR unavailable.
  */
@@ -19,7 +19,7 @@ window.__ModuleLoader__.load({
     const PAGE_SIZE = 50
 
     const CSS = [
-      '.uds-auth-host{position:relative;display:inline-flex;align-items:center;height:32px;margin:0 0 0 auto;flex-shrink:0;pointer-events:auto}.uds-auth-host.is-rail{margin-left:0;justify-content:center;width:100%}',
+      '.uds-auth-host{position:relative;display:inline-flex;align-items:center;height:32px;margin:0;flex-shrink:0;pointer-events:auto}.uds-auth-host.is-rail{justify-content:center;width:100%}[data-uds-auth-foot="row"]{display:flex!important;flex-direction:row!important;align-items:center!important;gap:8px;width:100%}[data-uds-auth-foot="row"]>*:nth-child(1){order:2;flex:none!important;width:auto!important;min-width:0;margin:0!important}[data-uds-auth-foot="row"]>*:nth-child(2){order:1;flex:none!important;width:auto!important;min-width:0}',
       '.uds-auth-badge{display:inline-flex;align-items:center;justify-content:center;gap:4px;max-width:min(180px,30vw);min-width:auto;height:32px;padding:6px 12px;border-radius:18px;background:transparent;border:1px solid var(--dsw-alias-border-l2);color:var(--dsw-alias-label-primary);font-size:13px;font-weight:400;line-height:20px;cursor:pointer;font-family:var(--dsw-font-family)}',
       '.uds-auth-badge:hover{background:var(--dsw-alias-interactive-bg-hover)}',
       '.uds-auth-badge-unauth{color:var(--dsw-alias-label-tertiary,#8f959e)}',
@@ -424,6 +424,21 @@ window.__ModuleLoader__.load({
     function AuthBadge(props = {}) {
       const wide = props.wide !== false
       const rootRef = useRef(null)
+      useLayoutEffect(() => {
+        const host = rootRef.current
+        if (!host) return undefined
+        // Climb to the official footArea that holds footer.action + sidebar.settings.
+        let footArea = null
+        for (let el = host.parentElement; el && el !== document.body; el = el.parentElement) {
+          if (el.childElementCount < 2) continue
+          const mine = [...el.children].some((c) => c.contains(host))
+          const other = [...el.children].some((c) => !c.contains(host))
+          if (mine && other) { footArea = el; break }
+        }
+        if (!footArea) return undefined
+        footArea.setAttribute('data-uds-auth-foot', 'row')
+        return () => { footArea.removeAttribute('data-uds-auth-foot') }
+      }, [])
       const [open, setOpen] = useState(false)
       const [anchor, setAnchor] = useState(null)
       const [user, setUser] = useState(null)
@@ -732,7 +747,7 @@ window.__ModuleLoader__.load({
         document.head.appendChild(tag)
         return () => tag.remove()
       }, 'uds-auth: styles')
-      // Same sidebar foot as Settings (root scope — always visible). margin-left:auto pins right in the action row.
+      // sidebar.footer.action; layout effect lays footArea as one row: Settings | UDS login
       ctx.slots.inject('sidebar.footer.action', () => ctx.slots.register({
         name: 'sidebar.footer.action',
         id: 'uds-auth-login',
