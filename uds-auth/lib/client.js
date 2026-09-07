@@ -1,5 +1,5 @@
 /**
- * uds-auth browser half — conversation.session.header.actions (left of log-download) + settings.section.
+ * uds-auth browser half — conversation.session.header.utilities (left of log-download) + settings.section.
  * Auth: empNo cookie + token verified server-side via user-info.
  * Fallback: username/password when UAC/QR unavailable.
  */
@@ -19,9 +19,9 @@ window.__ModuleLoader__.load({
     const PAGE_SIZE = 50
 
     const CSS = [
-      '.uds-auth-host{position:relative;display:inline-flex;align-items:center;height:28px;margin:0 4px 0 0;flex-shrink:0;pointer-events:auto;vertical-align:middle}',
-      '.uds-auth-badge{display:inline-flex;align-items:center;gap:6px;max-width:min(180px,30vw);height:28px;padding:0 8px;border-radius:8px;background:transparent;border:1px solid transparent;color:var(--dsw-alias-label-secondary);font-size:12px;cursor:pointer;font-weight:500;line-height:1}',
-      '.uds-auth-badge:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}',
+      '.uds-auth-host{position:relative;display:inline-flex;align-items:center;height:32px;margin:0;flex-shrink:0;pointer-events:auto}',
+      '.uds-auth-badge{display:inline-flex;align-items:center;justify-content:center;gap:4px;max-width:min(180px,30vw);min-width:auto;height:32px;padding:6px 12px;border-radius:18px;background:transparent;border:1px solid var(--dsw-alias-border-l2);color:var(--dsw-alias-label-primary);font-size:13px;font-weight:400;line-height:20px;cursor:pointer;font-family:var(--dsw-font-family)}',
+      '.uds-auth-badge:hover{background:var(--dsw-alias-interactive-bg-hover)}',
       '.uds-auth-badge-unauth{color:var(--dsw-alias-label-tertiary,#8f959e)}',
       '.uds-auth-avatar{width:18px;height:18px;border-radius:50%;background:linear-gradient(135deg,var(--dsw-alias-state-business-primary,#3370ff),var(--dsw-alias-state-success-primary,#20a162));display:inline-flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;color:#fff;flex-shrink:0}',
       '.uds-auth-badge-unauth .uds-auth-avatar{background:var(--dsw-alias-bg-module-platform,rgba(242,243,245,1));color:var(--dsw-alias-label-tertiary,#8f959e)}',
@@ -602,7 +602,7 @@ window.__ModuleLoader__.load({
       return h('div', {
         ref: rootRef,
         className: 'uds-auth-host',
-        'data-uds-auth-host': 'header-actions',
+        'data-uds-auth-host': 'header-utilities',
       },
       open && anchor && h('section', {
         className: 'uds-auth-panel',
@@ -711,11 +711,11 @@ window.__ModuleLoader__.load({
         return () => tag.remove()
       }, 'uds-auth: styles')
 
-      // Same slot as session log-download; lower order = to its left, side-by-side.
-      ctx.slots.inject('conversation.session.header.actions', () => ctx.slots.register({
-        name: 'conversation.session.header.actions',
+      // Same slot as @deepseek-ai/dsh-session-log-export (header.utilities); order -10 = left of it.
+      ctx.slots.inject('conversation.session.header.utilities', () => ctx.slots.register({
+        name: 'conversation.session.header.utilities',
         id: 'uds-auth-login',
-        order: 0,
+        order: -10,
         label: 'UDS',
       }, AuthBadge))
 
