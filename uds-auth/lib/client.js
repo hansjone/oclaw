@@ -697,10 +697,6 @@ window.__ModuleLoader__.load({
             h('div', { className: 'uds-auth-info-detail' }, h('span', { className: 'uds-auth-info-detail-label' }, '\u89d2\u8272'), label || user.role || '-'),
             user.department && h('div', { className: 'uds-auth-info-detail' }, h('span', { className: 'uds-auth-info-detail-label' }, '\u90e8\u95e8'), user.department),
           ),
-          (perms.canManageUsers || perms.canAccessSettings) && h('button', {
-            type: 'button', className: 'uds-auth-btn',
-            onClick: () => { window.location.href = '/settings' },
-          }, '\u8bbe\u7f6e / \u7528\u6237\u7ba1\u7406'),
           h('button', {
             type: 'button', className: 'uds-auth-btn uds-auth-btn-danger',
             onClick: async () => {
