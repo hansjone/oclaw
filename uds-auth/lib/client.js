@@ -1,5 +1,5 @@
 /**
- * uds-auth browser half — shell.overlay top-right (docked left of toggles) + settings.section.
+ * uds-auth browser half — conversation.session.header.actions (left of log-download) + settings.section.
  * Auth: empNo cookie + token verified server-side via user-info.
  * Fallback: username/password when UAC/QR unavailable.
  */
@@ -19,9 +19,9 @@ window.__ModuleLoader__.load({
     const PAGE_SIZE = 50
 
     const CSS = [
-      '.uds-auth-host{position:fixed;top:calc(3px + env(safe-area-inset-top, 0px));right:var(--uds-auth-right, 88px);z-index:46;height:28px;display:inline-flex;align-items:center;pointer-events:auto}',
-      '.uds-auth-badge{display:inline-flex;align-items:center;gap:6px;max-width:min(200px,36vw);height:28px;padding:0 10px;border-radius:999px;background:var(--dsw-alias-bg-module-platform,rgba(255,255,255,.06));border:1px solid var(--dsw-alias-border-l2,rgba(255,255,255,.12));color:var(--dsw-alias-label-secondary,#a0a6b0);font-size:12px;cursor:pointer;font-weight:500;line-height:1;backdrop-filter:blur(8px)}',
-      '.uds-auth-badge:hover{background:var(--dsw-alias-interactive-bg-hover,rgba(255,255,255,.1));color:var(--dsw-alias-label-primary,#e8eaed)}',
+      '.uds-auth-host{position:relative;display:inline-flex;align-items:center;height:28px;margin:0 4px 0 0;flex-shrink:0;pointer-events:auto;vertical-align:middle}',
+      '.uds-auth-badge{display:inline-flex;align-items:center;gap:6px;max-width:min(180px,30vw);height:28px;padding:0 8px;border-radius:8px;background:transparent;border:1px solid transparent;color:var(--dsw-alias-label-secondary);font-size:12px;cursor:pointer;font-weight:500;line-height:1}',
+      '.uds-auth-badge:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}',
       '.uds-auth-badge-unauth{color:var(--dsw-alias-label-tertiary,#8f959e)}',
       '.uds-auth-avatar{width:18px;height:18px;border-radius:50%;background:linear-gradient(135deg,var(--dsw-alias-state-business-primary,#3370ff),var(--dsw-alias-state-success-primary,#20a162));display:inline-flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;color:#fff;flex-shrink:0}',
       '.uds-auth-badge-unauth .uds-auth-avatar{background:var(--dsw-alias-bg-module-platform,rgba(242,243,245,1));color:var(--dsw-alias-label-tertiary,#8f959e)}',
@@ -421,33 +421,7 @@ window.__ModuleLoader__.load({
       const [open, setOpen] = useState(false)
       const [anchor, setAnchor] = useState(null)
       const [user, setUser] = useState(null)
-      const dockHost = useCallback(() => {
-        const el = rootRef.current
-        if (!el) return
-        let leftEdge = window.innerWidth - 12
-        const cluster = document.querySelector('[data-dsh-toggle-cluster]')
-        if (cluster) {
-          leftEdge = Math.min(leftEdge, cluster.getBoundingClientRect().left)
-          const row = cluster.parentElement
-          if (row) {
-            for (const child of row.children) {
-              if (child === el || el.contains(child)) continue
-              const r = child.getBoundingClientRect()
-              if (r.width > 0 && r.top < 56) leftEdge = Math.min(leftEdge, r.left)
-            }
-          }
-        }
-        // Keep clear of top-right search / utility pills in the same band
-        for (const node of document.querySelectorAll('input[type="search"], [data-uds-auth-host] ~ *, header input')) {
-          const r = node.getBoundingClientRect?.()
-          if (!r || r.width < 40 || r.top > 56 || r.left < window.innerWidth * 0.45) continue
-          if (el.contains(node)) continue
-          leftEdge = Math.min(leftEdge, r.left)
-        }
-        const right = Math.max(12, Math.round(window.innerWidth - leftEdge + 8))
-        el.style.setProperty('--uds-auth-right', right + 'px')
-      }, [])
-
+      
 
       const [loading, setLoading] = useState(true)
       const [config, setConfig] = useState({ loginSystemCode: '100000455558', originSystemCode: '' })
@@ -589,19 +563,8 @@ window.__ModuleLoader__.load({
         fetchJson('/uds-auth/api/fallback/status')
           .then((st) => setFallbackEnabled(!!st.enabled))
           .catch(() => {})
-        dockHost()
-        const onResize = () => dockHost()
-        window.addEventListener('resize', onResize)
-        const obs = new MutationObserver(() => dockHost())
-        obs.observe(document.documentElement, { childList: true, subtree: true })
-        const timer = setInterval(dockHost, 1000)
-        return () => {
-          stopQr()
-          window.removeEventListener('resize', onResize)
-          obs.disconnect()
-          clearInterval(timer)
-        }
-      }, [refreshUser, stopQr, dockHost])
+        return () => { stopQr() }
+      }, [refreshUser, stopQr])
 
       useEffect(() => {
         if (open && !user && loginMode === 'qr') startQr()
@@ -639,7 +602,7 @@ window.__ModuleLoader__.load({
       return h('div', {
         ref: rootRef,
         className: 'uds-auth-host',
-        'data-uds-auth-host': 'top-right',
+        'data-uds-auth-host': 'header-actions',
       },
       open && anchor && h('section', {
         className: 'uds-auth-panel',
@@ -748,11 +711,11 @@ window.__ModuleLoader__.load({
         return () => tag.remove()
       }, 'uds-auth: styles')
 
-      // Top-right overlay, dynamically docked left of better-sidebar toggles / search.
-      ctx.slots.inject('shell.overlay', () => ctx.slots.register({
-        name: 'shell.overlay',
+      // Same slot as session log-download; lower order = to its left, side-by-side.
+      ctx.slots.inject('conversation.session.header.actions', () => ctx.slots.register({
+        name: 'conversation.session.header.actions',
         id: 'uds-auth-login',
-        order: 50,
+        order: 0,
         label: 'UDS',
       }, AuthBadge))
 
