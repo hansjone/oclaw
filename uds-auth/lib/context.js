@@ -25,6 +25,15 @@ export async function withUserContext(userContext, fn) {
 }
 
 /**
+ * Sync ALS enter — wrap WebSocket message listeners.
+ * @param {object|null|undefined} userContext
+ * @param {Function} fn
+ */
+export function runWithUserContext(userContext, fn) {
+  return userContextStorage.run(userContext, fn)
+}
+
+/**
  * Decorator/helper for injecting user context into request handlers
  * @param {Function} handler - Request handler function
  * @returns {Function} Wrapped handler

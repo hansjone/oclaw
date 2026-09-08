@@ -94,7 +94,12 @@ export class UserWorkspaceStore {
     const userPath = join(root, String(empNo))
     await mkdir(userPath, { recursive: true })
 
-    const registry = ctx.workspaceRegistry || ctx.get?.('workspaceRegistry')
+    // Cordis throws on ctx.workspaceRegistry without inject.
+    // apply() passes { workspaceRegistryHandle } from an injected fiber.
+    let registry = ctx && ctx.workspaceRegistryHandle
+    if (!registry && ctx && typeof ctx.get === 'function') {
+      try { registry = ctx.get('workspaceRegistry') } catch { registry = undefined }
+    }
     if (!registry || typeof registry.create !== 'function') {
       console.warn('[uds-auth] workspaceRegistry unavailable; mkdir only:', userPath)
       this.set(empNo, { path: userPath, workspaceId: null })

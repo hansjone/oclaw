@@ -673,11 +673,13 @@ function installSettingsSection(ctx, entry, hooks) {
 }
 
 
+let _workspaceRegistry = null
+
 async function ensureUserWorkspace(empNo) {
-  if (!_userWorkspaces || !_pluginCtx) return null
+  if (!_userWorkspaces) return null
   try {
     return await _userWorkspaces.ensureUserWorkspace(
-      _pluginCtx,
+      { workspaceRegistryHandle: _workspaceRegistry },
       _currentConfig?.workspaceRoot,
       empNo,
     )
@@ -777,6 +779,11 @@ async function initServices(ctx, config) {
     if (present) patchServer(present)
     ctx.inject(['webServer'], (wctx) => {
       patchServer(wctx.webServer)
+    })
+
+    ctx.inject(['workspaceRegistry'], (wctx) => {
+      _workspaceRegistry = wctx.workspaceRegistry
+      ctx.logger?.info?.('[uds-auth] workspaceRegistry ready')
     })
 
     installDshAcl(ctx, {

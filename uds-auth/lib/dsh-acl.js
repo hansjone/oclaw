@@ -1,7 +1,10 @@
 /**
  * Bridge UDS cookies → AsyncLocalStorage and wrap DSH session/workspace/settings.
  */
-import { withUserContext, getUserContext } from './context.js'
+import { createRequire } from 'node:module'
+import { withUserContext, getUserContext, runWithUserContext } from './context.js'
+
+const require = createRequire(import.meta.url)
 import { computePermissions, ROLES } from './roles.js'
 
 function parseCookie(header, name) {
@@ -23,6 +26,95 @@ function parseCookie(header, name) {
  * @param {import('node:http').IncomingMessage} req
  * @param {{ sessionStore: any, rolesStore: any }} deps
  */
+/** @type {WeakMap<object, object|null|undefined>} */
+const upgradeSocketIdentity = new WeakMap()
+
+function bindWebSocketListenersToIdentity(ws, getIdentity) {
+  if (!ws || ws.__udsAuthBound) return
+  ws.__udsAuthBound = true
+  const wrap = (listener) => {
+    if (typeof listener !== 'function') return listener
+    return function udsAuthBoundListener(...args) {
+      const run = (identity) => runWithUserContext(identity, () => listener.apply(this, args))
+      try {
+        const idOrPromise = typeof getIdentity === 'function' ? getIdentity() : getIdentity
+        if (idOrPromise && typeof idOrPromise.then === 'function') {
+          return idOrPromise.then(run)
+        }
+        return run(idOrPromise)
+      } catch (err) {
+        console.warn('[uds-auth] ws identity bind failed:', err?.message || err)
+        return run(null)
+      }
+    }
+  }
+  for (const method of ['on', 'once', 'addListener']) {
+    if (typeof ws[method] !== 'function') continue
+    const orig = ws[method].bind(ws)
+    ws[method] = (event, listener) => orig(event, wrap(listener))
+  }
+}
+
+/**
+ * remote.mux streams fire on WebSocket messages after upgrade returns — ALS is gone.
+ * Resolve UDS identity from the upgrade request (cookies) on each connection.
+ */
+function patchWebSocketServerForUdsIdentity(resolveIdentity)
+
+  // wrap existing upgrades (gateway may register before we patch registerUpgrade)
+  try {
+    const table = server.upgrades
+    if (table && typeof table.entries === 'function') {
+      for (const [path, route] of table.entries()) {
+        if (!route?.handler || route.handler.__udsWrapped) continue
+        const prev = route.handler
+        const wrapped = async (req, socket, head) => {
+          const identity = await resolveIdentity(req)
+          try { req.__udsAuthIdentity = identity } catch { /* ignore */ }
+          if (socket) upgradeSocketIdentity.set(socket, identity)
+          return withUserContext(identity, () => prev(req, socket, head))
+        }
+        wrapped.__udsWrapped = true
+        table.set(path, { ...route, handler: wrapped })
+      }
+    }
+  } catch { /* private field / unavailable */ } {
+  if (patchWebSocketServerForUdsIdentity.done) return
+  patchWebSocketServerForUdsIdentity.done = true
+  let WebSocketServer
+  try {
+    const ws = require('ws')
+    WebSocketServer = ws.WebSocketServer || ws.Server
+  } catch {
+    return
+  }
+  if (!WebSocketServer?.prototype?.handleUpgrade) return
+  const orig = WebSocketServer.prototype.handleUpgrade
+  WebSocketServer.prototype.handleUpgrade = function udsAuthHandleUpgrade(req, socket, head, cb) {
+    const getIdentity = () => {
+      if (req && Object.prototype.hasOwnProperty.call(req, '__udsAuthIdentity')) {
+        return req.__udsAuthIdentity
+      }
+      if (socket && upgradeSocketIdentity.has(socket)) {
+        return upgradeSocketIdentity.get(socket)
+      }
+      if (typeof resolveIdentity !== 'function') return null
+      return Promise.resolve(resolveIdentity(req)).then((identity) => {
+        try { if (req) req.__udsAuthIdentity = identity } catch { /* ignore */ }
+        if (socket) upgradeSocketIdentity.set(socket, identity)
+        return identity
+      })
+    }
+    const wrappedCb = typeof cb === 'function'
+      ? (wsSocket) => {
+        bindWebSocketListenersToIdentity(wsSocket, getIdentity)
+        return cb(wsSocket)
+      }
+      : cb
+    return orig.call(this, req, socket, head, wrappedCb)
+  }
+}
+
 export async function resolveIdentityFromRequest(req, deps) {
   const cookie = req?.headers?.cookie || ''
   const empNo = parseCookie(cookie, 'PORTALSSOUser')
@@ -118,16 +210,21 @@ export function patchWebServerWithIdentity(server, resolveIdentity) {
     server.registerFallback = (handler) => origFallback(wrap(handler))
   }
 
+  patchWebSocketServerForUdsIdentity(resolveIdentity)
   const origRegisterUpgrade = server.registerUpgrade?.bind(server)
   if (origRegisterUpgrade) {
     server.registerUpgrade = (route) => origRegisterUpgrade({
       ...route,
       handler: async (req, socket, head) => {
         const identity = await resolveIdentity(req)
+        try { req.__udsAuthIdentity = identity } catch { /* ignore */ }
+        if (socket) upgradeSocketIdentity.set(socket, identity)
         return withUserContext(identity, () => route.handler(req, socket, head))
       },
     })
   }
+
+  
 
   return () => {
     /* leave patched — reload recreates webServer fiber */
@@ -348,7 +445,8 @@ export function installDshAcl(ctx, {
     wc.follow = async function* (signal) {
       const identity = getUserContext()
       // Super / fallback: passthrough — never drop historical workspaces.
-      if (identity?.permissions?.canViewAllSessions) {
+      if (!identity?.empNo || identity.permissions?.canViewAllSessions) {
+        // Missing ALS: fail-open (avoid empty sidebar). Super: always all workspaces.
         yield* origFollow(signal)
         return
       }
