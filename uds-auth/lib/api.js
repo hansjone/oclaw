@@ -27,6 +27,7 @@ export function createApiHandlers(config, sessionStore, rolesStore) {
     // 清掉兜底 / 提示客户端清 UDS cookie（UDS cookie 多为非 HttpOnly，服务端再清一遍兜底）
     const clear = [
       'UDS_FALLBACK_USER=; Max-Age=0; Path=/; HttpOnly; SameSite=Lax',
+      'UDS_FALLBACK_UI=; Max-Age=0; Path=/; SameSite=Lax',
       'PORTALSSOUser=; Max-Age=0; Path=/; SameSite=Lax',
       'PORTALSSOCookie=; Max-Age=0; Path=/; SameSite=Lax',
       'ZTEDPGSSOUser=; Max-Age=0; Path=/; SameSite=Lax',
