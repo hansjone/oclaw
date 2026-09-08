@@ -71,6 +71,22 @@ export function patchWebServerWithIdentity(server, resolveIdentity) {
     if (typeof handler !== 'function' || handler.__udsWrapped) return handler
     const wrapped = async (req, res, ...rest) => {
       const identity = await resolveIdentity(req)
+      try {
+        const pathname = new URL(req.url || '/', 'http://x').pathname
+        if (
+          pathname.startsWith('/dsh-ops-cron')
+          && pathname !== '/dsh-ops-cron/health'
+          && !identity?.empNo
+        ) {
+          res.writeHead(401, { 'content-type': 'application/json; charset=utf-8' })
+          res.end(JSON.stringify({
+            ok: false,
+            error: 'login_required',
+            message: '登录后才能使用定时任务',
+          }))
+          return
+        }
+      } catch { /* fall through to handler */ }
       return withUserContext(identity, () => handler(req, res, ...rest))
     }
     wrapped.__udsWrapped = true

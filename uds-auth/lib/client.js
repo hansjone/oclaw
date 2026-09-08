@@ -20,7 +20,7 @@ window.__ModuleLoader__.load({
 
     const CSS = [
       '.uds-auth-host{position:relative;display:inline-flex;align-items:center;height:32px;margin:0;flex-shrink:0;pointer-events:auto}.uds-auth-host.is-rail{justify-content:center;width:100%}[data-uds-auth-foot="row"]{display:flex!important;flex-direction:row!important;align-items:center!important;gap:8px;width:100%}[data-uds-auth-foot="row"]>*:nth-child(1){order:2;flex:none!important;width:auto!important;min-width:0;margin-left:auto!important}[data-uds-auth-foot="row"]>*:nth-child(2){order:1;flex:none!important;width:auto!important;min-width:0}',
-      'html[data-uds-can-settings="0"] [data-uds-auth-foot="row"]>*:not(:has([data-uds-auth-host])){display:none!important}html[data-uds-can-create-ws="0"] button[aria-label="添加工作区"],html[data-uds-can-create-ws="0"] button[aria-label="Add workspace"]{display:none!important}',
+      'html[data-uds-can-settings="0"] [data-uds-auth-foot="row"]>*:not(:has([data-uds-auth-host])){display:none!important}html[data-uds-can-create-ws="0"] button[aria-label="添加工作区"],html[data-uds-can-create-ws="0"] button[aria-label="Add workspace"]{display:none!important}html[data-uds-logged-in="0"] .dsh-ct-entry,html[data-uds-logged-in="0"] .dsh-ct-region,html[data-uds-logged-in="0"] .dsh-ct-main,html[data-uds-logged-in="0"] [data-dsh-ct-mode="on"] .dsh-ct-region{display:none!important}',
       '.uds-auth-badge{display:inline-flex;align-items:center;justify-content:center;gap:8px;max-width:min(180px,40vw);min-width:0;height:42px;padding:0 10px 0 8px;box-sizing:border-box;border:none;border-radius:12px;background:transparent;color:var(--dsw-alias-label-primary);font-family:inherit;font-size:14px;font-weight:400;line-height:22px;cursor:pointer;overflow:hidden}',
       '.uds-auth-badge:hover{background:var(--dsw-alias-interactive-bg-hover)}',
       '.uds-auth-host.is-rail .uds-auth-badge{width:36px;height:36px;padding:0;border-radius:50%;gap:0}',
@@ -809,7 +809,25 @@ window.__ModuleLoader__.load({
         let installedSessions = false
 
         const install = () => {
-          const connection = ctx.get('connection')
+          
+        // Block anonymous calls to dsh-ops-cron (定时任务) HTTP API.
+        if (!window.__udsAuthCronFetchGate) {
+          window.__udsAuthCronFetchGate = true
+          const origFetch = window.fetch.bind(window)
+          window.fetch = async function udsAuthFetch(input, init) {
+            const url = typeof input === 'string' ? input : (input && input.url) || ''
+            if (!getEmpNo() && String(url).includes('/dsh-ops-cron') && !String(url).includes('/dsh-ops-cron/health')) {
+              return new Response(JSON.stringify({
+                ok: false,
+                error: 'login_required',
+                message: '登录后才能使用定时任务',
+              }), { status: 401, headers: { 'content-type': 'application/json' } })
+            }
+            return origFetch(input, init)
+          }
+        }
+
+        const connection = ctx.get('connection')
           const rpc = connection && connection.rpc
           if (!installedRpc && rpc && typeof rpc.call === 'function' && !rpc.__udsAuthListGate) {
             installedRpc = true
