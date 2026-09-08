@@ -146,15 +146,9 @@ window.__ModuleLoader__.load({
     }
 
     function reconnectAfterLogin() {
-      // Prefer soft WS reconnect (re-upgrade with cookies). Full reload only
-      // if connection.reconnect is unavailable — workspace ACL no longer needs
-      // a hard refresh after login.
-      try {
-        if (typeof window.__udsAuthReconnect === 'function') {
-          window.__udsAuthReconnect()
-          return
-        }
-      } catch { /* fall through */ }
+      // Login Set-Cookie must land before WS upgrade. Soft reconnect races it:
+      // session.page then throws "登录后才能访问会话" (no ALS identity) while
+      // prompt still works — empty chat bubbles until a manual refresh.
       try { window.location.reload() } catch { /* ignore */ }
     }
 
