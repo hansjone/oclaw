@@ -20,7 +20,7 @@ window.__ModuleLoader__.load({
 
     const CSS = [
       '.uds-auth-host{position:relative;display:inline-flex;align-items:center;height:32px;margin:0;flex-shrink:0;pointer-events:auto}.uds-auth-host.is-rail{justify-content:center;width:100%}[data-uds-auth-foot="row"]{display:flex!important;flex-direction:row!important;align-items:center!important;gap:8px;width:100%}[data-uds-auth-foot="row"]>*:nth-child(1){order:2;flex:none!important;width:auto!important;min-width:0;margin-left:auto!important}[data-uds-auth-foot="row"]>*:nth-child(2){order:1;flex:none!important;width:auto!important;min-width:0}',
-      'html[data-uds-can-settings="0"] [data-uds-auth-foot="row"]>*:not(:has([data-uds-auth-host])){display:none!important}html[data-uds-can-create-ws="0"] button[aria-label="添加工作区"],html[data-uds-can-create-ws="0"] button[aria-label="Add workspace"]{display:none!important}html[data-uds-logged-in="0"] .dsh-ct-entry,html[data-uds-logged-in="0"] .dsh-ct-region,html[data-uds-logged-in="0"] .dsh-ct-main,html[data-uds-logged-in="0"] [data-dsh-ct-mode="on"] .dsh-ct-region{display:none!important}html[data-uds-can-create-ws="0"] button[aria-label="选择工作区"],html[data-uds-can-create-ws="0"] button[aria-label="Choose workspace"],html[data-uds-can-create-ws="0"] [aria-label="选择工作区"],html[data-uds-can-create-ws="0"] [aria-label="Choose workspace"]{display:none!important}html[data-uds-can-create-ws="0"] [class*="cardWorkspaceTrigger"],html[data-uds-can-create-ws="0"] [data-composer-card][class*="cardWorkspaceTrigger"]{pointer-events:none!important;opacity:.45!important;cursor:not-allowed!important}',
+      'html[data-uds-can-settings="0"] [data-uds-auth-foot="row"]>*:not(:has([data-uds-auth-host])){display:none!important}html[data-uds-can-create-ws="0"] button[aria-label="添加工作区"],html[data-uds-can-create-ws="0"] button[aria-label="Add workspace"]{display:none!important}html[data-uds-logged-in="0"] [role="tree"][aria-label="Sessions"],html[data-uds-logged-in="0"] [role="tree"][aria-label="会话"],html[data-uds-logged-in="0"] [class*="WorkspaceBrowser"],html[data-uds-logged-in="0"] [class*="workspaceBrowser"],html[data-uds-logged-in="0"] .dsh-ct-entry,html[data-uds-logged-in="0"] .dsh-ct-region,html[data-uds-logged-in="0"] .dsh-ct-main,html[data-uds-logged-in="0"] [data-dsh-ct-mode="on"] .dsh-ct-region{display:none!important}html[data-uds-can-create-ws="0"] button[aria-label="选择工作区"],html[data-uds-can-create-ws="0"] button[aria-label="Choose workspace"],html[data-uds-can-create-ws="0"] [aria-label="选择工作区"],html[data-uds-can-create-ws="0"] [aria-label="Choose workspace"]{display:none!important}html[data-uds-can-create-ws="0"] [class*="cardWorkspaceTrigger"],html[data-uds-can-create-ws="0"] [data-composer-card][class*="cardWorkspaceTrigger"]{pointer-events:none!important;opacity:.45!important;cursor:not-allowed!important}/* uds-anon-hide-workspaces */html[data-uds-logged-in="0"] [class*="WorkspaceBrowser"],html[data-uds-logged-in="0"] [class*="workspaceBrowser"],html[data-uds-logged-in="0"] [class*="workspaceRow"],html[data-uds-logged-in="0"] [class*="WorkspaceRow"]{display:none!important}',
       '.uds-auth-badge{display:inline-flex;align-items:center;justify-content:flex-start;gap:0;max-width:min(160px,42vw);min-width:0;height:32px;padding:0 8px;box-sizing:border-box;border:none;border-radius:8px;background:transparent;color:var(--dsw-alias-label-primary);font-family:inherit;font-size:13px;font-weight:400;line-height:20px;cursor:pointer;overflow:hidden}',
       '.uds-auth-badge:hover{background:var(--dsw-alias-interactive-bg-hover)}',
       '.uds-auth-host.is-rail .uds-auth-badge{width:auto;max-width:100%;height:32px;padding:0 6px;border-radius:8px}',
@@ -480,16 +480,21 @@ window.__ModuleLoader__.load({
         const perms = user?.permissions || {}
         const canSettings = user ? !!perms.canAccessSettings : false
         const canCreateWs = user ? !!perms.canCreateWorkspace : false
+        const prev = document.documentElement.getAttribute('data-uds-logged-in')
         document.documentElement.setAttribute('data-uds-logged-in', user ? '1' : '0')
         document.documentElement.setAttribute('data-uds-can-settings', canSettings ? '1' : '0')
         document.documentElement.setAttribute('data-uds-can-create-ws', canCreateWs ? '1' : '0')
+        // Drop stale remote.mux identity after logout so workspace names disappear.
+        if (prev === '1' && !user) {
+          try { reconnectAfterLogin() } catch { /* ignore */ }
+        }
         return () => {
           // Keep locked while remounting; do not leave attrs missing (CSS/click lock needs "0").
           document.documentElement.setAttribute('data-uds-logged-in', '0')
           document.documentElement.setAttribute('data-uds-can-settings', '0')
           document.documentElement.setAttribute('data-uds-can-create-ws', '0')
         }
-      }, [user])
+      }, [user]) /* uds-auth: logout-reconnect-on-null */
 
       const stopQr = useCallback(() => {
         if (qrRef.current.timer) { clearInterval(qrRef.current.timer); qrRef.current.timer = null }
@@ -765,7 +770,7 @@ window.__ModuleLoader__.load({
             onClick: async () => {
               try { await fetchJson('/uds-auth/api/logout', { method: 'POST' }) } catch { /* ignore */ }
               clearAuthCookies()
-              window.location.reload()
+              try { reconnectAfterLogin() } catch { window.location.reload() }
             },
           }, '\u9000\u51fa\u767b\u5f55'),
         ),

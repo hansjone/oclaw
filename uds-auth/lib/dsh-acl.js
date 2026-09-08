@@ -126,9 +126,17 @@ export function resolveIdentityFromRequestSync(req, deps) {
     || parseCookie(cookie, 'UDS_FALLBACK_USER')
   if (!empNo) return null
 
+  const token = parseCookie(cookie, 'PORTALSSOCookie')
+    || parseCookie(cookie, 'ZTEDPGSSOCookie')
+  const isFallback = empNo === 'administrator'
+    || !!parseCookie(cookie, 'UDS_FALLBACK_USER')
+
+  // Bare portal empNo without token is NOT enough — otherwise logout/未登录
+  // still leaks workspace names via leftover SSO cookies on the WebSocket.
+  if (!isFallback && !token) return null
+
   const { rolesStore } = deps
-  let role = rolesStore.getRole(empNo)
-  const isFallback = empNo === 'administrator' || !!parseCookie(cookie, 'UDS_FALLBACK_USER')
+  const role = rolesStore.getRole(empNo)
   return {
     empNo: String(empNo),
     role,
@@ -137,7 +145,8 @@ export function resolveIdentityFromRequestSync(req, deps) {
       empNo: String(empNo),
       userId: String(empNo),
       isAuthenticated: true,
-      authMode: 'cookie-sync',
+      authMode: isFallback ? 'fallback-cookie' : 'cookie-sync',
+      token: token || undefined,
     },
     kind: isFallback ? 'fallback' : 'uds',
   }
@@ -163,13 +172,14 @@ export async function resolveIdentityFromRequest(req, deps) {
   const isFallback = empNo === 'administrator'
     || !!parseCookie(cookie, 'UDS_FALLBACK_USER')
 
-  // Cookie empNo is enough for Host ACL. sessionStore may be empty after restart.
   if (!userContext) {
+    // Require session, token, or fallback cookie — never empNo alone.
+    if (!token && !isFallback) return null
     userContext = {
       empNo: String(empNo),
       userId: String(empNo),
       isAuthenticated: true,
-      authMode: token ? 'cookie-acl' : (isFallback ? 'fallback-cookie' : 'cookie-empno'),
+      authMode: token ? 'cookie-acl' : 'fallback-cookie',
       token: token || undefined,
       lastActiveAt: new Date().toISOString(),
     }
