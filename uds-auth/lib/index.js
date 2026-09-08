@@ -62,6 +62,12 @@ const CONFIG_DEFAULTS = {
   loginSystemCode: '100000455558',
   originSystemCode: '',
   workspaceRoot: '',
+  /** UI 退出时是否保留 skill 凭证缓存（默认保留，供 cron/skill） */
+  retainSkillCredentialsOnLogout: true,
+  /** skill 凭证 TTL（秒），默认 7 天 */
+  skillCredentialTtlSeconds: 7 * 24 * 60 * 60,
+  /** outbound 白名单 host（逗号分隔或数组） */
+  outboundAllowedHosts: 'icenterapi.zte.com.cn,icentermsg.dt.zte.com.cn',
 }
 
 // 内部常量（不暴露给用户，UDS 固定协议）
@@ -97,6 +103,9 @@ function loadConfigSchemaAndSettings(ctx) {
       loginSystemCode: z.string().default(CONFIG_DEFAULTS.loginSystemCode),
       originSystemCode: z.string().default(CONFIG_DEFAULTS.originSystemCode),
       workspaceRoot: z.string().default(CONFIG_DEFAULTS.workspaceRoot),
+      retainSkillCredentialsOnLogout: z.boolean().default(CONFIG_DEFAULTS.retainSkillCredentialsOnLogout),
+      skillCredentialTtlSeconds: z.number().default(CONFIG_DEFAULTS.skillCredentialTtlSeconds),
+      outboundAllowedHosts: z.string().default(CONFIG_DEFAULTS.outboundAllowedHosts),
     })
     _DshSettings = require('@deepseek-ai/dsh-settings')
     ctx?.logger?.info?.('[uds-auth] schemastery + dsh-settings loaded')
@@ -122,6 +131,8 @@ let _sessionAcl = null
 let _userWorkspaces = null
 let _pluginCtx = null
 let _logger = console
+let _skillCredentials = null
+let _agentAuthHandlers = null
 
 function buildVerifyUrl(uacBaseUrl, uacQrVerifyPath) {
   if (/^https?:\/\//.test(uacQrVerifyPath)) return uacQrVerifyPath
@@ -312,8 +323,11 @@ async function handleConfigGet(req, res) {
       userSearchUrl: c.userSearchUrl,
       loginSystemCode: c.loginSystemCode,
       originSystemCode: c.originSystemCode,
-              workspaceRoot: c.workspaceRoot,
-            },
+      workspaceRoot: c.workspaceRoot,
+      retainSkillCredentialsOnLogout: c.retainSkillCredentialsOnLogout !== false,
+      skillCredentialTtlSeconds: c.skillCredentialTtlSeconds,
+      outboundAllowedHosts: c.outboundAllowedHosts,
+    },
   }))
 }
 
@@ -494,10 +508,25 @@ const RUNTIME_CONFIG_FILE = resolve(__dirname, '..', 'config.runtime.json')
 async function saveRuntimeConfig(partial) {
   if (!_currentConfig) throw new Error('配置未初始化')
   // 只允许修改 4 个可配置字段
-  const allowed = ['uacBaseUrl', 'userSearchUrl', 'loginSystemCode', 'originSystemCode', 'workspaceRoot']
+  const allowed = [
+    'uacBaseUrl',
+    'userSearchUrl',
+    'loginSystemCode',
+    'originSystemCode',
+    'workspaceRoot',
+    'retainSkillCredentialsOnLogout',
+    'skillCredentialTtlSeconds',
+    'outboundAllowedHosts',
+  ]
   for (const k of allowed) {
     if (partial[k] !== undefined) {
-      _currentConfig[k] = String(partial[k])
+      if (k === 'retainSkillCredentialsOnLogout') {
+        _currentConfig[k] = partial[k] === true || partial[k] === 'true'
+      } else if (k === 'skillCredentialTtlSeconds') {
+        _currentConfig[k] = Number(partial[k]) || CONFIG_DEFAULTS.skillCredentialTtlSeconds
+      } else {
+        _currentConfig[k] = typeof partial[k] === 'string' ? partial[k] : String(partial[k])
+      }
     }
   }
   // 写运行时配置文件（不覆盖原始 config.default.yaml）
@@ -548,6 +577,26 @@ async function handleAllRoutes(req, res) {
     // 用户信息代理
     if (pathname === '/uds-auth/user-info' && method === 'GET') {
       return await handleUserInfo(req, res)
+    }
+
+    // Skill / agent：本机凭证与出站代理（loopback-only）
+    if (pathname === '/uds-auth/agent-credentials' && (method === 'GET' || method === 'POST')) {
+      if (!_agentAuthHandlers) {
+        res.statusCode = 503
+        res.setHeader('Content-Type', 'application/json')
+        res.end(JSON.stringify({ error: 'skill credentials not ready' }))
+        return
+      }
+      return await _agentAuthHandlers.handleAgentCredentials(req, res)
+    }
+    if (pathname === '/uds-auth/outbound' && method === 'POST') {
+      if (!_agentAuthHandlers) {
+        res.statusCode = 503
+        res.setHeader('Content-Type', 'application/json')
+        res.end(JSON.stringify({ error: 'outbound not ready' }))
+        return
+      }
+      return await _agentAuthHandlers.handleOutbound(req, res)
     }
 
     // 客户端配置（RPC config.get 在 web 端走 HTTP）
@@ -805,6 +854,8 @@ async function initServices(ctx, config) {
     const { SessionAclStore } = await import('./session-acl.js')
     const { UserWorkspaceStore } = await import('./workspace-provision.js')
     const { patchWebServerWithIdentity, resolveIdentityFromRequest, resolveIdentityFromRequestSync, installDshAcl } = await import('./dsh-acl.js')
+    const { SkillCredentialCache } = await import('./skill-credentials.js')
+    const { createAgentAuthHandlers } = await import('./agent-auth.js')
 
     _pluginCtx = ctx
     _currentConfig = config
@@ -819,7 +870,30 @@ async function initServices(ctx, config) {
       }
     } catch { /* runtime config optional */ }
 
+    // Normalize skill-related config after merge
+    if (_currentConfig.retainSkillCredentialsOnLogout === undefined) {
+      _currentConfig.retainSkillCredentialsOnLogout = CONFIG_DEFAULTS.retainSkillCredentialsOnLogout
+    } else {
+      _currentConfig.retainSkillCredentialsOnLogout =
+        _currentConfig.retainSkillCredentialsOnLogout === true
+        || _currentConfig.retainSkillCredentialsOnLogout === 'true'
+    }
+    if (!_currentConfig.skillCredentialTtlSeconds) {
+      _currentConfig.skillCredentialTtlSeconds = CONFIG_DEFAULTS.skillCredentialTtlSeconds
+    }
+    if (!_currentConfig.outboundAllowedHosts) {
+      _currentConfig.outboundAllowedHosts = CONFIG_DEFAULTS.outboundAllowedHosts
+    }
+
     _sessionStore = await createSessionStore(INTERNAL.session)
+
+    const ttlMs = Math.max(60, Number(_currentConfig.skillCredentialTtlSeconds) || CONFIG_DEFAULTS.skillCredentialTtlSeconds) * 1000
+    _skillCredentials = new SkillCredentialCache({
+      file: resolve(__dirname, '..', 'skill-credentials.json'),
+      ttlMs,
+      logger: ctx.logger || console,
+    })
+    await _skillCredentials.init()
 
     const rolesFile = resolve(__dirname, '..', 'roles.json')
     _rolesStore = new RolesStore({ rolesFile })
@@ -831,6 +905,10 @@ async function initServices(ctx, config) {
     _userWorkspaces = new UserWorkspaceStore({ mapFile: resolve(__dirname, '..', 'user-workspaces.json') })
     await _userWorkspaces.init()
 
+    const rememberSkillCreds = (empNo, token) => {
+      try { _skillCredentials?.set(empNo, token) } catch { /* ignore */ }
+    }
+
     _authMiddleware = createAuthMiddleware({
       userSearchUrl: _currentConfig.userSearchUrl,
       udsAuth: {
@@ -841,8 +919,48 @@ async function initServices(ctx, config) {
         authValueHeader: INTERNAL.authValueHeader,
       },
       session: INTERNAL.session,
-    }, _sessionStore, _rolesStore)
-    _apiHandlers = createApiHandlers({ session: INTERNAL.session }, _sessionStore, _rolesStore)
+    }, _sessionStore, _rolesStore, { onSkillCredentials: rememberSkillCreds })
+
+    _apiHandlers = createApiHandlers(
+      { session: INTERNAL.session },
+      _sessionStore,
+      _rolesStore,
+      {
+        skillCredentials: _skillCredentials,
+        retainSkillCredentialsOnLogout: () => _currentConfig?.retainSkillCredentialsOnLogout !== false,
+      },
+    )
+
+    function parseOutboundHosts() {
+      const raw = _currentConfig?.outboundAllowedHosts
+      if (Array.isArray(raw)) return raw.map(String).filter(Boolean)
+      return String(raw || CONFIG_DEFAULTS.outboundAllowedHosts)
+        .split(/[,;\s]+/)
+        .map((s) => s.trim())
+        .filter(Boolean)
+    }
+
+    async function resolveCredentialsForEmpNo(empNo) {
+      if (!empNo) return null
+      const row = _skillCredentials?.get(empNo)
+      if (!row?.token) return null
+      return { empNo: row.empNo, token: row.token, updatedAt: row.updatedAt }
+    }
+
+    async function resolveCredentialsForSession(sessionId) {
+      if (!sessionId) return null
+      const empNo = _sessionAcl?.getOwner(sessionId) || null
+      if (!empNo) return null
+      return resolveCredentialsForEmpNo(empNo)
+    }
+
+    _agentAuthHandlers = createAgentAuthHandlers({
+      resolveCredentialsForSession,
+      resolveCredentialsForEmpNo,
+      empNoHeader: INTERNAL.empNoHeader,
+      authValueHeader: INTERNAL.authValueHeader,
+      outboundHosts: () => parseOutboundHosts(),
+    })
 
     const identityDeps = {
       sessionStore: _sessionStore,
@@ -938,10 +1056,15 @@ async function initServices(ctx, config) {
       getSessionOwner(sessionId) {
         return _sessionAcl?.getOwner(sessionId) || null
       },
+      resolveCredentialsForSession,
+      resolveCredentialsForEmpNo,
+      rememberSkillCredentials(empNo, token) {
+        rememberSkillCreds(empNo, token)
+      },
     }
 
     ctx.provide('udsAuth', udsAuth)
-    ctx.logger?.info?.('[uds-auth] Initialized (ACL + workspaces + udsAuth service)')
+    ctx.logger?.info?.('[uds-auth] Initialized (ACL + workspaces + skill credentials + udsAuth service)')
   } catch (err) {
     ctx.logger?.error?.('[uds-auth] Init failed: ' + (err.message || err))
   }

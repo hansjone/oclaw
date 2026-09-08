@@ -14,7 +14,13 @@ import { requirePermission } from './middleware/auth-middleware.js'
  *   POST /fallback/password → super_admin only（设置兜底密码）
  *   POST /fallback/clear   → super_admin only（清除兜底密码）
  */
-export function createApiHandlers(config, sessionStore, rolesStore) {
+/**
+ * @param {object} config
+ * @param {import('./session/store.js').SessionStore} sessionStore
+ * @param {*} rolesStore
+ * @param {{ skillCredentials?: { delete: (empNo: string) => void }, retainSkillCredentialsOnLogout?: () => boolean }} [extra]
+ */
+export function createApiHandlers(config, sessionStore, rolesStore, extra = {}) {
   async function sendRes(res, code, data) {
     res.statusCode = code >= 200 && code < 300 ? 200 : code
     res.setHeader('Content-Type', 'application/json; charset=utf-8')
@@ -24,6 +30,13 @@ export function createApiHandlers(config, sessionStore, rolesStore) {
   async function logout(ctx) {
     const empNo = ctx.empNo
     if (empNo) await sessionStore.delete(empNo)
+    // Skill 凭证轨：默认保留；retainSkillCredentialsOnLogout=false 时清除
+    const retain = extra.retainSkillCredentialsOnLogout
+      ? extra.retainSkillCredentialsOnLogout() !== false
+      : true
+    if (empNo && !retain) {
+      try { extra.skillCredentials?.delete(empNo) } catch { /* ignore */ }
+    }
     // Cookie clear attrs must match login (Secure + HttpOnly), or browsers keep the old cookie.
     const clear = []
     for (const name of [
@@ -122,6 +135,7 @@ export function createApiHandlers(config, sessionStore, rolesStore) {
     try {
       await rolesStore.removeUser(empNo, ctx.role)
       await sessionStore.delete(empNo)
+      try { extra.skillCredentials?.delete(empNo) } catch { /* ignore */ }
       await sendRes(ctx.res, 200, { message: `${empNo} 已删除` })
     } catch (err) {
       await sendRes(ctx.res, 400, { error: err.message })

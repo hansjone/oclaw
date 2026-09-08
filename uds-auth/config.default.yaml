@@ -16,4 +16,13 @@ originSystemCode: ''
 # Per-user workspaces under workspaceRoot/<empNo>; empty => $DSH_HOME/user-workspaces
 workspaceRoot: ""
 
+# Skill 凭证：UI 退出时是否保留（默认 true，供 cron/skill 继续用）
+retainSkillCredentialsOnLogout: true
+
+# Skill 凭证 TTL（秒），默认 7 天
+skillCredentialTtlSeconds: 604800
+
+# outbound 白名单 hosts（逗号分隔）
+outboundAllowedHosts: icenterapi.zte.com.cn,icentermsg.dt.zte.com.cn
+
 # 兜底管理员默认在首次启动启用：administrator / Admin@123（roles.json 可改密或关闭）

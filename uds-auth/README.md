@@ -17,7 +17,14 @@ uacBaseUrl: https://uac.zte.com.cn
 userSearchUrl: https://icenterapi.zte.com.cn/zte-km-icenter-addresearch/user/plain/docs/search
 loginSystemCode: '100000455558'
 originSystemCode: ''
+retainSkillCredentialsOnLogout: true
+skillCredentialTtlSeconds: 604800
+outboundAllowedHosts: icenterapi.zte.com.cn,icentermsg.dt.zte.com.cn
 ```
+
+Skill auth standard (Chinese): [docs/skill-auth-standard.zh.md](docs/skill-auth-standard.zh.md). Sample skill: `../skills/uds-icenter`.
+
+Loopback agent APIs: `GET|POST /uds-auth/agent-credentials`, `POST /uds-auth/outbound`.
 
 ## Layout
 

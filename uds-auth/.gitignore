@@ -8,3 +8,4 @@ config.runtime.json
 Thumbs.db
 session-owners.json
 user-workspaces.json
+skill-credentials.json

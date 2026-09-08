@@ -11,8 +11,13 @@ import { searchUserByEmpNoToken } from '../uds/user-search.js'
  * 出站请求绕过 HTTP(S)_PROXY。
  *
  * 兜底登录：仅认可已由 /api/fallback/login 写好的 administrator 会话。
+ *
+ * 可选 onSkillCredentials(empNo, token)：UI 会话写入成功后并行写入 skill 凭证缓存。
  */
-export function createAuthMiddleware(config, sessionStore, rolesStore) {
+export function createAuthMiddleware(config, sessionStore, rolesStore, hooks = {}) {
+  const onSkillCredentials = typeof hooks.onSkillCredentials === 'function'
+    ? hooks.onSkillCredentials
+    : null
   const udsClient = new UdsClient(config.udsAuth)
   const validatorConfig = {
     ...config.udsAuth,
@@ -107,6 +112,7 @@ export function createAuthMiddleware(config, sessionStore, rolesStore) {
             Math.floor(cookieMaxAge / 1000),
             userContext,
           )
+          try { onSkillCredentials?.(profile.empNo, credentials.token) } catch { /* ignore */ }
         } else {
           // 查不到资料则作废 trust 会话，避免“假登录”
           await sessionStore.delete(extracted.empNo)
@@ -126,6 +132,9 @@ export function createAuthMiddleware(config, sessionStore, rolesStore) {
           Math.floor(cookieMaxAge / 1000),
           userContext,
         )
+      }
+      if (userContext.token) {
+        try { onSkillCredentials?.(extracted.empNo, userContext.token) } catch { /* ignore */ }
       }
       const role = await resolveRole(extracted.empNo, extracted.kind)
       ctx.userContext = userContext
@@ -172,6 +181,7 @@ export function createAuthMiddleware(config, sessionStore, rolesStore) {
       Math.floor(cookieMaxAge / 1000),
       userContext,
     )
+    try { onSkillCredentials?.(profile.empNo, credentials.token) } catch { /* ignore */ }
 
     const role = await resolveRole(profile.empNo, 'uds')
     ctx.userContext = userContext

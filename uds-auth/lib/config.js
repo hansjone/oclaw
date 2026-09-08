@@ -21,6 +21,9 @@ const DEFAULT_CONFIG = {
   userSearchUrl: 'https://icenterapi.zte.com.cn/zte-km-icenter-addresearch/user/plain/docs/search',
   loginSystemCode: '100000455558',
   originSystemCode: '',
+  retainSkillCredentialsOnLogout: true,
+  skillCredentialTtlSeconds: 7 * 24 * 60 * 60,
+  outboundAllowedHosts: 'icenterapi.zte.com.cn,icentermsg.dt.zte.com.cn',
 }
 
 // 内部常量（不暴露）
