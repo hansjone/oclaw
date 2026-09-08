@@ -20,7 +20,7 @@ window.__ModuleLoader__.load({
 
     const CSS = [
       '.uds-auth-host{position:relative;display:inline-flex;align-items:center;height:32px;margin:0;flex-shrink:0;pointer-events:auto}.uds-auth-host.is-rail{justify-content:center;width:100%}[data-uds-auth-foot="row"]{display:flex!important;flex-direction:row!important;align-items:center!important;gap:8px;width:100%}[data-uds-auth-foot="row"]>*:nth-child(1){order:2;flex:none!important;width:auto!important;min-width:0;margin-left:auto!important}[data-uds-auth-foot="row"]>*:nth-child(2){order:1;flex:none!important;width:auto!important;min-width:0}',
-      'html[data-uds-can-settings="0"] [data-uds-auth-foot="row"]>*:not(:has([data-uds-auth-host])){display:none!important}html[data-uds-can-create-ws="0"] button[aria-label="添加工作区"],html[data-uds-can-create-ws="0"] button[aria-label="Add workspace"]{display:none!important}html[data-uds-logged-in="0"] [role="tree"][aria-label="Sessions"],html[data-uds-logged-in="0"] [role="tree"][aria-label="会话"],html[data-uds-logged-in="0"] [class*="WorkspaceBrowser"],html[data-uds-logged-in="0"] [class*="workspaceBrowser"],html[data-uds-logged-in="0"] .dsh-ct-entry,html[data-uds-logged-in="0"] .dsh-ct-region,html[data-uds-logged-in="0"] .dsh-ct-main,html[data-uds-logged-in="0"] [data-dsh-ct-mode="on"] .dsh-ct-region{display:none!important}html[data-uds-can-create-ws="0"] button[aria-label="选择工作区"],html[data-uds-can-create-ws="0"] button[aria-label="Choose workspace"],html[data-uds-can-create-ws="0"] [aria-label="选择工作区"],html[data-uds-can-create-ws="0"] [aria-label="Choose workspace"]{display:none!important}html[data-uds-can-create-ws="0"] [class*="cardWorkspaceTrigger"],html[data-uds-can-create-ws="0"] [data-composer-card][class*="cardWorkspaceTrigger"]{pointer-events:none!important;opacity:.45!important;cursor:not-allowed!important}/* uds-anon-hide-workspaces */html[data-uds-logged-in="0"] [class*="ConversationRoot"],html[data-uds-logged-in="0"] [class*="conversationRoot"],html[data-uds-logged-in="0"] [class*="ComposerStack"],html[data-uds-logged-in="0"] [class*="composerStack"]{display:none!important}/* uds-anon-hide-conversation */html[data-uds-logged-in="0"] [class*="WorkspaceBrowser"],html[data-uds-logged-in="0"] [class*="workspaceBrowser"],html[data-uds-logged-in="0"] [class*="workspaceRow"],html[data-uds-logged-in="0"] [class*="WorkspaceRow"]{display:none!important}',
+      'html[data-uds-can-settings="0"] [data-uds-auth-foot="row"]>*:not(:has([data-uds-auth-host])){display:none!important}html[data-uds-can-create-ws="0"] button[aria-label="添加工作区"],html[data-uds-can-create-ws="0"] button[aria-label="Add workspace"]{display:none!important}html[data-uds-logged-in="0"] [role="tree"][aria-label="Sessions"],html[data-uds-logged-in="0"] [role="tree"][aria-label="会话"],html[data-uds-logged-in="0"] [class*="WorkspaceBrowser"],html[data-uds-logged-in="0"] [class*="workspaceBrowser"],html[data-uds-logged-in="0"] .dsh-ct-entry,html[data-uds-logged-in="0"] .dsh-ct-region,html[data-uds-logged-in="0"] .dsh-ct-main,html[data-uds-logged-in="0"] [data-dsh-ct-mode="on"] .dsh-ct-region{display:none!important}html[data-uds-can-create-ws="0"] button[aria-label="选择工作区"],html[data-uds-can-create-ws="0"] button[aria-label="Choose workspace"],html[data-uds-can-create-ws="0"] [aria-label="选择工作区"],html[data-uds-can-create-ws="0"] [aria-label="Choose workspace"]{display:none!important}html[data-uds-can-create-ws="0"] [class*="cardWorkspaceTrigger"],html[data-uds-can-create-ws="0"] [data-composer-card][class*="cardWorkspaceTrigger"]{pointer-events:none!important;opacity:.45!important;cursor:not-allowed!important}/* uds-anon-hide-workspaces *//* uds-anon-hide-conversation:removed */html[data-uds-logged-in="0"] [class*="WorkspaceBrowser"],html[data-uds-logged-in="0"] [class*="workspaceBrowser"],html[data-uds-logged-in="0"] [class*="workspaceRow"],html[data-uds-logged-in="0"] [class*="WorkspaceRow"]{display:none!important}',
       '.uds-auth-badge{display:inline-flex;align-items:center;justify-content:flex-start;gap:0;max-width:min(160px,42vw);min-width:0;height:32px;padding:0 8px;box-sizing:border-box;border:none;border-radius:8px;background:transparent;color:var(--dsw-alias-label-primary);font-family:inherit;font-size:13px;font-weight:400;line-height:20px;cursor:pointer;overflow:hidden}',
       '.uds-auth-badge:hover{background:var(--dsw-alias-interactive-bg-hover)}',
       '.uds-auth-host.is-rail .uds-auth-badge{width:auto;max-width:100%;height:32px;padding:0 6px;border-radius:8px}',
@@ -103,20 +103,41 @@ window.__ModuleLoader__.load({
     }
 
     /** Prefer /api/me-driven attr: fallback login cookie is HttpOnly and invisible to document.cookie. */
-    function isLoggedInInUi() {
-      return document.documentElement.getAttribute('data-uds-logged-in') === '1' || !!getEmpNo()
+    function isUdsAuthReady() {
+      return document.documentElement.getAttribute('data-uds-auth-ready') === '1'
     }
 
-    /** After UDS login, remote.mux still has pre-login identity — reconnect to re-upgrade with cookies. */
-    
+    /** True only after /api/me confirmed a user — portal empNo cookie alone does not count. */
+    function isLoggedInInUi() {
+      return document.documentElement.getAttribute('data-uds-logged-in') === '1'
+    }
+
     function clearSessionIfAnonymous(sessions) {
+      // Wait for first /api/me so we do not wipe a real session during bootstrap.
+      if (!isUdsAuthReady()) return
       if (isLoggedInInUi()) return
       try {
         if (sessions && typeof sessions.clear === 'function') sessions.clear()
       } catch { /* ignore */ }
       try {
-        // Wipe persisted selection so refresh does not reopen the last chat.
         window.localStorage.removeItem('dsh.sessions.current')
+      } catch { /* ignore */ }
+      // Navigation may auto-reopen; clear again on next ticks while still anonymous.
+      try {
+        const snap = sessions && sessions.list && typeof sessions.list.getSnapshot === 'function'
+          ? sessions.list.getSnapshot()
+          : null
+        if (snap && snap.current != null) {
+          setTimeout(() => {
+            if (isLoggedInInUi()) return
+            try { sessions.clear() } catch { /* ignore */ }
+            try { window.localStorage.removeItem('dsh.sessions.current') } catch { /* ignore */ }
+          }, 0)
+          setTimeout(() => {
+            if (isLoggedInInUi()) return
+            try { sessions.clear() } catch { /* ignore */ }
+          }, 350)
+        }
       } catch { /* ignore */ }
     }
 
@@ -538,6 +559,7 @@ window.__ModuleLoader__.load({
           setUser(null)
           window.dispatchEvent(new Event('uds-auth-changed'))
         } finally {
+          document.documentElement.setAttribute('data-uds-auth-ready', '1')
           setLoading(false)
         }
       }, [])
@@ -822,6 +844,9 @@ window.__ModuleLoader__.load({
           // Optimistic cookie presence; AuthBadge will correct to 0/1.
           root.setAttribute('data-uds-logged-in', '0')
         }
+        if (!root.getAttribute('data-uds-auth-ready')) {
+          root.setAttribute('data-uds-auth-ready', '0')
+        }
         if (!root.getAttribute('data-uds-can-create-ws')) {
           root.setAttribute('data-uds-can-create-ws', '0')
         }
@@ -974,37 +999,31 @@ window.__ModuleLoader__.load({
       }, 'uds-auth: session-list-gate')
       ctx.effect(() => {
         let sessions = null
-        try { sessions = ctx.get('sessions') } catch { sessions = null }
-        window.__udsAuthSessions = sessions
-        const sync = () => {
+        let unsub = null
+        const bind = () => {
           try { sessions = ctx.get('sessions') || sessions } catch { /* ignore */ }
           window.__udsAuthSessions = sessions
+          if (unsub) { try { unsub() } catch { /* ignore */ } unsub = null }
+          if (sessions && sessions.list && typeof sessions.list.subscribe === 'function') {
+            unsub = sessions.list.subscribe(() => { clearSessionIfAnonymous(sessions) })
+          }
           clearSessionIfAnonymous(sessions)
         }
-        sync()
-        const onAuth = () => { sync() }
+        bind()
+        const onAuth = () => { bind() }
         window.addEventListener('uds-auth-changed', onAuth)
-        const mo = new MutationObserver(sync)
+        const mo = new MutationObserver(() => { clearSessionIfAnonymous(window.__udsAuthSessions) })
         mo.observe(document.documentElement, {
           attributes: true,
-          attributeFilter: ['data-uds-logged-in'],
+          attributeFilter: ['data-uds-logged-in', 'data-uds-auth-ready'],
         })
-        // Late sessions service
-        const timer = setInterval(() => {
-          try {
-            const s = ctx.get('sessions')
-            if (s && s !== sessions) {
-              sessions = s
-              window.__udsAuthSessions = s
-              sync()
-            }
-          } catch { /* ignore */ }
-        }, 500)
-        setTimeout(() => clearInterval(timer), 15000)
+        const timer = setInterval(bind, 500)
+        setTimeout(() => clearInterval(timer), 20000)
         return () => {
           clearInterval(timer)
           mo.disconnect()
           window.removeEventListener('uds-auth-changed', onAuth)
+          if (unsub) { try { unsub() } catch { /* ignore */ } }
         }
       }, 'uds-auth: clear-session-when-anonymous')
 
