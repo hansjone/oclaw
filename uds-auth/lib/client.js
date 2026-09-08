@@ -21,9 +21,9 @@ window.__ModuleLoader__.load({
     const CSS = [
       '.uds-auth-host{position:relative;display:inline-flex;align-items:center;height:32px;margin:0;flex-shrink:0;pointer-events:auto}.uds-auth-host.is-rail{justify-content:center;width:100%}[data-uds-auth-foot="row"]{display:flex!important;flex-direction:row!important;align-items:center!important;gap:8px;width:100%}[data-uds-auth-foot="row"]>*:nth-child(1){order:2;flex:none!important;width:auto!important;min-width:0;margin-left:auto!important}[data-uds-auth-foot="row"]>*:nth-child(2){order:1;flex:none!important;width:auto!important;min-width:0}',
       'html[data-uds-can-settings="0"] [data-uds-auth-foot="row"]>*:not(:has([data-uds-auth-host])){display:none!important}html[data-uds-can-create-ws="0"] button[aria-label="添加工作区"],html[data-uds-can-create-ws="0"] button[aria-label="Add workspace"]{display:none!important}html[data-uds-logged-in="0"] .dsh-ct-entry,html[data-uds-logged-in="0"] .dsh-ct-region,html[data-uds-logged-in="0"] .dsh-ct-main,html[data-uds-logged-in="0"] [data-dsh-ct-mode="on"] .dsh-ct-region{display:none!important}html[data-uds-can-create-ws="0"] button[aria-label="选择工作区"],html[data-uds-can-create-ws="0"] button[aria-label="Choose workspace"],html[data-uds-can-create-ws="0"] [aria-label="选择工作区"],html[data-uds-can-create-ws="0"] [aria-label="Choose workspace"]{display:none!important}html[data-uds-can-create-ws="0"] [class*="cardWorkspaceTrigger"],html[data-uds-can-create-ws="0"] [data-composer-card][class*="cardWorkspaceTrigger"]{pointer-events:none!important;opacity:.45!important;cursor:not-allowed!important}',
-      '.uds-auth-badge{display:inline-flex;align-items:center;justify-content:center;gap:8px;max-width:min(180px,40vw);min-width:0;height:42px;padding:0 10px 0 8px;box-sizing:border-box;border:none;border-radius:12px;background:transparent;color:var(--dsw-alias-label-primary);font-family:inherit;font-size:14px;font-weight:400;line-height:22px;cursor:pointer;overflow:hidden}',
+      '.uds-auth-badge{display:inline-flex;align-items:center;justify-content:flex-start;gap:0;max-width:min(160px,42vw);min-width:0;height:32px;padding:0 8px;box-sizing:border-box;border:none;border-radius:8px;background:transparent;color:var(--dsw-alias-label-primary);font-family:inherit;font-size:13px;font-weight:400;line-height:20px;cursor:pointer;overflow:hidden}',
       '.uds-auth-badge:hover{background:var(--dsw-alias-interactive-bg-hover)}',
-      '.uds-auth-host.is-rail .uds-auth-badge{width:36px;height:36px;padding:0;border-radius:50%;gap:0}',
+      '.uds-auth-host.is-rail .uds-auth-badge{width:auto;max-width:100%;height:32px;padding:0 6px;border-radius:8px}',
       '.uds-auth-badge-unauth{color:var(--dsw-alias-label-tertiary,#8f959e)}',
       '.uds-auth-avatar{display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:50%;flex:none;font-size:10px;line-height:1;color:var(--dsw-alias-label-secondary,#646a73);background:transparent;border:none}',
       '.uds-auth-badge-unauth .uds-auth-avatar{background:var(--dsw-alias-bg-module-platform,rgba(242,243,245,1));color:var(--dsw-alias-label-tertiary,#8f959e)}',
@@ -32,7 +32,7 @@ window.__ModuleLoader__.load({
       '.uds-auth-role-super_admin{background:rgba(213,73,65,.12);color:var(--dsw-alias-state-error-primary,#d54941)}',
       '.uds-auth-role-admin{background:rgba(217,119,6,.12);color:var(--dsw-alias-state-warn-primary,#d97706)}',
       '.uds-auth-role-fallback_admin{background:rgba(51,112,255,.12);color:var(--dsw-alias-state-business-primary,#3370ff)}',
-      '.uds-auth-panel{position:fixed;z-index:1200;width:min(300px,calc(100vw - 24px));max-height:min(70vh,560px);overflow:auto;background:var(--dsw-alias-bg-layer-1,#fff);border-radius:8px;border:1px solid var(--dsw-alias-border-l2,#dee0e3);box-shadow:0 8px 28px rgba(0,0,0,.12)}',
+      '.uds-auth-panel{position:fixed;z-index:1200;width:min(300px,calc(100vw - 24px));max-height:min(70vh,560px);overflow:auto;top:auto;background:var(--dsw-alias-bg-layer-1,#fff);border-radius:8px;border:1px solid var(--dsw-alias-border-l2,#dee0e3);box-shadow:0 8px 28px rgba(0,0,0,.12)}',
       '.uds-auth-info{padding:14px 16px;border-bottom:1px solid var(--dsw-alias-border-l1,#eef0f3)}',
       '.uds-auth-info-name{font-weight:600;margin-bottom:4px;color:var(--dsw-alias-label-primary,#1f2329);font-size:14px}',
       '.uds-auth-info-detail{font-size:12px;color:var(--dsw-alias-label-secondary,#646a73);margin-top:2px;display:flex;justify-content:space-between;gap:8px}',
@@ -652,10 +652,11 @@ window.__ModuleLoader__.load({
           const rect = rootRef.current?.getBoundingClientRect()
           if (!rect) return
           const width = Math.min(300, window.innerWidth - 24)
+          // Keep panel aligned to the badge (footer), not mid-sidebar.
           const left = Math.max(8, Math.min(rect.left, window.innerWidth - width - 8))
-          // Open upward from sidebar foot
-          const top = Math.max(8, rect.top - 8 - Math.min(520, window.innerHeight * 0.65))
-          setAnchor({ left, top })
+          const gap = 8
+          const bottom = Math.max(8, window.innerHeight - rect.top + gap)
+          setAnchor({ left, bottom, width })
         }
         place()
         window.addEventListener('resize', place)
@@ -682,7 +683,12 @@ window.__ModuleLoader__.load({
       },
       open && anchor && h('section', {
         className: 'uds-auth-panel',
-        style: { left: anchor.left, top: anchor.top },
+        style: {
+          left: anchor.left,
+          bottom: anchor.bottom,
+          top: 'auto',
+          width: anchor.width,
+        },
         'aria-label': 'UDS',
       },
       !user
@@ -763,12 +769,11 @@ window.__ModuleLoader__.load({
         type: 'button',
         className: 'uds-auth-badge' + (user ? '' : ' uds-auth-badge-unauth'),
         'aria-expanded': open,
-        'aria-label': 'UDS',
+        'aria-label': displayName || 'UDS',
+        title: displayName || 'UDS',
         onClick: () => setOpen((v) => !v),
       },
-      h('span', { className: 'uds-auth-avatar' }, user ? initials : '?'),
       h('span', { className: 'uds-auth-badge-label' }, displayName),
-      label ? h('span', { className: 'uds-auth-role uds-auth-role-' + user.role }, label) : null,
       ),
       )
     }
