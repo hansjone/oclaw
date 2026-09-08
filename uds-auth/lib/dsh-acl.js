@@ -3,9 +3,9 @@
  */
 import { createRequire } from 'node:module'
 import { withUserContext, getUserContext, runWithUserContext } from './context.js'
+import { computePermissions, ROLES } from './roles.js'
 
 const require = createRequire(import.meta.url)
-import { computePermissions, ROLES } from './roles.js'
 
 function parseCookie(header, name) {
   if (!header || typeof header !== 'string') return null
@@ -55,13 +55,142 @@ function bindWebSocketListenersToIdentity(ws, getIdentity) {
   }
 }
 
-/**
- * remote.mux streams fire on WebSocket messages after upgrade returns — ALS is gone.
- * Resolve UDS identity from the upgrade request (cookies) on each connection.
- */
-function patchWebSocketServerForUdsIdentity(resolveIdentity)
+/** Keep UDS identity on remote.mux WebSocket messages (ALS dies after upgrade). */
+function patchWebSocketServerForUdsIdentity(resolveIdentity) {
+  if (patchWebSocketServerForUdsIdentity.done) return
+  patchWebSocketServerForUdsIdentity.done = true
+  let WebSocketServer
+  try {
+    const ws = require('ws')
+    WebSocketServer = ws.WebSocketServer || ws.Server
+  } catch {
+    return
+  }
+  if (!WebSocketServer?.prototype?.handleUpgrade) return
+  const orig = WebSocketServer.prototype.handleUpgrade
+  WebSocketServer.prototype.handleUpgrade = function udsAuthHandleUpgrade(req, socket, head, cb) {
+    const getIdentity = () => {
+      if (req && Object.prototype.hasOwnProperty.call(req, '__udsAuthIdentity')) {
+        return req.__udsAuthIdentity
+      }
+      if (socket && upgradeSocketIdentity.has(socket)) {
+        return upgradeSocketIdentity.get(socket)
+      }
+      if (typeof resolveIdentity !== 'function') return null
+      return Promise.resolve(resolveIdentity(req)).then((identity) => {
+        try { if (req) req.__udsAuthIdentity = identity } catch { /* ignore */ }
+        if (socket) upgradeSocketIdentity.set(socket, identity)
+        return identity
+      })
+    }
+    const wrappedCb = typeof cb === 'function'
+      ? (wsSocket) => {
+        bindWebSocketListenersToIdentity(wsSocket, getIdentity)
+        return cb(wsSocket)
+      }
+      : cb
+    return orig.call(this, req, socket, head, wrappedCb)
+  }
+}
 
-  /* wrap existing upgrades */
+export async function resolveIdentityFromRequest(req, deps) {
+  const cookie = req?.headers?.cookie || ''
+  const empNo = parseCookie(cookie, 'PORTALSSOUser')
+    || parseCookie(cookie, 'ZTEDPGSSOUser')
+    || parseCookie(cookie, 'UDS_FALLBACK_USER')
+  if (!empNo) return null
+
+  const { sessionStore, rolesStore } = deps
+  let userContext = null
+  try {
+    userContext = await sessionStore.get(empNo)
+  } catch {
+    userContext = null
+  }
+  if (!userContext) return null
+
+  // bootstrap / resolve role
+  let role = rolesStore.getRole(empNo)
+  if (empNo !== 'administrator' && typeof rolesStore.bootstrapFirstUser === 'function') {
+    try {
+      const r = await rolesStore.bootstrapFirstUser(empNo)
+      role = r.role
+    } catch { /* keep getRole */ }
+  }
+
+  const permissions = computePermissions(role)
+  return {
+    empNo: String(empNo),
+    role,
+    permissions,
+    userContext,
+    kind: empNo === 'administrator' ? 'fallback' : 'uds',
+  }
+}
+
+/**
+ * Patch webServer so every route handler runs inside UDS ALS.
+ * @param {any} server
+ * @param {(req: any) => Promise<object|null>} resolveIdentity
+ */
+export function patchWebServerWithIdentity(server, resolveIdentity) {
+  if (!server || server.__udsAuthPatched) return () => {}
+  server.__udsAuthPatched = true
+
+  const wrap = (handler) => {
+    if (typeof handler !== 'function' || handler.__udsWrapped) return handler
+    const wrapped = async (req, res, ...rest) => {
+      const identity = await resolveIdentity(req)
+      try {
+        const pathname = new URL(req.url || '/', 'http://x').pathname
+        if (
+          pathname.startsWith('/dsh-ops-cron')
+          && pathname !== '/dsh-ops-cron/health'
+          && !identity?.empNo
+        ) {
+          res.writeHead(401, { 'content-type': 'application/json; charset=utf-8' })
+          res.end(JSON.stringify({
+            ok: false,
+            error: 'login_required',
+            message: '登录后才能使用定时任务',
+          }))
+          return
+        }
+      } catch { /* fall through to handler */ }
+      return withUserContext(identity, () => handler(req, res, ...rest))
+    }
+    wrapped.__udsWrapped = true
+    return wrapped
+  }
+
+  const patchTable = (table) => {
+    if (!table || typeof table.entries !== 'function') return
+    for (const [path, route] of table.entries()) {
+      if (!route?.handler) continue
+      table.set(path, { ...route, handler: wrap(route.handler) })
+    }
+  }
+
+  patchTable(server.exact)
+  patchTable(server.prefixes)
+  if (typeof server.fallback === 'function') {
+    server.fallback = wrap(server.fallback)
+  }
+
+  const origRegister = server.register.bind(server)
+  server.register = (route) => origRegister({
+    ...route,
+    handler: wrap(route.handler),
+  })
+
+  const origFallback = server.registerFallback?.bind(server)
+  if (origFallback) {
+    server.registerFallback = (handler) => origFallback(wrap(handler))
+  }
+
+  patchWebSocketServerForUdsIdentity(resolveIdentity)
+
+  // Wrap upgrades already registered (gateway may load before us).
   try {
     const table = server.upgrades
     if (table && typeof table.entries === 'function') {
@@ -92,8 +221,6 @@ function patchWebSocketServerForUdsIdentity(resolveIdentity)
       },
     })
   }
-
-  
 
   return () => {
     /* leave patched — reload recreates webServer fiber */
