@@ -46,12 +46,15 @@ export function createApiHandlers(config, sessionStore, rolesStore) {
   }
 
   async function getCurrentUser(ctx) {
+    const ws = ctx.provisionedWorkspace || null
     await sendRes(ctx.res, 200, {
       data: ctx.userContext ? {
         ...ctx.userContext,
         empNo: ctx.empNo,
         role: ctx.role,
         permissions: ctx.permissions,
+        workspaceId: ws?.workspaceId || null,
+        workspacePath: ws?.path || null,
       } : null,
       authenticated: !!ctx.userContext,
     })

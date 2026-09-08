@@ -646,6 +646,9 @@ function handleRequest(req, res) {
 
     // 基础端点
     if (url === '/api/me' && method === 'GET') {
+      if (ctx2.empNo) {
+        try { ctx2.provisionedWorkspace = await ensureUserWorkspace(ctx2.empNo) } catch { ctx2.provisionedWorkspace = null }
+      }
       await _apiHandlers.getCurrentUser(ctx2); return
     }
     if (url === '/api/logout' && method === 'POST') {

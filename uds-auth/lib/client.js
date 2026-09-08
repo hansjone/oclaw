@@ -20,7 +20,7 @@ window.__ModuleLoader__.load({
 
     const CSS = [
       '.uds-auth-host{position:relative;display:inline-flex;align-items:center;height:32px;margin:0;flex-shrink:0;pointer-events:auto}.uds-auth-host.is-rail{justify-content:center;width:100%}[data-uds-auth-foot="row"]{display:flex!important;flex-direction:row!important;align-items:center!important;gap:8px;width:100%}[data-uds-auth-foot="row"]>*:nth-child(1){order:2;flex:none!important;width:auto!important;min-width:0;margin-left:auto!important}[data-uds-auth-foot="row"]>*:nth-child(2){order:1;flex:none!important;width:auto!important;min-width:0}',
-      'html[data-uds-can-settings="0"] [data-uds-auth-foot="row"]>*:not(:has([data-uds-auth-host])){display:none!important}html[data-uds-can-create-ws="0"] button[aria-label="添加工作区"],html[data-uds-can-create-ws="0"] button[aria-label="Add workspace"]{display:none!important}html[data-uds-logged-in="0"] [role="tree"][aria-label="Sessions"],html[data-uds-logged-in="0"] [role="tree"][aria-label="会话"],html[data-uds-logged-in="0"] [class*="WorkspaceBrowser"],html[data-uds-logged-in="0"] [class*="workspaceBrowser"],html[data-uds-logged-in="0"] .dsh-ct-entry,html[data-uds-logged-in="0"] .dsh-ct-region,html[data-uds-logged-in="0"] .dsh-ct-main,html[data-uds-logged-in="0"] [data-dsh-ct-mode="on"] .dsh-ct-region{display:none!important}html[data-uds-can-create-ws="0"] button[aria-label="选择工作区"],html[data-uds-can-create-ws="0"] button[aria-label="Choose workspace"],html[data-uds-can-create-ws="0"] [aria-label="选择工作区"],html[data-uds-can-create-ws="0"] [aria-label="Choose workspace"]{display:none!important}html[data-uds-can-create-ws="0"] [class*="cardWorkspaceTrigger"],html[data-uds-can-create-ws="0"] [data-composer-card][class*="cardWorkspaceTrigger"]{pointer-events:none!important;opacity:.45!important;cursor:not-allowed!important}/* uds-anon-hide-workspaces *//* uds-anon-hide-conversation:removed */html[data-uds-logged-in="0"] [class*="WorkspaceBrowser"],html[data-uds-logged-in="0"] [class*="workspaceBrowser"],html[data-uds-logged-in="0"] [class*="workspaceRow"],html[data-uds-logged-in="0"] [class*="WorkspaceRow"]{display:none!important}',
+      'html[data-uds-can-settings="0"] [data-uds-auth-foot="row"]>*:not(:has([data-uds-auth-host])){display:none!important}html[data-uds-can-create-ws="0"] button[aria-label="添加工作区"],html[data-uds-can-create-ws="0"] button[aria-label="Add workspace"]{display:none!important}html[data-uds-logged-in="0"] [role="tree"][aria-label="Sessions"],html[data-uds-logged-in="0"] [role="tree"][aria-label="会话"],html[data-uds-logged-in="0"] [class*="WorkspaceBrowser"],html[data-uds-logged-in="0"] [class*="workspaceBrowser"],html[data-uds-logged-in="0"] .dsh-ct-entry,html[data-uds-logged-in="0"] .dsh-ct-region,html[data-uds-logged-in="0"] .dsh-ct-main,html[data-uds-logged-in="0"] [data-dsh-ct-mode="on"] .dsh-ct-region{display:none!important}html[data-uds-can-create-ws="0"] button[aria-label="选择工作区"],html[data-uds-can-create-ws="0"] button[aria-label="Choose workspace"],html[data-uds-can-create-ws="0"] [aria-label="选择工作区"],html[data-uds-can-create-ws="0"] [aria-label="Choose workspace"]{display:none!important}html[data-uds-logged-in="0"] [class*="cardWorkspaceTrigger"],html[data-uds-logged-in="0"] [data-composer-card][class*="cardWorkspaceTrigger"]{pointer-events:none!important;opacity:.45!important;cursor:not-allowed!important}/* uds-anon-hide-workspaces *//* uds-anon-hide-conversation:removed */html[data-uds-logged-in="0"] [class*="WorkspaceBrowser"],html[data-uds-logged-in="0"] [class*="workspaceBrowser"],html[data-uds-logged-in="0"] [class*="workspaceRow"],html[data-uds-logged-in="0"] [class*="WorkspaceRow"]{display:none!important}',
       '.uds-auth-badge{display:inline-flex;align-items:center;justify-content:flex-start;gap:0;max-width:min(160px,42vw);min-width:0;height:32px;padding:0 8px;box-sizing:border-box;border:none;border-radius:8px;background:transparent;color:var(--dsw-alias-label-primary);font-family:inherit;font-size:13px;font-weight:400;line-height:20px;cursor:pointer;overflow:hidden}',
       '.uds-auth-badge:hover{background:var(--dsw-alias-interactive-bg-hover)}',
       '.uds-auth-host.is-rail .uds-auth-badge{width:auto;max-width:100%;height:32px;padding:0 6px;border-radius:8px}',
@@ -1146,17 +1146,39 @@ window.__ModuleLoader__.load({
           }
         }
         const freezeChoosers = () => {
-          if (canOpenWorkspace()) {
+          const loggedIn = document.documentElement.getAttribute('data-uds-logged-in') === '1'
+          const canCreate = canOpenWorkspace()
+          // Clear stale locks left on the composer card after it leaves trigger mode.
+          document.querySelectorAll('[data-uds-ws-locked="1"]').forEach((el) => {
+            const stillChooser = el.matches && (el.matches(CHOOSER) || el.matches(TRIGGER_CARD))
+            if (canCreate || !stillChooser || (loggedIn && el.matches(TRIGGER_CARD))) unlockEl(el)
+          })
+          if (canCreate) {
             document.querySelectorAll(SURFACE).forEach(unlockEl)
             return
           }
-          // Hide chip / labeled trigger; dim+disable the inert dialog card (keep visible).
+          // Non-creators: hide labeled chooser chips only.
           document.querySelectorAll(CHOOSER).forEach((el) => lockEl(el, true))
-          document.querySelectorAll(TRIGGER_CARD).forEach((el) => lockEl(el, false))
+          // Lock inert trigger card only while anonymous; logged-in users
+          // auto-bind a personal workspace and must not keep pointer-events:none.
+          if (!loggedIn) {
+            document.querySelectorAll(TRIGGER_CARD).forEach((el) => lockEl(el, false))
+          }
         }
+
         const block = (event) => {
           if (canOpenWorkspace()) return
-          if (!isChooser(event.target)) return
+          const hit = isChooser(event.target)
+          if (!hit) return
+          const loggedIn = document.documentElement.getAttribute('data-uds-logged-in') === '1'
+          // Logged-in non-creators: still block labeled "选择工作区" / trigger clicks
+          // that open the picker; do not leave the card permanently disabled.
+          if (loggedIn && hit.matches && hit.matches(TRIGGER_CARD) && !hit.matches(CHOOSER)) {
+            event.preventDefault()
+            event.stopPropagation()
+            if (typeof event.stopImmediatePropagation === 'function') event.stopImmediatePropagation()
+            return
+          }
           event.preventDefault()
           event.stopPropagation()
           if (typeof event.stopImmediatePropagation === 'function') event.stopImmediatePropagation()
@@ -1235,7 +1257,7 @@ window.__ModuleLoader__.load({
           childList: true,
           subtree: true,
           attributes: true,
-          attributeFilter: ['data-uds-can-create-ws', 'aria-label'],
+          attributeFilter: ['data-uds-can-create-ws', 'data-uds-logged-in', 'aria-label', 'class'],
         })
 
         return () => {
@@ -1249,6 +1271,48 @@ window.__ModuleLoader__.load({
           clearWorkspaceLock()
         }
       }, 'uds-auth: workspace-click-lock')
+      ctx.effect(() => {
+        let busy = false
+        let tries = 0
+        const bindPersonalWorkspace = async () => {
+          if (busy) return
+          if (document.documentElement.getAttribute('data-uds-logged-in') !== '1') return
+          // Super/fallback may pick workspaces; still auto-bind if nothing selected.
+          let sessions = null
+          try { sessions = ctx.get('sessions') } catch { sessions = null }
+          if (!sessions || typeof sessions.create !== 'function') return
+          try {
+            const snap = sessions.list && sessions.list.getSnapshot && sessions.list.getSnapshot()
+            if (snap && snap.current != null) return
+          } catch { /* ignore */ }
+          busy = true
+          try {
+            const me = await fetchJson('/uds-auth/api/me')
+            const wsId = me && me.data && me.data.workspaceId
+            if (!me?.authenticated || !wsId) return
+            const sessionId = await sessions.create({ workspaceId: wsId })
+            if (sessionId && typeof sessions.open === 'function') sessions.open(sessionId)
+          } catch (err) {
+            console.warn('[uds-auth] auto-bind personal workspace failed:', err && err.message ? err.message : err)
+          } finally {
+            busy = false
+          }
+        }
+        const tick = () => {
+          if (tries++ > 40) return
+          void bindPersonalWorkspace()
+        }
+        tick()
+        window.addEventListener('uds-auth-changed', tick)
+        const timer = setInterval(tick, 1500)
+        setTimeout(() => clearInterval(timer), 60000)
+        return () => {
+          clearInterval(timer)
+          window.removeEventListener('uds-auth-changed', tick)
+        }
+      }, 'uds-auth: auto-bind-personal-workspace')
+
+
 
 
       // sidebar.footer.action; layout effect lays footArea as one row: Settings | UDS login
