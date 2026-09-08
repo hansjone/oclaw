@@ -727,7 +727,7 @@ async function initServices(ctx, config) {
     const { RolesStore } = await import('./roles.js')
     const { SessionAclStore } = await import('./session-acl.js')
     const { UserWorkspaceStore } = await import('./workspace-provision.js')
-    const { patchWebServerWithIdentity, resolveIdentityFromRequest, installDshAcl } = await import('./dsh-acl.js')
+    const { patchWebServerWithIdentity, resolveIdentityFromRequest, resolveIdentityFromRequestSync, installDshAcl } = await import('./dsh-acl.js')
 
     _pluginCtx = ctx
     _currentConfig = config
@@ -767,13 +767,15 @@ async function initServices(ctx, config) {
     }, _sessionStore, _rolesStore)
     _apiHandlers = createApiHandlers({ session: INTERNAL.session }, _sessionStore, _rolesStore)
 
-    const resolveIdentity = (req) => resolveIdentityFromRequest(req, {
+    const identityDeps = {
       sessionStore: _sessionStore,
       rolesStore: _rolesStore,
-    })
+    }
+    const resolveIdentity = (req) => resolveIdentityFromRequest(req, identityDeps)
+    const resolveIdentitySync = (req) => resolveIdentityFromRequestSync(req, identityDeps)
 
     const patchServer = (server) => {
-      patchWebServerWithIdentity(server, resolveIdentity)
+      patchWebServerWithIdentity(server, resolveIdentity, resolveIdentitySync)
     }
     const present = tryGet(ctx, 'webServer')
     if (present) patchServer(present)
