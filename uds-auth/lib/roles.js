@@ -266,7 +266,7 @@ export class RolesStore {
   // === Fallback Administrator ===
 
   setFallbackPassword(password, currentAdminRole) {
-    if (currentAdminRole !== ROLES.SUPER_ADMIN) {
+    if (currentAdminRole !== ROLES.SUPER_ADMIN && currentAdminRole !== ROLES.FALLBACK_ADMIN) {
       throw new Error('只有超级管理员可以设置兜底管理员密码')
     }
     if (!password || password.length < 6) {
@@ -278,7 +278,7 @@ export class RolesStore {
   }
 
   clearFallbackPassword(currentAdminRole) {
-    if (currentAdminRole !== ROLES.SUPER_ADMIN) {
+    if (currentAdminRole !== ROLES.SUPER_ADMIN && currentAdminRole !== ROLES.FALLBACK_ADMIN) {
       throw new Error('只有超级管理员可以清除兜底管理员密码')
     }
     this._fallbackPasswordHash = null

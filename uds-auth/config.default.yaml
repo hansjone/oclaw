@@ -15,3 +15,5 @@ originSystemCode: ''
 
 # Per-user workspaces under workspaceRoot/<empNo>; empty => $DSH_HOME/user-workspaces
 workspaceRoot: ""
+
+# 兜底管理员默认在首次启动启用：administrator / Admin@123（roles.json 可改密或关闭）

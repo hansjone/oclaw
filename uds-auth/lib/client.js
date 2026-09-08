@@ -430,8 +430,8 @@ window.__ModuleLoader__.load({
         canManage && h('div', { className: 'uds-auth-settings-card' },
           h('h3', null, '\u5e94\u6025\u767b\u5f55\uff08UAC \u4e0d\u53ef\u7528\uff09'),
           h('p', { className: 'uds-auth-settings-intro' },
-            '\u72b6\u6001\uff1a' + (fallbackEnabled ? '\u5df2\u542f\u7528' : '\u672a\u8bbe\u7f6e\u5bc6\u7801\uff08\u672a\u542f\u7528\uff09')
-            + '\u3002\u7528\u6237\u540d\u56fa\u5b9a\u4e3a administrator\uff0c\u4ec5\u5728\u626b\u7801\u4e0d\u53ef\u7528\u65f6\u4ece\u767b\u5f55\u9762\u677f\u5207\u6362\u3002'),
+            '\u72b6\u6001\uff1a' + (fallbackEnabled ? '\u5df2\u542f\u7528' : '\u672a\u542f\u7528')
+            + '\u3002\u9ed8\u8ba4\u8d26\u53f7 administrator / Admin@123\uff1b\u53ef\u6539\u5bc6\u6216\u5173\u95ed\u3002\u4ec5\u5728\u626b\u7801\u4e0d\u53ef\u7528\u65f6\u4ece\u767b\u5f55\u9762\u677f\u5207\u6362\u3002'),
           h('div', { className: 'uds-auth-settings-field' },
             h('label', { htmlFor: 'uds-auth-fallback-pwd' }, '\u5e94\u6025\u5bc6\u7801\uff08\u81f3\u5c11 6 \u4f4d\uff09'),
             h('input', {
@@ -782,7 +782,7 @@ window.__ModuleLoader__.load({
               }),
               fbErr && h('div', { className: 'uds-auth-settings-msg err' }, fbErr),
               h('p', { className: 'uds-auth-fallback-hint' },
-                '\u9ed8\u8ba4\u7528\u6237\u540d administrator\uff1b\u5bc6\u7801\u5728\u300c\u8bbe\u7f6e \u2192 UDS \u8ba4\u8bc1\u300d\u7531\u8d85\u7ba1\u9884\u5148\u914d\u7f6e\u3002'),
+                '\u9ed8\u8ba4\u8d26\u53f7 administrator / Admin@123\uff08\u521d\u59cb\u90e8\u7f72\u5df2\u542f\u7528\uff0c\u53ef\u5728\u8bbe\u7f6e\u4e2d\u6539\u5bc6\u6216\u5173\u95ed\uff09\u3002'),
               h('button', {
                 type: 'button',
                 className: 'uds-auth-btn uds-auth-btn-primary',

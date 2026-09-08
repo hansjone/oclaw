@@ -38,6 +38,7 @@ originSystemCode: ''
 - `GET /uds-auth/api/me` — 当前用户
 - `POST /uds-auth/api/logout` — 登出
 - 用户管理 / 兜底管理员：见 `/uds-auth/api/users*`、`/uds-auth/api/fallback/*`
+- **默认兜底账号**（扫码不可用时）：用户名 `administrator`，密码 `Admin@123`（首次启动自动启用；可在设置中改密或关闭）
 
 ## License
 
