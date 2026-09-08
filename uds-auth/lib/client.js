@@ -20,7 +20,7 @@ window.__ModuleLoader__.load({
 
     const CSS = [
       '.uds-auth-host{position:relative;display:inline-flex;align-items:center;height:32px;margin:0;flex-shrink:0;pointer-events:auto}.uds-auth-host.is-rail{justify-content:center;width:100%}[data-uds-auth-foot="row"]{display:flex!important;flex-direction:row!important;align-items:center!important;gap:8px;width:100%}[data-uds-auth-foot="row"]>*:nth-child(1){order:2;flex:none!important;width:auto!important;min-width:0;margin-left:auto!important}[data-uds-auth-foot="row"]>*:nth-child(2){order:1;flex:none!important;width:auto!important;min-width:0}',
-      'html[data-uds-can-settings="0"] [data-uds-auth-foot="row"]>*:not(:has([data-uds-auth-host])){display:none!important}html[data-uds-can-create-ws="0"] button[aria-label="添加工作区"],html[data-uds-can-create-ws="0"] button[aria-label="Add workspace"]{display:none!important}html[data-uds-logged-in="0"] .dsh-ct-entry,html[data-uds-logged-in="0"] .dsh-ct-region,html[data-uds-logged-in="0"] .dsh-ct-main,html[data-uds-logged-in="0"] [data-dsh-ct-mode="on"] .dsh-ct-region{display:none!important}',
+      'html[data-uds-can-settings="0"] [data-uds-auth-foot="row"]>*:not(:has([data-uds-auth-host])){display:none!important}html[data-uds-can-create-ws="0"] button[aria-label="添加工作区"],html[data-uds-can-create-ws="0"] button[aria-label="Add workspace"]{display:none!important}html[data-uds-logged-in="0"] .dsh-ct-entry,html[data-uds-logged-in="0"] .dsh-ct-region,html[data-uds-logged-in="0"] .dsh-ct-main,html[data-uds-logged-in="0"] [data-dsh-ct-mode="on"] .dsh-ct-region{display:none!important}html[data-uds-logged-in="0"] button[aria-label="选择工作区"],html[data-uds-logged-in="0"] button[aria-label="Choose workspace"],html[data-uds-logged-in="0"] [aria-label="选择工作区"],html[data-uds-logged-in="0"] [aria-label="Choose workspace"]{pointer-events:none!important;opacity:.45!important;cursor:not-allowed!important;user-select:none!important}',
       '.uds-auth-badge{display:inline-flex;align-items:center;justify-content:center;gap:8px;max-width:min(180px,40vw);min-width:0;height:42px;padding:0 10px 0 8px;box-sizing:border-box;border:none;border-radius:12px;background:transparent;color:var(--dsw-alias-label-primary);font-family:inherit;font-size:14px;font-weight:400;line-height:22px;cursor:pointer;overflow:hidden}',
       '.uds-auth-badge:hover{background:var(--dsw-alias-interactive-bg-hover)}',
       '.uds-auth-host.is-rail .uds-auth-badge{width:36px;height:36px;padding:0;border-radius:50%;gap:0}',
@@ -468,9 +468,10 @@ window.__ModuleLoader__.load({
         document.documentElement.setAttribute('data-uds-can-settings', canSettings ? '1' : '0')
         document.documentElement.setAttribute('data-uds-can-create-ws', canCreateWs ? '1' : '0')
         return () => {
-          document.documentElement.removeAttribute('data-uds-logged-in')
-          document.documentElement.removeAttribute('data-uds-can-settings')
-          document.documentElement.removeAttribute('data-uds-can-create-ws')
+          // Keep locked while remounting; do not leave attrs missing (CSS/click lock needs "0").
+          document.documentElement.setAttribute('data-uds-logged-in', '0')
+          document.documentElement.setAttribute('data-uds-can-settings', '0')
+          document.documentElement.setAttribute('data-uds-can-create-ws', '0')
         }
       }, [user])
 
@@ -760,6 +761,27 @@ window.__ModuleLoader__.load({
     }
 
     function apply(ctx) {
+
+      // Default ACL attrs before /api/me — anonymous stays locked until AuthBadge confirms.
+      ctx.effect(() => {
+        const root = document.documentElement
+        // Cookie alone is not enough; lock until /api/me sets real identity.
+        if (!getEmpNo()) {
+          root.setAttribute('data-uds-logged-in', '0')
+        } else if (!root.getAttribute('data-uds-logged-in')) {
+          // Optimistic cookie presence; AuthBadge will correct to 0/1.
+          root.setAttribute('data-uds-logged-in', '0')
+        }
+        if (!root.getAttribute('data-uds-can-create-ws')) {
+          root.setAttribute('data-uds-can-create-ws', '0')
+        }
+        if (!root.getAttribute('data-uds-can-settings')) {
+          root.setAttribute('data-uds-can-settings', '0')
+        }
+        return undefined
+      }, 'uds-auth: bootstrap-acl-attrs')
+
+
       ctx.effect(() => {
         const tag = document.createElement('style')
         tag.id = 'uds-auth-client-css'
@@ -912,17 +934,8 @@ window.__ModuleLoader__.load({
           }, [props && props.open])
           return null
         }
-        const sync = async () => {
-          let canCreate = false
-          try {
-            const me = await fetchJson('/uds-auth/api/me')
-            canCreate = !!(me && me.data && me.data.permissions && me.data.permissions.canCreateWorkspace)
-          } catch { canCreate = false }
-          for (const d of disposers) {
-            try { d() } catch { /* ignore */ }
-          }
-          disposers = []
-          if (canCreate) return
+        const installGate = () => {
+          if (disposers.length) return
           for (const slotName of [
             'sidebar.workspaces.directoryFlow',
             'conversation.hero.workspace.directoryFlow',
@@ -936,6 +949,23 @@ window.__ModuleLoader__.load({
             } catch { /* slot may be undeclared briefly */ }
           }
         }
+        const clearGate = () => {
+          for (const d of disposers) {
+            try { d() } catch { /* ignore */ }
+          }
+          disposers = []
+        }
+        // Deny folder pick by default — no race with native directory picker.
+        installGate()
+        const sync = async () => {
+          let canCreate = false
+          try {
+            const me = await fetchJson('/uds-auth/api/me')
+            canCreate = !!(me && me.data && me.data.permissions && me.data.permissions.canCreateWorkspace)
+          } catch { canCreate = false }
+          if (canCreate) clearGate()
+          else installGate()
+        }
         sync()
         const timer = setInterval(sync, 15000)
         const onFocus = () => { sync() }
@@ -946,11 +976,135 @@ window.__ModuleLoader__.load({
           clearInterval(timer)
           window.removeEventListener('focus', onFocus)
           window.removeEventListener('uds-auth-changed', onAuth)
-          for (const d of disposers) {
-            try { d() } catch { /* ignore */ }
-          }
+          clearGate()
         }
       }, 'uds-auth: directory-flow-gate')
+
+
+      ctx.effect(() => {
+        const CHOOSER = '[aria-label="选择工作区"], [aria-label="Choose workspace"]'
+        const isLoggedIn = () => document.documentElement.getAttribute('data-uds-logged-in') === '1'
+        const isChooser = (node) => {
+          if (!node || !node.closest) return null
+          return node.closest(CHOOSER)
+        }
+        const freezeChoosers = () => {
+          if (isLoggedIn()) {
+            document.querySelectorAll(CHOOSER).forEach((el) => {
+              if (el.dataset.udsWsLocked === '1') {
+                el.style.pointerEvents = ''
+                el.style.opacity = ''
+                el.style.cursor = ''
+                if (el.tagName === 'BUTTON' || el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') {
+                  el.removeAttribute('disabled')
+                }
+                el.removeAttribute('aria-disabled')
+                el.removeAttribute('tabindex')
+                delete el.dataset.udsWsLocked
+              }
+            })
+            return
+          }
+          document.querySelectorAll(CHOOSER).forEach((el) => {
+            el.dataset.udsWsLocked = '1'
+            el.style.pointerEvents = 'none'
+            el.style.opacity = '0.45'
+            el.style.cursor = 'not-allowed'
+            el.setAttribute('aria-disabled', 'true')
+            el.setAttribute('tabindex', '-1')
+            if (el.tagName === 'BUTTON' || el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') {
+              try { el.setAttribute('disabled', 'true') } catch { /* ignore */ }
+            }
+          })
+        }
+        const block = (event) => {
+          if (isLoggedIn()) return
+          if (!isChooser(event.target)) return
+          event.preventDefault()
+          event.stopPropagation()
+          if (typeof event.stopImmediatePropagation === 'function') event.stopImmediatePropagation()
+        }
+        document.addEventListener('click', block, true)
+        document.addEventListener('pointerdown', block, true)
+        document.addEventListener('mousedown', block, true)
+        document.addEventListener('keydown', (event) => {
+          if (isLoggedIn()) return
+          if (event.key !== 'Enter' && event.key !== ' ' && event.key !== 'Spacebar') return
+          if (!isChooser(event.target)) return
+          event.preventDefault()
+          event.stopPropagation()
+        }, true)
+
+        let workspaceDispose = null
+        const LockedWorkspace = function UdsAuthLockedWorkspace(props) {
+          React.useEffect(() => {
+            if (props && props.open) {
+              try { props.onClose && props.onClose() } catch { /* ignore */ }
+            }
+          }, [props && props.open])
+          return null
+        }
+        const installWorkspaceLock = () => {
+          if (workspaceDispose) return
+          try {
+            workspaceDispose = ctx.slots.register({
+              name: 'conversation.hero.workspace',
+              id: 'uds-auth-workspace-lock',
+              order: 9999,
+            }, LockedWorkspace)
+          } catch { /* slot may be undeclared briefly */ }
+        }
+        const clearWorkspaceLock = () => {
+          if (workspaceDispose) {
+            try { workspaceDispose() } catch { /* ignore */ }
+            workspaceDispose = null
+          }
+        }
+        // Lock immediately for anonymous — do not wait for /api/me.
+        if (!isLoggedIn()) installWorkspaceLock()
+        freezeChoosers()
+
+        const syncWorkspaceSlot = async () => {
+          let loggedIn = document.documentElement.getAttribute('data-uds-logged-in') === '1'
+          try {
+            const me = await fetchJson('/uds-auth/api/me')
+            loggedIn = !!(me && me.authenticated && me.data)
+            document.documentElement.setAttribute('data-uds-logged-in', loggedIn ? '1' : '0')
+          } catch {
+            if (!getEmpNo()) {
+              loggedIn = false
+              document.documentElement.setAttribute('data-uds-logged-in', '0')
+            }
+          }
+          if (loggedIn) clearWorkspaceLock()
+          else installWorkspaceLock()
+          freezeChoosers()
+        }
+        syncWorkspaceSlot()
+        const timer = setInterval(syncWorkspaceSlot, 10000)
+        const onAuth = () => { syncWorkspaceSlot() }
+        window.addEventListener('uds-auth-changed', onAuth)
+        window.addEventListener('focus', onAuth)
+        const mo = new MutationObserver(() => { freezeChoosers() })
+        mo.observe(document.documentElement, {
+          childList: true,
+          subtree: true,
+          attributes: true,
+          attributeFilter: ['data-uds-logged-in', 'aria-label'],
+        })
+
+        return () => {
+          clearInterval(timer)
+          mo.disconnect()
+          document.removeEventListener('click', block, true)
+          document.removeEventListener('pointerdown', block, true)
+          document.removeEventListener('mousedown', block, true)
+          window.removeEventListener('uds-auth-changed', onAuth)
+          window.removeEventListener('focus', onAuth)
+          clearWorkspaceLock()
+        }
+      }, 'uds-auth: workspace-click-lock')
+
 
       // sidebar.footer.action; layout effect lays footArea as one row: Settings | UDS login
       ctx.slots.inject('sidebar.footer.action', () => ctx.slots.register({
