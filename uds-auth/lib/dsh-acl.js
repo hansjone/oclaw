@@ -486,8 +486,12 @@ export function installDshAcl(ctx, {
       return false
     }
 
+    // Browser HTTP always enters ALS via withUserContext(null|identity).
+    // In-process Host callers (WhatsApp/IM, cron fire) never enter ALS → undefined.
+    // Treat undefined as host-internal and skip UDS ACL (pre-auth behavior).
     const assertCanAccess = (request, rowHint) => {
       const identity = getUserContext()
+      if (identity === undefined) return
       if (!empOf(identity)) throwForbidden('登录后才能访问会话')
       if (canSeeAll(identity)) return
       const sessionId = extractSessionId(request)
@@ -564,6 +568,10 @@ export function installDshAcl(ctx, {
     const origCreate = sc.create.bind(sc)
     sc.create = async (request) => {
       const identity = getUserContext()
+      // WhatsApp / IM harness creates sessions in-process with no UDS ALS.
+      if (identity === undefined) {
+        return origCreate(request || {})
+      }
       if (!empOf(identity)) throwForbidden('登录后才能创建会话')
 
       let req = { ...(request || {}) }
@@ -586,6 +594,8 @@ export function installDshAcl(ctx, {
 
     const waitForIdentity = async (ms = 800) => {
       let identity = getUserContext()
+      // Host-internal: do not burn 800ms waiting for a browser cookie that will never appear.
+      if (identity === undefined) return identity
       if (empOf(identity)) return identity
       const deadline = Date.now() + ms
       while (!empOf(identity) && Date.now() < deadline) {
@@ -627,6 +637,7 @@ export function installDshAcl(ctx, {
       const origOpenPath = sc.openWorkspacePath.bind(sc)
       sc.openWorkspacePath = async (request, signal) => {
         const identity = getUserContext()
+        if (identity === undefined) return origOpenPath(request, signal)
         if (!empOf(identity)) throwForbidden('登录后才能访问会话')
         if (!canSeeAll(identity) && !identity.permissions?.canCreateWorkspace) {
           const path = request?.path
