@@ -102,6 +102,17 @@ window.__ModuleLoader__.load({
       return getCookie('PORTALSSOUser') || getCookie('ZTEDPGSSOUser') || getCookie('UDS_FALLBACK_USER') || null
     }
 
+    /** After UDS login, remote.mux still has pre-login identity — reconnect to re-upgrade with cookies. */
+    function reconnectAfterLogin() {
+      try {
+        if (typeof window.__udsAuthReconnect === 'function') {
+          window.__udsAuthReconnect()
+          return
+        }
+      } catch { /* fall through */ }
+      window.location.reload()
+    }
+
     function getAuthToken() {
       return getCookie('PORTALSSOCookie') || getCookie('ZTEDPGSSOCookie') || null
     }
@@ -573,6 +584,7 @@ window.__ModuleLoader__.load({
                   setQrStatus('\u767b\u5f55\u6210\u529f\uff01')
                   await refreshUser()
                   setOpen(false)
+                  reconnectAfterLogin()
                 } else {
                   setQrStatus('\u7f3a\u5c11 token\uff0c\u65e0\u6cd5\u5b8c\u6210\u6821\u9a8c')
                 }
@@ -610,6 +622,7 @@ window.__ModuleLoader__.load({
           setFbPass('')
           await refreshUser()
           setOpen(false)
+          reconnectAfterLogin()
         } catch (err) {
           setFbErr(err.data?.error || err.message || '\u767b\u5f55\u5931\u8d25')
         } finally {
@@ -761,6 +774,14 @@ window.__ModuleLoader__.load({
     }
 
     function apply(ctx) {
+      try {
+        ctx.inject(['connection'], (cctx) => {
+          window.__udsAuthReconnect = () => {
+            try { cctx.connection.reconnect() } catch { window.location.reload() }
+          }
+        })
+      } catch { /* connection may be unavailable */ }
+
 
       // Default ACL attrs before /api/me — anonymous stays locked until AuthBadge confirms.
       ctx.effect(() => {
