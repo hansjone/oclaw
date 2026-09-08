@@ -21,6 +21,8 @@ window.__ModuleLoader__.load({
     const CSS = [
       '.uds-auth-host{position:relative;display:inline-flex;align-items:center;height:32px;margin:0;flex-shrink:0;pointer-events:auto}.uds-auth-host.is-rail{justify-content:center;width:100%}[data-uds-auth-foot="row"]{display:flex!important;flex-direction:row!important;align-items:center!important;gap:8px;width:100%}[data-uds-auth-foot="row"]>*:nth-child(1){order:2;flex:none!important;width:auto!important;min-width:0;margin-left:auto!important}[data-uds-auth-foot="row"]>*:nth-child(2){order:1;flex:none!important;width:auto!important;min-width:0}',
       'html[data-uds-can-settings="0"] [data-uds-auth-foot="row"]>*:not(:has([data-uds-auth-host])){display:none!important}html[data-uds-can-create-ws="0"] button[aria-label="添加工作区"],html[data-uds-can-create-ws="0"] button[aria-label="Add workspace"]{display:none!important}html[data-uds-logged-in="0"] [role="tree"][aria-label="Sessions"],html[data-uds-logged-in="0"] [role="tree"][aria-label="会话"],html[data-uds-logged-in="0"] [class*="WorkspaceBrowser"],html[data-uds-logged-in="0"] [class*="workspaceBrowser"],html[data-uds-logged-in="0"] .dsh-ct-entry,html[data-uds-logged-in="0"] .dsh-ct-region,html[data-uds-logged-in="0"] .dsh-ct-main,html[data-uds-logged-in="0"] [data-dsh-ct-mode="on"] .dsh-ct-region{display:none!important}html[data-uds-can-create-ws="0"] button[aria-label="选择工作区"],html[data-uds-can-create-ws="0"] button[aria-label="Choose workspace"],html[data-uds-can-create-ws="0"] [aria-label="选择工作区"],html[data-uds-can-create-ws="0"] [aria-label="Choose workspace"]{display:none!important}html[data-uds-logged-in="0"] [class*="cardWorkspaceTrigger"],html[data-uds-logged-in="0"] [data-composer-card][class*="cardWorkspaceTrigger"]{pointer-events:none!important;opacity:.45!important;cursor:not-allowed!important}/* uds-anon-hide-workspaces *//* uds-anon-hide-conversation:removed */html[data-uds-logged-in="0"] [class*="WorkspaceBrowser"],html[data-uds-logged-in="0"] [class*="workspaceBrowser"],html[data-uds-logged-in="0"] [class*="workspaceRow"],html[data-uds-logged-in="0"] [class*="WorkspaceRow"]{display:none!important}',
+      /* uds-session-only-sidebar */
+      'html[data-uds-can-create-ws="0"][data-uds-logged-in="1"] [class*="projectRow"],html[data-uds-can-create-ws="0"][data-uds-logged-in="1"] [class*="ProjectRow"]{display:none!important}',
       '.uds-auth-badge{display:inline-flex;align-items:center;justify-content:flex-start;gap:0;max-width:min(160px,42vw);min-width:0;height:32px;padding:0 8px;box-sizing:border-box;border:none;border-radius:8px;background:transparent;color:var(--dsw-alias-label-primary);font-family:inherit;font-size:13px;font-weight:400;line-height:20px;cursor:pointer;overflow:hidden}',
       '.uds-auth-badge:hover{background:var(--dsw-alias-interactive-bg-hover)}',
       '.uds-auth-host.is-rail .uds-auth-badge{width:auto;max-width:100%;height:32px;padding:0 6px;border-radius:8px}',
@@ -145,8 +147,48 @@ window.__ModuleLoader__.load({
       } catch { /* ignore */ }
     }
 
-    function reloadAfterLogin() {
+        const VIEW_STORE_KEY = 'dsh.workspace.view.v5'
+
+    /** user/admin: no workspace folders — persist flat session list. */
+    function ensureFlatSessionSidebar() {
+      try {
+        if (document.documentElement.getAttribute('data-uds-logged-in') !== '1') return false
+        if (document.documentElement.getAttribute('data-uds-can-create-ws') === '1') return false
+        const raw = window.localStorage.getItem(VIEW_STORE_KEY)
+        let state = null
+        try { state = raw ? JSON.parse(raw) : null } catch { state = null }
+        if (!state || typeof state !== 'object') {
+          state = {
+            groupBy: 'flat',
+            orderBy: 'updated',
+            groupExpansion: {},
+            sessionOrderByAccount: {},
+            sessionUpdatedAtByAccount: {},
+          }
+        }
+        if (state.groupBy === 'flat') return false
+        state.groupBy = 'flat'
+        window.localStorage.setItem(VIEW_STORE_KEY, JSON.stringify(state))
+        return true
+      } catch {
+        return false
+      }
+    }
+
+    function expandHiddenWorkspaceGroups() {
+      try {
+        if (document.documentElement.getAttribute('data-uds-logged-in') !== '1') return
+        if (document.documentElement.getAttribute('data-uds-can-create-ws') === '1') return
+        // Sessions only render when the group is expanded; expand then CSS-hide headers.
+        document.querySelectorAll('[class*="projectRow"][aria-expanded="false"]').forEach((el) => {
+          try { el.click() } catch { /* ignore */ }
+        })
+      } catch { /* ignore */ }
+    }
+
+function reloadAfterLogin() {
       // Login Set-Cookie must land before WS upgrade — hard reload is required.
+      try { ensureFlatSessionSidebar() } catch { /* ignore */ }
       try { window.location.reload() } catch { /* ignore */ }
     }
 
@@ -1311,6 +1353,37 @@ window.__ModuleLoader__.load({
           window.removeEventListener('uds-auth-changed', tick)
         }
       }, 'uds-auth: auto-bind-personal-workspace')
+      ctx.effect(() => {
+        const sync = () => {
+          if (document.documentElement.getAttribute('data-uds-logged-in') !== '1'
+            || document.documentElement.getAttribute('data-uds-can-create-ws') === '1') {
+            try { window.sessionStorage.removeItem('uds-auth-flat-reloaded') } catch { /* ignore */ }
+            return
+          }
+          const switched = ensureFlatSessionSidebar()
+          expandHiddenWorkspaceGroups()
+          // Live store may already be hydrated as workspace mode — one soft reload.
+          if (switched && !window.sessionStorage.getItem('uds-auth-flat-reloaded')) {
+            try {
+              window.sessionStorage.setItem('uds-auth-flat-reloaded', '1')
+              window.location.reload()
+            } catch { /* ignore */ }
+          }
+        }
+        sync()
+        const onAuth = () => { sync() }
+        window.addEventListener('uds-auth-changed', onAuth)
+        const mo = new MutationObserver(() => { expandHiddenWorkspaceGroups() })
+        mo.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['aria-expanded', 'class'] })
+        const timer = setInterval(expandHiddenWorkspaceGroups, 2000)
+        setTimeout(() => clearInterval(timer), 30000)
+        return () => {
+          clearInterval(timer)
+          mo.disconnect()
+          window.removeEventListener('uds-auth-changed', onAuth)
+        }
+      }, 'uds-auth: session-only-sidebar')
+
 
 
 
