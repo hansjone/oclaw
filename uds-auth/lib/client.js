@@ -145,11 +145,25 @@ window.__ModuleLoader__.load({
       } catch { /* ignore */ }
     }
 
-    function reconnectAfterLogin() {
-      // Login Set-Cookie must land before WS upgrade. Soft reconnect races it:
-      // session.page then throws "登录后才能访问会话" (no ALS identity) while
-      // prompt still works — empty chat bubbles until a manual refresh.
+    function reloadAfterLogin() {
+      // Login Set-Cookie must land before WS upgrade — hard reload is required.
       try { window.location.reload() } catch { /* ignore */ }
+    }
+
+    /** Soft WS reconnect (logout / auth flip). Prefer this over full reload. */
+    function softReconnectAuth() {
+      try {
+        if (typeof window.__udsAuthReconnect === 'function') {
+          window.__udsAuthReconnect()
+          return
+        }
+      } catch { /* fall through */ }
+      try { window.location.reload() } catch { /* ignore */ }
+    }
+
+    // Back-compat alias used by older call sites in this file.
+    function reconnectAfterLogin() {
+      reloadAfterLogin()
     }
 
     function getAuthToken() {
@@ -521,7 +535,7 @@ window.__ModuleLoader__.load({
         // Drop stale remote.mux identity after logout so workspace names disappear.
         if (prev === '1' && !user) {
           clearSessionIfAnonymous(window.__udsAuthSessions)
-          try { reconnectAfterLogin() } catch { /* ignore */ }
+          try { softReconnectAuth() } catch { /* ignore */ }
         }
         return () => {
           // Keep locked while remounting; do not leave attrs missing (CSS/click lock needs "0").
@@ -813,7 +827,7 @@ window.__ModuleLoader__.load({
               document.documentElement.setAttribute('data-uds-can-create-ws', '0')
               clearSessionIfAnonymous(window.__udsAuthSessions)
               window.dispatchEvent(new Event('uds-auth-changed'))
-              try { reconnectAfterLogin() } catch { window.location.reload() }
+              try { softReconnectAuth() } catch { /* ignore */ }
             },
           }, '\u9000\u51fa\u767b\u5f55'),
         ),
