@@ -301,51 +301,44 @@ export function installDshAcl(ctx, {
       return origCreate(request)
     }
 
-    const filterWorkspace = (ws) => {
-      const identity = getUserContext()
+    // IMPORTANT: capture identity at follow() entry. Long-lived follow resumes
+    // after awaits on registry watchers where AsyncLocalStorage is often empty;
+    // re-reading getUserContext() per frame would treat a logged-in super_admin
+    // as anonymous and filter away every pre-plugin workspace (sessions fall into
+    // the ungrouped bucket).
+    const allowWorkspace = (identity, ws) => {
       if (!identity?.empNo) return false
-      if (identity.permissions?.canViewAllSessions) return true // super sees all workspaces
+      if (identity.permissions?.canViewAllSessions) return true // super sees ALL workspaces
       const root = getWorkspaceRoot()
       return userWorkspaces.isUserPath(identity.empNo, ws?.path, root)
         || (userWorkspaces.get(identity.empNo)?.workspaceId
           && String(userWorkspaces.get(identity.empNo).workspaceId) === String(ws?.workspaceId))
     }
 
-    const filterBaseline = (baseline) => {
+    const filterBaseline = (identity, baseline) => {
       if (!baseline?.items) return baseline
-      const items = baseline.items.filter(filterWorkspace)
-      const allowedIds = new Set(items.map((w) => String(w.workspaceId)))
       return {
         ...baseline,
-        items,
-        // keep archived as-is; session list ACL still applies
+        items: baseline.items.filter((ws) => allowWorkspace(identity, ws)),
       }
     }
 
-    const filterFrame = (frame) => {
+    const filterFrame = (identity, frame) => {
       if (!frame) return frame
       if (frame.type === 'baseline') {
-        return { ...frame, value: filterBaseline(frame.value) }
+        return { ...frame, value: filterBaseline(identity, frame.value) }
       }
       if (frame.type === 'upsert') {
-        return filterWorkspace(frame.workspace) ? frame : null
+        return allowWorkspace(identity, frame.workspace) ? frame : null
       }
       if (frame.type === 'order') {
-        const identity = getUserContext()
         if (identity?.permissions?.canViewAllSessions) return frame
-        const allowed = new Set(
-          (userWorkspaces.get(identity?.empNo)?.workspaceId
-            ? [String(userWorkspaces.get(identity.empNo).workspaceId)]
-            : []),
-        )
-        // Also allow any path-matched ids from current list — order may include others; filter
+        const allowed = new Set()
+        const mapped = userWorkspaces.get(identity?.empNo)?.workspaceId
+        if (mapped != null) allowed.add(String(mapped))
         return {
           ...frame,
-          workspaceIds: (frame.workspaceIds || []).filter((id) => {
-            if (allowed.has(String(id))) return true
-            // unknown ids: drop for non-super
-            return false
-          }),
+          workspaceIds: (frame.workspaceIds || []).filter((id) => allowed.has(String(id))),
         }
       }
       return frame
@@ -353,8 +346,14 @@ export function installDshAcl(ctx, {
 
     const origFollow = wc.follow.bind(wc)
     wc.follow = async function* (signal) {
+      const identity = getUserContext()
+      // Super / fallback: passthrough — never drop historical workspaces.
+      if (identity?.permissions?.canViewAllSessions) {
+        yield* origFollow(signal)
+        return
+      }
       for await (const frame of origFollow(signal)) {
-        const next = filterFrame(frame)
+        const next = filterFrame(identity, frame)
         if (next) yield next
       }
     }
