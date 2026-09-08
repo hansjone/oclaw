@@ -99,7 +99,12 @@ window.__ModuleLoader__.load({
     }
 
     function getEmpNo() {
-      return getCookie('PORTALSSOUser') || getCookie('ZTEDPGSSOUser') || getCookie('UDS_FALLBACK_USER') || null
+      return getCookie('PORTALSSOUser') || getCookie('ZTEDPGSSOUser') || getCookie('UDS_FALLBACK_USER') || getCookie('UDS_FALLBACK_UI') || null
+    }
+
+    /** Prefer /api/me-driven attr: fallback login cookie is HttpOnly and invisible to document.cookie. */
+    function isLoggedInInUi() {
+      return document.documentElement.getAttribute('data-uds-logged-in') === '1' || !!getEmpNo()
     }
 
     /** After UDS login, remote.mux still has pre-login identity — reconnect to re-upgrade with cookies. */
@@ -864,7 +869,7 @@ window.__ModuleLoader__.load({
           const origFetch = window.fetch.bind(window)
           window.fetch = async function udsAuthFetch(input, init) {
             const url = typeof input === 'string' ? input : (input && input.url) || ''
-            if (!getEmpNo() && String(url).includes('/dsh-ops-cron') && !String(url).includes('/dsh-ops-cron/health')) {
+            if (!isLoggedInInUi() && String(url).includes('/dsh-ops-cron') && !String(url).includes('/dsh-ops-cron/health')) {
               return new Response(JSON.stringify({
                 ok: false,
                 error: 'login_required',
@@ -883,7 +888,7 @@ window.__ModuleLoader__.load({
             const origCall = rpc.call.bind(rpc)
             rpc.call = async function udsAuthRpcCall(channel, endpoint, payload, signal) {
               const result = await origCall(channel, endpoint, payload, signal)
-              if (!getEmpNo()) {
+              if (!isLoggedInInUi()) {
               if (channel === '/api') {
                 if (endpoint === 'session/list') return { ok: true, value: { items: [] } }
                 if (endpoint === 'session/search') return { ok: true, value: { items: [], hasMore: false } }
@@ -917,14 +922,14 @@ window.__ModuleLoader__.load({
             const origAdded = sessions.handleSessionAdded && sessions.handleSessionAdded.bind(sessions)
             if (origAdded) {
               sessions.handleSessionAdded = (summary) => {
-                if (!getEmpNo()) return
+                if (!isLoggedInInUi()) return
                 return origAdded(summary)
               }
             }
             const origActivity = sessions.handleSessionActivity && sessions.handleSessionActivity.bind(sessions)
             if (origActivity) {
               sessions.handleSessionActivity = (sessionId, updatedAt) => {
-                if (!getEmpNo()) return
+                if (!isLoggedInInUi()) return
                 return origActivity(sessionId, updatedAt)
               }
             }

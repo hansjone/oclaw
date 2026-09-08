@@ -449,14 +449,25 @@ async function handleFallbackLogin(req, res) {
   await ensureUserWorkspace(empNo)
 
   // 给浏览器设 cookie，让后续请求 auth-middleware 能识别
+  const fbMaxAge = Math.floor(INTERNAL.session.cookieMaxAge / 1000)
   res.setHeader('Set-Cookie', [
-    'UDS_FALLBACK_USER=administrator',
-    `Max-Age=${Math.floor(INTERNAL.session.cookieMaxAge / 1000)}`,
-    'Path=/',
-    'Secure',
-    'HttpOnly',
-    'SameSite=Lax',
-  ].join('; '))
+    [
+      'UDS_FALLBACK_USER=administrator',
+      `Max-Age=${fbMaxAge}`,
+      'Path=/',
+      'Secure',
+      'HttpOnly',
+      'SameSite=Lax',
+    ].join('; '),
+    // Readable by document.cookie so client ACL gates see fallback login before /api/me.
+    [
+      'UDS_FALLBACK_UI=administrator',
+      `Max-Age=${fbMaxAge}`,
+      'Path=/',
+      'Secure',
+      'SameSite=Lax',
+    ].join('; '),
+  ])
 
   sendJSON(res, 200, {
     success: true,
