@@ -43,11 +43,13 @@ originSystemCode: ''
 - **默认兜底账号**（扫码不可用时）：用户名 `administrator`，密码 `Admin@123`（首次启动自动启用；可在设置中改密或关闭）
 - **ACL**：租户边界以工作区为准（可见工作区下的会话可访问）；`session-owners.json` 仅记录工号供导出/分析，不是主鉴权键
 
-## Skill 认证
+## Skill 认证（给他人改造 skill 时传这些）
 
-见 [docs/skill-auth-standard.zh.md](docs/skill-auth-standard.zh.md)。
+1. **标准**：[docs/skill-auth-standard.zh.md](docs/skill-auth-standard.zh.md)  
+2. **公共 skill 说明（可直接转发）**：[docs/uds-skill-auth.zh.md](docs/uds-skill-auth.zh.md)  
+3. **公共 skill 目录（可拷贝）**：[../skills/uds-skill-auth](../skills/uds-skill-auth)
 
-**必须安装 skill**：[`skills/uds-skill-auth`](../skills/uds-skill-auth)（认证公共库）。业务 skill 依赖它，而不是插件源码里的 helpers。
+现场顺序：装本插件 → 安装 `uds-skill-auth` → 扫码登录 → 再装业务 skill。
 
 可配置：`retainSkillCredentialsOnLogout`（默认 true）、`skillCredentialTtlSeconds`、`outboundAllowedHosts`。
 

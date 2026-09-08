@@ -2,6 +2,8 @@
 
 面向 DeepSeekHarness：现场安装 **uds-auth 插件** + **uds-skill-auth skill** 后，第三方 / 自研 skill 按本标准取凭证或出站调用。
 
+**转发给改造方时**：连同 [uds-skill-auth.zh.md](./uds-skill-auth.zh.md) 与目录 `skills/uds-skill-auth/` 一起给。
+
 ## 现场形态
 
 ```text
