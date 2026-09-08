@@ -39,6 +39,7 @@ originSystemCode: ''
 - `POST /uds-auth/api/logout` — 登出
 - 用户管理 / 兜底管理员：见 `/uds-auth/api/users*`、`/uds-auth/api/fallback/*`
 - **默认兜底账号**（扫码不可用时）：用户名 `administrator`，密码 `Admin@123`（首次启动自动启用；可在设置中改密或关闭）
+- **ACL**：租户边界以工作区为准（可见工作区下的会话可访问）；`session-owners.json` 仅记录工号供导出/分析，不是主鉴权键
 
 ## License
 

@@ -816,6 +816,7 @@ async function initServices(ctx, config) {
       getWorkspaceRoot: () => _currentConfig?.workspaceRoot,
       rolesStore: _rolesStore,
       ensureUserWorkspace,
+      getWorkspaceRegistry: () => _workspaceRegistry,
     })
 
     ctx.logger?.info?.('[uds-auth] Initialized (ACL + workspaces)')

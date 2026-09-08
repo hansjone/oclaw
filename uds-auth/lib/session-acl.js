@@ -1,5 +1,8 @@
 /**
- * Session ownership ACL — sessionId → empNo, persisted beside roles.json.
+ * Session ownership audit store — sessionId → empNo.
+ *
+ * Used for export / analytics. Tenant isolation is workspace-based
+ * (see dsh-acl.js); missing owner must NOT deny access by itself.
  */
 import { readFile, writeFile, mkdir } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
@@ -67,33 +70,24 @@ export class SessionAclStore {
     this._markDirty()
   }
 
-  /**
-   * Whether the current ALS identity may see this session.
-   * @param {string} sessionId
-   */
-  canViewSession(sessionId) {
-    const ctx = getUserContext()
-    const perms = ctx?.permissions || computePermissions(ctx?.role)
-    if (perms.canViewAllSessions) return true
-    const owner = this.getOwner(sessionId)
-    if (!owner) {
-      // Orphan historical sessions: super_admin only (canViewAllSessions already true above)
-      return false
-    }
-    return !!ctx?.empNo && owner === String(ctx.empNo)
+  /** All stamped owners for export / analytics. */
+  listOwners() {
+    return Array.from(this._owners.entries()).map(([sessionId, empNo]) => ({ sessionId, empNo }))
   }
 
   /**
-   * Filter session list/search payloads shaped as { items: [...] }.
-   * @param {{ items?: Array<{ sessionId?: string }> }} value
+   * Filter list/search payloads with an external access predicate.
+   * @param {{ items?: Array<{ sessionId?: string, id?: string }> }} value
+   * @param {(sessionId: string, row: object) => boolean} canAccess
    */
-  filterListValue(value) {
+  filterListValue(value, canAccess) {
     if (!value || !Array.isArray(value.items)) return value
+    const pred = typeof canAccess === 'function' ? canAccess : () => false
     return {
       ...value,
       items: value.items.filter((row) => {
         const id = row?.sessionId ?? row?.id
-        return id != null && this.canViewSession(id)
+        return id != null && pred(String(id), row)
       }),
     }
   }

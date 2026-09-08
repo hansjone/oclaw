@@ -344,6 +344,7 @@ export function installDshAcl(ctx, {
   getWorkspaceRoot,
   rolesStore,
   ensureUserWorkspace,
+  getWorkspaceRegistry,
 }) {
   const disposers = []
 
@@ -366,6 +367,129 @@ export function installDshAcl(ctx, {
     if (!sc || sc.__udsAcl) return
     sc.__udsAcl = true
 
+    const canSeeAll = (identity) => {
+      if (!identity) return false
+      if (identity.permissions?.canViewAllSessions) return true
+      const role = identity.role || identity.userContext?.role
+      if (role === 'fallback_admin' || role === 'super_admin') return true
+      if (String(identity.empNo || identity.userContext?.empNo || '') === 'administrator') return true
+      return false
+    }
+
+    const empOf = (identity) => identity?.empNo || identity?.userContext?.empNo || null
+
+    const extractSessionId = (request) => {
+      if (!request || typeof request !== 'object') return null
+      return request.address?.sessionId
+        ?? request.sessionId
+        ?? request.id
+        ?? request.childSessionId
+        ?? null
+    }
+
+    const resolveRegistry = () => {
+      try {
+        if (typeof getWorkspaceRegistry === 'function') {
+          const r = getWorkspaceRegistry()
+          if (r) return r
+        }
+      } catch { /* ignore */ }
+      try { return ctx.get('workspaceRegistry') } catch { return null }
+    }
+
+    const resolveSessionCwd = (sessionId, rowHint) => {
+      if (rowHint?.cwd) return String(rowHint.cwd)
+      try {
+        const agents = ctx.get('agents')
+        const agent = agents?.get?.(sessionId)
+        const cwd = agent?.session?.header?.cwd
+        if (cwd) return String(cwd)
+      } catch { /* ignore */ }
+      return null
+    }
+
+    const workspaceContainsSession = (ws, sessionId) => {
+      const sid = String(sessionId)
+      try {
+        const ids = ws?.sessionIds
+        if (ids && typeof ids[Symbol.iterator] === 'function') {
+          for (const id of ids) {
+            if (String(id) === sid) return true
+          }
+        }
+      } catch { /* ignore */ }
+      const raw = ws?.record?.sessionIds
+      if (Array.isArray(raw) && raw.some((id) => String(id) === sid)) return true
+      return false
+    }
+
+    const isVisibleWorkspace = (identity, ws) => {
+      if (canSeeAll(identity)) return true
+      const empNo = empOf(identity)
+      if (!empNo || !ws) return false
+      const root = getWorkspaceRoot()
+      const wid = ws.id ?? ws.workspaceId
+      const path = ws.path
+      return userWorkspaces.isUserPath(empNo, path, root)
+        || (userWorkspaces.get(empNo)?.workspaceId
+          && String(userWorkspaces.get(empNo).workspaceId) === String(wid))
+    }
+
+    /** Workspace-first access: visible workspace membership or cwd under user path. */
+    const canAccessSession = (sessionId, identity, rowHint) => {
+      if (!identity || !empOf(identity)) return false
+      if (canSeeAll(identity)) return true
+      if (sessionId == null) return false
+      const empNo = empOf(identity)
+      const root = getWorkspaceRoot()
+      const cwd = resolveSessionCwd(sessionId, rowHint)
+      if (cwd && userWorkspaces.isUserPath(empNo, cwd, root)) return true
+
+      const registry = resolveRegistry()
+      if (!registry || typeof registry.list !== 'function') return false
+      let workspaces = []
+      try { workspaces = registry.list() || [] } catch { return false }
+      for (const ws of workspaces) {
+        if (!isVisibleWorkspace(identity, ws)) continue
+        if (workspaceContainsSession(ws, sessionId)) return true
+      }
+      return false
+    }
+
+    const assertCanAccess = (request, rowHint) => {
+      const identity = getUserContext()
+      if (!empOf(identity)) throwForbidden('登录后才能访问会话')
+      if (canSeeAll(identity)) return
+      const sessionId = extractSessionId(request)
+      if (!canAccessSession(sessionId, identity, rowHint)) {
+        throwForbidden('无权访问该会话')
+      }
+    }
+
+    const assertCreateTargetAllowed = async (req, identity) => {
+      if (canSeeAll(identity) || identity.permissions?.canCreateWorkspace) return
+      const empNo = empOf(identity)
+      const root = getWorkspaceRoot()
+      if (req.workspaceId !== undefined) {
+        const registry = resolveRegistry()
+        const ws = registry?.get?.(req.workspaceId)
+        if (!ws || !isVisibleWorkspace(identity, ws)) {
+          throwForbidden('只能在自己的工作区创建会话')
+        }
+        return
+      }
+      if (req.cwd !== undefined) {
+        if (!userWorkspaces.isUserPath(empNo, req.cwd, root)) {
+          throwForbidden('只能在自己的工作区创建会话')
+        }
+      }
+    }
+
+    const filterItems = (items, identity) => (items || []).filter((row) => {
+      const id = row?.sessionId ?? row?.id
+      return id != null && canAccessSession(id, identity, row)
+    })
+
     // Deeper wrap: ApiSessionList.list (cold summaries)
     if (sc.listState && typeof sc.listState.list === 'function' && !sc.listState.__udsAcl) {
       sc.listState.__udsAcl = true
@@ -373,21 +497,18 @@ export function installDshAcl(ctx, {
       sc.listState.list = async (signal) => {
         const items = await origStateList(signal)
         const identity = getUserContext()
-        if (!identity?.empNo) return []
-        if (identity.permissions?.canViewAllSessions) return items
-        return (items || []).filter((row) => {
-          const id = row?.sessionId ?? row?.id
-          return id != null && sessionAcl.canViewSession(id)
-        })
+        if (!empOf(identity)) return []
+        if (canSeeAll(identity)) return items
+        return filterItems(items, identity)
       }
       if (typeof sc.listState.search === 'function') {
         const origStateSearch = sc.listState.search.bind(sc.listState)
         sc.listState.search = async (query, signal) => {
           const value = await origStateSearch(query, signal)
           const identity = getUserContext()
-          if (!identity?.empNo) return { items: [], hasMore: false }
-          if (identity.permissions?.canViewAllSessions) return value
-          return sessionAcl.filterListValue(value)
+          if (!empOf(identity)) return { items: [], hasMore: false }
+          if (canSeeAll(identity)) return value
+          return sessionAcl.filterListValue(value, (id, row) => canAccessSession(id, identity, row))
         }
       }
     }
@@ -396,26 +517,28 @@ export function installDshAcl(ctx, {
     sc.list = async (request, signal) => {
       const value = await origList(request, signal)
       const identity = getUserContext()
-      if (!identity?.empNo) return { items: [] }
-      if (identity.permissions?.canViewAllSessions) return value
-      return sessionAcl.filterListValue(value)
+      if (!empOf(identity)) return { items: [] }
+      if (canSeeAll(identity)) return value
+      return sessionAcl.filterListValue(value, (id, row) => canAccessSession(id, identity, row))
     }
 
     const origSearch = sc.search.bind(sc)
     sc.search = async (request, signal) => {
       const value = await origSearch(request, signal)
       const identity = getUserContext()
-      if (!identity?.empNo) return { items: [], hasMore: false }
-      if (identity.permissions?.canViewAllSessions) return value
-      return sessionAcl.filterListValue(value)
+      if (!empOf(identity)) return { items: [], hasMore: false }
+      if (canSeeAll(identity)) return value
+      return sessionAcl.filterListValue(value, (id, row) => canAccessSession(id, identity, row))
     }
 
     const origCreate = sc.create.bind(sc)
     sc.create = async (request) => {
       const identity = getUserContext()
-      if (!identity?.empNo) throwForbidden('登录后才能创建会话')
+      if (!empOf(identity)) throwForbidden('登录后才能创建会话')
 
-      let req = request || {}
+      let req = { ...(request || {}) }
+      await assertCreateTargetAllowed(req, identity)
+
       if (req.workspaceId === undefined && req.cwd === undefined) {
         const ensured = await ensureUserWorkspace(identity.empNo)
         if (ensured?.workspaceId) {
@@ -430,52 +553,55 @@ export function installDshAcl(ctx, {
       if (sid) sessionAcl.setOwner(sid, identity.empNo)
       return result
     }
-    const assertCanView = (sessionId) => {
-      const identity = getUserContext()
-      if (!identity?.empNo) throwForbidden('登录后才能访问会话')
-      if (identity.permissions?.canViewAllSessions) return
-      if (!sessionAcl.canViewSession(sessionId)) throwForbidden('无权访问该会话')
-    }
 
-    if (typeof sc.page === 'function') {
-      const origPage = sc.page.bind(sc)
-      sc.page = async (request, signal) => {
-        assertCanView(request?.sessionId ?? request?.id)
-        return origPage(request, signal)
+    const wrapSessionMethod = (methodName) => {
+      if (typeof sc[methodName] !== 'function') return
+      const orig = sc[methodName].bind(sc)
+      sc[methodName] = (request, signal) => {
+        assertCanAccess(request)
+        return orig(request, signal)
       }
     }
 
-    if (typeof sc.follow === 'function') {
-      const origFollow = sc.follow.bind(sc)
-      sc.follow = (request, signal) => {
-        assertCanView(request?.sessionId ?? request?.id)
-        return origFollow(request, signal)
+    wrapSessionMethod('page')
+    wrapSessionMethod('follow')
+    wrapSessionMethod('prompt')
+    wrapSessionMethod('rename')
+    wrapSessionMethod('cancel')
+    wrapSessionMethod('updateQueue')
+    wrapSessionMethod('attachment')
+    wrapSessionMethod('selectModel')
+
+    if (typeof sc.openWorkspacePath === 'function') {
+      const origOpenPath = sc.openWorkspacePath.bind(sc)
+      sc.openWorkspacePath = async (request, signal) => {
+        const identity = getUserContext()
+        if (!empOf(identity)) throwForbidden('登录后才能访问会话')
+        if (!canSeeAll(identity) && !identity.permissions?.canCreateWorkspace) {
+          const path = request?.path
+          if (!path || !userWorkspaces.isUserPath(empOf(identity), path, getWorkspaceRoot())) {
+            throwForbidden('只能打开自己的工作区路径')
+          }
+        }
+        return origOpenPath(request, signal)
       }
     }
 
     if (typeof sc.fork === 'function') {
       const origFork = sc.fork.bind(sc)
       sc.fork = async (request, signal) => {
-        assertCanView(request?.sessionId ?? request?.id)
+        assertCanAccess(request)
         const result = await origFork(request, signal)
         const identity = getUserContext()
         const sid = result?.sessionId ?? result?.id
-        if (sid && identity?.empNo) sessionAcl.setOwner(sid, identity.empNo)
+        if (sid && empOf(identity)) sessionAcl.setOwner(sid, empOf(identity))
         return result
-      }
-    }
-
-    if (typeof sc.rename === 'function') {
-      const origRename = sc.rename.bind(sc)
-      sc.rename = async (request, signal) => {
-        assertCanView(request?.sessionId ?? request?.id)
-        return origRename(request, signal)
       }
     }
 
   })
 
-  ctx.inject(['workspaceController'], (wctx) => {
+ctx.inject(['workspaceController'], (wctx) => {
     const wc = wctx.workspaceController
     if (!wc || wc.__udsAcl) return
     wc.__udsAcl = true
