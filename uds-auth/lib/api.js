@@ -24,15 +24,23 @@ export function createApiHandlers(config, sessionStore, rolesStore) {
   async function logout(ctx) {
     const empNo = ctx.empNo
     if (empNo) await sessionStore.delete(empNo)
-    // 清掉兜底 / 提示客户端清 UDS cookie（UDS cookie 多为非 HttpOnly，服务端再清一遍兜底）
-    const clear = [
-      'UDS_FALLBACK_USER=; Max-Age=0; Path=/; HttpOnly; SameSite=Lax',
-      'UDS_FALLBACK_UI=; Max-Age=0; Path=/; SameSite=Lax',
-      'PORTALSSOUser=; Max-Age=0; Path=/; SameSite=Lax',
-      'PORTALSSOCookie=; Max-Age=0; Path=/; SameSite=Lax',
-      'ZTEDPGSSOUser=; Max-Age=0; Path=/; SameSite=Lax',
-      'ZTEDPGSSOCookie=; Max-Age=0; Path=/; SameSite=Lax',
-    ]
+    // Cookie clear attrs must match login (Secure + HttpOnly), or browsers keep the old cookie.
+    const clear = []
+    for (const name of [
+      'UDS_FALLBACK_USER',
+      'UDS_FALLBACK_UI',
+      'PORTALSSOUser',
+      'PORTALSSOCookie',
+      'ZTEDPGSSOUser',
+      'ZTEDPGSSOCookie',
+    ]) {
+      const httpOnly = name === 'UDS_FALLBACK_USER'
+      const base = httpOnly
+        ? (name + '=; Max-Age=0; Path=/; HttpOnly; SameSite=Lax')
+        : (name + '=; Max-Age=0; Path=/; SameSite=Lax')
+      clear.push(base)
+      clear.push(base + '; Secure')
+    }
     ctx.res.setHeader('Set-Cookie', clear)
     await sendRes(ctx.res, 200, { message: 'Logged out' })
   }

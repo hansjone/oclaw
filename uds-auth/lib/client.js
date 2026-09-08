@@ -93,8 +93,12 @@ window.__ModuleLoader__.load({
     }
 
     function clearAuthCookies() {
-      for (const key of ['PORTALSSOUser', 'PORTALSSOCookie', 'ZTEDPGSSOUser', 'ZTEDPGSSOCookie', 'UDS_FALLBACK_USER', 'UDS_FALLBACK_UI']) {
-        setCookie(key, '', -1)
+      const names = ['PORTALSSOUser', 'PORTALSSOCookie', 'ZTEDPGSSOUser', 'ZTEDPGSSOCookie', 'UDS_FALLBACK_USER', 'UDS_FALLBACK_UI']
+      for (const key of names) {
+        // Match both Secure and non-Secure variants; HttpOnly ones need server clear.
+        document.cookie = encodeURIComponent(key) + '=; Max-Age=0; Path=/; SameSite=Lax'
+        document.cookie = encodeURIComponent(key) + '=; Max-Age=0; Path=/; SameSite=Lax; Secure'
+        document.cookie = encodeURIComponent(key) + '=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/'
       }
     }
 
@@ -805,7 +809,13 @@ window.__ModuleLoader__.load({
             onClick: async () => {
               try { await fetchJson('/uds-auth/api/logout', { method: 'POST' }) } catch { /* ignore */ }
               clearAuthCookies()
+              setUser(null)
+              setOpen(false)
+              document.documentElement.setAttribute('data-uds-logged-in', '0')
+              document.documentElement.setAttribute('data-uds-can-settings', '0')
+              document.documentElement.setAttribute('data-uds-can-create-ws', '0')
               clearSessionIfAnonymous(window.__udsAuthSessions)
+              window.dispatchEvent(new Event('uds-auth-changed'))
               try { reconnectAfterLogin() } catch { window.location.reload() }
             },
           }, '\u9000\u51fa\u767b\u5f55'),
