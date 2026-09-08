@@ -30,7 +30,16 @@ function parseCookie(header, name) {
 /** @type {WeakMap<object, object|null|undefined>} */
 const upgradeSocketIdentity = new WeakMap()
 
-function loadWsModule(requireFn) {
+function loadWsModules(requireFn) {
+  const found = []
+  const seen = new Set()
+  const push = (mod) => {
+    if (!mod || !(mod.WebSocketServer || mod.Server)) return
+    const WSS = mod.WebSocketServer || mod.Server
+    if (seen.has(WSS)) return
+    seen.add(WSS)
+    found.push({ mod })
+  }
   const attempts = []
   if (typeof requireFn === 'function') attempts.push(() => requireFn('ws'))
   attempts.push(() => {
@@ -38,40 +47,54 @@ function loadWsModule(requireFn) {
     const { join } = require('node:path')
     return createRequire(join(process.cwd(), 'package.json'))('ws')
   })
+  // Gateway often resolves its own copy under packages/api/gateway/node_modules/ws.
+  attempts.push(() => {
+    const { createRequire } = require('node:module')
+    const { join } = require('node:path')
+    return createRequire(join(process.cwd(), 'packages/api/gateway/package.json'))('ws')
+  })
   attempts.push(() => {
     const cache = requireFn?.cache || require.cache || {}
     for (const id of Object.keys(cache)) {
       const norm = id.replace(/\\/g, '/')
       if (norm.endsWith('/node_modules/ws/index.js') || norm.endsWith('/node_modules/ws/wrapper.mjs')) {
-        return cache[id].exports
+        push(cache[id].exports)
       }
       if (norm.includes('/node_modules/ws/lib/websocket-server')) {
         const { createRequire } = require('node:module')
         const pkg = id.replace(/lib[\\/]websocket-server\.js$/i, 'package.json')
-        try { return createRequire(pkg)('.') } catch { /* continue */ }
+        try { push(createRequire(pkg)('.')) } catch { /* continue */ }
       }
     }
     return null
   })
   for (const tryLoad of attempts) {
-    try {
-      const mod = tryLoad()
-      if (mod && (mod.WebSocketServer || mod.Server)) return mod
-    } catch { /* next */ }
+    try { push(tryLoad()) } catch { /* next */ }
   }
-  return null
+  return found
+}
+
+function loadWsModule(requireFn) {
+  return loadWsModules(requireFn)[0]?.mod || null
 }
 
 function bindWebSocketListenersToIdentity(ws, identity) {
   if (!ws || ws.__udsAuthBound) return
   ws.__udsAuthBound = true
+  try { ws.__udsAuthIdentity = identity || null } catch { /* ignore */ }
+  // Gateway RemoteStreamMuxConnection registers sync `message` listeners that
+  // kick off async pump()/session.follow after the listener returns. als.run()
+  // would exit too early and drop empNo → "登录后才能访问会话". enterWith keeps
+  // the upgrade-time identity for the deferred stream work on this connection.
   const wrap = (listener) => {
     if (typeof listener !== 'function') return listener
     return function udsAuthBoundListener(...args) {
-      return runWithUserContext(identity, () => listener.apply(this, args))
+      // als.run preserves store across orphaned async pump()/session.follow started
+      // inside the sync Gateway message listener (Node async_hooks).
+      return runWithUserContext(identity || null, () => listener.apply(this, args))
     }
   }
-  for (const method of ['on', 'once', 'addListener']) {
+  for (const method of ['on', 'once', 'addListener', 'prependListener', 'prependOnceListener']) {
     if (typeof ws[method] !== 'function') continue
     const orig = ws[method].bind(ws)
     ws[method] = (event, listener) => orig(event, wrap(listener))
@@ -82,10 +105,7 @@ function bindWebSocketListenersToIdentity(ws, identity) {
  * remote.mux streams lose HTTP ALS after upgrade. Bind identity onto ws listeners.
  * Lazy-load `ws` from Host module cache / cwd — plugin folder cannot require it directly.
  */
-function patchWebSocketServerForUdsIdentity(resolveIdentitySync) {
-  const wsMod = loadWsModule(typeof require === 'function' ? require : null)
-  if (!wsMod) return false
-  const WebSocketServer = wsMod.WebSocketServer || wsMod.Server
+function patchOneWebSocketServer(WebSocketServer, resolveIdentitySync) {
   if (!WebSocketServer?.prototype?.handleUpgrade) return false
   if (WebSocketServer.prototype.handleUpgrade.__udsAuthPatched) return true
   const orig = WebSocketServer.prototype.handleUpgrade
@@ -114,6 +134,17 @@ function patchWebSocketServerForUdsIdentity(resolveIdentitySync) {
   udsAuthHandleUpgrade.__udsAuthPatched = true
   WebSocketServer.prototype.handleUpgrade = udsAuthHandleUpgrade
   return true
+}
+
+function patchWebSocketServerForUdsIdentity(resolveIdentitySync) {
+  const mods = loadWsModules(typeof require === 'function' ? require : null)
+  if (!mods.length) return false
+  let any = false
+  for (const { mod } of mods) {
+    const WebSocketServer = mod.WebSocketServer || mod.Server
+    if (patchOneWebSocketServer(WebSocketServer, resolveIdentitySync)) any = true
+  }
+  return any
 }
 
 /**
@@ -324,15 +355,14 @@ export function patchWebServerWithIdentity(server, resolveIdentity, resolveIdent
 
 
 function throwForbidden(message) {
-  try {
-    const { RemoteError } = require('@deepseek-ai/dsh-typert-protocol')
-    throw new RemoteError('gateway/forbidden', message || 'forbidden', {})
-  } catch (err) {
-    if (err && (err.name === 'RemoteError' || String(err.code || '').startsWith('gateway/'))) throw err
-    const e = new Error(message || 'forbidden')
-    e.code = 'gateway/forbidden'
-    throw e
-  }
+  // Structural RemoteError so Gateway rpcFailure keeps the message instead of
+  // remapping a plain Error to gateway/internal. Use gateway/bad-request (declared).
+  const err = new Error(message || 'forbidden')
+  err.name = 'RemoteError'
+  err.isDSHRemoteError = true
+  err.code = 'gateway/bad-request'
+  err.details = {}
+  throw err
 }
 
 /**
@@ -554,10 +584,31 @@ export function installDshAcl(ctx, {
       return result
     }
 
+    const waitForIdentity = async (ms = 800) => {
+      let identity = getUserContext()
+      if (empOf(identity)) return identity
+      const deadline = Date.now() + ms
+      while (!empOf(identity) && Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, 40))
+        identity = getUserContext()
+      }
+      return identity
+    }
+
     const wrapSessionMethod = (methodName) => {
       if (typeof sc[methodName] !== 'function') return
       const orig = sc[methodName].bind(sc)
-      sc[methodName] = (request, signal) => {
+      // follow is an async generator: assert inside so we can await identity.
+      if (methodName === 'follow') {
+        sc.follow = async function* (request, signal) {
+          await waitForIdentity()
+          assertCanAccess(request)
+          yield* orig(request, signal)
+        }
+        return
+      }
+      sc[methodName] = async (request, signal) => {
+        await waitForIdentity()
         assertCanAccess(request)
         return orig(request, signal)
       }

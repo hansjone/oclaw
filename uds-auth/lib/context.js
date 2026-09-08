@@ -34,6 +34,17 @@ export function runWithUserContext(userContext, fn) {
 }
 
 /**
+ * Persist ALS for the rest of this async execution chain.
+ * Needed for Gateway Remote stream mux: message handlers are sync but start
+ * async `pump()` work that continues after the listener returns (so als.run
+ * alone would exit before session.follow runs).
+ * @param {object|null|undefined} userContext
+ */
+export function enterUserContext(userContext) {
+  userContextStorage.enterWith(userContext ?? null)
+}
+
+/**
  * Decorator/helper for injecting user context into request handlers
  * @param {Function} handler - Request handler function
  * @returns {Function} Wrapped handler
