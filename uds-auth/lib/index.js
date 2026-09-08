@@ -875,7 +875,73 @@ async function initServices(ctx, config) {
       getWorkspaceRegistry: () => _workspaceRegistry,
     })
 
-    ctx.logger?.info?.('[uds-auth] Initialized (ACL + workspaces)')
+    const { resolveWorkspaceRoot } = await import('./workspace-provision.js')
+    const { join } = await import('node:path')
+
+    function displayNameOf(identity) {
+      const uc = identity?.userContext || {}
+      return String(
+        uc.displayName || uc.userName || uc.username || uc.name || identity?.empNo || '',
+      ).trim() || (identity?.empNo || '')
+    }
+
+    const udsAuth = {
+      async resolveRequestIdentity(req) {
+        const identity = await resolveIdentity(req)
+        if (!identity?.empNo) return null
+        return {
+          empNo: identity.empNo,
+          role: identity.role,
+          permissions: identity.permissions || {},
+          displayName: displayNameOf(identity),
+          kind: identity.kind || 'uds',
+          userContext: identity.userContext || null,
+        }
+      },
+      resolveRequestIdentitySync(req) {
+        const identity = resolveIdentitySync(req)
+        if (!identity?.empNo) return null
+        return {
+          empNo: identity.empNo,
+          role: identity.role,
+          permissions: identity.permissions || {},
+          displayName: displayNameOf(identity),
+          kind: identity.kind || 'uds',
+          userContext: identity.userContext || null,
+        }
+      },
+      canViewAllJobs(identity) {
+        return !!identity?.permissions?.canViewAllSessions
+      },
+      getProvisionedWorkspacePath(empNo) {
+        if (!empNo) return null
+        const row = _userWorkspaces?.get(String(empNo))
+        if (row?.path) return row.path
+        return join(resolveWorkspaceRoot(_currentConfig?.workspaceRoot), String(empNo))
+      },
+      async ensureProvisionedWorkspace(empNo) {
+        return ensureUserWorkspace(empNo)
+      },
+      isUserPath(empNo, candidatePath) {
+        if (!_userWorkspaces) return false
+        return _userWorkspaces.isUserPath(
+          empNo,
+          candidatePath,
+          _currentConfig?.workspaceRoot,
+        )
+      },
+      stampSessionOwner(sessionId, empNo) {
+        if (!_sessionAcl || !sessionId || !empNo) return
+        if (String(empNo).startsWith('__')) return
+        _sessionAcl.setOwner(sessionId, empNo)
+      },
+      getSessionOwner(sessionId) {
+        return _sessionAcl?.getOwner(sessionId) || null
+      },
+    }
+
+    ctx.provide('udsAuth', udsAuth)
+    ctx.logger?.info?.('[uds-auth] Initialized (ACL + workspaces + udsAuth service)')
   } catch (err) {
     ctx.logger?.error?.('[uds-auth] Init failed: ' + (err.message || err))
   }
