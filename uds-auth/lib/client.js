@@ -146,13 +146,10 @@ window.__ModuleLoader__.load({
     }
 
     function reconnectAfterLogin() {
-      try {
-        if (typeof window.__udsAuthReconnect === 'function') {
-          window.__udsAuthReconnect()
-          return
-        }
-      } catch { /* fall through */ }
-      window.location.reload()
+      // Soft WS reconnect often keeps a workspace.follow subscription that was
+      // opened while anonymous (empty workspace list). Full reload makes the
+      // first follow run with fallback/UDS cookies so historical workspaces show.
+      try { window.location.reload() } catch { /* ignore */ }
     }
 
     function getAuthToken() {

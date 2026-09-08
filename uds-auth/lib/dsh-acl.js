@@ -535,9 +535,22 @@ export function installDshAcl(ctx, {
 
     const origFollow = wc.follow.bind(wc)
     wc.follow = async function* (signal) {
-      const identity = getUserContext()
+      let identity = getUserContext()
+      // Subscribe can race ahead of WS message-listener ALS bind (common right
+      // after fallback login / soft reconnect). Wait briefly before treating
+      // the stream as anonymous — otherwise every historical workspace is
+      // dropped and sessions collapse into 未分组.
+      if (!identity?.empNo) {
+        const deadline = Date.now() + 800
+        while (!identity?.empNo && Date.now() < deadline) {
+          await new Promise((r) => setTimeout(r, 40))
+          identity = getUserContext()
+        }
+      }
       // Super / fallback: passthrough — never drop historical workspaces.
-      if (identity?.permissions?.canViewAllSessions) {
+      if (identity?.permissions?.canViewAllSessions
+        || identity?.role === 'fallback_admin'
+        || identity?.role === 'super_admin') {
         yield* origFollow(signal)
         return
       }
