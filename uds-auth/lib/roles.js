@@ -64,12 +64,16 @@ function hashPassword(password) {
   return createHash('sha256').update(password).digest('hex')
 }
 
+/** 初始部署默认兜底密码（扫码不可用时用）；可在设置里改密或关闭。 */
+export const DEFAULT_FALLBACK_PASSWORD = 'Admin@123'
+export const DEFAULT_FALLBACK_USERNAME = 'administrator'
+
 /**
  * RolesStore — 角色存储
  * 内存 Map + 可选 JSON 文件持久化
- * 
- * fallback admin: 默认不启用，需在 DSH 设置里配置密码哈希
- *   登录路径: POST /uds-auth/admin-login { username, password }
+ *
+ * fallback admin: 默认启用，密码 Admin@123；roles.json 显式 null 表示已关闭。
+ *   登录路径: POST /uds-auth/api/fallback/login { username, password }
  */
 export class RolesStore {
   constructor(options = {}) {
@@ -82,9 +86,20 @@ export class RolesStore {
     this._saveTimer = null
   }
 
+  _ensureDefaultFallback() {
+    if (this._fallbackPasswordHash) return
+    this._fallbackPasswordHash = hashPassword(DEFAULT_FALLBACK_PASSWORD)
+    this._markDirty()
+    console.info(
+      '[uds-auth] fallback_admin enabled by default'
+      + ` (user=${DEFAULT_FALLBACK_USERNAME}, change password in settings)`,
+    )
+  }
+
   // === 持久化 ===
 
   async init() {
+    let loadedHash = undefined // undefined = missing / new file; null = explicitly cleared
     if (this._rolesFile) {
       try {
         const raw = await readFile(this._rolesFile, 'utf-8')
@@ -92,16 +107,21 @@ export class RolesStore {
         for (const [empNo, role] of Object.entries(data.roles || {})) {
           this._roles.set(empNo, role)
         }
-        if (data.fallbackPasswordHash) {
-          this._fallbackPasswordHash = data.fallbackPasswordHash
+        if (Object.prototype.hasOwnProperty.call(data, 'fallbackPasswordHash')) {
+          loadedHash = data.fallbackPasswordHash || null
+          if (loadedHash) this._fallbackPasswordHash = loadedHash
         }
       } catch (err) {
         if (err.code === 'ENOENT') {
-          // 首次启动，文件不存在，正常
+          // 首次启动，文件不存在 — 走默认兜底
         } else {
           console.warn('[uds-auth:RolesStore] Failed to load roles file:', err.message)
         }
       }
+    }
+    // 无持久化哈希（新部署或旧文件未写该字段）→ 默认开启；显式 null 表示超管已关闭
+    if (loadedHash === undefined && !this._fallbackPasswordHash) {
+      this._ensureDefaultFallback()
     }
   }
 
