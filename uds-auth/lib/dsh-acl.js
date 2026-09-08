@@ -107,7 +107,26 @@ export async function resolveIdentityFromRequest(req, deps) {
   } catch {
     userContext = null
   }
-  if (!userContext) return null
+
+  const token = parseCookie(cookie, 'PORTALSSOCookie')
+    || parseCookie(cookie, 'ZTEDPGSSOCookie')
+  const isFallback = empNo === 'administrator'
+    || !!parseCookie(cookie, 'UDS_FALLBACK_USER')
+
+  // Host restart / session TTL can drop sessionStore while browser cookies remain.
+  // Still authorize ACL from cookies + roles — otherwise sidebar fail-open shows
+  // sessions but page/follow throw "登录后才能访问会话".
+  if (!userContext) {
+    if (!token && !isFallback) return null
+    userContext = {
+      empNo: String(empNo),
+      userId: String(empNo),
+      isAuthenticated: true,
+      authMode: isFallback ? 'fallback-cookie' : 'cookie-acl',
+      token: token || undefined,
+      lastActiveAt: new Date().toISOString(),
+    }
+  }
 
   // bootstrap / resolve role
   let role = rolesStore.getRole(empNo)
@@ -124,7 +143,7 @@ export async function resolveIdentityFromRequest(req, deps) {
     role,
     permissions,
     userContext,
-    kind: empNo === 'administrator' ? 'fallback' : 'uds',
+    kind: isFallback ? 'fallback' : 'uds',
   }
 }
 
