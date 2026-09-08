@@ -124,12 +124,14 @@ export function resolveIdentityFromRequestSync(req, deps) {
   const empNo = parseCookie(cookie, 'PORTALSSOUser')
     || parseCookie(cookie, 'ZTEDPGSSOUser')
     || parseCookie(cookie, 'UDS_FALLBACK_USER')
+    || parseCookie(cookie, 'UDS_FALLBACK_UI')
   if (!empNo) return null
 
   const token = parseCookie(cookie, 'PORTALSSOCookie')
     || parseCookie(cookie, 'ZTEDPGSSOCookie')
   const isFallback = empNo === 'administrator'
     || !!parseCookie(cookie, 'UDS_FALLBACK_USER')
+    || !!parseCookie(cookie, 'UDS_FALLBACK_UI')
 
   // Bare portal empNo without token is NOT enough — otherwise logout/未登录
   // still leaks workspace names via leftover SSO cookies on the WebSocket.
@@ -157,6 +159,7 @@ export async function resolveIdentityFromRequest(req, deps) {
   const empNo = parseCookie(cookie, 'PORTALSSOUser')
     || parseCookie(cookie, 'ZTEDPGSSOUser')
     || parseCookie(cookie, 'UDS_FALLBACK_USER')
+    || parseCookie(cookie, 'UDS_FALLBACK_UI')
   if (!empNo) return null
 
   const { sessionStore, rolesStore } = deps
@@ -171,6 +174,7 @@ export async function resolveIdentityFromRequest(req, deps) {
     || parseCookie(cookie, 'ZTEDPGSSOCookie')
   const isFallback = empNo === 'administrator'
     || !!parseCookie(cookie, 'UDS_FALLBACK_USER')
+    || !!parseCookie(cookie, 'UDS_FALLBACK_UI')
 
   if (!userContext) {
     // Require session, token, or fallback cookie — never empNo alone.

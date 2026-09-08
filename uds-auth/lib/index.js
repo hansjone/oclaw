@@ -414,6 +414,14 @@ function sendJSON(res, code, data) {
   res.end(JSON.stringify(data))
 }
 
+
+/** Prefer Secure cookies only on HTTPS — http://127.0.0.1 drops Secure cookies from WS. */
+function isHttpsRequest(req) {
+  if (req?.socket?.encrypted) return true
+  const xf = String(req?.headers?.['x-forwarded-proto'] || '').split(',')[0].trim().toLowerCase()
+  return xf === 'https'
+}
+
 async function handleFallbackLogin(req, res) {
   let body = ''
   for await (const chunk of req) body += chunk
@@ -450,24 +458,27 @@ async function handleFallbackLogin(req, res) {
 
   // 给浏览器设 cookie，让后续请求 auth-middleware 能识别
   const fbMaxAge = Math.floor(INTERNAL.session.cookieMaxAge / 1000)
-  res.setHeader('Set-Cookie', [
-    [
+  res.setHeader('Set-Cookie', (() => {
+    const secure = isHttpsRequest(req)
+    const partsUser = [
       'UDS_FALLBACK_USER=administrator',
       `Max-Age=${fbMaxAge}`,
       'Path=/',
-      'Secure',
       'HttpOnly',
       'SameSite=Lax',
-    ].join('; '),
-    // Readable by document.cookie so client ACL gates see fallback login before /api/me.
-    [
+    ]
+    const partsUi = [
       'UDS_FALLBACK_UI=administrator',
       `Max-Age=${fbMaxAge}`,
       'Path=/',
-      'Secure',
       'SameSite=Lax',
-    ].join('; '),
-  ])
+    ]
+    if (secure) {
+      partsUser.push('Secure')
+      partsUi.push('Secure')
+    }
+    return [partsUser.join('; '), partsUi.join('; ')]
+  })())
 
   sendJSON(res, 200, {
     success: true,
