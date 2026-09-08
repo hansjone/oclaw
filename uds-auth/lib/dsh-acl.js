@@ -495,13 +495,25 @@ export function installDshAcl(ctx, {
     // re-reading getUserContext() per frame would treat a logged-in super_admin
     // as anonymous and filter away every pre-plugin workspace (sessions fall into
     // the ungrouped bucket).
+    const canSeeAllWorkspaces = (identity) => {
+      if (!identity) return false
+      if (identity.permissions?.canViewAllSessions) return true
+      const role = identity.role || identity.userContext?.role
+      if (role === 'fallback_admin' || role === 'super_admin') return true
+      // Fallback cookie user is always administrator
+      if (String(identity.empNo || identity.userContext?.empNo || '') === 'administrator') return true
+      return false
+    }
+
     const allowWorkspace = (identity, ws) => {
-      if (!identity?.empNo) return false
-      if (identity.permissions?.canViewAllSessions) return true // super sees ALL workspaces
+      if (!identity?.empNo && !identity?.userContext?.empNo) return false
+      if (canSeeAllWorkspaces(identity)) return true
+      const empNo = identity.empNo || identity.userContext?.empNo
       const root = getWorkspaceRoot()
-      return userWorkspaces.isUserPath(identity.empNo, ws?.path, root)
-        || (userWorkspaces.get(identity.empNo)?.workspaceId
-          && String(userWorkspaces.get(identity.empNo).workspaceId) === String(ws?.workspaceId))
+      const wid = ws?.workspaceId ?? ws?.id
+      return userWorkspaces.isUserPath(empNo, ws?.path, root)
+        || (userWorkspaces.get(empNo)?.workspaceId
+          && String(userWorkspaces.get(empNo).workspaceId) === String(wid))
     }
 
     const filterBaseline = (identity, baseline) => {
@@ -521,9 +533,10 @@ export function installDshAcl(ctx, {
         return allowWorkspace(identity, frame.workspace) ? frame : null
       }
       if (frame.type === 'order') {
-        if (identity?.permissions?.canViewAllSessions) return frame
+        if (canSeeAllWorkspaces(identity)) return frame
+        const empNo = identity?.empNo || identity?.userContext?.empNo
         const allowed = new Set()
-        const mapped = userWorkspaces.get(identity?.empNo)?.workspaceId
+        const mapped = userWorkspaces.get(empNo)?.workspaceId
         if (mapped != null) allowed.add(String(mapped))
         return {
           ...frame,
@@ -536,41 +549,31 @@ export function installDshAcl(ctx, {
     const origFollow = wc.follow.bind(wc)
     wc.follow = async function* (signal) {
       let identity = getUserContext()
-      // Subscribe can race ahead of WS message-listener ALS bind (common right
-      // after fallback login / soft reconnect). Wait briefly before treating
-      // the stream as anonymous — otherwise every historical workspace is
-      // dropped and sessions collapse into 未分组.
-      if (!identity?.empNo) {
+      if (!identity?.empNo && !identity?.userContext?.empNo) {
         const deadline = Date.now() + 800
-        while (!identity?.empNo && Date.now() < deadline) {
+        while (!identity?.empNo && !identity?.userContext?.empNo && Date.now() < deadline) {
           await new Promise((r) => setTimeout(r, 40))
           identity = getUserContext()
         }
       }
-      // Super / fallback: passthrough — never drop historical workspaces.
-      if (identity?.permissions?.canViewAllSessions
-        || identity?.role === 'fallback_admin'
-        || identity?.role === 'super_admin') {
+      // Missing ALS on long-lived follow generators is common. Emptying the
+      // baseline here is what turned real partitions (harness/chatgpt) into
+      // 未分组 for fallback_admin. Pass through; client hides UI when logged out.
+      if (!identity?.empNo && !identity?.userContext?.empNo) {
         yield* origFollow(signal)
         return
       }
-      if (!identity?.empNo) {
-        // Anonymous: hide all workspaces (do not leak names).
-        for await (const frame of origFollow(signal)) {
-          if (frame?.type === 'baseline' && frame.value) {
-            yield { ...frame, value: { ...frame.value, items: [] } }
-          } else if (frame?.type === 'order') {
-            yield { ...frame, workspaceIds: [] }
-          } else if (frame?.type === 'upsert') {
-            /* drop */
-          } else {
-            yield frame
-          }
-        }
+      if (canSeeAllWorkspaces(identity)) {
+        yield* origFollow(signal)
         return
       }
       for await (const frame of origFollow(signal)) {
-        const next = filterFrame(identity, frame)
+        const live = getUserContext() || identity
+        if (canSeeAllWorkspaces(live)) {
+          yield frame
+          continue
+        }
+        const next = filterFrame(live, frame)
         if (next) yield next
       }
     }
