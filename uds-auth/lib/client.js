@@ -93,7 +93,7 @@ window.__ModuleLoader__.load({
     }
 
     function clearAuthCookies() {
-      for (const key of ['PORTALSSOUser', 'PORTALSSOCookie', 'ZTEDPGSSOUser', 'ZTEDPGSSOCookie', 'UDS_FALLBACK_USER']) {
+      for (const key of ['PORTALSSOUser', 'PORTALSSOCookie', 'ZTEDPGSSOUser', 'ZTEDPGSSOCookie', 'UDS_FALLBACK_USER', 'UDS_FALLBACK_UI']) {
         setCookie(key, '', -1)
       }
     }
