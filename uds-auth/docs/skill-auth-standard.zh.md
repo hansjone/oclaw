@@ -1,14 +1,14 @@
 # Skill 认证标准（uds-auth）
 
-面向 DeepSeekHarness：现场安装 **uds-auth 插件** + **uds-skill-auth skill** 后，第三方 / 自研 skill 按本标准取凭证或出站调用。
+面向 DeepSeekHarness：现场安装 **uds-auth 插件**（内含 skill `uds-skill-auth`）后，第三方 / 自研 skill 按本标准取凭证或出站调用。
 
-**转发给改造方时**：连同 [uds-skill-auth.zh.md](./uds-skill-auth.zh.md) 与目录 `skills/uds-skill-auth/` 一起给。
+**转发给改造方时**：发整个 `uds-auth` 插件即可；公共 skill 在 [`skills/uds-skill-auth/`](../skills/uds-skill-auth/)，说明见 [uds-skill-auth.zh.md](./uds-skill-auth.zh.md)。
 
 ## 现场形态
 
 ```text
-安装 uds-auth 插件
-  → 安装 skill「uds-skill-auth」（认证公共库，必须）
+安装 uds-auth 插件（内含 skills/uds-skill-auth）
+  → 将 uds-skill-auth 加入 skills 路径（或复制到工作区 skills/）
   → 用户扫码登录
   → 安装/加载业务 skill
   → 可用
@@ -16,7 +16,7 @@
 
 无需再配全局 `coclaw_token` / `AUTH_VALUE`。
 
-**认证公共库以 skill 分发**：仓库路径 `skills/uds-skill-auth/`。业务 skill 不要假设能访问插件源码目录。
+**认证公共库随插件分发**：路径 `uds-auth/skills/uds-skill-auth/`。
 
 ## 双轨模型
 
@@ -79,12 +79,12 @@ from uds_skill_auth import resolve
 creds = resolve()  # empNo + token；默认写入 EMP_NO/AUTH_VALUE
 ```
 
-Helpers 来源：已安装的 skill `uds-skill-auth` 的 `scripts/`（或环境变量 `UDS_AUTH_HELPERS`）。
+Helpers 来源：插件内 skill `uds-auth/skills/uds-skill-auth/scripts/`（装到 skills 路径后，或环境变量 `UDS_AUTH_HELPERS`）。
 
 ## 改造现有 Skill 清单
 
-1. 现场确保已安装 `uds-skill-auth`  
-2. 业务脚本定位 sibling：`skills/uds-skill-auth/scripts` → `import uds_skill_auth`  
+1. 现场确保已从插件安装 `uds-skill-auth`（`uds-auth/skills/uds-skill-auth`）  
+2. 业务脚本定位 sibling：`.../skills/uds-skill-auth/scripts` → `import uds_skill_auth`  
 3. 替换原来的 `coclaw_*` / `EMP_NO`/`AUTH_VALUE` 手工读环境：改用 `resolve()` 或 `request()`  
 4. SKILL.md 只写「需已 UDS 登录，并已安装 uds-skill-auth」，不写 token 变量名  
 5. JSON stdout；日志脱敏  

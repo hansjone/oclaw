@@ -30,6 +30,8 @@
   ],
   "files": [
     "lib",
+    "skills",
+    "skill-helpers",
     "config.default.yaml",
     "cordis.patch.yml",
     "docs",

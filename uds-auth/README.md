@@ -22,7 +22,9 @@ skillCredentialTtlSeconds: 604800
 outboundAllowedHosts: icenterapi.zte.com.cn,icentermsg.dt.zte.com.cn
 ```
 
-Skill auth standard (Chinese): [docs/skill-auth-standard.zh.md](docs/skill-auth-standard.zh.md). Sample skill: `../skills/uds-icenter`.
+Skill auth standard (Chinese): [docs/skill-auth-standard.zh.md](docs/skill-auth-standard.zh.md).
+
+Bundled skill: [skills/uds-skill-auth](skills/uds-skill-auth). Handoff notes: [docs/uds-skill-auth.zh.md](docs/uds-skill-auth.zh.md).
 
 Loopback agent APIs: `GET|POST /uds-auth/agent-credentials`, `POST /uds-auth/outbound`.
 
