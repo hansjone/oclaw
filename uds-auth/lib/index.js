@@ -699,18 +699,70 @@ function installSettingsSection(ctx, entry, hooks) {
 
 
 let _workspaceRegistry = null
+let _workspaceRegistryWaiters = []
+
+function notifyWorkspaceRegistryReady(registry) {
+  _workspaceRegistry = registry || null
+  const waiters = _workspaceRegistryWaiters.splice(0)
+  for (const w of waiters) {
+    try { clearTimeout(w.timer) } catch { /* ignore */ }
+    try { w.resolve(_workspaceRegistry) } catch { /* ignore */ }
+  }
+}
+
+/** Wait until workspaceRegistry inject fires (or timeout). */
+function whenWorkspaceRegistry(timeoutMs = 30000) {
+  if (_workspaceRegistry) return Promise.resolve(_workspaceRegistry)
+  return new Promise((resolve) => {
+    const entry = {
+      resolve,
+      timer: setTimeout(() => {
+        const i = _workspaceRegistryWaiters.indexOf(entry)
+        if (i >= 0) _workspaceRegistryWaiters.splice(i, 1)
+        resolve(_workspaceRegistry || null)
+      }, timeoutMs),
+    }
+    _workspaceRegistryWaiters.push(entry)
+  })
+}
 
 async function ensureUserWorkspace(empNo) {
   if (!_userWorkspaces) return null
   try {
+    let registry = _workspaceRegistry
+    if (!registry) {
+      registry = await whenWorkspaceRegistry(30000)
+    }
+    const root = _currentConfig?.workspaceRoot
+    if (!registry) {
+      console.warn(
+        '[uds-auth] workspaceRegistry still unavailable after wait; mkdir only under',
+        root || '(default $DSH_HOME/user-workspaces)',
+      )
+    }
     return await _userWorkspaces.ensureUserWorkspace(
-      { workspaceRegistryHandle: _workspaceRegistry },
-      _currentConfig?.workspaceRoot,
+      { workspaceRegistryHandle: registry },
+      root,
       empNo,
     )
   } catch (err) {
     console.warn('[uds-auth] ensureUserWorkspace failed:', err.message)
     return null
+  }
+}
+
+async function rebindPendingUserWorkspaces() {
+  if (!_userWorkspaces || !_workspaceRegistry) return
+  try {
+    const users = _userWorkspaces._map
+    if (!users || typeof users.keys !== 'function') return
+    for (const empNo of users.keys()) {
+      const row = users.get(empNo)
+      if (row && row.workspaceId) continue
+      try { await ensureUserWorkspace(empNo) } catch { /* ignore */ }
+    }
+  } catch (err) {
+    console.warn('[uds-auth] rebindPendingUserWorkspaces failed:', err.message)
   }
 }
 
@@ -809,8 +861,9 @@ async function initServices(ctx, config) {
     })
 
     ctx.inject(['workspaceRegistry'], (wctx) => {
-      _workspaceRegistry = wctx.workspaceRegistry
+      notifyWorkspaceRegistryReady(wctx.workspaceRegistry)
       ctx.logger?.info?.('[uds-auth] workspaceRegistry ready')
+      void rebindPendingUserWorkspaces()
     })
 
     installDshAcl(ctx, {

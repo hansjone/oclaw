@@ -2,7 +2,7 @@
  * Per-user workspace provisioning under workspaceRoot/<empNo>.
  */
 import { mkdir } from 'node:fs/promises'
-import { join, resolve } from 'node:path'
+import { join, resolve, sep } from 'node:path'
 import { homedir } from 'node:os'
 import { readFile, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
@@ -100,16 +100,27 @@ export class UserWorkspaceStore {
     if (!registry && ctx && typeof ctx.get === 'function') {
       try { registry = ctx.get('workspaceRegistry') } catch { registry = undefined }
     }
+
+    const cached = this.get(empNo)
+    if (registry && cached?.workspaceId && typeof registry.get === 'function') {
+      try {
+        const existing = registry.get(cached.workspaceId)
+        if (existing) {
+          return { path: cached.path || userPath, workspaceId: String(cached.workspaceId), workspace: existing }
+        }
+      } catch { /* fall through and recreate */ }
+    }
+
     if (!registry || typeof registry.create !== 'function') {
       console.warn('[uds-auth] workspaceRegistry unavailable; mkdir only:', userPath)
-      this.set(empNo, { path: userPath, workspaceId: null })
-      return { path: userPath, workspaceId: null, workspace: null }
+      this.set(empNo, { path: userPath, workspaceId: cached?.workspaceId || null })
+      return { path: userPath, workspaceId: cached?.workspaceId || null, workspace: null }
     }
 
     const prev = getUserContext()
     const workspace = await withUserContext(
       { ...(prev || {}), empNo, _internalProvision: true },
-      () => registry.create(userPath),
+      () => registry.create(userPath, String(empNo)),
     )
     const workspaceId = workspace?.id != null ? String(workspace.id) : null
     this.set(empNo, { path: userPath, workspaceId })
