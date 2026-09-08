@@ -20,7 +20,7 @@ window.__ModuleLoader__.load({
 
     const CSS = [
       '.uds-auth-host{position:relative;display:inline-flex;align-items:center;height:32px;margin:0;flex-shrink:0;pointer-events:auto}.uds-auth-host.is-rail{justify-content:center;width:100%}[data-uds-auth-foot="row"]{display:flex!important;flex-direction:row!important;align-items:center!important;gap:8px;width:100%}[data-uds-auth-foot="row"]>*:nth-child(1){order:2;flex:none!important;width:auto!important;min-width:0;margin-left:auto!important}[data-uds-auth-foot="row"]>*:nth-child(2){order:1;flex:none!important;width:auto!important;min-width:0}',
-      'html[data-uds-can-settings="0"] [data-uds-auth-foot="row"]>*:not(:has([data-uds-auth-host])){display:none!important}html[data-uds-can-create-ws="0"] button[aria-label="添加工作区"],html[data-uds-can-create-ws="0"] button[aria-label="Add workspace"]{display:none!important}html[data-uds-logged-in="0"] [role="tree"][aria-label="Sessions"],html[data-uds-logged-in="0"] [role="tree"][aria-label="会话"],html[data-uds-logged-in="0"] [class*="WorkspaceBrowser"],html[data-uds-logged-in="0"] [class*="workspaceBrowser"],html[data-uds-logged-in="0"] .dsh-ct-entry,html[data-uds-logged-in="0"] .dsh-ct-region,html[data-uds-logged-in="0"] .dsh-ct-main,html[data-uds-logged-in="0"] [data-dsh-ct-mode="on"] .dsh-ct-region{display:none!important}html[data-uds-can-create-ws="0"] button[aria-label="选择工作区"],html[data-uds-can-create-ws="0"] button[aria-label="Choose workspace"],html[data-uds-can-create-ws="0"] [aria-label="选择工作区"],html[data-uds-can-create-ws="0"] [aria-label="Choose workspace"]{display:none!important}html[data-uds-can-create-ws="0"] [class*="cardWorkspaceTrigger"],html[data-uds-can-create-ws="0"] [data-composer-card][class*="cardWorkspaceTrigger"]{pointer-events:none!important;opacity:.45!important;cursor:not-allowed!important}/* uds-anon-hide-workspaces */html[data-uds-logged-in="0"] [class*="WorkspaceBrowser"],html[data-uds-logged-in="0"] [class*="workspaceBrowser"],html[data-uds-logged-in="0"] [class*="workspaceRow"],html[data-uds-logged-in="0"] [class*="WorkspaceRow"]{display:none!important}',
+      'html[data-uds-can-settings="0"] [data-uds-auth-foot="row"]>*:not(:has([data-uds-auth-host])){display:none!important}html[data-uds-can-create-ws="0"] button[aria-label="添加工作区"],html[data-uds-can-create-ws="0"] button[aria-label="Add workspace"]{display:none!important}html[data-uds-logged-in="0"] [role="tree"][aria-label="Sessions"],html[data-uds-logged-in="0"] [role="tree"][aria-label="会话"],html[data-uds-logged-in="0"] [class*="WorkspaceBrowser"],html[data-uds-logged-in="0"] [class*="workspaceBrowser"],html[data-uds-logged-in="0"] .dsh-ct-entry,html[data-uds-logged-in="0"] .dsh-ct-region,html[data-uds-logged-in="0"] .dsh-ct-main,html[data-uds-logged-in="0"] [data-dsh-ct-mode="on"] .dsh-ct-region{display:none!important}html[data-uds-can-create-ws="0"] button[aria-label="选择工作区"],html[data-uds-can-create-ws="0"] button[aria-label="Choose workspace"],html[data-uds-can-create-ws="0"] [aria-label="选择工作区"],html[data-uds-can-create-ws="0"] [aria-label="Choose workspace"]{display:none!important}html[data-uds-can-create-ws="0"] [class*="cardWorkspaceTrigger"],html[data-uds-can-create-ws="0"] [data-composer-card][class*="cardWorkspaceTrigger"]{pointer-events:none!important;opacity:.45!important;cursor:not-allowed!important}/* uds-anon-hide-workspaces */html[data-uds-logged-in="0"] [class*="ConversationRoot"],html[data-uds-logged-in="0"] [class*="conversationRoot"],html[data-uds-logged-in="0"] [class*="ComposerStack"],html[data-uds-logged-in="0"] [class*="composerStack"]{display:none!important}/* uds-anon-hide-conversation */html[data-uds-logged-in="0"] [class*="WorkspaceBrowser"],html[data-uds-logged-in="0"] [class*="workspaceBrowser"],html[data-uds-logged-in="0"] [class*="workspaceRow"],html[data-uds-logged-in="0"] [class*="WorkspaceRow"]{display:none!important}',
       '.uds-auth-badge{display:inline-flex;align-items:center;justify-content:flex-start;gap:0;max-width:min(160px,42vw);min-width:0;height:32px;padding:0 8px;box-sizing:border-box;border:none;border-radius:8px;background:transparent;color:var(--dsw-alias-label-primary);font-family:inherit;font-size:13px;font-weight:400;line-height:20px;cursor:pointer;overflow:hidden}',
       '.uds-auth-badge:hover{background:var(--dsw-alias-interactive-bg-hover)}',
       '.uds-auth-host.is-rail .uds-auth-badge{width:auto;max-width:100%;height:32px;padding:0 6px;border-radius:8px}',
@@ -108,6 +108,18 @@ window.__ModuleLoader__.load({
     }
 
     /** After UDS login, remote.mux still has pre-login identity — reconnect to re-upgrade with cookies. */
+    
+    function clearSessionIfAnonymous(sessions) {
+      if (isLoggedInInUi()) return
+      try {
+        if (sessions && typeof sessions.clear === 'function') sessions.clear()
+      } catch { /* ignore */ }
+      try {
+        // Wipe persisted selection so refresh does not reopen the last chat.
+        window.localStorage.removeItem('dsh.sessions.current')
+      } catch { /* ignore */ }
+    }
+
     function reconnectAfterLogin() {
       try {
         if (typeof window.__udsAuthReconnect === 'function') {
@@ -486,6 +498,7 @@ window.__ModuleLoader__.load({
         document.documentElement.setAttribute('data-uds-can-create-ws', canCreateWs ? '1' : '0')
         // Drop stale remote.mux identity after logout so workspace names disappear.
         if (prev === '1' && !user) {
+          clearSessionIfAnonymous(window.__udsAuthSessions)
           try { reconnectAfterLogin() } catch { /* ignore */ }
         }
         return () => {
@@ -770,6 +783,7 @@ window.__ModuleLoader__.load({
             onClick: async () => {
               try { await fetchJson('/uds-auth/api/logout', { method: 'POST' }) } catch { /* ignore */ }
               clearAuthCookies()
+              clearSessionIfAnonymous(window.__udsAuthSessions)
               try { reconnectAfterLogin() } catch { window.location.reload() }
             },
           }, '\u9000\u51fa\u767b\u5f55'),
@@ -958,6 +972,43 @@ window.__ModuleLoader__.load({
           if (onAuthChanged) window.removeEventListener('uds-auth-changed', onAuthChanged)
         }
       }, 'uds-auth: session-list-gate')
+      ctx.effect(() => {
+        let sessions = null
+        try { sessions = ctx.get('sessions') } catch { sessions = null }
+        window.__udsAuthSessions = sessions
+        const sync = () => {
+          try { sessions = ctx.get('sessions') || sessions } catch { /* ignore */ }
+          window.__udsAuthSessions = sessions
+          clearSessionIfAnonymous(sessions)
+        }
+        sync()
+        const onAuth = () => { sync() }
+        window.addEventListener('uds-auth-changed', onAuth)
+        const mo = new MutationObserver(sync)
+        mo.observe(document.documentElement, {
+          attributes: true,
+          attributeFilter: ['data-uds-logged-in'],
+        })
+        // Late sessions service
+        const timer = setInterval(() => {
+          try {
+            const s = ctx.get('sessions')
+            if (s && s !== sessions) {
+              sessions = s
+              window.__udsAuthSessions = s
+              sync()
+            }
+          } catch { /* ignore */ }
+        }, 500)
+        setTimeout(() => clearInterval(timer), 15000)
+        return () => {
+          clearInterval(timer)
+          mo.disconnect()
+          window.removeEventListener('uds-auth-changed', onAuth)
+        }
+      }, 'uds-auth: clear-session-when-anonymous')
+
+
 
 
       ctx.effect(() => {
