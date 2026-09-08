@@ -45,7 +45,9 @@ originSystemCode: ''
 
 ## Skill 认证
 
-见 [docs/skill-auth-standard.zh.md](docs/skill-auth-standard.zh.md)。官方样板 skill：`../skills/uds-icenter`。
+见 [docs/skill-auth-standard.zh.md](docs/skill-auth-standard.zh.md)。
+
+**必须安装 skill**：[`skills/uds-skill-auth`](../skills/uds-skill-auth)（认证公共库）。业务 skill 依赖它，而不是插件源码里的 helpers。
 
 可配置：`retainSkillCredentialsOnLogout`（默认 true）、`skillCredentialTtlSeconds`、`outboundAllowedHosts`。
 

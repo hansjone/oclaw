@@ -1,14 +1,20 @@
 # Skill 认证标准（uds-auth）
 
-面向 DeepSeekHarness：现场安装 **uds-auth** 后，第三方 / 自研 skill 按本标准取凭证或出站调用。官方样板：[skills/uds-icenter](../../skills/uds-icenter)。
+面向 DeepSeekHarness：现场安装 **uds-auth 插件** + **uds-skill-auth skill** 后，第三方 / 自研 skill 按本标准取凭证或出站调用。
 
 ## 现场形态
 
 ```text
-安装 uds-auth 插件 → 用户扫码登录 → 加载 skill → 可用
+安装 uds-auth 插件
+  → 安装 skill「uds-skill-auth」（认证公共库，必须）
+  → 用户扫码登录
+  → 安装/加载业务 skill
+  → 可用
 ```
 
 无需再配全局 `coclaw_token` / `AUTH_VALUE`。
+
+**认证公共库以 skill 分发**：仓库路径 `skills/uds-skill-auth/`。业务 skill 不要假设能访问插件源码目录。
 
 ## 双轨模型
 
@@ -49,7 +55,7 @@ X-DSH-Session-Id: <DSH_SESSION_ID>
 - 剥离客户端自带鉴权头  
 - host 必须在白名单内  
 
-Python：
+Python（先把 `uds-skill-auth/scripts` 加入 `sys.path`）：
 
 ```python
 from uds_skill_auth import request
@@ -71,15 +77,31 @@ from uds_skill_auth import resolve
 creds = resolve()  # empNo + token；默认写入 EMP_NO/AUTH_VALUE
 ```
 
-Helpers 路径：`uds-auth/skill-helpers/python/`（或环境变量 `UDS_AUTH_HELPERS`）。
+Helpers 来源：已安装的 skill `uds-skill-auth` 的 `scripts/`（或环境变量 `UDS_AUTH_HELPERS`）。
 
-## 自研 Skill 清单
+## 改造现有 Skill 清单
 
-1. 建目录：`SKILL.md` + `scripts/`  
-2. 引用 helpers（见样板 `lib_uds.py`）  
-3. 默认走 `request()` outbound；发信等桌面端口可用 `resolve()` 贴头  
-4. SKILL 只写「需已 UDS 登录」，不写 token 变量名  
+1. 现场确保已安装 `uds-skill-auth`  
+2. 业务脚本定位 sibling：`skills/uds-skill-auth/scripts` → `import uds_skill_auth`  
+3. 替换原来的 `coclaw_*` / `EMP_NO`/`AUTH_VALUE` 手工读环境：改用 `resolve()` 或 `request()`  
+4. SKILL.md 只写「需已 UDS 登录，并已安装 uds-skill-auth」，不写 token 变量名  
 5. JSON stdout；日志脱敏  
+
+定位示例：
+
+```python
+from pathlib import Path
+import sys
+
+def load_uds_skill_auth():
+    here = Path(__file__).resolve().parent
+    candidate = here.parents[1] / "uds-skill-auth" / "scripts"
+    if not (candidate / "uds_skill_auth.py").is_file():
+        raise RuntimeError("请先安装 uds-skill-auth skill")
+    sys.path.insert(0, str(candidate))
+    import uds_skill_auth
+    return uds_skill_auth
+```
 
 ## 禁止项
 
@@ -87,20 +109,12 @@ Helpers 路径：`uds-auth/skill-helpers/python/`（或环境变量 `UDS_AUTH_HE
 - SKILL 教打印环境变量中的密钥  
 - 无白名单的开放代理  
 - 用 UI `sessionStore` 的 30min TTL 冒充 skill 长凭证  
+- 业务 skill 硬编码插件源码路径（应用 `uds-skill-auth` skill）  
 
 ## 验收
 
 - UI 登录/退出与改前一致  
 - 默认配置下 UI 退出后 skill/cron 仍可用  
 - `retainSkillCredentialsOnLogout=false` 时退出后取证失败  
+- 未安装 `uds-skill-auth` 时业务 skill 报错清晰  
 - 两会话不串号；未登录错误可理解且无 token 泄露  
-
-## 样板走读
-
-| 文件 | 作用 |
-|------|------|
-| `skills/uds-icenter/SKILL.md` | 给模型的用法 |
-| `scripts/lib_uds.py` | 定位 helpers |
-| `scripts/contacts.py` | 搜人/搜群/群成员（outbound） |
-| `scripts/messaging.py` | 本机发信 + resolve 贴头 |
-| `scripts/cli.py` | 统一入口 |
