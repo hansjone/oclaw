@@ -835,11 +835,30 @@ window.__ModuleLoader__.load({
             const origCall = rpc.call.bind(rpc)
             rpc.call = async function udsAuthRpcCall(channel, endpoint, payload, signal) {
               const result = await origCall(channel, endpoint, payload, signal)
-              if (getEmpNo()) return result
-              if (channel !== '/api') return result
-              if (endpoint === 'session/list') return { ok: true, value: { items: [] } }
-              if (endpoint === 'session/search') return { ok: true, value: { items: [], hasMore: false } }
-              return result
+              if (!getEmpNo()) {
+              if (channel === '/api') {
+                if (endpoint === 'session/list') return { ok: true, value: { items: [] } }
+                if (endpoint === 'session/search') return { ok: true, value: { items: [], hasMore: false } }
+              }
+            }
+            if (
+              channel === '/api'
+              && (
+                endpoint === 'directoryPicker/pick'
+                || endpoint === 'directoryPicker/list'
+                || endpoint === 'directoryPicker/createDirectory'
+              )
+              && document.documentElement.getAttribute('data-uds-can-create-ws') !== '1'
+            ) {
+              return {
+                ok: false,
+                error: {
+                  code: 'gateway/forbidden',
+                  message: getEmpNo() ? '只有超级管理员可以创建工作区' : '登录后才能使用工作区',
+                },
+              }
+            }
+            return result
             }
           }
 
@@ -881,6 +900,57 @@ window.__ModuleLoader__.load({
           if (onAuthChanged) window.removeEventListener('uds-auth-changed', onAuthChanged)
         }
       }, 'uds-auth: session-list-gate')
+
+
+      ctx.effect(() => {
+        let disposers = []
+        const Gate = function UdsAuthDirectoryFlowGate(props) {
+          React.useEffect(() => {
+            if (props && props.open) {
+              try { props.onCancel && props.onCancel() } catch { /* ignore */ }
+            }
+          }, [props && props.open])
+          return null
+        }
+        const sync = async () => {
+          let canCreate = false
+          try {
+            const me = await fetchJson('/uds-auth/api/me')
+            canCreate = !!(me && me.data && me.data.permissions && me.data.permissions.canCreateWorkspace)
+          } catch { canCreate = false }
+          for (const d of disposers) {
+            try { d() } catch { /* ignore */ }
+          }
+          disposers = []
+          if (canCreate) return
+          for (const slotName of [
+            'sidebar.workspaces.directoryFlow',
+            'conversation.hero.workspace.directoryFlow',
+          ]) {
+            try {
+              disposers.push(ctx.slots.register({
+                name: slotName,
+                id: 'uds-auth-dir-gate',
+                order: 9999,
+              }, Gate))
+            } catch { /* slot may be undeclared briefly */ }
+          }
+        }
+        sync()
+        const timer = setInterval(sync, 15000)
+        const onFocus = () => { sync() }
+        const onAuth = () => { sync() }
+        window.addEventListener('focus', onFocus)
+        window.addEventListener('uds-auth-changed', onAuth)
+        return () => {
+          clearInterval(timer)
+          window.removeEventListener('focus', onFocus)
+          window.removeEventListener('uds-auth-changed', onAuth)
+          for (const d of disposers) {
+            try { d() } catch { /* ignore */ }
+          }
+        }
+      }, 'uds-auth: directory-flow-gate')
 
       // sidebar.footer.action; layout effect lays footArea as one row: Settings | UDS login
       ctx.slots.inject('sidebar.footer.action', () => ctx.slots.register({

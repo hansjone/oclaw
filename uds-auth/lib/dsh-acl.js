@@ -380,19 +380,39 @@ export function installDshAcl(ctx, {
     }
   })
 
-  // directory picker: block createDirectory for non-super
+    // directory picker: only super_admin may pick/create dirs (others get auto workspaces)
   ctx.inject(['directoryPicker'], (dctx) => {
     const dp = dctx.directoryPicker
     if (!dp || dp.__udsAcl) return
     dp.__udsAcl = true
+
+    const assertCanCreateWorkspace = () => {
+      const identity = getUserContext()
+      if (!identity?.empNo) throwForbidden('登录后才能使用工作区')
+      if (!identity?.permissions?.canCreateWorkspace) {
+        throwForbidden('只有超级管理员可以创建工作区')
+      }
+    }
+
+    if (typeof dp.pick === 'function') {
+      const origPick = dp.pick.bind(dp)
+      dp.pick = async (...args) => {
+        assertCanCreateWorkspace()
+        return origPick(...args)
+      }
+    }
+    if (typeof dp.list === 'function') {
+      const origList = dp.list.bind(dp)
+      dp.list = async (...args) => {
+        assertCanCreateWorkspace()
+        return origList(...args)
+      }
+    }
     if (typeof dp.createDirectory === 'function') {
-      const orig = dp.createDirectory.bind(dp)
+      const origCreate = dp.createDirectory.bind(dp)
       dp.createDirectory = async (...args) => {
-        const identity = getUserContext()
-        if (!identity?.permissions?.canCreateWorkspace) {
-          throwForbidden('只有超级管理员可以创建目录/工作区')
-        }
-        return orig(...args)
+        assertCanCreateWorkspace()
+        return origCreate(...args)
       }
     }
   })
