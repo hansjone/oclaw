@@ -20,7 +20,7 @@ window.__ModuleLoader__.load({
 
     const CSS = [
       '.uds-auth-host{position:relative;display:inline-flex;align-items:center;height:32px;margin:0;flex-shrink:0;pointer-events:auto}.uds-auth-host.is-rail{justify-content:center;width:100%}[data-uds-auth-foot="row"]{display:flex!important;flex-direction:row!important;align-items:center!important;gap:8px;width:100%}[data-uds-auth-foot="row"]>*:nth-child(1){order:2;flex:none!important;width:auto!important;min-width:0;margin-left:auto!important}[data-uds-auth-foot="row"]>*:nth-child(2){order:1;flex:none!important;width:auto!important;min-width:0}',
-      'html[data-uds-can-settings="0"] [data-uds-auth-foot="row"]>*:not(:has([data-uds-auth-host])){display:none!important}html[data-uds-can-create-ws="0"] button[aria-label="添加工作区"],html[data-uds-can-create-ws="0"] button[aria-label="Add workspace"]{display:none!important}html[data-uds-logged-in="0"] .dsh-ct-entry,html[data-uds-logged-in="0"] .dsh-ct-region,html[data-uds-logged-in="0"] .dsh-ct-main,html[data-uds-logged-in="0"] [data-dsh-ct-mode="on"] .dsh-ct-region{display:none!important}html[data-uds-logged-in="0"] button[aria-label="选择工作区"],html[data-uds-logged-in="0"] button[aria-label="Choose workspace"],html[data-uds-logged-in="0"] [aria-label="选择工作区"],html[data-uds-logged-in="0"] [aria-label="Choose workspace"]{pointer-events:none!important;opacity:.45!important;cursor:not-allowed!important;user-select:none!important}',
+      'html[data-uds-can-settings="0"] [data-uds-auth-foot="row"]>*:not(:has([data-uds-auth-host])){display:none!important}html[data-uds-can-create-ws="0"] button[aria-label="添加工作区"],html[data-uds-can-create-ws="0"] button[aria-label="Add workspace"]{display:none!important}html[data-uds-logged-in="0"] .dsh-ct-entry,html[data-uds-logged-in="0"] .dsh-ct-region,html[data-uds-logged-in="0"] .dsh-ct-main,html[data-uds-logged-in="0"] [data-dsh-ct-mode="on"] .dsh-ct-region{display:none!important}html[data-uds-can-create-ws="0"] button[aria-label="选择工作区"],html[data-uds-can-create-ws="0"] button[aria-label="Choose workspace"],html[data-uds-can-create-ws="0"] [aria-label="选择工作区"],html[data-uds-can-create-ws="0"] [aria-label="Choose workspace"]{display:none!important}',
       '.uds-auth-badge{display:inline-flex;align-items:center;justify-content:center;gap:8px;max-width:min(180px,40vw);min-width:0;height:42px;padding:0 10px 0 8px;box-sizing:border-box;border:none;border-radius:12px;background:transparent;color:var(--dsw-alias-label-primary);font-family:inherit;font-size:14px;font-weight:400;line-height:22px;cursor:pointer;overflow:hidden}',
       '.uds-auth-badge:hover{background:var(--dsw-alias-interactive-bg-hover)}',
       '.uds-auth-host.is-rail .uds-auth-badge{width:36px;height:36px;padding:0;border-radius:50%;gap:0}',
@@ -982,16 +982,19 @@ window.__ModuleLoader__.load({
 
 
       ctx.effect(() => {
+        // Open/choose workspace is super_admin-only (canCreateWorkspace).
+        // Everyone else uses the auto-provisioned per-user workspace and must not open the picker.
         const CHOOSER = '[aria-label="选择工作区"], [aria-label="Choose workspace"]'
-        const isLoggedIn = () => document.documentElement.getAttribute('data-uds-logged-in') === '1'
+        const canOpenWorkspace = () => document.documentElement.getAttribute('data-uds-can-create-ws') === '1'
         const isChooser = (node) => {
           if (!node || !node.closest) return null
           return node.closest(CHOOSER)
         }
         const freezeChoosers = () => {
-          if (isLoggedIn()) {
+          if (canOpenWorkspace()) {
             document.querySelectorAll(CHOOSER).forEach((el) => {
               if (el.dataset.udsWsLocked === '1') {
+                el.style.display = ''
                 el.style.pointerEvents = ''
                 el.style.opacity = ''
                 el.style.cursor = ''
@@ -1007,9 +1010,8 @@ window.__ModuleLoader__.load({
           }
           document.querySelectorAll(CHOOSER).forEach((el) => {
             el.dataset.udsWsLocked = '1'
+            el.style.display = 'none'
             el.style.pointerEvents = 'none'
-            el.style.opacity = '0.45'
-            el.style.cursor = 'not-allowed'
             el.setAttribute('aria-disabled', 'true')
             el.setAttribute('tabindex', '-1')
             if (el.tagName === 'BUTTON' || el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') {
@@ -1018,7 +1020,7 @@ window.__ModuleLoader__.load({
           })
         }
         const block = (event) => {
-          if (isLoggedIn()) return
+          if (canOpenWorkspace()) return
           if (!isChooser(event.target)) return
           event.preventDefault()
           event.stopPropagation()
@@ -1028,7 +1030,7 @@ window.__ModuleLoader__.load({
         document.addEventListener('pointerdown', block, true)
         document.addEventListener('mousedown', block, true)
         document.addEventListener('keydown', (event) => {
-          if (isLoggedIn()) return
+          if (canOpenWorkspace()) return
           if (event.key !== 'Enter' && event.key !== ' ' && event.key !== 'Spacebar') return
           if (!isChooser(event.target)) return
           event.preventDefault()
@@ -1060,23 +1062,31 @@ window.__ModuleLoader__.load({
             workspaceDispose = null
           }
         }
-        // Lock immediately for anonymous — do not wait for /api/me.
-        if (!isLoggedIn()) installWorkspaceLock()
+        // Deny open-workspace by default until /api/me proves canCreateWorkspace.
+        if (!canOpenWorkspace()) installWorkspaceLock()
         freezeChoosers()
 
         const syncWorkspaceSlot = async () => {
-          let loggedIn = document.documentElement.getAttribute('data-uds-logged-in') === '1'
+          let canCreate = document.documentElement.getAttribute('data-uds-can-create-ws') === '1'
           try {
             const me = await fetchJson('/uds-auth/api/me')
-            loggedIn = !!(me && me.authenticated && me.data)
-            document.documentElement.setAttribute('data-uds-logged-in', loggedIn ? '1' : '0')
+            const user = me && me.authenticated && me.data ? me.data : null
+            const perms = user && user.permissions ? user.permissions : {}
+            canCreate = !!perms.canCreateWorkspace
+            document.documentElement.setAttribute('data-uds-logged-in', user ? '1' : '0')
+            document.documentElement.setAttribute('data-uds-can-create-ws', canCreate ? '1' : '0')
+            document.documentElement.setAttribute(
+              'data-uds-can-settings',
+              user && perms.canAccessSettings ? '1' : '0',
+            )
           } catch {
             if (!getEmpNo()) {
-              loggedIn = false
+              canCreate = false
               document.documentElement.setAttribute('data-uds-logged-in', '0')
+              document.documentElement.setAttribute('data-uds-can-create-ws', '0')
             }
           }
-          if (loggedIn) clearWorkspaceLock()
+          if (canCreate) clearWorkspaceLock()
           else installWorkspaceLock()
           freezeChoosers()
         }
@@ -1090,7 +1100,7 @@ window.__ModuleLoader__.load({
           childList: true,
           subtree: true,
           attributes: true,
-          attributeFilter: ['data-uds-logged-in', 'aria-label'],
+          attributeFilter: ['data-uds-can-create-ws', 'aria-label'],
         })
 
         return () => {
