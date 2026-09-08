@@ -20,7 +20,7 @@ window.__ModuleLoader__.load({
 
     const CSS = [
       '.uds-auth-host{position:relative;display:inline-flex;align-items:center;height:32px;margin:0;flex-shrink:0;pointer-events:auto}.uds-auth-host.is-rail{justify-content:center;width:100%}[data-uds-auth-foot="row"]{display:flex!important;flex-direction:row!important;align-items:center!important;gap:8px;width:100%}[data-uds-auth-foot="row"]>*:nth-child(1){order:2;flex:none!important;width:auto!important;min-width:0;margin-left:auto!important}[data-uds-auth-foot="row"]>*:nth-child(2){order:1;flex:none!important;width:auto!important;min-width:0}',
-      'html[data-uds-can-settings="0"] [data-uds-auth-foot="row"]>*:not(:has([data-uds-auth-host])){display:none!important}html[data-uds-can-create-ws="0"] button[aria-label="添加工作区"],html[data-uds-can-create-ws="0"] button[aria-label="Add workspace"]{display:none!important}html[data-uds-logged-in="0"] .dsh-ct-entry,html[data-uds-logged-in="0"] .dsh-ct-region,html[data-uds-logged-in="0"] .dsh-ct-main,html[data-uds-logged-in="0"] [data-dsh-ct-mode="on"] .dsh-ct-region{display:none!important}html[data-uds-can-create-ws="0"] button[aria-label="选择工作区"],html[data-uds-can-create-ws="0"] button[aria-label="Choose workspace"],html[data-uds-can-create-ws="0"] [aria-label="选择工作区"],html[data-uds-can-create-ws="0"] [aria-label="Choose workspace"]{display:none!important}',
+      'html[data-uds-can-settings="0"] [data-uds-auth-foot="row"]>*:not(:has([data-uds-auth-host])){display:none!important}html[data-uds-can-create-ws="0"] button[aria-label="添加工作区"],html[data-uds-can-create-ws="0"] button[aria-label="Add workspace"]{display:none!important}html[data-uds-logged-in="0"] .dsh-ct-entry,html[data-uds-logged-in="0"] .dsh-ct-region,html[data-uds-logged-in="0"] .dsh-ct-main,html[data-uds-logged-in="0"] [data-dsh-ct-mode="on"] .dsh-ct-region{display:none!important}html[data-uds-can-create-ws="0"] button[aria-label="选择工作区"],html[data-uds-can-create-ws="0"] button[aria-label="Choose workspace"],html[data-uds-can-create-ws="0"] [aria-label="选择工作区"],html[data-uds-can-create-ws="0"] [aria-label="Choose workspace"]{display:none!important}html[data-uds-can-create-ws="0"] [class*="cardWorkspaceTrigger"],html[data-uds-can-create-ws="0"] [data-composer-card][class*="cardWorkspaceTrigger"]{pointer-events:none!important;opacity:.45!important;cursor:not-allowed!important}',
       '.uds-auth-badge{display:inline-flex;align-items:center;justify-content:center;gap:8px;max-width:min(180px,40vw);min-width:0;height:42px;padding:0 10px 0 8px;box-sizing:border-box;border:none;border-radius:12px;background:transparent;color:var(--dsw-alias-label-primary);font-family:inherit;font-size:14px;font-weight:400;line-height:22px;cursor:pointer;overflow:hidden}',
       '.uds-auth-badge:hover{background:var(--dsw-alias-interactive-bg-hover)}',
       '.uds-auth-host.is-rail .uds-auth-badge{width:36px;height:36px;padding:0;border-radius:50%;gap:0}',
@@ -985,39 +985,47 @@ window.__ModuleLoader__.load({
         // Open/choose workspace is super_admin-only (canCreateWorkspace).
         // Everyone else uses the auto-provisioned per-user workspace and must not open the picker.
         const CHOOSER = '[aria-label="选择工作区"], [aria-label="Choose workspace"]'
+        // Inert composer: onClick lives on the card (cardWorkspaceTrigger), not the labeled node.
+        const TRIGGER_CARD = '[class*="cardWorkspaceTrigger"]'
+        const SURFACE = CHOOSER + ', ' + TRIGGER_CARD
         const canOpenWorkspace = () => document.documentElement.getAttribute('data-uds-can-create-ws') === '1'
         const isChooser = (node) => {
           if (!node || !node.closest) return null
-          return node.closest(CHOOSER)
+          return node.closest(SURFACE)
+        }
+        const unlockEl = (el) => {
+          if (el.dataset.udsWsLocked !== '1') return
+          el.style.display = ''
+          el.style.pointerEvents = ''
+          el.style.opacity = ''
+          el.style.cursor = ''
+          if (el.tagName === 'BUTTON' || el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') {
+            el.removeAttribute('disabled')
+          }
+          el.removeAttribute('aria-disabled')
+          el.removeAttribute('tabindex')
+          delete el.dataset.udsWsLocked
+        }
+        const lockEl = (el, hide) => {
+          el.dataset.udsWsLocked = '1'
+          if (hide) el.style.display = 'none'
+          el.style.pointerEvents = 'none'
+          el.style.opacity = hide ? '' : '0.45'
+          el.style.cursor = 'not-allowed'
+          el.setAttribute('aria-disabled', 'true')
+          el.setAttribute('tabindex', '-1')
+          if (el.tagName === 'BUTTON' || el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') {
+            try { el.setAttribute('disabled', 'true') } catch { /* ignore */ }
+          }
         }
         const freezeChoosers = () => {
           if (canOpenWorkspace()) {
-            document.querySelectorAll(CHOOSER).forEach((el) => {
-              if (el.dataset.udsWsLocked === '1') {
-                el.style.display = ''
-                el.style.pointerEvents = ''
-                el.style.opacity = ''
-                el.style.cursor = ''
-                if (el.tagName === 'BUTTON' || el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') {
-                  el.removeAttribute('disabled')
-                }
-                el.removeAttribute('aria-disabled')
-                el.removeAttribute('tabindex')
-                delete el.dataset.udsWsLocked
-              }
-            })
+            document.querySelectorAll(SURFACE).forEach(unlockEl)
             return
           }
-          document.querySelectorAll(CHOOSER).forEach((el) => {
-            el.dataset.udsWsLocked = '1'
-            el.style.display = 'none'
-            el.style.pointerEvents = 'none'
-            el.setAttribute('aria-disabled', 'true')
-            el.setAttribute('tabindex', '-1')
-            if (el.tagName === 'BUTTON' || el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') {
-              try { el.setAttribute('disabled', 'true') } catch { /* ignore */ }
-            }
-          })
+          // Hide chip / labeled trigger; dim+disable the inert dialog card (keep visible).
+          document.querySelectorAll(CHOOSER).forEach((el) => lockEl(el, true))
+          document.querySelectorAll(TRIGGER_CARD).forEach((el) => lockEl(el, false))
         }
         const block = (event) => {
           if (canOpenWorkspace()) return
