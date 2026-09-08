@@ -146,9 +146,15 @@ window.__ModuleLoader__.load({
     }
 
     function reconnectAfterLogin() {
-      // Soft WS reconnect often keeps a workspace.follow subscription that was
-      // opened while anonymous (empty workspace list). Full reload makes the
-      // first follow run with fallback/UDS cookies so historical workspaces show.
+      // Prefer soft WS reconnect (re-upgrade with cookies). Full reload only
+      // if connection.reconnect is unavailable — workspace ACL no longer needs
+      // a hard refresh after login.
+      try {
+        if (typeof window.__udsAuthReconnect === 'function') {
+          window.__udsAuthReconnect()
+          return
+        }
+      } catch { /* fall through */ }
       try { window.location.reload() } catch { /* ignore */ }
     }
 
