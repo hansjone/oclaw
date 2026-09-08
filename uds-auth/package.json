@@ -1,6 +1,6 @@
 {
   "name": "uds-auth",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "UDS authentication plugin for DeepSeek Harness with multi-tenant session isolation",
   "type": "module",
   "main": "lib/index.js",

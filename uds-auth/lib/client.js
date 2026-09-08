@@ -147,28 +147,65 @@ window.__ModuleLoader__.load({
       } catch { /* ignore */ }
     }
 
-        const VIEW_STORE_KEY = 'dsh.workspace.view.v5'
+    const VIEW_STORE_KEY = 'dsh.workspace.view.v5'
+    const FORCED_FLAT_KEY = 'uds-auth-forced-flat'
 
-    /** user/admin: no workspace folders — persist flat session list. */
+    function readViewState() {
+      try {
+        const raw = window.localStorage.getItem(VIEW_STORE_KEY)
+        const state = raw ? JSON.parse(raw) : null
+        if (state && typeof state === 'object') return state
+      } catch { /* ignore */ }
+      return {
+        groupBy: 'workspace',
+        orderBy: 'updated',
+        groupExpansion: {},
+        sessionOrderByAccount: {},
+        sessionUpdatedAtByAccount: {},
+      }
+    }
+
+    function writeViewState(state) {
+      window.localStorage.setItem(VIEW_STORE_KEY, JSON.stringify(state))
+    }
+
+    /** user/admin only — wait until /api/me set can-create-ws explicitly to 0. */
     function ensureFlatSessionSidebar() {
       try {
-        if (document.documentElement.getAttribute('data-uds-logged-in') !== '1') return false
-        if (document.documentElement.getAttribute('data-uds-can-create-ws') === '1') return false
-        const raw = window.localStorage.getItem(VIEW_STORE_KEY)
-        let state = null
-        try { state = raw ? JSON.parse(raw) : null } catch { state = null }
-        if (!state || typeof state !== 'object') {
-          state = {
-            groupBy: 'flat',
-            orderBy: 'updated',
-            groupExpansion: {},
-            sessionOrderByAccount: {},
-            sessionUpdatedAtByAccount: {},
-          }
+        const root = document.documentElement
+        if (root.getAttribute('data-uds-auth-ready') !== '1') return false
+        if (root.getAttribute('data-uds-logged-in') !== '1') return false
+        // Must be explicit 0 — missing/default must not force flat for supers.
+        if (root.getAttribute('data-uds-can-create-ws') !== '0') return false
+        const state = readViewState()
+        if (state.groupBy === 'flat') {
+          try { window.localStorage.setItem(FORCED_FLAT_KEY, '1') } catch { /* ignore */ }
+          return false
         }
-        if (state.groupBy === 'flat') return false
         state.groupBy = 'flat'
-        window.localStorage.setItem(VIEW_STORE_KEY, JSON.stringify(state))
+        writeViewState(state)
+        try { window.localStorage.setItem(FORCED_FLAT_KEY, '1') } catch { /* ignore */ }
+        return true
+      } catch {
+        return false
+      }
+    }
+
+    /** super/fallback: restore workspace partitions after a forced flat. */
+    function ensureWorkspaceGroupedSidebar() {
+      try {
+        const root = document.documentElement
+        if (root.getAttribute('data-uds-auth-ready') !== '1') return false
+        if (root.getAttribute('data-uds-logged-in') !== '1') return false
+        if (root.getAttribute('data-uds-can-create-ws') !== '1') return false
+        const state = readViewState()
+        if (state.groupBy === 'workspace') {
+          try { window.localStorage.removeItem(FORCED_FLAT_KEY) } catch { /* ignore */ }
+          return false
+        }
+        state.groupBy = 'workspace'
+        writeViewState(state)
+        try { window.localStorage.removeItem(FORCED_FLAT_KEY) } catch { /* ignore */ }
         return true
       } catch {
         return false
@@ -177,9 +214,9 @@ window.__ModuleLoader__.load({
 
     function expandHiddenWorkspaceGroups() {
       try {
+        if (document.documentElement.getAttribute('data-uds-auth-ready') !== '1') return
         if (document.documentElement.getAttribute('data-uds-logged-in') !== '1') return
-        if (document.documentElement.getAttribute('data-uds-can-create-ws') === '1') return
-        // Sessions only render when the group is expanded; expand then CSS-hide headers.
+        if (document.documentElement.getAttribute('data-uds-can-create-ws') !== '0') return
         document.querySelectorAll('[class*="projectRow"][aria-expanded="false"]').forEach((el) => {
           try { el.click() } catch { /* ignore */ }
         })
@@ -1319,7 +1356,10 @@ function reloadAfterLogin() {
         const bindPersonalWorkspace = async () => {
           if (busy) return
           if (document.documentElement.getAttribute('data-uds-logged-in') !== '1') return
-          // Super/fallback may pick workspaces; still auto-bind if nothing selected.
+          if (document.documentElement.getAttribute('data-uds-auth-ready') !== '1') return
+          // Super/fallback keep full workspace browser — do not force personal workspace.
+          if (document.documentElement.getAttribute('data-uds-can-create-ws') === '1') return
+          if (document.documentElement.getAttribute('data-uds-can-create-ws') !== '0') return
           let sessions = null
           try { sessions = ctx.get('sessions') } catch { sessions = null }
           if (!sessions || typeof sessions.create !== 'function') return
@@ -1355,14 +1395,28 @@ function reloadAfterLogin() {
       }, 'uds-auth: auto-bind-personal-workspace')
       ctx.effect(() => {
         const sync = () => {
-          if (document.documentElement.getAttribute('data-uds-logged-in') !== '1'
-            || document.documentElement.getAttribute('data-uds-can-create-ws') === '1') {
+          const root = document.documentElement
+          if (root.getAttribute('data-uds-auth-ready') !== '1') return
+          if (root.getAttribute('data-uds-logged-in') !== '1') {
+            try { window.sessionStorage.removeItem('uds-auth-flat-reloaded') } catch { /* ignore */ }
+            try { window.sessionStorage.removeItem('uds-auth-ws-reloaded') } catch { /* ignore */ }
+            return
+          }
+          // Super/fallback: restore workspace partitions (undo forced flat).
+          if (root.getAttribute('data-uds-can-create-ws') === '1') {
+            const restored = ensureWorkspaceGroupedSidebar()
+            if (restored && !window.sessionStorage.getItem('uds-auth-ws-reloaded')) {
+              try {
+                window.sessionStorage.setItem('uds-auth-ws-reloaded', '1')
+                window.location.reload()
+              } catch { /* ignore */ }
+            }
             try { window.sessionStorage.removeItem('uds-auth-flat-reloaded') } catch { /* ignore */ }
             return
           }
+          if (root.getAttribute('data-uds-can-create-ws') !== '0') return
           const switched = ensureFlatSessionSidebar()
           expandHiddenWorkspaceGroups()
-          // Live store may already be hydrated as workspace mode — one soft reload.
           if (switched && !window.sessionStorage.getItem('uds-auth-flat-reloaded')) {
             try {
               window.sessionStorage.setItem('uds-auth-flat-reloaded', '1')
@@ -1373,6 +1427,11 @@ function reloadAfterLogin() {
         sync()
         const onAuth = () => { sync() }
         window.addEventListener('uds-auth-changed', onAuth)
+        const moAttrs = new MutationObserver(() => { sync() })
+        moAttrs.observe(document.documentElement, {
+          attributes: true,
+          attributeFilter: ['data-uds-logged-in', 'data-uds-can-create-ws', 'data-uds-auth-ready'],
+        })
         const mo = new MutationObserver(() => { expandHiddenWorkspaceGroups() })
         mo.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['aria-expanded', 'class'] })
         const timer = setInterval(expandHiddenWorkspaceGroups, 2000)
@@ -1380,6 +1439,7 @@ function reloadAfterLogin() {
         return () => {
           clearInterval(timer)
           mo.disconnect()
+          moAttrs.disconnect()
           window.removeEventListener('uds-auth-changed', onAuth)
         }
       }, 'uds-auth: session-only-sidebar')
