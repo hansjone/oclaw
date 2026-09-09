@@ -121,6 +121,11 @@ function mergeConfig(custom = {}) {
   return { ...CONFIG_DEFAULTS, ...custom }
 }
 
+/** DSH/schemastery config objects may be frozen — always clone before mutate. */
+function asMutableConfig(config) {
+  return { ...(config && typeof config === 'object' ? config : {}) }
+}
+
 // Store references
 let _sessionStore = null
 let _authMiddleware = null
@@ -523,7 +528,7 @@ async function saveRuntimeConfig(partial) {
     err.code = 'config_not_ready'
     throw err
   }
-  // 只允许修改 4 个可配置字段
+  // 只允许修改可配置字段；写到新对象上（host 传入的 config 可能是只读的）
   const allowed = [
     'uacBaseUrl',
     'userSearchUrl',
@@ -534,17 +539,19 @@ async function saveRuntimeConfig(partial) {
     'skillCredentialTtlSeconds',
     'outboundAllowedHosts',
   ]
+  const next = asMutableConfig(_currentConfig)
   for (const k of allowed) {
     if (partial[k] !== undefined) {
       if (k === 'retainSkillCredentialsOnLogout') {
-        _currentConfig[k] = partial[k] === true || partial[k] === 'true'
+        next[k] = partial[k] === true || partial[k] === 'true'
       } else if (k === 'skillCredentialTtlSeconds') {
-        _currentConfig[k] = Number(partial[k]) || CONFIG_DEFAULTS.skillCredentialTtlSeconds
+        next[k] = Number(partial[k]) || CONFIG_DEFAULTS.skillCredentialTtlSeconds
       } else {
-        _currentConfig[k] = typeof partial[k] === 'string' ? partial[k] : String(partial[k])
+        next[k] = typeof partial[k] === 'string' ? partial[k] : String(partial[k])
       }
     }
   }
+  _currentConfig = next
   // 写运行时配置文件（不覆盖原始 config.default.yaml）
   try {
     await writeFile(RUNTIME_CONFIG_FILE, JSON.stringify(_currentConfig, null, 2), 'utf-8')
@@ -747,7 +754,7 @@ function installSettingsSection(ctx, entry, hooks) {
   const hooksArg = {
     setSource: (current) => {
       hooks.setSource?.(current)
-      _currentConfig = current
+      _currentConfig = asMutableConfig(current)
     },
     onChange: () => {
       hooks.onChange?.()
@@ -838,7 +845,7 @@ async function rebindPendingUserWorkspaces() {
 
 export async function apply(ctx, config = {}) {
   let source = () => mergeConfig(config)
-  _currentConfig = source()
+  _currentConfig = asMutableConfig(source())
   _logger = ctx.logger || console
 
   ctx.logger?.info?.('[uds-auth] Loading...')
@@ -846,10 +853,10 @@ export async function apply(ctx, config = {}) {
   installSettingsSection(ctx, source(), {
     setSource: (current) => {
       source = typeof current === 'function' ? current : () => current
-      _currentConfig = source()
+      _currentConfig = asMutableConfig(source())
     },
     onChange: () => {
-      _currentConfig = source()
+      _currentConfig = asMutableConfig(source())
       ctx.logger?.info?.('[uds-auth] settings updated')
     }
   })
@@ -879,15 +886,13 @@ async function initServices(ctx, config) {
     const { createAgentAuthHandlers } = await import('./agent-auth.js')
 
     _pluginCtx = ctx
-    _currentConfig = config
+    _currentConfig = asMutableConfig(config)
 
     try {
       const raw = await readFile(RUNTIME_CONFIG_FILE, 'utf-8')
       const rt = JSON.parse(raw)
       if (rt && typeof rt === 'object') {
-        for (const k of Object.keys(rt)) {
-          _currentConfig[k] = rt[k]
-        }
+        _currentConfig = { ..._currentConfig, ...rt }
       }
     } catch { /* runtime config optional */ }
 
