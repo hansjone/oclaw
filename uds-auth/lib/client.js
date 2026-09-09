@@ -990,7 +990,9 @@ function reloadAfterLogin() {
       const [qrExpired, setQrExpired] = useState(false)
       const [qrFailed, setQrFailed] = useState(false)
       const [loginMode, setLoginMode] = useState('qr')
-      const [fallbackEnabled, setFallbackEnabled] = useState(false)
+      // Default true (server enables fallback by default). If status fetch fails
+      // while QR is also down, keep the emergency link visible so admins can still sign in.
+      const [fallbackEnabled, setFallbackEnabled] = useState(true)
       const [fbUser, setFbUser] = useState('administrator')
       const [fbPass, setFbPass] = useState('')
       const [fbBusy, setFbBusy] = useState(false)
@@ -1202,9 +1204,19 @@ function reloadAfterLogin() {
           .catch(() => {})
         fetchJson('/uds-auth/api/fallback/status')
           .then((st) => setFallbackEnabled(!!st.enabled))
-          .catch(() => {})
+          .catch(() => { /* keep default true — do not hide emergency login */ })
         return () => { stopQr() }
       }, [refreshUser, stopQr])
+
+      useEffect(() => {
+        if (!open || user) return undefined
+        // Refresh status each time the panel opens (mount may have raced/failed).
+        let cancelled = false
+        fetchJson('/uds-auth/api/fallback/status')
+          .then((st) => { if (!cancelled) setFallbackEnabled(!!st.enabled) })
+          .catch(() => {})
+        return () => { cancelled = true }
+      }, [open, user])
 
       useEffect(() => {
         if (open && !user && loginMode === 'qr') startQr()
@@ -1308,7 +1320,8 @@ function reloadAfterLogin() {
               ),
               !qrOverlay && h('div', { className: 'uds-auth-qr-status' }, qrStatus || t('ui.loading')),
             ),
-            fallbackEnabled && h('button', {
+            // Always offer emergency login when QR failed/expired; otherwise only if enabled.
+            (fallbackEnabled || qrFailed || qrExpired) && h('button', {
               type: 'button',
               className: 'uds-auth-btn-link',
               onClick: () => { stopQr(); setLoginMode('fallback'); setFbErr('') },
