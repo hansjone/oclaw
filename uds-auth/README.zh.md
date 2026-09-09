@@ -41,7 +41,7 @@ originSystemCode: ''
 - `POST /uds-auth/outbound` — **loopback**：白名单出站并注入鉴权头
 - 用户管理 / 兜底管理员：见 `/uds-auth/api/users*`、`/uds-auth/api/fallback/*`
 - **默认兜底账号**（扫码不可用时）：用户名 `administrator`，密码 `Admin@123`（首次启动自动启用；可在设置中改密或关闭）
-- **ACL**：租户边界以工作区为准（可见工作区下的会话可访问）；`session-owners.json` 仅记录工号供导出/分析，不是主鉴权键
+- **ACL**：`super_admin` / 兜底 `administrator` 可见全部会话（含 `@` 提及）；`admin` / `user` 仅可见 **自己拥有的** 或 **自己工作区路径下的** 会话。侧栏、`session/search` 与 `@` 候选共用同一规则
 
 ## Skill 认证（给他人改造 skill 时）
 

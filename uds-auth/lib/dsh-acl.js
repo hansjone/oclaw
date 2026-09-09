@@ -371,6 +371,114 @@ function throwForbidden(code) {
 }
 
 /**
+ * Shared session visibility helpers (sidebar + @ mention + query reads).
+ * Visibility: super_admin / fallback_admin see all; others see owner OR own workspace.
+ */
+export function createSessionAccess({
+  sessionAcl,
+  userWorkspaces,
+  getWorkspaceRoot,
+  getWorkspaceRegistry,
+  resolveLiveCwd,
+}) {
+  const canSeeAll = (identity) => {
+    if (!identity) return false
+    if (identity.permissions?.canViewAllSessions) return true
+    const role = identity.role || identity.userContext?.role
+    if (role === 'fallback_admin' || role === 'super_admin') return true
+    if (String(identity.empNo || identity.userContext?.empNo || '') === 'administrator') return true
+    return false
+  }
+
+  const empOf = (identity) => identity?.empNo || identity?.userContext?.empNo || null
+
+  const resolveRegistry = () => {
+    try {
+      if (typeof getWorkspaceRegistry === 'function') {
+        const r = getWorkspaceRegistry()
+        if (r) return r
+      }
+    } catch { /* ignore */ }
+    return null
+  }
+
+  const resolveSessionCwd = (sessionId, rowHint) => {
+    if (rowHint?.cwd) return String(rowHint.cwd)
+    if (rowHint?.header?.cwd) return String(rowHint.header.cwd)
+    if (typeof resolveLiveCwd === 'function') {
+      try {
+        const cwd = resolveLiveCwd(sessionId)
+        if (cwd) return String(cwd)
+      } catch { /* ignore */ }
+    }
+    return null
+  }
+
+  const workspaceContainsSession = (ws, sessionId) => {
+    const sid = String(sessionId)
+    try {
+      const ids = ws?.sessionIds
+      if (ids && typeof ids[Symbol.iterator] === 'function') {
+        for (const id of ids) {
+          if (String(id) === sid) return true
+        }
+      }
+    } catch { /* ignore */ }
+    const raw = ws?.record?.sessionIds
+    if (Array.isArray(raw) && raw.some((id) => String(id) === sid)) return true
+    return false
+  }
+
+  const isVisibleWorkspace = (identity, ws) => {
+    if (canSeeAll(identity)) return true
+    const empNo = empOf(identity)
+    if (!empNo || !ws) return false
+    const root = getWorkspaceRoot()
+    const wid = ws.id ?? ws.workspaceId
+    const path = ws.path
+    return userWorkspaces.isUserPath(empNo, path, root)
+      || (userWorkspaces.get(empNo)?.workspaceId
+        && String(userWorkspaces.get(empNo).workspaceId) === String(wid))
+  }
+
+  /**
+   * Owner stamp OR cwd/workspace under the caller's provisioned path.
+   * Missing owner alone does not deny (legacy sessions rely on workspace/cwd).
+   */
+  const canAccessSession = (sessionId, identity, rowHint) => {
+    if (!identity || !empOf(identity)) return false
+    if (canSeeAll(identity)) return true
+    if (sessionId == null) return false
+    const empNo = empOf(identity)
+    const owner = sessionAcl?.getOwner?.(sessionId) || null
+    if (owner && String(owner) === String(empNo)) return true
+
+    const root = getWorkspaceRoot()
+    const cwd = resolveSessionCwd(sessionId, rowHint)
+    if (cwd && userWorkspaces.isUserPath(empNo, cwd, root)) return true
+
+    const registry = resolveRegistry()
+    if (!registry || typeof registry.list !== 'function') return false
+    let workspaces = []
+    try { workspaces = registry.list() || [] } catch { return false }
+    for (const ws of workspaces) {
+      if (!isVisibleWorkspace(identity, ws)) continue
+      if (workspaceContainsSession(ws, sessionId)) return true
+    }
+    return false
+  }
+
+  return {
+    canSeeAll,
+    empOf,
+    resolveRegistry,
+    resolveSessionCwd,
+    isVisibleWorkspace,
+    canAccessSession,
+  }
+}
+
+/**
  * Install Host ACL wrappers.
  */
 export function installDshAcl(ctx, {
@@ -382,6 +490,37 @@ export function installDshAcl(ctx, {
   getWorkspaceRegistry,
 }) {
   const disposers = []
+
+  const access = createSessionAccess({
+    sessionAcl,
+    userWorkspaces,
+    getWorkspaceRoot,
+    getWorkspaceRegistry: () => {
+      try {
+        if (typeof getWorkspaceRegistry === 'function') {
+          const r = getWorkspaceRegistry()
+          if (r) return r
+        }
+      } catch { /* ignore */ }
+      try { return ctx.get('workspaceRegistry') } catch { return null }
+    },
+    resolveLiveCwd: (sessionId) => {
+      try {
+        const agents = ctx.get('agents')
+        const agent = agents?.get?.(sessionId)
+        return agent?.session?.header?.cwd || null
+      } catch {
+        return null
+      }
+    },
+  })
+  const {
+    canSeeAll,
+    empOf,
+    resolveRegistry,
+    isVisibleWorkspace,
+    canAccessSession,
+  } = access
 
   // Stamp owner on session create
   const offCreated = ctx.on('session/created', (session) => {
@@ -397,113 +536,160 @@ export function installDshAcl(ctx, {
   })
   disposers.push(() => offCreated?.())
 
+  const extractSessionId = (request) => {
+    if (!request || typeof request !== 'object') return null
+    return request.address?.sessionId
+      ?? request.sessionId
+      ?? request.id
+      ?? request.childSessionId
+      ?? null
+  }
+
+  // Browser HTTP always enters ALS via withUserContext(null|identity).
+  // In-process Host callers (WhatsApp/IM, cron fire) never enter ALS → undefined.
+  // Treat undefined as host-internal and skip UDS ACL (pre-auth behavior).
+  const assertCanAccess = (request, rowHint) => {
+    const identity = getUserContext()
+    if (identity === undefined) return
+    if (!empOf(identity)) throwForbidden('login_required_session')
+    if (canSeeAll(identity)) return
+    const sessionId = extractSessionId(request)
+    if (!canAccessSession(sessionId, identity, rowHint)) {
+      throwForbidden('session_forbidden')
+    }
+  }
+
+  const assertSessionReadable = (sessionId, rowHint) => {
+    const identity = getUserContext()
+    if (identity === undefined) return
+    if (!empOf(identity)) throwForbidden('login_required_session')
+    if (canSeeAll(identity)) return
+    if (!canAccessSession(sessionId, identity, rowHint)) {
+      throwForbidden('session_forbidden')
+    }
+  }
+
+  const filterSessionRecords = (records, identity) => (records || []).filter((row) => {
+    const id = row?.header?.id ?? row?.sessionId ?? row?.id
+    return id != null && canAccessSession(id, identity, {
+      cwd: row?.header?.cwd ?? row?.cwd,
+      header: row?.header,
+    })
+  })
+
+  // @ mention discovery (SessionReferenceResolver) lists via sessionQuery.listSessions,
+  // bypassing sessionController ACL — filter the corpus here.
+  ctx.inject(['sessionQuery'], (qctx) => {
+    const sq = qctx.sessionQuery
+    if (!sq || sq.__udsAcl) return
+    sq.__udsAcl = true
+
+    if (typeof sq.listSessions === 'function') {
+      const origList = sq.listSessions.bind(sq)
+      sq.listSessions = async (signal) => {
+        const records = await origList(signal)
+        const identity = getUserContext()
+        if (identity === undefined) return records
+        if (!empOf(identity)) return []
+        if (canSeeAll(identity)) return records
+        return filterSessionRecords(records, identity)
+      }
+    }
+
+    if (typeof sq.filterSessions === 'function') {
+      const origFilter = sq.filterSessions.bind(sq)
+      sq.filterSessions = async (filters, signal) => {
+        const records = await origFilter(filters, signal)
+        const identity = getUserContext()
+        if (identity === undefined) return records
+        if (!empOf(identity)) return []
+        if (canSeeAll(identity)) return records
+        return filterSessionRecords(records, identity)
+      }
+    }
+
+    if (typeof sq.searchSessions === 'function') {
+      const origSearch = sq.searchSessions.bind(sq)
+      sq.searchSessions = async (request, exec) => {
+        const page = await origSearch(request, exec)
+        const identity = getUserContext()
+        if (identity === undefined) return page
+        if (!empOf(identity)) {
+          return page && typeof page === 'object'
+            ? { ...page, hits: [], items: [] }
+            : page
+        }
+        if (canSeeAll(identity)) return page
+        if (!page || typeof page !== 'object') return page
+        const filterHits = (hits) => (hits || []).filter((hit) => {
+          const id = hit?.sessionId ?? hit?.header?.id ?? hit?.id
+          return id != null && canAccessSession(id, identity, {
+            cwd: hit?.cwd ?? hit?.header?.cwd,
+            header: hit?.header,
+          })
+        })
+        return {
+          ...page,
+          ...(Array.isArray(page.hits) ? { hits: filterHits(page.hits) } : {}),
+          ...(Array.isArray(page.items) ? { items: filterHits(page.items) } : {}),
+        }
+      }
+    }
+
+    for (const method of ['readSession', 'readSurface', 'readTitle', 'readTitleSnapshot', 'listEvents', 'observeSession']) {
+      if (typeof sq[method] !== 'function') continue
+      const orig = sq[method].bind(sq)
+      sq[method] = async (sessionId, ...rest) => {
+        assertSessionReadable(sessionId)
+        return orig(sessionId, ...rest)
+      }
+    }
+  })
+
+  // Belt-and-suspenders: filter @ candidates even if listSessions wrap order changes.
+  ctx.inject(['sessionReferenceResolver'], (rctx) => {
+    const resolver = rctx.sessionReferenceResolver
+    if (!resolver || resolver.__udsAcl) return
+    resolver.__udsAcl = true
+
+    if (typeof resolver.listCandidates === 'function') {
+      const origList = resolver.listCandidates.bind(resolver)
+      resolver.listCandidates = async (agent, query, limit, signal) => {
+        const candidates = await origList(agent, query, limit, signal)
+        const identity = getUserContext()
+        if (identity === undefined) return candidates
+        if (!empOf(identity)) return []
+        if (canSeeAll(identity)) return candidates
+        return (candidates || []).filter((c) => canAccessSession(c?.sessionId, identity, {
+          cwd: c?.cwd,
+        }))
+      }
+    }
+
+    if (typeof resolver.prepare === 'function') {
+      const origPrepare = resolver.prepare.bind(resolver)
+      resolver.prepare = async (agent, content, references, signal) => {
+        const identity = getUserContext()
+        if (identity !== undefined) {
+          if (!empOf(identity)) throwForbidden('login_required_session')
+          if (!canSeeAll(identity)) {
+            for (const ref of references || []) {
+              const sid = ref?.sessionId
+              if (sid != null && !canAccessSession(sid, identity)) {
+                throwForbidden('session_forbidden')
+              }
+            }
+          }
+        }
+        return origPrepare(agent, content, references, signal)
+      }
+    }
+  })
+
   ctx.inject(['sessionController'], (sctx) => {
     const sc = sctx.sessionController
     if (!sc || sc.__udsAcl) return
     sc.__udsAcl = true
-
-    const canSeeAll = (identity) => {
-      if (!identity) return false
-      if (identity.permissions?.canViewAllSessions) return true
-      const role = identity.role || identity.userContext?.role
-      if (role === 'fallback_admin' || role === 'super_admin') return true
-      if (String(identity.empNo || identity.userContext?.empNo || '') === 'administrator') return true
-      return false
-    }
-
-    const empOf = (identity) => identity?.empNo || identity?.userContext?.empNo || null
-
-    const extractSessionId = (request) => {
-      if (!request || typeof request !== 'object') return null
-      return request.address?.sessionId
-        ?? request.sessionId
-        ?? request.id
-        ?? request.childSessionId
-        ?? null
-    }
-
-    const resolveRegistry = () => {
-      try {
-        if (typeof getWorkspaceRegistry === 'function') {
-          const r = getWorkspaceRegistry()
-          if (r) return r
-        }
-      } catch { /* ignore */ }
-      try { return ctx.get('workspaceRegistry') } catch { return null }
-    }
-
-    const resolveSessionCwd = (sessionId, rowHint) => {
-      if (rowHint?.cwd) return String(rowHint.cwd)
-      try {
-        const agents = ctx.get('agents')
-        const agent = agents?.get?.(sessionId)
-        const cwd = agent?.session?.header?.cwd
-        if (cwd) return String(cwd)
-      } catch { /* ignore */ }
-      return null
-    }
-
-    const workspaceContainsSession = (ws, sessionId) => {
-      const sid = String(sessionId)
-      try {
-        const ids = ws?.sessionIds
-        if (ids && typeof ids[Symbol.iterator] === 'function') {
-          for (const id of ids) {
-            if (String(id) === sid) return true
-          }
-        }
-      } catch { /* ignore */ }
-      const raw = ws?.record?.sessionIds
-      if (Array.isArray(raw) && raw.some((id) => String(id) === sid)) return true
-      return false
-    }
-
-    const isVisibleWorkspace = (identity, ws) => {
-      if (canSeeAll(identity)) return true
-      const empNo = empOf(identity)
-      if (!empNo || !ws) return false
-      const root = getWorkspaceRoot()
-      const wid = ws.id ?? ws.workspaceId
-      const path = ws.path
-      return userWorkspaces.isUserPath(empNo, path, root)
-        || (userWorkspaces.get(empNo)?.workspaceId
-          && String(userWorkspaces.get(empNo).workspaceId) === String(wid))
-    }
-
-    /** Workspace-first access: visible workspace membership or cwd under user path. */
-    const canAccessSession = (sessionId, identity, rowHint) => {
-      if (!identity || !empOf(identity)) return false
-      if (canSeeAll(identity)) return true
-      if (sessionId == null) return false
-      const empNo = empOf(identity)
-      const root = getWorkspaceRoot()
-      const cwd = resolveSessionCwd(sessionId, rowHint)
-      if (cwd && userWorkspaces.isUserPath(empNo, cwd, root)) return true
-
-      const registry = resolveRegistry()
-      if (!registry || typeof registry.list !== 'function') return false
-      let workspaces = []
-      try { workspaces = registry.list() || [] } catch { return false }
-      for (const ws of workspaces) {
-        if (!isVisibleWorkspace(identity, ws)) continue
-        if (workspaceContainsSession(ws, sessionId)) return true
-      }
-      return false
-    }
-
-    // Browser HTTP always enters ALS via withUserContext(null|identity).
-    // In-process Host callers (WhatsApp/IM, cron fire) never enter ALS → undefined.
-    // Treat undefined as host-internal and skip UDS ACL (pre-auth behavior).
-    const assertCanAccess = (request, rowHint) => {
-      const identity = getUserContext()
-      if (identity === undefined) return
-      if (!empOf(identity)) throwForbidden('login_required_session')
-      if (canSeeAll(identity)) return
-      const sessionId = extractSessionId(request)
-      if (!canAccessSession(sessionId, identity, rowHint)) {
-        throwForbidden('session_forbidden')
-      }
-    }
 
     const assertCreateTargetAllowed = async (req, identity) => {
       if (canSeeAll(identity) || identity.permissions?.canCreateWorkspace) return
@@ -536,6 +722,7 @@ export function installDshAcl(ctx, {
       sc.listState.list = async (signal) => {
         const items = await origStateList(signal)
         const identity = getUserContext()
+        if (identity === undefined) return items
         if (!empOf(identity)) return []
         if (canSeeAll(identity)) return items
         return filterItems(items, identity)
@@ -545,6 +732,7 @@ export function installDshAcl(ctx, {
         sc.listState.search = async (query, signal) => {
           const value = await origStateSearch(query, signal)
           const identity = getUserContext()
+          if (identity === undefined) return value
           if (!empOf(identity)) return { items: [], hasMore: false }
           if (canSeeAll(identity)) return value
           return sessionAcl.filterListValue(value, (id, row) => canAccessSession(id, identity, row))
@@ -556,6 +744,7 @@ export function installDshAcl(ctx, {
     sc.list = async (request, signal) => {
       const value = await origList(request, signal)
       const identity = getUserContext()
+      if (identity === undefined) return value
       if (!empOf(identity)) return { items: [] }
       if (canSeeAll(identity)) return value
       return sessionAcl.filterListValue(value, (id, row) => canAccessSession(id, identity, row))
@@ -565,6 +754,7 @@ export function installDshAcl(ctx, {
     sc.search = async (request, signal) => {
       const value = await origSearch(request, signal)
       const identity = getUserContext()
+      if (identity === undefined) return value
       if (!empOf(identity)) return { items: [], hasMore: false }
       if (canSeeAll(identity)) return value
       return sessionAcl.filterListValue(value, (id, row) => canAccessSession(id, identity, row))

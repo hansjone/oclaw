@@ -2,9 +2,10 @@
  * uds-auth 角色存储 + 权限管理
  * 
  * 角色:
- *   super_admin  所有权限 + 用户管理
- *   admin         设置权限 + 仅看自己会话
- *   user          仅看自己会话，无设置
+ *   super_admin     所有权限 + 用户管理 + 可见全部会话（含 @）
+ *   fallback_admin  等同 super_admin（兜底 administrator）
+ *   admin           设置权限 + 仅看自己会话（含 @）
+ *   user            仅看自己会话，无设置
  *
  * 持久化: roles.json (单实例文件) + MemoryStore 同步
  */

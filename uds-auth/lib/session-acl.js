@@ -1,8 +1,8 @@
 /**
- * Session ownership audit store — sessionId → empNo.
+ * Session ownership store — sessionId → empNo.
  *
- * Used for export / analytics. Tenant isolation is workspace-based
- * (see dsh-acl.js); missing owner must NOT deny access by itself.
+ * Used with workspace/cwd checks in dsh-acl.js (owner OR own workspace).
+ * Missing owner must NOT deny access by itself (legacy sessions).
  */
 import { readFile, writeFile, mkdir } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
