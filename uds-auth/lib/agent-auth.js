@@ -3,6 +3,7 @@
  */
 import { directRequest } from './uds/user-search.js'
 import { requestIsLoopback } from './skill-credentials.js'
+import { apiError, resolveLocale } from './i18n.js'
 
 const DEFAULT_OUTBOUND_HOSTS = [
   'icenterapi.zte.com.cn',
@@ -14,6 +15,10 @@ function sendJSON(res, code, data) {
   res.setHeader('Content-Type', 'application/json; charset=utf-8')
   res.setHeader('Cache-Control', 'no-store')
   res.end(JSON.stringify(data))
+}
+
+function sendErr(req, res, status, code, vars) {
+  return sendJSON(res, status, apiError(code, resolveLocale(req), vars))
 }
 
 function readSessionId(req, body) {
@@ -76,18 +81,17 @@ export function createAgentAuthHandlers(deps) {
 
   async function handleAgentCredentials(req, res) {
     if (!requestIsLoopback(req)) {
-      return sendJSON(res, 403, { error: 'agent-credentials is loopback-only' })
+      return sendErr(req, res, 403, 'loopback_only_credentials')
     }
     const method = (req.method || 'GET').toUpperCase()
     if (method !== 'GET' && method !== 'POST') {
-      return sendJSON(res, 405, { error: 'Method not allowed' })
+      return sendErr(req, res, 405, 'method_not_allowed')
     }
     const body = method === 'POST' ? await readJsonBody(req) : {}
     const { creds, sessionId } = await resolveFromRequest(req, body)
     if (!creds) {
       return sendJSON(res, 401, {
-        error: 'no_skill_credentials',
-        message: '请先完成 UDS 扫码登录',
+        ...apiError('no_skill_credentials', resolveLocale(req)),
         sessionId: sessionId || null,
       })
     }
@@ -100,36 +104,33 @@ export function createAgentAuthHandlers(deps) {
 
   async function handleOutbound(req, res) {
     if (!requestIsLoopback(req)) {
-      return sendJSON(res, 403, { error: 'outbound is loopback-only' })
+      return sendErr(req, res, 403, 'loopback_only_outbound')
     }
     const method = (req.method || 'POST').toUpperCase()
     if (method !== 'POST') {
-      return sendJSON(res, 405, { error: 'Method not allowed' })
+      return sendErr(req, res, 405, 'method_not_allowed')
     }
     const body = await readJsonBody(req)
     const { creds } = await resolveFromRequest(req, body)
     if (!creds) {
-      return sendJSON(res, 401, {
-        error: 'no_skill_credentials',
-        message: '请先完成 UDS 扫码登录',
-      })
+      return sendErr(req, res, 401, 'no_skill_credentials')
     }
 
     const targetUrl = body.url
     if (!targetUrl || typeof targetUrl !== 'string') {
-      return sendJSON(res, 400, { error: 'url required' })
+      return sendErr(req, res, 400, 'url_required')
     }
     let parsed
     try {
       parsed = new URL(targetUrl)
     } catch {
-      return sendJSON(res, 400, { error: 'invalid url' })
+      return sendErr(req, res, 400, 'invalid_url')
     }
     if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
-      return sendJSON(res, 400, { error: 'unsupported protocol' })
+      return sendErr(req, res, 400, 'unsupported_protocol')
     }
     if (!hostAllowed(parsed.hostname)) {
-      return sendJSON(res, 403, { error: 'host_not_allowed', host: parsed.hostname })
+      return sendJSON(res, 403, apiError('host_not_allowed', resolveLocale(req), { host: parsed.hostname }))
     }
 
     const upstreamMethod = String(body.method || 'POST').toUpperCase()
@@ -170,7 +171,9 @@ export function createAgentAuthHandlers(deps) {
         json: out.json,
       }))
     } catch (err) {
-      return sendJSON(res, 502, { error: 'upstream_failed', message: err.message || String(err) })
+      const payload = apiError('upstream_failed', resolveLocale(req))
+      payload.message = payload.message + ': ' + (err.message || String(err))
+      return sendJSON(res, 502, payload)
     }
   }
 

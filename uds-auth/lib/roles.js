@@ -11,6 +11,13 @@
 import { createHash, randomBytes } from 'node:crypto'
 import { readFile, writeFile, mkdir } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
+import { ROLE_LABELS_ZH } from './i18n.js'
+
+function codedError(code) {
+  const err = new Error(code)
+  err.code = code
+  return err
+}
 
 export const ROLES = {
   SUPER_ADMIN: 'super_admin',
@@ -19,12 +26,8 @@ export const ROLES = {
   FALLBACK_ADMIN: 'fallback_admin', // 特殊，UAC 挂了时用，等同 super_admin 权限
 }
 
-export const ROLE_LABELS = {
-  super_admin: '超级管理员',
-  admin: '管理员',
-  user: '普通用户',
-  fallback_admin: '兜底管理员',
-}
+/** zh labels for list/search; UI should translate via i18n role.* keys. */
+export const ROLE_LABELS = ROLE_LABELS_ZH
 
 /** 计算角色权限 (纯函数) */
 export function computePermissions(role) {
@@ -237,7 +240,7 @@ export class RolesStore {
    */
   async setRole(empNo, newRole, currentAdminRole) {
     if (currentAdminRole !== ROLES.SUPER_ADMIN) {
-      throw new Error('只有超级管理员可以修改角色')
+      throw codedError('forbidden_set_role')
     }
 
     // invariant: 不能让系统变成 0 个 super_admin
@@ -245,7 +248,7 @@ export class RolesStore {
     if (currentRole === ROLES.SUPER_ADMIN && newRole !== ROLES.SUPER_ADMIN) {
       const superAdmins = await this.countByRole(ROLES.SUPER_ADMIN)
       if (superAdmins <= 1) {
-        throw new Error('系统至少需要 1 个超级管理员，不能降级最后一个')
+        throw codedError('last_super_admin_demote')
       }
     }
 
@@ -257,13 +260,13 @@ export class RolesStore {
   /** 删除用户 */
   async removeUser(empNo, currentAdminRole) {
     if (currentAdminRole !== ROLES.SUPER_ADMIN) {
-      throw new Error('只有超级管理员可以删除用户')
+      throw codedError('forbidden_remove_user')
     }
     const currentRole = this._roles.get(empNo)
     if (currentRole === ROLES.SUPER_ADMIN) {
       const superAdmins = await this.countByRole(ROLES.SUPER_ADMIN)
       if (superAdmins <= 1) {
-        throw new Error('系统至少需要 1 个超级管理员，不能删除最后一个')
+        throw codedError('last_super_admin_delete')
       }
     }
     this._roles.delete(empNo)
@@ -274,7 +277,7 @@ export class RolesStore {
   /** 确保用户存在 (如果不存在设为 user) */
   ensureUser(empNo, currentAdminRole) {
     if (currentAdminRole !== ROLES.SUPER_ADMIN) {
-      throw new Error('只有超级管理员可以添加用户')
+      throw codedError('forbidden_add_user')
     }
     if (!this._roles.has(empNo)) {
       this._roles.set(empNo, ROLES.USER)
@@ -287,10 +290,10 @@ export class RolesStore {
 
   setFallbackPassword(password, currentAdminRole) {
     if (currentAdminRole !== ROLES.SUPER_ADMIN && currentAdminRole !== ROLES.FALLBACK_ADMIN) {
-      throw new Error('只有超级管理员可以设置兜底管理员密码')
+      throw codedError('forbidden_set_fallback')
     }
     if (!password || password.length < 6) {
-      throw new Error('密码至少 6 位')
+      throw codedError('password_too_short')
     }
     this._fallbackPasswordHash = hashPassword(password)
     this._markDirty()
@@ -299,7 +302,7 @@ export class RolesStore {
 
   clearFallbackPassword(currentAdminRole) {
     if (currentAdminRole !== ROLES.SUPER_ADMIN && currentAdminRole !== ROLES.FALLBACK_ADMIN) {
-      throw new Error('只有超级管理员可以清除兜底管理员密码')
+      throw codedError('forbidden_clear_fallback')
     }
     this._fallbackPasswordHash = null
     this._markDirty()

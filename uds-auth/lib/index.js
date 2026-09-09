@@ -4,6 +4,7 @@
 
 import { requirePermission } from './middleware/auth-middleware.js'
 import { computePermissions } from './roles.js'
+import { apiError, apiOk, resolveLocale } from './i18n.js'
 import { readFile, writeFile } from 'node:fs/promises'
 import { resolve, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -170,7 +171,7 @@ function createQrChallenge(config = _currentConfig || {}) {
 async function handleQrStart(req, res) {
   if (req.method !== 'POST' && req.method !== 'GET') {
     res.writeHead(405, { 'Content-Type': 'application/json' })
-    res.end(JSON.stringify({ error: 'Method not allowed' }))
+    res.end(JSON.stringify(apiError('method_not_allowed', localeOf(req))))
     return
   }
   const challenge = createQrChallenge(_currentConfig)
@@ -185,7 +186,7 @@ async function handleQrStart(req, res) {
 async function handleQRProxy(req, res) {
   if (req.method !== 'POST') {
     res.writeHead(405, { 'Content-Type': 'application/json' })
-    res.end(JSON.stringify({ error: 'Method not allowed' }))
+    res.end(JSON.stringify(apiError('method_not_allowed', localeOf(req))))
     return
   }
 
@@ -341,7 +342,7 @@ function calculateVerifyCode(qrCodeKey, qrCodeValue, loginClientIp, loginSystemC
 async function handleVerifyCode(req, res) {
   if (req.method !== 'GET') {
     res.writeHead(405, { 'Content-Type': 'application/json' })
-    res.end(JSON.stringify({ error: 'Method not allowed' }))
+    res.end(JSON.stringify(apiError('method_not_allowed', localeOf(req))))
     return
   }
 
@@ -354,7 +355,7 @@ async function handleVerifyCode(req, res) {
 
   if (!qrCodeKey || !qrCodeValue) {
     res.writeHead(400, { 'Content-Type': 'application/json' })
-    res.end(JSON.stringify({ error: 'Missing qrCodeKey or qrCodeValue' }))
+    res.end(JSON.stringify(apiError('missing_qr_params', localeOf(req))))
     return
   }
 
@@ -379,7 +380,7 @@ async function handleVerifyCode(req, res) {
 async function handleUserInfo(req, res) {
   if (req.method !== 'GET') {
     res.writeHead(405, { 'Content-Type': 'application/json' })
-    res.end(JSON.stringify({ error: 'Method not allowed' }))
+    res.end(JSON.stringify(apiError('method_not_allowed', localeOf(req))))
     return
   }
 
@@ -389,7 +390,7 @@ async function handleUserInfo(req, res) {
 
   if (!empNo || !token) {
     res.writeHead(400, { 'Content-Type': 'application/json' })
-    res.end(JSON.stringify({ error: 'Missing empNo or token' }))
+    res.end(JSON.stringify(apiError('missing_emp_token', localeOf(req))))
     return
   }
 
@@ -407,7 +408,7 @@ async function handleUserInfo(req, res) {
       const status = out.statusCode === 401 || out.statusCode === 403 ? out.statusCode : 502
       res.writeHead(status, { 'Content-Type': 'application/json' })
       res.end(JSON.stringify({
-        error: 'user search failed',
+        ...apiError('user_search_failed', localeOf(req)),
         reason: out.reason,
         hint: out.hint || 'Ensure userSearchUrl is intranet-reachable and Host does not force HTTP(S)_PROXY for *.zte.com.cn',
         detail: { code: out.code, msg: out.msg, statusCode: out.statusCode },
@@ -428,6 +429,18 @@ function sendJSON(res, code, data) {
   res.end(JSON.stringify(data))
 }
 
+function localeOf(req, userContext) {
+  return resolveLocale(req, userContext)
+}
+
+function sendErr(res, req, status, code, vars, userContext) {
+  return sendJSON(res, status, apiError(code, localeOf(req, userContext), vars))
+}
+
+function sendOkMsg(res, req, code, vars, userContext, extra = {}) {
+  return sendJSON(res, 200, { ...apiOk(code, localeOf(req, userContext), vars), ...extra })
+}
+
 
 /** Prefer Secure cookies only on HTTPS — http://127.0.0.1 drops Secure cookies from WS. */
 function isHttpsRequest(req) {
@@ -446,15 +459,15 @@ async function handleFallbackLogin(req, res) {
   const ip = req.socket?.remoteAddress || 'unknown'
 
   if (!username || !password) {
-    return sendJSON(res, 400, { error: '用户名和密码必填' })
+    return sendErr(res, req, 400, 'username_password_required')
   }
   if (username !== 'administrator') {
     // 不泄露"administrator"是唯一用户名
-    return sendJSON(res, 401, { error: '用户名或密码错误' })
+    return sendErr(res, req, 401, 'invalid_credentials')
   }
 
   if (!_rolesStore.verifyFallback(password, ip)) {
-    return sendJSON(res, 401, { error: '用户名或密码错误' })
+    return sendErr(res, req, 401, 'invalid_credentials')
   }
 
   // 登录成功：创建 session，角色 = fallback_admin (等同 super_admin)
@@ -494,11 +507,10 @@ async function handleFallbackLogin(req, res) {
     return [partsUser.join('; '), partsUi.join('; ')]
   })())
 
-  sendJSON(res, 200, {
+  sendOkMsg(res, req, 'fallback_login', null, userContext, {
     success: true,
     empNo,
     role: 'fallback_admin',
-    message: '兜底管理员登录成功',
   })
 }
 
@@ -506,7 +518,11 @@ async function handleFallbackLogin(req, res) {
 const RUNTIME_CONFIG_FILE = resolve(__dirname, '..', 'config.runtime.json')
 
 async function saveRuntimeConfig(partial) {
-  if (!_currentConfig) throw new Error('配置未初始化')
+  if (!_currentConfig) {
+    const err = new Error('config_not_ready')
+    err.code = 'config_not_ready'
+    throw err
+  }
   // 只允许修改 4 个可配置字段
   const allowed = [
     'uacBaseUrl',
@@ -584,7 +600,7 @@ async function handleAllRoutes(req, res) {
       if (!_agentAuthHandlers) {
         res.statusCode = 503
         res.setHeader('Content-Type', 'application/json')
-        res.end(JSON.stringify({ error: 'skill credentials not ready' }))
+        res.end(JSON.stringify(apiError('skill_credentials_not_ready', localeOf(req))))
         return
       }
       return await _agentAuthHandlers.handleAgentCredentials(req, res)
@@ -593,7 +609,7 @@ async function handleAllRoutes(req, res) {
       if (!_agentAuthHandlers) {
         res.statusCode = 503
         res.setHeader('Content-Type', 'application/json')
-        res.end(JSON.stringify({ error: 'outbound not ready' }))
+        res.end(JSON.stringify(apiError('outbound_not_ready', localeOf(req))))
         return
       }
       return await _agentAuthHandlers.handleOutbound(req, res)
@@ -612,7 +628,7 @@ async function handleAllRoutes(req, res) {
     // 未知路径
     res.statusCode = 404
     res.setHeader('Content-Type', 'application/json')
-    res.end(JSON.stringify({ error: 'Not found', path: pathname }))
+    res.end(JSON.stringify({ ...apiError('not_found', localeOf(req)), path: pathname }))
   } catch (err) {
     console.error('[uds-auth] handleAllRoutes error:', err)
     res.statusCode = 500
@@ -643,7 +659,7 @@ function handleRequest(req, res) {
 
     // 以下都需要登录态
     if (!ctx2.empNo) {
-      return sendJSON(res, 401, { error: '未登录' })
+      return sendErr(res, req, 401, 'not_logged_in', null, ctx2.userContext)
     }
 
     // 用户管理 (super_admin only)
@@ -671,14 +687,14 @@ function handleRequest(req, res) {
     // 配置端点 (admin / super_admin：canAccessSettings)
     if (url === '/api/config' && method === 'GET') {
       if (!requirePermission(ctx2, 'canAccessSettings')) {
-        return sendJSON(res, 403, { error: '当前账号无设置权限' })
+        return sendErr(res, req, 403, 'forbidden_settings', null, ctx2.userContext)
       }
       sendJSON(res, 200, { config: _currentConfig })
       return
     }
     if (url === '/api/config' && method === 'POST') {
       if (!requirePermission(ctx2, 'canAccessSettings')) {
-        return sendJSON(res, 403, { error: '当前账号无设置权限' })
+        return sendErr(res, req, 403, 'forbidden_settings', null, ctx2.userContext)
       }
       let body = ''
       for await (const chunk of req) body += chunk
@@ -686,9 +702,14 @@ function handleRequest(req, res) {
       try { parsed = JSON.parse(body) } catch { parsed = {} }
       try {
         await saveRuntimeConfig(parsed)
-        sendJSON(res, 200, { message: '配置已保存' })
-      } catch(err) {
-        sendJSON(res, 400, { error: err.message })
+        sendOkMsg(res, req, 'config_saved', null, ctx2.userContext)
+      } catch (err) {
+        const code = err?.code || err?.message
+        if (code === 'config_not_ready') {
+          sendErr(res, req, 400, 'config_not_ready', null, ctx2.userContext)
+        } else {
+          sendJSON(res, 400, { error: 'request_failed', message: err.message })
+        }
       }
       return
     }

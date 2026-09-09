@@ -4,6 +4,7 @@
 import { createRequire } from 'node:module'
 import { withUserContext, getUserContext, runWithUserContext } from './context.js'
 import { computePermissions, ROLES } from './roles.js'
+import { resolveLocale, t } from './i18n.js'
 
 const require = createRequire(import.meta.url)
 
@@ -271,7 +272,7 @@ export function patchWebServerWithIdentity(server, resolveIdentity, resolveIdent
           res.end(JSON.stringify({
             ok: false,
             error: 'login_required',
-            message: '登录后才能使用定时任务',
+            message: t('err.login_required_cron', resolveLocale(req, identity)),
           }))
           return
         }
@@ -354,14 +355,18 @@ export function patchWebServerWithIdentity(server, resolveIdentity, resolveIdent
 
 
 
-function throwForbidden(message) {
+function throwForbidden(code) {
   // Structural RemoteError so Gateway rpcFailure keeps the message instead of
   // remapping a plain Error to gateway/internal. Use gateway/bad-request (declared).
+  const locale = resolveLocale(null, getUserContext())
+  const raw = String(code || 'request_failed')
+  const key = raw.startsWith('err.') ? raw : 'err.' + raw
+  const message = t(key, locale)
   const err = new Error(message || 'forbidden')
   err.name = 'RemoteError'
   err.isDSHRemoteError = true
   err.code = 'gateway/bad-request'
-  err.details = {}
+  err.details = { udsError: raw.replace(/^err\./, '') }
   throw err
 }
 
@@ -492,11 +497,11 @@ export function installDshAcl(ctx, {
     const assertCanAccess = (request, rowHint) => {
       const identity = getUserContext()
       if (identity === undefined) return
-      if (!empOf(identity)) throwForbidden('登录后才能访问会话')
+      if (!empOf(identity)) throwForbidden('login_required_session')
       if (canSeeAll(identity)) return
       const sessionId = extractSessionId(request)
       if (!canAccessSession(sessionId, identity, rowHint)) {
-        throwForbidden('无权访问该会话')
+        throwForbidden('session_forbidden')
       }
     }
 
@@ -508,13 +513,13 @@ export function installDshAcl(ctx, {
         const registry = resolveRegistry()
         const ws = registry?.get?.(req.workspaceId)
         if (!ws || !isVisibleWorkspace(identity, ws)) {
-          throwForbidden('只能在自己的工作区创建会话')
+          throwForbidden('session_workspace_only')
         }
         return
       }
       if (req.cwd !== undefined) {
         if (!userWorkspaces.isUserPath(empNo, req.cwd, root)) {
-          throwForbidden('只能在自己的工作区创建会话')
+          throwForbidden('session_workspace_only')
         }
       }
     }
@@ -572,7 +577,7 @@ export function installDshAcl(ctx, {
       if (identity === undefined) {
         return origCreate(request || {})
       }
-      if (!empOf(identity)) throwForbidden('登录后才能创建会话')
+      if (!empOf(identity)) throwForbidden('login_required_create_session')
 
       let req = { ...(request || {}) }
       await assertCreateTargetAllowed(req, identity)
@@ -638,11 +643,11 @@ export function installDshAcl(ctx, {
       sc.openWorkspacePath = async (request, signal) => {
         const identity = getUserContext()
         if (identity === undefined) return origOpenPath(request, signal)
-        if (!empOf(identity)) throwForbidden('登录后才能访问会话')
+        if (!empOf(identity)) throwForbidden('login_required_session')
         if (!canSeeAll(identity) && !identity.permissions?.canCreateWorkspace) {
           const path = request?.path
           if (!path || !userWorkspaces.isUserPath(empOf(identity), path, getWorkspaceRoot())) {
-            throwForbidden('只能打开自己的工作区路径')
+            throwForbidden('workspace_path_only')
           }
         }
         return origOpenPath(request, signal)
@@ -673,7 +678,7 @@ ctx.inject(['workspaceController'], (wctx) => {
       const identity = getUserContext()
       if (identity?._internalProvision) return origCreate(request)
       if (!identity?.permissions?.canCreateWorkspace) {
-        throwForbidden('只有超级管理员可以创建工作区')
+        throwForbidden('workspace_create_forbidden')
       }
       return origCreate(request)
     }
@@ -780,7 +785,7 @@ ctx.inject(['workspaceController'], (wctx) => {
         // Allow uds-auth namespace writes from our own settings section for admins;
         // users cannot touch any settings.
         if (!identity?.permissions?.canAccessSettings) {
-          throwForbidden('当前账号无设置权限')
+          throwForbidden('forbidden_settings')
         }
         return orig(...args)
       }
@@ -795,9 +800,9 @@ ctx.inject(['workspaceController'], (wctx) => {
 
     const assertCanCreateWorkspace = () => {
       const identity = getUserContext()
-      if (!identity?.empNo) throwForbidden('登录后才能使用工作区')
+      if (!identity?.empNo) throwForbidden('login_required_workspace')
       if (!identity?.permissions?.canCreateWorkspace) {
-        throwForbidden('只有超级管理员可以创建工作区')
+        throwForbidden('workspace_create_forbidden')
       }
     }
 

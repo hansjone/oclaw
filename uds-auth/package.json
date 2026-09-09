@@ -8,6 +8,7 @@
     ".": "./lib/index.js",
     "./client": "./lib/client.js",
     "./config": "./lib/config.js",
+    "./i18n": "./lib/i18n.js",
     "./session": "./lib/session/factory.js",
     "./middleware": "./lib/middleware/auth-middleware.js",
     "./api": "./lib/api.js",
@@ -64,7 +65,8 @@
       "immediately": true,
       "inject": [
         "@deepseek-ai/dsh-client-ui-slots",
-        "@deepseek-ai/dsh-client-ui-layout"
+        "@deepseek-ai/dsh-client-ui-layout",
+        "@deepseek-ai/dsh-client-locale"
       ]
     }
   }

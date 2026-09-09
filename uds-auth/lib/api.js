@@ -1,18 +1,9 @@
 import { ROLES, ROLE_LABELS } from './roles.js'
 import { requirePermission } from './middleware/auth-middleware.js'
+import { apiError, apiOk, resolveLocale, roleLabel } from './i18n.js'
 
 /**
- * API handlers — 带权限守卫
- * 
- * 权限:
- *   GET  /me              → 所有人（需登录）
- *   POST /logout           → 所有人（需登录）
- *   GET  /users            → super_admin only（列出所有用户）
- *   POST /users/role       → super_admin only（修改角色）
- *   POST /users            → super_admin only（添加用户）
- *   DELETE /users/:empNo   → super_admin only（删除用户）
- *   POST /fallback/password → super_admin only（设置兜底密码）
- *   POST /fallback/clear   → super_admin only（清除兜底密码）
+ * API handlers — permission guards + localized messages via stable error codes.
  */
 /**
  * @param {object} config
@@ -27,17 +18,38 @@ export function createApiHandlers(config, sessionStore, rolesStore, extra = {}) 
     res.end(JSON.stringify(data))
   }
 
+  function locale(ctx) {
+    return resolveLocale(ctx.req, ctx.userContext)
+  }
+
+  function fail(ctx, code, status, vars) {
+    return sendRes(ctx.res, status, apiError(code, locale(ctx), vars))
+  }
+
+  function ok(ctx, code, vars, extraFields = {}) {
+    return sendRes(ctx.res, 200, { ...apiOk(code, locale(ctx), vars), ...extraFields })
+  }
+
+  function mapThrown(ctx, err, status = 400) {
+    const code = err?.code || err?.message
+    if (code && typeof code === 'string' && !code.includes(' ') && !/[\u4e00-\u9fff]/.test(code)) {
+      return fail(ctx, code, status)
+    }
+    return sendRes(ctx.res, status, {
+      error: 'request_failed',
+      message: err?.message || String(err),
+    })
+  }
+
   async function logout(ctx) {
     const empNo = ctx.empNo
     if (empNo) await sessionStore.delete(empNo)
-    // Skill 凭证轨：默认保留；retainSkillCredentialsOnLogout=false 时清除
     const retain = extra.retainSkillCredentialsOnLogout
       ? extra.retainSkillCredentialsOnLogout() !== false
       : true
     if (empNo && !retain) {
       try { extra.skillCredentials?.delete(empNo) } catch { /* ignore */ }
     }
-    // Cookie clear attrs must match login (Secure + HttpOnly), or browsers keep the old cookie.
     const clear = []
     for (const name of [
       'UDS_FALLBACK_USER',
@@ -55,7 +67,7 @@ export function createApiHandlers(config, sessionStore, rolesStore, extra = {}) 
       clear.push(base + '; Secure')
     }
     ctx.res.setHeader('Set-Cookie', clear)
-    await sendRes(ctx.res, 200, { message: 'Logged out' })
+    await ok(ctx, 'logged_out')
   }
 
   async function getCurrentUser(ctx) {
@@ -73,97 +85,100 @@ export function createApiHandlers(config, sessionStore, rolesStore, extra = {}) 
     })
   }
 
-  // === 用户管理 (super_admin only) ===
-
   async function listUsers(ctx) {
     if (!requirePermission(ctx, 'super_admin')) {
-      return sendRes(ctx.res, 403, { error: '只有超级管理员可以查看用户列表' })
+      return fail(ctx, 'forbidden_list_users', 403)
     }
     const url = new URL(ctx.req.url, 'http://localhost')
     const page = url.searchParams.get('page')
     const pageSize = url.searchParams.get('pageSize')
     const q = url.searchParams.get('q') || ''
     const result = rolesStore.listPage({ page, pageSize, q })
+    const loc = locale(ctx)
+    if (Array.isArray(result.users)) {
+      result.users = result.users.map((u) => ({
+        ...u,
+        roleLabel: roleLabel(u.role, loc) || ROLE_LABELS[u.role] || u.role,
+      }))
+    }
     await sendRes(ctx.res, 200, result)
   }
 
   async function setUserRole(ctx) {
     if (!requirePermission(ctx, 'super_admin')) {
-      return sendRes(ctx.res, 403, { error: '只有超级管理员可以修改角色' })
+      return fail(ctx, 'forbidden_set_role', 403)
     }
     const body = await readBody(ctx.req)
     const { empNo, role } = body || {}
     if (!empNo || !role || !Object.values(ROLES).includes(role)) {
-      return sendRes(ctx.res, 400, { error: '参数错误: empNo 和 role 必填' })
+      return fail(ctx, 'invalid_role_params', 400)
     }
     try {
       await rolesStore.setRole(empNo, role, ctx.role)
-      await sendRes(ctx.res, 200, { message: `${empNo} 角色已更新为 ${ROLE_LABELS[role]}` })
+      await ok(ctx, 'role_updated', { empNo, role: roleLabel(role, locale(ctx)) })
     } catch (err) {
-      await sendRes(ctx.res, 400, { error: err.message })
+      await mapThrown(ctx, err)
     }
   }
 
   async function addUser(ctx) {
     if (!requirePermission(ctx, 'super_admin')) {
-      return sendRes(ctx.res, 403, { error: '只有超级管理员可以添加用户' })
+      return fail(ctx, 'forbidden_add_user', 403)
     }
     const body = await readBody(ctx.req)
     const { empNo, role } = body || {}
     if (!empNo) {
-      return sendRes(ctx.res, 400, { error: 'empNo 必填' })
+      return fail(ctx, 'emp_no_required', 400)
     }
     const targetRole = role && Object.values(ROLES).includes(role) ? role : ROLES.USER
     try {
       await rolesStore.ensureUser(empNo, ctx.role)
       if (role) await rolesStore.setRole(empNo, role, ctx.role)
-      await sendRes(ctx.res, 200, { message: `${empNo} 已添加为 ${ROLE_LABELS[targetRole]}` })
+      await ok(ctx, 'user_added', { empNo, role: roleLabel(targetRole, locale(ctx)) })
     } catch (err) {
-      await sendRes(ctx.res, 400, { error: err.message })
+      await mapThrown(ctx, err)
     }
   }
 
   async function removeUser(ctx) {
     if (!requirePermission(ctx, 'super_admin')) {
-      return sendRes(ctx.res, 403, { error: '只有超级管理员可以删除用户' })
+      return fail(ctx, 'forbidden_remove_user', 403)
     }
     const body = await readBody(ctx.req)
     const { empNo } = body || {}
     if (!empNo) {
-      return sendRes(ctx.res, 400, { error: 'empNo 必填' })
+      return fail(ctx, 'emp_no_required', 400)
     }
     try {
       await rolesStore.removeUser(empNo, ctx.role)
       await sessionStore.delete(empNo)
       try { extra.skillCredentials?.delete(empNo) } catch { /* ignore */ }
-      await sendRes(ctx.res, 200, { message: `${empNo} 已删除` })
+      await ok(ctx, 'user_removed', { empNo })
     } catch (err) {
-      await sendRes(ctx.res, 400, { error: err.message })
+      await mapThrown(ctx, err)
     }
   }
 
-  // === Fallback Admin (super_admin only) ===
-
   async function setFallbackPassword(ctx) {
     if (!requirePermission(ctx, 'super_admin')) {
-      return sendRes(ctx.res, 403, { error: '只有超级管理员可以设置兜底密码' })
+      return fail(ctx, 'forbidden_set_fallback', 403)
     }
     const body = await readBody(ctx.req)
     const { password } = body || {}
     try {
       await rolesStore.setFallbackPassword(password, ctx.role)
-      await sendRes(ctx.res, 200, { message: '兜底管理员密码已设置' })
+      await ok(ctx, 'fallback_password_set')
     } catch (err) {
-      await sendRes(ctx.res, 400, { error: err.message })
+      await mapThrown(ctx, err)
     }
   }
 
   async function clearFallbackPassword(ctx) {
     if (!requirePermission(ctx, 'super_admin')) {
-      return sendRes(ctx.res, 403, { error: '只有超级管理员可以清除兜底密码' })
+      return fail(ctx, 'forbidden_clear_fallback', 403)
     }
     await rolesStore.clearFallbackPassword(ctx.role)
-    await sendRes(ctx.res, 200, { message: '兜底管理员密码已清除' })
+    await ok(ctx, 'fallback_password_cleared')
   }
 
   async function fallbackStatus(ctx) {

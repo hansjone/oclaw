@@ -15,12 +15,371 @@ window.__ModuleLoader__.load({
     const { useCallback, useEffect, useLayoutEffect, useRef, useState } = React
 
     const name = 'uds-auth'
-    const inject = ['slots']
+    const inject = ['slots', 'locale']
     const PAGE_SIZE = 50
+    const LOCALE_NS = 'uds-auth'
+
+    /* uds-auth-i18n-begin — keep in sync with lib/i18n.js */
+    const UDS_I18N_MESSAGES = {
+  "zh": {
+    "role.super_admin": "超级管理员",
+    "role.admin": "管理员",
+    "role.user": "普通用户",
+    "role.fallback_admin": "应急管理员",
+    "role.badge.super_admin": "超管",
+    "role.badge.admin": "管理员",
+    "role.badge.fallback_admin": "应急",
+    "role.badge.user": "",
+    "ui.settingsTitle": "UAC 认证",
+    "ui.settingsIntro": "工号+token 双校验；UAC 挂死时用应急账号 administrator 密码登录。",
+    "ui.loginRequiredPage": "请先登录后查看此页",
+    "ui.roleHint": "当前角色：{role}。首位扫码登录且 roles.json 为空时会自动成为超管；普通 admin 需超管在「用户管理」提权后再扫码登录。应急账号 administrator 需超管先设密码，再在登录面板用账密登录。",
+    "ui.deployConfig": "部署配置",
+    "ui.userSearchUrl": "用户搜索 URL（token 校验）",
+    "ui.workspaceRoot": "工作区根目录（空=$DSH_HOME/user-workspaces）",
+    "ui.saveConfig": "保存配置",
+    "ui.saving": "保存中...",
+    "ui.configSaved": "配置已保存",
+    "ui.saveFailed": "保存失败",
+    "ui.fallbackTitle": "应急登录（UAC 不可用）",
+    "ui.fallbackStatus": "状态：{status}。可在此改密或关闭。仅在扫码不可用时从登录面板切换。",
+    "ui.enabled": "已启用",
+    "ui.disabled": "未启用",
+    "ui.fallbackPassword": "应急密码（至少 6 位）",
+    "ui.saveFallbackPassword": "保存应急密码",
+    "ui.fallbackPasswordSet": "应急密码已设置",
+    "ui.confirmClearFallback": "确认清除应急密码？",
+    "ui.clear": "清除",
+    "ui.userManagement": "用户管理",
+    "ui.searchEmpNo": "搜索工号",
+    "ui.search": "搜索",
+    "ui.loading": "加载中...",
+    "ui.loadFailed": "加载失败",
+    "ui.empNo": "工号",
+    "ui.role": "角色",
+    "ui.actions": "操作",
+    "ui.noUsers": "暂无用户",
+    "ui.delete": "删除",
+    "ui.confirmDelete": "确认删除 {empNo}？",
+    "ui.pager": "共 {total} 人，第 {page} / {totalPages} 页",
+    "ui.prevPage": "上一页",
+    "ui.nextPage": "下一页",
+    "ui.add": "添加",
+    "ui.department": "部门",
+    "ui.notLoggedIn": "未登录",
+    "ui.pleaseScan": "请使用 iCenter 扫码登录",
+    "ui.refreshQr": "刷新二维码",
+    "ui.fallbackLink": "UAC 不可用？应急账号登录",
+    "ui.fallbackLogin": "应急登录",
+    "ui.fallbackDetail": "UAC / 扫码不可用时使用",
+    "ui.username": "用户名",
+    "ui.password": "密码",
+    "ui.login": "登录",
+    "ui.loggingIn": "登录中...",
+    "ui.backToQr": "返回扫码登录",
+    "ui.logout": "退出登录",
+    "ui.userPrefix": "用户",
+    "ui.qrGenerating": "正在生成二维码...",
+    "ui.qrScanPrompt": "请使用 iCenter 扫码登录...",
+    "ui.userInfoFailed": "用户信息查询失败",
+    "ui.loginSuccess": "登录成功！",
+    "ui.missingToken": "缺少 token，无法完成校验",
+    "ui.waitingScan": "等待扫码...",
+    "ui.qrExpired": "二维码已失效",
+    "ui.qrExpiredHint": "请刷新后重新扫描",
+    "ui.loginFailed": "登录失败",
+    "ui.networkError": "网络错误...",
+    "ui.qrGenerateFailed": "生成二维码失败",
+    "ui.cronLoginRequired": "登录后才能使用定时任务",
+    "ui.workspaceCreateForbidden": "只有超级管理员可以创建工作区",
+    "ui.workspaceLoginRequired": "登录后才能使用工作区",
+    "err.not_logged_in": "未登录",
+    "err.forbidden_settings": "当前账号无设置权限",
+    "err.forbidden_manage_users": "只有超级管理员可以管理用户",
+    "err.forbidden_list_users": "只有超级管理员可以查看用户列表",
+    "err.forbidden_set_role": "只有超级管理员可以修改角色",
+    "err.forbidden_add_user": "只有超级管理员可以添加用户",
+    "err.forbidden_remove_user": "只有超级管理员可以删除用户",
+    "err.forbidden_set_fallback": "只有超级管理员可以设置应急密码",
+    "err.forbidden_clear_fallback": "只有超级管理员可以清除应急密码",
+    "err.invalid_role_params": "参数错误: empNo 和 role 必填",
+    "err.emp_no_required": "empNo 必填",
+    "err.username_password_required": "用户名和密码必填",
+    "err.invalid_credentials": "用户名或密码错误",
+    "err.last_super_admin_demote": "系统至少需要 1 个超级管理员，不能降级最后一个",
+    "err.last_super_admin_delete": "系统至少需要 1 个超级管理员，不能删除最后一个",
+    "err.password_too_short": "密码至少 6 位",
+    "err.config_not_ready": "配置未初始化",
+    "err.request_failed": "请求失败",
+    "err.method_not_allowed": "方法不允许",
+    "err.missing_qr_params": "缺少 qrCodeKey 或 qrCodeValue",
+    "err.missing_emp_token": "缺少 empNo 或 token",
+    "err.user_search_failed": "用户搜索失败",
+    "err.not_found": "未找到",
+    "err.internal": "内部错误",
+    "err.login_required_cron": "登录后才能使用定时任务",
+    "err.login_required_session": "登录后才能访问会话",
+    "err.login_required_create_session": "登录后才能创建会话",
+    "err.login_required_workspace": "登录后才能使用工作区",
+    "err.session_forbidden": "无权访问该会话",
+    "err.session_workspace_only": "只能在自己的工作区创建会话",
+    "err.workspace_path_only": "只能打开自己的工作区路径",
+    "err.workspace_create_forbidden": "只有超级管理员可以创建工作区",
+    "err.no_skill_credentials": "请先完成 UAC 扫码登录",
+    "err.loopback_only_credentials": "agent-credentials 仅允许本机访问",
+    "err.loopback_only_outbound": "outbound 仅允许本机访问",
+    "err.url_required": "缺少 url",
+    "err.invalid_url": "无效 url",
+    "err.unsupported_protocol": "不支持的协议",
+    "err.host_not_allowed": "主机不在白名单",
+    "err.upstream_failed": "上游请求失败",
+    "err.skill_credentials_not_ready": "skill 凭证未就绪",
+    "err.outbound_not_ready": "outbound 未就绪",
+    "ok.logged_out": "已退出登录",
+    "ok.config_saved": "配置已保存",
+    "ok.role_updated": "{empNo} 角色已更新为 {role}",
+    "ok.user_added": "{empNo} 已添加为 {role}",
+    "ok.user_removed": "{empNo} 已删除",
+    "ok.fallback_password_set": "应急管理员密码已设置",
+    "ok.fallback_password_cleared": "应急管理员密码已清除",
+    "ok.fallback_login": "应急管理员登录成功"
+  },
+  "en": {
+    "role.super_admin": "Super admin",
+    "role.admin": "Admin",
+    "role.user": "User",
+    "role.fallback_admin": "Emergency admin",
+    "role.badge.super_admin": "Super",
+    "role.badge.admin": "Admin",
+    "role.badge.fallback_admin": "Emergency",
+    "role.badge.user": "",
+    "ui.settingsTitle": "UAC Auth",
+    "ui.settingsIntro": "EmpNo + token verification; when UAC is down, sign in with emergency account administrator.",
+    "ui.loginRequiredPage": "Sign in to view this page",
+    "ui.roleHint": "Current role: {role}. The first QR login with an empty roles.json becomes super admin; grant admin in User management then re-scan. Set the emergency password before using administrator on the login panel.",
+    "ui.deployConfig": "Deploy config",
+    "ui.userSearchUrl": "User search URL (token verify)",
+    "ui.workspaceRoot": "Workspace root (empty=$DSH_HOME/user-workspaces)",
+    "ui.saveConfig": "Save config",
+    "ui.saving": "Saving...",
+    "ui.configSaved": "Config saved",
+    "ui.saveFailed": "Save failed",
+    "ui.fallbackTitle": "Emergency login (UAC unavailable)",
+    "ui.fallbackStatus": "Status: {status}. Change or disable here. Switch from the login panel only when QR is unavailable.",
+    "ui.enabled": "Enabled",
+    "ui.disabled": "Disabled",
+    "ui.fallbackPassword": "Emergency password (min 6 chars)",
+    "ui.saveFallbackPassword": "Save emergency password",
+    "ui.fallbackPasswordSet": "Emergency password set",
+    "ui.confirmClearFallback": "Clear emergency password?",
+    "ui.clear": "Clear",
+    "ui.userManagement": "User management",
+    "ui.searchEmpNo": "Search empNo",
+    "ui.search": "Search",
+    "ui.loading": "Loading...",
+    "ui.loadFailed": "Load failed",
+    "ui.empNo": "EmpNo",
+    "ui.role": "Role",
+    "ui.actions": "Actions",
+    "ui.noUsers": "No users",
+    "ui.delete": "Delete",
+    "ui.confirmDelete": "Delete {empNo}?",
+    "ui.pager": "{total} users, page {page} / {totalPages}",
+    "ui.prevPage": "Previous",
+    "ui.nextPage": "Next",
+    "ui.add": "Add",
+    "ui.department": "Department",
+    "ui.notLoggedIn": "Not signed in",
+    "ui.pleaseScan": "Scan with iCenter to sign in",
+    "ui.refreshQr": "Refresh QR",
+    "ui.fallbackLink": "UAC down? Emergency account",
+    "ui.fallbackLogin": "Emergency login",
+    "ui.fallbackDetail": "Use when UAC / QR is unavailable",
+    "ui.username": "Username",
+    "ui.password": "Password",
+    "ui.login": "Sign in",
+    "ui.loggingIn": "Signing in...",
+    "ui.backToQr": "Back to QR login",
+    "ui.logout": "Sign out",
+    "ui.userPrefix": "User",
+    "ui.qrGenerating": "Generating QR...",
+    "ui.qrScanPrompt": "Scan with iCenter to sign in...",
+    "ui.userInfoFailed": "User info lookup failed",
+    "ui.loginSuccess": "Signed in!",
+    "ui.missingToken": "Missing token; cannot verify",
+    "ui.waitingScan": "Waiting for scan...",
+    "ui.qrExpired": "QR code expired",
+    "ui.qrExpiredHint": "Refresh and scan again",
+    "ui.loginFailed": "Sign-in failed",
+    "ui.networkError": "Network error...",
+    "ui.qrGenerateFailed": "Failed to generate QR",
+    "ui.cronLoginRequired": "Sign in to use scheduled tasks",
+    "ui.workspaceCreateForbidden": "Only super admins can create workspaces",
+    "ui.workspaceLoginRequired": "Sign in to use workspaces",
+    "err.not_logged_in": "Not signed in",
+    "err.forbidden_settings": "No settings permission",
+    "err.forbidden_manage_users": "Only super admins can manage users",
+    "err.forbidden_list_users": "Only super admins can list users",
+    "err.forbidden_set_role": "Only super admins can change roles",
+    "err.forbidden_add_user": "Only super admins can add users",
+    "err.forbidden_remove_user": "Only super admins can remove users",
+    "err.forbidden_set_fallback": "Only super admins can set the emergency password",
+    "err.forbidden_clear_fallback": "Only super admins can clear the emergency password",
+    "err.invalid_role_params": "Invalid params: empNo and role required",
+    "err.emp_no_required": "empNo required",
+    "err.username_password_required": "Username and password required",
+    "err.invalid_credentials": "Invalid username or password",
+    "err.last_super_admin_demote": "At least one super admin is required; cannot demote the last one",
+    "err.last_super_admin_delete": "At least one super admin is required; cannot delete the last one",
+    "err.password_too_short": "Password must be at least 6 characters",
+    "err.config_not_ready": "Config not initialized",
+    "err.request_failed": "Request failed",
+    "err.method_not_allowed": "Method not allowed",
+    "err.missing_qr_params": "Missing qrCodeKey or qrCodeValue",
+    "err.missing_emp_token": "Missing empNo or token",
+    "err.user_search_failed": "User search failed",
+    "err.not_found": "Not found",
+    "err.internal": "Internal error",
+    "err.login_required_cron": "Sign in to use scheduled tasks",
+    "err.login_required_session": "Sign in to access sessions",
+    "err.login_required_create_session": "Sign in to create a session",
+    "err.login_required_workspace": "Sign in to use workspaces",
+    "err.session_forbidden": "No access to this session",
+    "err.session_workspace_only": "Sessions can only be created in your own workspace",
+    "err.workspace_path_only": "You can only open your own workspace path",
+    "err.workspace_create_forbidden": "Only super admins can create workspaces",
+    "err.no_skill_credentials": "Complete UAC QR sign-in first",
+    "err.loopback_only_credentials": "agent-credentials is loopback-only",
+    "err.loopback_only_outbound": "outbound is loopback-only",
+    "err.url_required": "url required",
+    "err.invalid_url": "invalid url",
+    "err.unsupported_protocol": "unsupported protocol",
+    "err.host_not_allowed": "host not allowed",
+    "err.upstream_failed": "upstream failed",
+    "err.skill_credentials_not_ready": "skill credentials not ready",
+    "err.outbound_not_ready": "outbound not ready",
+    "ok.logged_out": "Signed out",
+    "ok.config_saved": "Config saved",
+    "ok.role_updated": "{empNo} role updated to {role}",
+    "ok.user_added": "{empNo} added as {role}",
+    "ok.user_removed": "{empNo} removed",
+    "ok.fallback_password_set": "Emergency admin password set",
+    "ok.fallback_password_cleared": "Emergency admin password cleared",
+    "ok.fallback_login": "Emergency admin signed in"
+  }
+}
+    const UDS_HOST_ARIA = {
+  "addWorkspace": [
+    "添加工作区",
+    "Add workspace"
+  ],
+  "chooseWorkspace": [
+    "选择工作区",
+    "Choose workspace"
+  ],
+  "sessions": [
+    "会话",
+    "Sessions"
+  ]
+}
+    /** Prefer DSH host locale over portal SSO language cookies. */
+    let localeHost = null
+    let translate = null
+    function normalizeLocale(lang) {
+      const raw = String(lang || '').trim().toLowerCase()
+      if (raw.startsWith('zh')) return 'zh'
+      return 'en'
+    }
+    function getUiLocale() {
+      try {
+        const snap = typeof localeHost?.locale?.getSnapshot === 'function'
+          ? localeHost.locale.getSnapshot()
+          : null
+        const raw = snap?.active
+          || snap?.locale
+          || snap?.preference
+          || localeHost?.locale?.active
+          || (document.documentElement && document.documentElement.lang)
+          || (typeof navigator !== 'undefined' && (navigator.language || navigator.userLanguage))
+          || ''
+        return normalizeLocale(raw)
+      } catch {
+        return 'en'
+      }
+    }
+    function applyVars(text, vars) {
+      let out = String(text)
+      if (vars && typeof vars === 'object') {
+        for (const k of Object.keys(vars)) {
+          out = out.split('{' + k + '}').join(String(vars[k]))
+        }
+      }
+      return out
+    }
+    function t(key, vars) {
+      if (typeof translate === 'function') {
+        try {
+          const out = translate(key, vars)
+          if (out != null && out !== key) return applyVars(out, vars)
+        } catch { /* fall through */ }
+      }
+      const loc = getUiLocale()
+      const table = UDS_I18N_MESSAGES[loc] || UDS_I18N_MESSAGES.zh
+      const text = (table && table[key])
+        || (UDS_I18N_MESSAGES.en && UDS_I18N_MESSAGES.en[key])
+        || (UDS_I18N_MESSAGES.zh && UDS_I18N_MESSAGES.zh[key])
+        || key
+      return applyVars(text, vars)
+    }
+    function makeTranslator(ctx) {
+      if (typeof ctx?.locale?.bind === 'function') {
+        try {
+          const bound = ctx.locale.bind(LOCALE_NS)
+          if (typeof bound === 'function') {
+            return (key, params) => {
+              try {
+                const out = bound(key, params)
+                if (out != null && out !== key) return out
+              } catch { /* fall through */ }
+              const dict = getUiLocale() === 'zh' ? UDS_I18N_MESSAGES.zh : UDS_I18N_MESSAGES.en
+              return (dict && dict[key]) || UDS_I18N_MESSAGES.en[key] || UDS_I18N_MESSAGES.zh[key] || key
+            }
+          }
+        } catch { /* fall through */ }
+      }
+      return (key) => {
+        const dict = getUiLocale() === 'zh' ? UDS_I18N_MESSAGES.zh : UDS_I18N_MESSAGES.en
+        return (dict && dict[key]) || UDS_I18N_MESSAGES.en[key] || UDS_I18N_MESSAGES.zh[key] || key
+      }
+    }
+    function roleLabel(role) {
+      return t('role.badge.' + String(role || 'user')) || t('role.' + String(role || 'user'))
+    }
+    function apiMessage(err) {
+      const data = err && err.data
+      const code = data && data.error
+      if (code) {
+        const key = String(code).startsWith('err.') ? code : 'err.' + code
+        const translated = t(key)
+        if (translated && translated !== key) return translated
+      }
+      return (data && (data.message || data.error)) || (err && err.message) || t('err.request_failed')
+    }
+    function hostAriaList(key) {
+      return (UDS_HOST_ARIA && UDS_HOST_ARIA[key]) || []
+    }
+    function hostButtonAriaSel(key) {
+      return hostAriaList(key).map((l) => 'button[aria-label="' + l + '"]').join(',')
+    }
+    function hostAriaSel(key) {
+      return hostAriaList(key).map((l) => '[aria-label="' + l + '"]').join(',')
+    }
+    /* uds-auth-i18n-end */
+
 
     const CSS = [
       '.uds-auth-host{position:relative;display:inline-flex;align-items:center;height:32px;margin:0;flex-shrink:0;pointer-events:auto}.uds-auth-host.is-rail{justify-content:center;width:100%}[data-uds-auth-foot="row"]{display:flex!important;flex-direction:row!important;align-items:center!important;gap:8px;width:100%}[data-uds-auth-foot="row"]>*:nth-child(1){order:2;flex:none!important;width:auto!important;min-width:0;margin-left:auto!important}[data-uds-auth-foot="row"]>*:nth-child(2){order:1;flex:none!important;width:auto!important;min-width:0}',
-      'html[data-uds-can-settings="0"] [data-uds-auth-foot="row"]>*:not(:has([data-uds-auth-host])){display:none!important}html[data-uds-can-create-ws="0"] button[aria-label="添加工作区"],html[data-uds-can-create-ws="0"] button[aria-label="Add workspace"]{display:none!important}html[data-uds-logged-in="0"] [role="tree"][aria-label="Sessions"],html[data-uds-logged-in="0"] [role="tree"][aria-label="会话"],html[data-uds-logged-in="0"] [class*="WorkspaceBrowser"],html[data-uds-logged-in="0"] [class*="workspaceBrowser"],html[data-uds-logged-in="0"] .dsh-ct-entry,html[data-uds-logged-in="0"] .dsh-ct-region,html[data-uds-logged-in="0"] .dsh-ct-main,html[data-uds-logged-in="0"] [data-dsh-ct-mode="on"] .dsh-ct-region{display:none!important}html[data-uds-can-create-ws="0"] button[aria-label="选择工作区"],html[data-uds-can-create-ws="0"] button[aria-label="Choose workspace"],html[data-uds-can-create-ws="0"] [aria-label="选择工作区"],html[data-uds-can-create-ws="0"] [aria-label="Choose workspace"]{display:none!important}html[data-uds-logged-in="0"] [class*="cardWorkspaceTrigger"],html[data-uds-logged-in="0"] [data-composer-card][class*="cardWorkspaceTrigger"]{pointer-events:none!important;opacity:.45!important;cursor:not-allowed!important}/* uds-anon-hide-workspaces *//* uds-anon-hide-conversation:removed */html[data-uds-logged-in="0"] [class*="WorkspaceBrowser"],html[data-uds-logged-in="0"] [class*="workspaceBrowser"],html[data-uds-logged-in="0"] [class*="workspaceRow"],html[data-uds-logged-in="0"] [class*="WorkspaceRow"]{display:none!important}',
+      'html[data-uds-can-settings="0"] [data-uds-auth-foot="row"]>*:not(:has([data-uds-auth-host])){display:none!important}html[data-uds-can-create-ws="0"] button[aria-label="添加工作区"],html[data-uds-can-create-ws="0"] button[aria-label="Add workspace"]{display:none!important}html[data-uds-logged-in="0"] [role="tree"][aria-label="会话"],html[data-uds-logged-in="0"] [role="tree"][aria-label="Sessions"],html[data-uds-logged-in="0"] [class*="WorkspaceBrowser"],html[data-uds-logged-in="0"] [class*="workspaceBrowser"],html[data-uds-logged-in="0"] .dsh-ct-entry,html[data-uds-logged-in="0"] .dsh-ct-region,html[data-uds-logged-in="0"] .dsh-ct-main,html[data-uds-logged-in="0"] [data-dsh-ct-mode="on"] .dsh-ct-region{display:none!important}html[data-uds-can-create-ws="0"] button[aria-label="选择工作区"],html[data-uds-can-create-ws="0"] button[aria-label="Choose workspace"],html[data-uds-can-create-ws="0"] [aria-label="选择工作区"],html[data-uds-can-create-ws="0"] [aria-label="Choose workspace"]{display:none!important}html[data-uds-logged-in="0"] [class*="cardWorkspaceTrigger"],html[data-uds-logged-in="0"] [data-composer-card][class*="cardWorkspaceTrigger"]{pointer-events:none!important;opacity:.45!important;cursor:not-allowed!important}/* uds-anon-hide-workspaces *//* uds-anon-hide-conversation:removed */html[data-uds-logged-in="0"] [class*="WorkspaceBrowser"],html[data-uds-logged-in="0"] [class*="workspaceBrowser"],html[data-uds-logged-in="0"] [class*="workspaceRow"],html[data-uds-logged-in="0"] [class*="WorkspaceRow"]{display:none!important}',
       /* uds-session-only-sidebar */
       'html[data-uds-can-create-ws="0"][data-uds-logged-in="1"] [class*="projectRow"]:not([class*="dsh-ct-project"]),html[data-uds-can-create-ws="0"][data-uds-logged-in="1"] [class*="ProjectRow"]:not([class*="dsh-ct-project"]){display:none!important}',
       '.uds-auth-badge{display:inline-flex;align-items:center;justify-content:flex-start;gap:0;max-width:min(160px,42vw);min-width:0;height:32px;padding:0 8px;box-sizing:border-box;border:none;border-radius:8px;background:transparent;color:var(--dsw-alias-label-primary);font-family:inherit;font-size:13px;font-weight:400;line-height:20px;cursor:pointer;overflow:hidden}',
@@ -40,7 +399,15 @@ window.__ModuleLoader__.load({
       '.uds-auth-info-detail{font-size:12px;color:var(--dsw-alias-label-secondary,#646a73);margin-top:2px;display:flex;justify-content:space-between;gap:8px}',
       '.uds-auth-info-detail-label{color:var(--dsw-alias-label-tertiary,#8f959e)}',
       '.uds-auth-qr{padding:16px;text-align:center}',
-      '.uds-auth-qr img{display:block;margin:0 auto;width:160px;height:160px}',
+      '.uds-auth-qr-frame{position:relative;width:160px;height:160px;margin:0 auto;background:var(--dsw-alias-bg-layer-1,#fff);box-sizing:border-box;border:1px solid var(--dsw-alias-border-l2,#dee0e3);border-radius:4px;overflow:hidden}',
+      '.uds-auth-qr-frame img{display:block;width:100%;height:100%;object-fit:contain}',
+      '.uds-auth-qr-frame.is-expired img{opacity:.18;filter:grayscale(1)}',
+      '.uds-auth-qr-overlay{position:absolute;inset:0;z-index:3;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;padding:10px;box-sizing:border-box;background:color-mix(in srgb, var(--dsw-alias-bg-layer-1,#fff) 82%, transparent)}',
+      '.uds-auth-qr-overlay-title{font-size:15px;font-weight:700;line-height:1.3;color:var(--dsw-alias-label-primary,#1f2329)}',
+      '.uds-auth-qr-overlay-hint{font-size:12px;line-height:1.3;color:var(--dsw-alias-label-secondary,#646a73);margin-bottom:2px}',
+      '.uds-auth-qr-refresh{width:40px;height:40px;border:none;border-radius:50%;background:var(--dsw-alias-state-business-primary,#3370ff);color:#fff;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;padding:0;flex:none}',
+      '.uds-auth-qr-refresh:hover{opacity:.9}',
+      '.uds-auth-qr-refresh:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary,#3370ff);outline-offset:2px}',
       '.uds-auth-qr-status{font-size:12px;color:var(--dsw-alias-label-secondary,#646a73);margin-top:8px}',
       '.uds-auth-btn{display:block;width:calc(100% - 32px);margin:8px 16px 0;padding:8px 12px;border-radius:4px;cursor:pointer;font-size:13px;text-align:left;border:1px solid var(--dsw-alias-border-l2,#dfe1e5);background:var(--dsw-alias-bg-module-platform,#f4f5f7);color:var(--dsw-alias-label-primary,#1f2329)}',
       '.uds-auth-btn:hover{background:var(--dsw-alias-interactive-bg-hover,#f7f8fa)}',
@@ -249,20 +616,47 @@ function reloadAfterLogin() {
       return getCookie('PORTALSSOCookie') || getCookie('ZTEDPGSSOCookie') || null
     }
 
-    function roleLabel(role) {
-      return ({ super_admin: '\u8d85\u7ba1', admin: '\u7ba1\u7406\u5458', fallback_admin: '\u5e94\u6025', user: '' })[role] || ''
-    }
-
     async function fetchJson(url, options) {
       const res = await fetch(url, options)
       const data = await res.json().catch(() => ({}))
       if (!res.ok) {
-        const err = new Error(data.error || res.statusText || 'request failed')
+        const err = new Error(data.message || data.error || res.statusText || t('err.request_failed'))
         err.status = res.status
         err.data = data
         throw err
       }
       return data
+    }
+
+    function useLocaleTick() {
+      const [tick, setTick] = useState(0)
+      useEffect(() => {
+        const bump = () => setTick((n) => n + 1)
+        const offs = []
+        try {
+          const off = localeHost?.on?.('locale/change', bump)
+          if (typeof off === 'function') offs.push(off)
+        } catch { /* ignore */ }
+        try {
+          const off = localeHost?.locale?.subscribe?.(bump)
+          if (typeof off === 'function') offs.push(off)
+        } catch { /* ignore */ }
+        let last = typeof document !== 'undefined' ? document.documentElement?.lang : ''
+        const timer = setInterval(() => {
+          const next = document.documentElement?.lang || ''
+          if (next !== last) {
+            last = next
+            bump()
+          }
+        }, 800)
+        return () => {
+          for (const off of offs) {
+            try { off() } catch { /* ignore */ }
+          }
+          clearInterval(timer)
+        }
+      }, [])
+      return tick
     }
 
     function useOutsideClose(ref, open, setOpen) {
@@ -277,6 +671,7 @@ function reloadAfterLogin() {
     }
 
     function UserManagementPanel() {
+      useLocaleTick()
       const [users, setUsers] = useState([])
       const [total, setTotal] = useState(0)
       const [page, setPage] = useState(1)
@@ -302,7 +697,7 @@ function reloadAfterLogin() {
           setTotal(data.total || 0)
           setTotalPages(data.totalPages || 1)
         } catch (err) {
-          setError(err.data?.error || err.message || '\u52a0\u8f7d\u5931\u8d25')
+          setError(apiMessage(err) || t('ui.loadFailed'))
           setUsers([])
         } finally {
           setLoading(false)
@@ -312,11 +707,11 @@ function reloadAfterLogin() {
       useEffect(() => { reload() }, [reload])
 
       return h('div', { className: 'uds-auth-settings-card' },
-        h('h3', null, '\u7528\u6237\u7ba1\u7406'),
+        h('h3', null, t('ui.userManagement')),
         h('div', { className: 'uds-auth-search' },
           h('input', {
             value: qDraft,
-            placeholder: '\u641c\u7d22\u5de5\u53f7',
+            placeholder: t('ui.searchEmpNo'),
             onChange: (e) => setQDraft(e.target.value),
             onKeyDown: (e) => {
               if (e.key === 'Enter') { setPage(1); setQ(qDraft.trim()) }
@@ -327,15 +722,15 @@ function reloadAfterLogin() {
             className: 'uds-auth-btn uds-auth-btn-primary',
             style: { width: 'auto', margin: 0 },
             onClick: () => { setPage(1); setQ(qDraft.trim()) },
-          }, '\u641c\u7d22'),
+          }, t('ui.search')),
         ),
         error && h('div', { className: 'uds-auth-settings-msg err', role: 'alert' }, error),
         loading
-          ? h('div', { className: 'uds-auth-settings-empty' }, '\u52a0\u8f7d\u4e2d...')
+          ? h('div', { className: 'uds-auth-settings-empty' }, t('ui.loading'))
           : h('table', { className: 'uds-auth-table' },
-            h('thead', null, h('tr', null, h('th', null, '\u5de5\u53f7'), h('th', null, '\u89d2\u8272'), h('th', null, '\u64cd\u4f5c'))),
+            h('thead', null, h('tr', null, h('th', null, t('ui.empNo')), h('th', null, t('ui.role')), h('th', null, t('ui.actions')))),
             h('tbody', null, users.length === 0
-              ? h('tr', null, h('td', { colSpan: 3 }, '\u6682\u65e0\u7528\u6237'))
+              ? h('tr', null, h('td', { colSpan: 3 }, t('ui.noUsers')))
               : users.map((u) => h('tr', { key: u.empNo },
                 h('td', null, u.empNo),
                 h('td', null,
@@ -349,19 +744,19 @@ function reloadAfterLogin() {
                           body: JSON.stringify({ empNo: u.empNo, role: e.target.value }),
                         })
                         reload()
-                      } catch (err) { window.alert(err.data?.error || err.message) }
+                      } catch (err) { window.alert(apiMessage(err)) }
                     },
                   },
-                  h('option', { value: 'user' }, '\u666e\u901a\u7528\u6237'),
-                  h('option', { value: 'admin' }, '\u7ba1\u7406\u5458'),
-                  h('option', { value: 'super_admin' }, '\u8d85\u7ea7\u7ba1\u7406\u5458'),
+                  h('option', { value: 'user' }, t('role.user')),
+                  h('option', { value: 'admin' }, t('role.admin')),
+                  h('option', { value: 'super_admin' }, t('role.super_admin')),
                   ),
                 ),
                 h('td', null,
                   h('button', {
                     type: 'button', className: 'uds-auth-del',
                     onClick: async () => {
-                      if (!window.confirm('\u786e\u8ba4\u5220\u9664 ' + u.empNo + '?')) return
+                      if (!window.confirm(t('ui.confirmDelete', { empNo: u.empNo }))) return
                       try {
                         await fetchJson('/uds-auth/api/users/delete', {
                           method: 'POST',
@@ -369,33 +764,33 @@ function reloadAfterLogin() {
                           body: JSON.stringify({ empNo: u.empNo }),
                         })
                         reload()
-                      } catch (err) { window.alert(err.data?.error || err.message) }
+                      } catch (err) { window.alert(apiMessage(err)) }
                     },
-                  }, '\u5220\u9664'),
+                  }, t('ui.delete')),
                 ),
               )),
             ),
           ),
         h('div', { className: 'uds-auth-pager' },
-          h('span', null, '\u5171 ' + total + ' \u4eba\uff0c\u7b2c ' + page + ' / ' + totalPages + ' \u9875'),
+          h('span', null, t('ui.pager', { total, page, totalPages })),
           h('span', null,
             h('button', {
               type: 'button', disabled: page <= 1 || loading,
               onClick: () => setPage((p) => Math.max(1, p - 1)),
-            }, '\u4e0a\u4e00\u9875'),
+            }, t('ui.prevPage')),
             ' ',
             h('button', {
               type: 'button', disabled: page >= totalPages || loading,
               onClick: () => setPage((p) => p + 1),
-            }, '\u4e0b\u4e00\u9875'),
+            }, t('ui.nextPage')),
           ),
         ),
         h('div', { className: 'uds-auth-add' },
-          h('input', { value: newEmpNo, placeholder: '\u5de5\u53f7', onChange: (e) => setNewEmpNo(e.target.value) }),
+          h('input', { value: newEmpNo, placeholder: t('ui.empNo'), onChange: (e) => setNewEmpNo(e.target.value) }),
           h('select', { value: newRole, onChange: (e) => setNewRole(e.target.value) },
-            h('option', { value: 'user' }, '\u666e\u901a\u7528\u6237'),
-            h('option', { value: 'admin' }, '\u7ba1\u7406\u5458'),
-            h('option', { value: 'super_admin' }, '\u8d85\u7ea7\u7ba1\u7406\u5458'),
+            h('option', { value: 'user' }, t('role.user')),
+            h('option', { value: 'admin' }, t('role.admin')),
+            h('option', { value: 'super_admin' }, t('role.super_admin')),
           ),
           h('button', {
             type: 'button', className: 'uds-auth-btn uds-auth-btn-primary', style: { width: 'auto', margin: 0 },
@@ -410,14 +805,15 @@ function reloadAfterLogin() {
                 })
                 setNewEmpNo('')
                 reload()
-              } catch (err) { window.alert(err.data?.error || err.message) }
+              } catch (err) { window.alert(apiMessage(err)) }
             },
-          }, '\u6dfb\u52a0'),
+          }, t('ui.add')),
         ),
       )
     }
 
     function AuthSettingsSection() {
+      useLocaleTick()
       const [me, setMe] = useState(null)
       const [form, setForm] = useState({
         uacBaseUrl: '',
@@ -467,10 +863,10 @@ function reloadAfterLogin() {
             body: JSON.stringify(form),
           })
           setMsgKind('ok')
-          setMsg('\u914d\u7f6e\u5df2\u4fdd\u5b58')
+          setMsg(t('ui.configSaved'))
         } catch (err) {
           setMsgKind('err')
-          setMsg(err.data?.error || err.message || '\u4fdd\u5b58\u5931\u8d25')
+          setMsg(apiMessage(err) || t('ui.saveFailed'))
         } finally {
           setBusy(false)
         }
@@ -486,26 +882,22 @@ function reloadAfterLogin() {
         }),
       )
 
-      return h('section', { className: 'uds-auth-settings', 'aria-label': 'UDS Auth' },
+      return h('section', { className: 'uds-auth-settings', 'aria-label': t('ui.settingsTitle') },
         h('header', null,
-          h('h2', null, 'UDS \u8ba4\u8bc1'),
-          h('p', { className: 'uds-auth-settings-intro' },
-            '\u5de5\u53f7+token \u53cc\u6821\u9a8c\uff1bUAC \u6302\u6b7b\u65f6\u7528\u5e94\u6025\u8d26\u53f7 administrator \u5bc6\u7801\u767b\u5f55\u3002'),
+          h('h2', null, t('ui.settingsTitle')),
+          h('p', { className: 'uds-auth-settings-intro' }, t('ui.settingsIntro')),
         ),
-        !me && h('div', { className: 'uds-auth-settings-empty' }, '\u8bf7\u5148\u767b\u5f55\u540e\u67e5\u770b\u6b64\u9875'),
+        !me && h('div', { className: 'uds-auth-settings-empty' }, t('ui.loginRequiredPage')),
         me && !canSettings && !canManage && h('div', { className: 'uds-auth-settings-empty' },
-          '\u5f53\u524d\u89d2\u8272\uff1a' + (me.role || 'user')
-          + '\u3002\u9996\u4f4d\u626b\u7801\u767b\u5f55\u4e14 roles.json \u4e3a\u7a7a\u65f6\u4f1a\u81ea\u52a8\u6210\u4e3a\u8d85\u7ba1\uff1b'
-          + '\u666e\u901a admin \u9700\u8d85\u7ba1\u5728\u300c\u7528\u6237\u7ba1\u7406\u300d\u63d0\u6743\u540e\u518d\u626b\u7801\u767b\u5f55\u3002'
-          + '\u5e94\u6025\u8d26\u53f7 administrator \u9700\u8d85\u7ba1\u5148\u8bbe\u5bc6\u7801\uff0c\u518d\u5728\u767b\u5f55\u9762\u677f\u7528\u8d26\u5bc6\u767b\u5f55\u3002'
+          t('ui.roleHint', { role: me.role || 'user' })
         ),
         canSettings && h('div', { className: 'uds-auth-settings-card' },
-          h('h3', null, '\u90e8\u7f72\u914d\u7f6e'),
+          h('h3', null, t('ui.deployConfig')),
           field('uacBaseUrl', 'UAC Base URL'),
-          field('userSearchUrl', '\u7528\u6237\u641c\u7d22 URL\uff08token \u6821\u9a8c\uff09'),
+          field('userSearchUrl', t('ui.userSearchUrl')),
           field('loginSystemCode', 'loginSystemCode'),
           field('originSystemCode', 'originSystemCode'),
-          field('workspaceRoot', '工作区根目录（空=$DSH_HOME/user-workspaces）'),
+          field('workspaceRoot', t('ui.workspaceRoot')),
           h('div', { className: 'uds-auth-settings-actions' },
             h('button', {
               type: 'button',
@@ -513,17 +905,16 @@ function reloadAfterLogin() {
               style: { width: 'auto', margin: 0 },
               disabled: busy,
               onClick: saveConfig,
-            }, busy ? '\u4fdd\u5b58\u4e2d...' : '\u4fdd\u5b58\u914d\u7f6e'),
+            }, busy ? t('ui.saving') : t('ui.saveConfig')),
             msg && h('span', { className: 'uds-auth-settings-msg ' + msgKind }, msg),
           ),
         ),
         canManage && h('div', { className: 'uds-auth-settings-card' },
-          h('h3', null, '\u5e94\u6025\u767b\u5f55\uff08UAC \u4e0d\u53ef\u7528\uff09'),
+          h('h3', null, t('ui.fallbackTitle')),
           h('p', { className: 'uds-auth-settings-intro' },
-            '\u72b6\u6001\uff1a' + (fallbackEnabled ? '\u5df2\u542f\u7528' : '\u672a\u542f\u7528')
-            + '\u3002\u9ed8\u8ba4\u8d26\u53f7 administrator / Admin@123\uff1b\u53ef\u6539\u5bc6\u6216\u5173\u95ed\u3002\u4ec5\u5728\u626b\u7801\u4e0d\u53ef\u7528\u65f6\u4ece\u767b\u5f55\u9762\u677f\u5207\u6362\u3002'),
+            t('ui.fallbackStatus', { status: fallbackEnabled ? t('ui.enabled') : t('ui.disabled') })),
           h('div', { className: 'uds-auth-settings-field' },
-            h('label', { htmlFor: 'uds-auth-fallback-pwd' }, '\u5e94\u6025\u5bc6\u7801\uff08\u81f3\u5c11 6 \u4f4d\uff09'),
+            h('label', { htmlFor: 'uds-auth-fallback-pwd' }, t('ui.fallbackPassword')),
             h('input', {
               id: 'uds-auth-fallback-pwd',
               type: 'password',
@@ -546,22 +937,22 @@ function reloadAfterLogin() {
                   })
                   setFallbackPwd('')
                   setFallbackEnabled(true)
-                  window.alert('\u5e94\u6025\u5bc6\u7801\u5df2\u8bbe\u7f6e')
-                } catch (err) { window.alert(err.data?.error || err.message) }
+                  window.alert(t('ui.fallbackPasswordSet'))
+                } catch (err) { window.alert(apiMessage(err)) }
               },
-            }, '\u4fdd\u5b58\u5e94\u6025\u5bc6\u7801'),
+            }, t('ui.saveFallbackPassword')),
             fallbackEnabled && h('button', {
               type: 'button',
               className: 'uds-auth-btn uds-auth-btn-danger',
               style: { width: 'auto', margin: 0 },
               onClick: async () => {
-                if (!window.confirm('\u786e\u8ba4\u6e05\u9664\u5e94\u6025\u5bc6\u7801\uff1f')) return
+                if (!window.confirm(t('ui.confirmClearFallback'))) return
                 try {
                   await fetchJson('/uds-auth/api/fallback/clear', { method: 'POST' })
                   setFallbackEnabled(false)
-                } catch (err) { window.alert(err.data?.error || err.message) }
+                } catch (err) { window.alert(apiMessage(err)) }
               },
-            }, '\u6e05\u9664'),
+            }, t('ui.clear')),
           ),
         ),
         canManage && h(UserManagementPanel, null),
@@ -569,6 +960,7 @@ function reloadAfterLogin() {
     }
 
     function AuthBadge(props = {}) {
+      useLocaleTick()
       const wide = props.wide !== false
       const rootRef = useRef(null)
       useLayoutEffect(() => {
@@ -595,13 +987,16 @@ function reloadAfterLogin() {
       const [config, setConfig] = useState({ loginSystemCode: '100000455558', originSystemCode: '' })
       const [qrStatus, setQrStatus] = useState('')
       const [qrImg, setQrImg] = useState('')
+      const [qrExpired, setQrExpired] = useState(false)
+      const [qrFailed, setQrFailed] = useState(false)
       const [loginMode, setLoginMode] = useState('qr')
       const [fallbackEnabled, setFallbackEnabled] = useState(false)
       const [fbUser, setFbUser] = useState('administrator')
       const [fbPass, setFbPass] = useState('')
       const [fbBusy, setFbBusy] = useState(false)
       const [fbErr, setFbErr] = useState('')
-      const qrRef = useRef({ key: null, value: null, timer: null })
+      const qrRef = useRef({ key: null, value: null, timer: null, timeout: null, deadline: 0 })
+      const QR_TIMEOUT_MS = 60 * 1000
 
       useEffect(() => {
         const perms = user?.permissions || {}
@@ -626,9 +1021,26 @@ function reloadAfterLogin() {
 
       const stopQr = useCallback(() => {
         if (qrRef.current.timer) { clearInterval(qrRef.current.timer); qrRef.current.timer = null }
+        if (qrRef.current.timeout) { clearTimeout(qrRef.current.timeout); qrRef.current.timeout = null }
         qrRef.current.key = null
         qrRef.current.value = null
+        qrRef.current.deadline = 0
       }, [])
+
+      const markQrExpired = useCallback(() => {
+        stopQr()
+        setQrFailed(false)
+        setQrExpired(true)
+        setQrStatus(t('ui.qrExpired'))
+      }, [stopQr])
+
+      const markQrFailed = useCallback((message) => {
+        stopQr()
+        setQrExpired(false)
+        setQrFailed(true)
+        setQrImg('')
+        setQrStatus(message || t('ui.qrGenerateFailed'))
+      }, [stopQr])
 
       const refreshUser = useCallback(async () => {
         try {
@@ -660,17 +1072,28 @@ function reloadAfterLogin() {
 
       const startQr = useCallback(async () => {
         stopQr()
-        setQrStatus('\u6b63\u5728\u751f\u6210\u4e8c\u7ef4\u7801...')
+        setQrExpired(false)
+        setQrFailed(false)
+        setQrStatus(t('ui.qrGenerating'))
         setQrImg('')
         try {
           const started = await fetchJson('/uds-auth/qr-start')
           const { qrCodeStr, qrCodeKey, qrCodeValue, loginSystemCode, originSystemCode } = started
           qrRef.current.key = qrCodeKey
           qrRef.current.value = qrCodeValue
+          qrRef.current.deadline = Date.now() + QR_TIMEOUT_MS
           setQrImg('/uds-auth/qr?data=' + encodeURIComponent(qrCodeStr))
-          setQrStatus('\u8bf7\u4f7f\u7528 iCenter \u626b\u7801\u767b\u5f55...')
+          setQrStatus(t('ui.qrScanPrompt'))
+          qrRef.current.timeout = setTimeout(() => {
+            if (!qrRef.current.key) return
+            markQrExpired()
+          }, QR_TIMEOUT_MS)
           qrRef.current.timer = setInterval(async () => {
             if (!qrRef.current.key) return
+            if (qrRef.current.deadline && Date.now() >= qrRef.current.deadline) {
+              markQrExpired()
+              return
+            }
             try {
               const verify = await fetchJson(
                 '/uds-auth/verify-code?qrCodeKey=' + encodeURIComponent(qrRef.current.key)
@@ -695,6 +1118,8 @@ function reloadAfterLogin() {
               const boCode = result.bo?.code || ''
               if (codeCode === '0000' && boCode === '0000') {
                 stopQr()
+                setQrExpired(false)
+                setQrFailed(false)
                 const other = result.other || {}
                 const empNo = other.account || other.empNo || ''
                 const token = other.token || other.authValue || ''
@@ -712,42 +1137,43 @@ function reloadAfterLogin() {
                         : Array.isArray(info?.bo?.list) ? info.bo.list
                           : []
                     if ((ic !== '0000' && ic !== 0 && ic !== '0') || !list.length) {
-                      setQrStatus('\u7528\u6237\u4fe1\u606f\u67e5\u8be2\u5931\u8d25')
+                      setQrStatus(t('ui.userInfoFailed'))
                       console.warn('[uds-auth] user-info after QR failed', info)
                       return
                     }
                   } catch (err) {
-                    setQrStatus('\u7528\u6237\u4fe1\u606f\u67e5\u8be2\u5931\u8d25: ' + (err.message || err))
+                    setQrStatus(t('ui.userInfoFailed') + ': ' + (err.message || err))
                     return
                   }
-                  setQrStatus('\u767b\u5f55\u6210\u529f\uff01')
+                  setQrStatus(t('ui.loginSuccess'))
                   await refreshUser()
                   setOpen(false)
                   reconnectAfterLogin()
                 } else {
-                  setQrStatus('\u7f3a\u5c11 token\uff0c\u65e0\u6cd5\u5b8c\u6210\u6821\u9a8c')
+                  setQrStatus(t('ui.missingToken'))
                 }
                 return
               }
               if (codeCode === '0000' && boCode === '4002') {
-                setQrStatus('\u7b49\u5f85\u626b\u7801...')
+                setQrStatus(t('ui.waitingScan'))
                 return
               }
               if (codeCode === '0000' && boCode === '1002') {
-                stopQr()
-                setQrStatus('\u4e8c\u7ef4\u7801\u5df2\u8fc7\u671f\uff0c\u8bf7\u5237\u65b0')
+                markQrExpired()
                 return
               }
               stopQr()
-              setQrStatus(result.bo?.msg || boCode || '\u767b\u5f55\u5931\u8d25')
+              setQrExpired(false)
+              setQrFailed(false)
+              setQrStatus(result.bo?.msg || boCode || t('ui.loginFailed'))
             } catch {
-              setQrStatus('\u7f51\u7edc\u9519\u8bef...')
+              setQrStatus(t('ui.networkError'))
             }
           }, 2000)
         } catch (err) {
-          setQrStatus(err.message || '\u751f\u6210\u4e8c\u7ef4\u7801\u5931\u8d25')
+          markQrFailed(err.message || t('ui.qrGenerateFailed'))
         }
-      }, [config.loginSystemCode, config.originSystemCode, refreshUser, stopQr])
+      }, [config.loginSystemCode, config.originSystemCode, markQrExpired, markQrFailed, refreshUser, stopQr])
 
       const submitFallback = useCallback(async () => {
         setFbBusy(true)
@@ -763,7 +1189,7 @@ function reloadAfterLogin() {
           setOpen(false)
           reconnectAfterLogin()
         } catch (err) {
-          setFbErr(err.data?.error || err.message || '\u767b\u5f55\u5931\u8d25')
+          setFbErr(apiMessage(err) || t('ui.loginFailed'))
         } finally {
           setFbBusy(false)
         }
@@ -809,11 +1235,16 @@ function reloadAfterLogin() {
       useOutsideClose(rootRef, open, setOpen)
 
       const displayName = user
-        ? (user.userName || user.name || ('\u7528\u6237' + user.empNo))
-        : (loading ? '...' : '\u672a\u767b\u5f55')
+        ? (user.userName || user.name || (t('ui.userPrefix') + user.empNo))
+        : (loading ? '...' : t('ui.notLoggedIn'))
       const initials = String(displayName).slice(0, 2).toUpperCase()
       const label = roleLabel(user?.role)
       const perms = user?.permissions || {}
+      const qrOverlay = qrExpired || qrFailed
+      const qrOverlayTitle = qrExpired
+        ? t('ui.qrExpired')
+        : (qrStatus || t('ui.qrGenerateFailed'))
+      const qrOverlayHint = t('ui.qrExpiredHint')
 
       return h('div', {
         ref: rootRef,
@@ -828,40 +1259,75 @@ function reloadAfterLogin() {
           top: 'auto',
           width: anchor.width,
         },
-        'aria-label': 'UDS',
+        'aria-label': 'UAC',
       },
       !user
         ? (loginMode === 'qr'
           ? h(React.Fragment, null,
             h('div', { className: 'uds-auth-info' },
-              h('div', { className: 'uds-auth-info-name' }, '\u672a\u767b\u5f55'),
-              h('div', { className: 'uds-auth-info-detail' }, '\u8bf7\u626b\u7801\u767b\u5f55'),
+              h('div', { className: 'uds-auth-info-name' }, qrOverlay ? qrOverlayTitle : t('ui.notLoggedIn')),
+              h('div', { className: 'uds-auth-info-detail' }, qrOverlay ? qrOverlayHint : t('ui.pleaseScan')),
             ),
             h('div', { className: 'uds-auth-qr' },
-              qrImg ? h('img', { src: qrImg, alt: 'QR' }) : null,
-              h('div', { className: 'uds-auth-qr-status' }, qrStatus || '\u52a0\u8f7d\u4e2d...'),
-              h('button', { type: 'button', className: 'uds-auth-btn uds-auth-btn-primary', onClick: startQr }, '\u5237\u65b0\u4e8c\u7ef4\u7801'),
+              (qrImg || qrOverlay) && h('div', {
+                className: 'uds-auth-qr-frame' + (qrOverlay ? ' is-expired' : ''),
+              },
+                qrImg ? h('img', { src: qrImg, alt: 'QR' }) : h('div', {
+                  style: {
+                    width: '100%',
+                    height: '100%',
+                    background: 'var(--dsw-alias-bg-module-platform, #f4f5f7)',
+                  },
+                }),
+                qrOverlay && h('div', { className: 'uds-auth-qr-overlay' },
+                  h('div', { className: 'uds-auth-qr-overlay-title' }, qrOverlayTitle),
+                  h('div', { className: 'uds-auth-qr-overlay-hint' }, qrOverlayHint),
+                  h('button', {
+                    type: 'button',
+                    className: 'uds-auth-qr-refresh',
+                    'aria-label': t('ui.refreshQr'),
+                    title: t('ui.refreshQr'),
+                    onClick: startQr,
+                  },
+                    h('svg', {
+                      width: 22,
+                      height: 22,
+                      viewBox: '0 0 24 24',
+                      fill: 'none',
+                      stroke: 'currentColor',
+                      strokeWidth: 2.4,
+                      strokeLinecap: 'round',
+                      strokeLinejoin: 'round',
+                      'aria-hidden': 'true',
+                    },
+                      h('path', { d: 'M21 12a9 9 0 1 1-2.6-6.2' }),
+                      h('polyline', { points: '21 3 21 9 15 9' }),
+                    ),
+                  ),
+                ),
+              ),
+              !qrOverlay && h('div', { className: 'uds-auth-qr-status' }, qrStatus || t('ui.loading')),
             ),
             fallbackEnabled && h('button', {
               type: 'button',
               className: 'uds-auth-btn-link',
               onClick: () => { stopQr(); setLoginMode('fallback'); setFbErr('') },
-            }, 'UAC \u4e0d\u53ef\u7528\uff1f\u5e94\u6025\u8d26\u53f7\u767b\u5f55'),
+            }, t('ui.fallbackLink')),
           )
           : h(React.Fragment, null,
             h('div', { className: 'uds-auth-info' },
-              h('div', { className: 'uds-auth-info-name' }, '\u5e94\u6025\u767b\u5f55'),
-              h('div', { className: 'uds-auth-info-detail' }, 'UAC / \u626b\u7801\u4e0d\u53ef\u7528\u65f6\u4f7f\u7528'),
+              h('div', { className: 'uds-auth-info-name' }, t('ui.fallbackLogin')),
+              h('div', { className: 'uds-auth-info-detail' }, t('ui.fallbackDetail')),
             ),
             h('div', { className: 'uds-auth-fallback' },
-              h('label', { htmlFor: 'uds-fb-user' }, '\u7528\u6237\u540d'),
+              h('label', { htmlFor: 'uds-fb-user' }, t('ui.username')),
               h('input', {
                 id: 'uds-fb-user',
                 value: fbUser,
                 onChange: (e) => setFbUser(e.target.value),
                 autoComplete: 'username',
               }),
-              h('label', { htmlFor: 'uds-fb-pass' }, '\u5bc6\u7801'),
+              h('label', { htmlFor: 'uds-fb-pass' }, t('ui.password')),
               h('input', {
                 id: 'uds-fb-pass',
                 type: 'password',
@@ -871,28 +1337,26 @@ function reloadAfterLogin() {
                 onKeyDown: (e) => { if (e.key === 'Enter') submitFallback() },
               }),
               fbErr && h('div', { className: 'uds-auth-settings-msg err' }, fbErr),
-              h('p', { className: 'uds-auth-fallback-hint' },
-                '\u9ed8\u8ba4\u8d26\u53f7 administrator / Admin@123\uff08\u521d\u59cb\u90e8\u7f72\u5df2\u542f\u7528\uff0c\u53ef\u5728\u8bbe\u7f6e\u4e2d\u6539\u5bc6\u6216\u5173\u95ed\uff09\u3002'),
               h('button', {
                 type: 'button',
                 className: 'uds-auth-btn uds-auth-btn-primary',
                 style: { width: '100%', margin: '12px 0 0' },
                 disabled: fbBusy,
                 onClick: submitFallback,
-              }, fbBusy ? '\u767b\u5f55\u4e2d...' : '\u767b\u5f55'),
+              }, fbBusy ? t('ui.loggingIn') : t('ui.login')),
             ),
             h('button', {
               type: 'button',
               className: 'uds-auth-btn-link',
               onClick: () => setLoginMode('qr'),
-            }, '\u8fd4\u56de\u626b\u7801\u767b\u5f55'),
+            }, t('ui.backToQr')),
           ))
         : h(React.Fragment, null,
           h('div', { className: 'uds-auth-info' },
             h('div', { className: 'uds-auth-info-name' }, displayName),
-            h('div', { className: 'uds-auth-info-detail' }, h('span', { className: 'uds-auth-info-detail-label' }, '\u5de5\u53f7'), user.empNo || '-'),
-            h('div', { className: 'uds-auth-info-detail' }, h('span', { className: 'uds-auth-info-detail-label' }, '\u89d2\u8272'), label || user.role || '-'),
-            user.department && h('div', { className: 'uds-auth-info-detail' }, h('span', { className: 'uds-auth-info-detail-label' }, '\u90e8\u95e8'), user.department),
+            h('div', { className: 'uds-auth-info-detail' }, h('span', { className: 'uds-auth-info-detail-label' }, t('ui.empNo')), user.empNo || '-'),
+            h('div', { className: 'uds-auth-info-detail' }, h('span', { className: 'uds-auth-info-detail-label' }, t('ui.role')), label || user.role || '-'),
+            user.department && h('div', { className: 'uds-auth-info-detail' }, h('span', { className: 'uds-auth-info-detail-label' }, t('ui.department')), user.department),
           ),
           h('button', {
             type: 'button', className: 'uds-auth-btn uds-auth-btn-danger',
@@ -908,15 +1372,15 @@ function reloadAfterLogin() {
               window.dispatchEvent(new Event('uds-auth-changed'))
               try { softReconnectAuth() } catch { /* ignore */ }
             },
-          }, '\u9000\u51fa\u767b\u5f55'),
+          }, t('ui.logout')),
         ),
       ),
       h('button', {
         type: 'button',
         className: 'uds-auth-badge' + (user ? '' : ' uds-auth-badge-unauth'),
         'aria-expanded': open,
-        'aria-label': displayName || 'UDS',
-        title: displayName || 'UDS',
+        'aria-label': displayName || 'UAC',
+        title: displayName || 'UAC',
         onClick: () => setOpen((v) => !v),
       },
       h('span', { className: 'uds-auth-badge-label' }, displayName),
@@ -925,6 +1389,27 @@ function reloadAfterLogin() {
     }
 
     function apply(ctx) {
+      localeHost = ctx
+      translate = makeTranslator(ctx)
+
+      ctx.effect(() => {
+        if (!ctx.locale || typeof ctx.locale.register !== 'function') return undefined
+        try {
+          return ctx.locale.register(LOCALE_NS, {
+            zh: UDS_I18N_MESSAGES.zh,
+            en: UDS_I18N_MESSAGES.en,
+          })
+        } catch {
+          try {
+            const offZh = ctx.locale.register(LOCALE_NS, 'zh', UDS_I18N_MESSAGES.zh)
+            const offEn = ctx.locale.register(LOCALE_NS, 'en', UDS_I18N_MESSAGES.en)
+            return () => { offZh && offZh(); offEn && offEn() }
+          } catch {
+            return undefined
+          }
+        }
+      }, 'uds-auth: locale')
+
       try {
         ctx.inject(['connection'], (cctx) => {
           window.__udsAuthReconnect = () => {
@@ -1017,7 +1502,7 @@ function reloadAfterLogin() {
               return new Response(JSON.stringify({
                 ok: false,
                 error: 'login_required',
-                message: '登录后才能使用定时任务',
+                message: t('ui.cronLoginRequired'),
               }), { status: 401, headers: { 'content-type': 'application/json' } })
             }
             return origFetch(input, init)
@@ -1051,7 +1536,7 @@ function reloadAfterLogin() {
                 ok: false,
                 error: {
                   code: 'gateway/forbidden',
-                  message: getEmpNo() ? '只有超级管理员可以创建工作区' : '登录后才能使用工作区',
+                  message: getEmpNo() ? t('ui.workspaceCreateForbidden') : t('ui.workspaceLoginRequired'),
                 },
               }
             }
@@ -1190,7 +1675,7 @@ function reloadAfterLogin() {
       ctx.effect(() => {
         // Open/choose workspace is super_admin-only (canCreateWorkspace).
         // Everyone else uses the auto-provisioned per-user workspace and must not open the picker.
-        const CHOOSER = '[aria-label="选择工作区"], [aria-label="Choose workspace"]'
+        const CHOOSER = hostAriaSel('chooseWorkspace')
         // Inert composer: onClick lives on the card (cardWorkspaceTrigger), not the labeled node.
         const TRIGGER_CARD = '[class*="cardWorkspaceTrigger"]'
         const SURFACE = CHOOSER + ', ' + TRIGGER_CARD
@@ -1448,19 +1933,20 @@ function reloadAfterLogin() {
 
 
 
-      // sidebar.footer.action; layout effect lays footArea as one row: Settings | UDS login
+      // sidebar.footer.action; layout effect lays footArea as one row: Settings | UAC login
       ctx.slots.inject('sidebar.footer.action', () => ctx.slots.register({
         name: 'sidebar.footer.action',
         id: 'uds-auth-login',
         order: 100,
-        label: 'UDS',
+        label: 'UAC',
       }, AuthBadge))
 
       ctx.slots.inject('settings.section', () => ctx.slots.register({
         name: 'settings.section',
         id: 'uds-auth',
         order: 22,
-        label: 'UDS \u8ba4\u8bc1',
+        label: () => t('ui.settingsTitle'),
+        locale: LOCALE_NS,
         icon: 'users',
       }, AuthSettingsSection))
     }
