@@ -1057,6 +1057,11 @@ async function initServices(ctx, config) {
       canViewAllJobs(identity) {
         return !!identity?.permissions?.canViewAllSessions
       },
+      getRole(empNo) {
+        const id = String(empNo || '').trim()
+        if (!id || id.startsWith('__')) return 'user'
+        return _rolesStore?.getRole?.(id) || 'user'
+      },
       /**
        * Resolve role + permissions for an empNo (cron tools / fire-time cwd).
        * Does not touch request cookies — pure lookup from roles store.
