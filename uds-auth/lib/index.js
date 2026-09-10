@@ -1057,6 +1057,32 @@ async function initServices(ctx, config) {
       canViewAllJobs(identity) {
         return !!identity?.permissions?.canViewAllSessions
       },
+      /**
+       * Resolve role + permissions for an empNo (cron tools / fire-time cwd).
+       * Does not touch request cookies — pure lookup from roles store.
+       */
+      resolveIdentityForEmpNo(empNo) {
+        const id = String(empNo || '').trim()
+        if (!id || id.startsWith('__')) return null
+        const role = _rolesStore?.getRole?.(id) || 'user'
+        const permissions = computePermissions(role)
+        const workspacePath = (() => {
+          try {
+            const row = _userWorkspaces?.get(id)
+            if (row?.path) return row.path
+            return join(resolveWorkspaceRoot(_currentConfig?.workspaceRoot), id)
+          } catch {
+            return null
+          }
+        })()
+        return {
+          empNo: id,
+          role,
+          permissions,
+          displayName: id,
+          workspacePath,
+        }
+      },
       getProvisionedWorkspacePath(empNo) {
         if (!empNo) return null
         const row = _userWorkspaces?.get(String(empNo))
