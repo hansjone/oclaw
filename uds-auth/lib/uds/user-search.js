@@ -21,7 +21,7 @@ export function directRequest(url, opts = {}) {
   if (body && headers['Content-Length'] == null && headers['content-length'] == null) {
     headers['Content-Length'] = body.length
   }
-  const timeoutMs = opts.timeoutMs ?? 8000
+  const timeoutMs = opts.timeoutMs ?? 3000
 
   // Fresh Agent — never inherit globalAgent (often patched by proxy bootstraps).
   const agent = new lib.Agent({ keepAlive: false })
@@ -71,7 +71,7 @@ export async function searchUserByEmpNoToken({
   empNoHeader = 'X-Emp-No',
   authValueHeader = 'X-Auth-Value',
   origin,
-  timeoutMs = 8000,
+  timeoutMs = 3000,
 }) {
   if (!userSearchUrl || !empNo || !token) {
     return { ok: false, reason: 'missing_args' }

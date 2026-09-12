@@ -486,8 +486,7 @@ window.__ModuleLoader__.load({
     }
 
     function clearSessionIfAnonymous(sessions) {
-      // Wait for first /api/me so we do not wipe a real session during bootstrap.
-      if (!isUdsAuthReady()) return
+      // No startup /api/me — treat as anonymous until QR-triggered me sets logged-in.
       if (isLoggedInInUi()) return
       try {
         if (sessions && typeof sessions.clear === 'function') sessions.clear()
@@ -983,7 +982,7 @@ function reloadAfterLogin() {
       const [user, setUser] = useState(null)
       
 
-      const [loading, setLoading] = useState(true)
+      const [loading, setLoading] = useState(false)
       const [config, setConfig] = useState({ loginSystemCode: '100000455558', originSystemCode: '' })
       const [qrStatus, setQrStatus] = useState('')
       const [qrImg, setQrImg] = useState('')
@@ -1050,7 +1049,7 @@ function reloadAfterLogin() {
           if (!me?.authenticated || !me?.data) {
             setUser(null)
             window.dispatchEvent(new Event('uds-auth-changed'))
-            return
+            return false
           }
           const d = me.data
           setUser({
@@ -1063,9 +1062,11 @@ function reloadAfterLogin() {
             permissions: d.permissions || {},
           })
           window.dispatchEvent(new Event('uds-auth-changed'))
+          return true
         } catch {
           setUser(null)
           window.dispatchEvent(new Event('uds-auth-changed'))
+          return false
         } finally {
           document.documentElement.setAttribute('data-uds-auth-ready', '1')
           setLoading(false)
@@ -1078,8 +1079,23 @@ function reloadAfterLogin() {
         setQrFailed(false)
         setQrStatus(t('ui.qrGenerating'))
         setQrImg('')
+        // Me check in background — never block QR paint on /api/me.
+        void refreshUser().then((loggedIn) => {
+          if (!loggedIn) return
+          stopQr()
+          setQrStatus('')
+          setQrImg('')
+          setOpen(false)
+        }).catch(() => {})
         try {
           const started = await fetchJson('/uds-auth/qr-start')
+          // Already signed in while QR was starting — drop the code.
+          if (document.documentElement.getAttribute('data-uds-logged-in') === '1') {
+            stopQr()
+            setQrStatus('')
+            setQrImg('')
+            return
+          }
           const { qrCodeStr, qrCodeKey, qrCodeValue, loginSystemCode, originSystemCode } = started
           qrRef.current.key = qrCodeKey
           qrRef.current.value = qrCodeValue
@@ -1198,7 +1214,7 @@ function reloadAfterLogin() {
       }, [fbUser, fbPass, refreshUser])
 
       useEffect(() => {
-        refreshUser()
+        // Do NOT call /api/me on mount — only when loading the login QR (startQr).
         fetchJson('/uds-auth/config.get')
           .then((data) => { if (data?.value) setConfig((prev) => ({ ...prev, ...data.value })) })
           .catch(() => {})
@@ -1206,7 +1222,7 @@ function reloadAfterLogin() {
           .then((st) => setFallbackEnabled(!!st.enabled))
           .catch(() => { /* keep default true — do not hide emergency login */ })
         return () => { stopQr() }
-      }, [refreshUser, stopQr])
+      }, [stopQr])
 
       useEffect(() => {
         if (!open || user) return undefined
@@ -1248,7 +1264,7 @@ function reloadAfterLogin() {
 
       const displayName = user
         ? (user.userName || user.name || (t('ui.userPrefix') + user.empNo))
-        : (loading ? '...' : t('ui.notLoggedIn'))
+        : t('ui.notLoggedIn')
       const initials = String(displayName).slice(0, 2).toUpperCase()
       const label = roleLabel(user?.role)
       const perms = user?.permissions || {}
@@ -1405,6 +1421,30 @@ function reloadAfterLogin() {
       localeHost = ctx
       translate = makeTranslator(ctx)
 
+      // --- Critical path: login badge must paint first ---
+      // Sync ACL + CSS before any React mount so 「未登录」is styled and locked immediately.
+      {
+        const root = document.documentElement
+        if (!root.getAttribute('data-uds-logged-in')) root.setAttribute('data-uds-logged-in', '0')
+        if (!root.getAttribute('data-uds-auth-ready')) root.setAttribute('data-uds-auth-ready', '0')
+        if (!root.getAttribute('data-uds-can-create-ws')) root.setAttribute('data-uds-can-create-ws', '0')
+        if (!root.getAttribute('data-uds-can-settings')) root.setAttribute('data-uds-can-settings', '0')
+      }
+      if (!document.getElementById('uds-auth-client-css')) {
+        const tag = document.createElement('style')
+        tag.id = 'uds-auth-client-css'
+        tag.setAttribute('data-plugin', name)
+        tag.textContent = CSS
+        document.head.appendChild(tag)
+      }
+      // Register login entry before heavy gates / settings section.
+      ctx.slots.inject('sidebar.footer.action', () => ctx.slots.register({
+        name: 'sidebar.footer.action',
+        id: 'uds-auth-login',
+        order: 100,
+        label: 'UAC',
+      }, AuthBadge))
+
       ctx.effect(() => {
         if (!ctx.locale || typeof ctx.locale.register !== 'function') return undefined
         try {
@@ -1431,68 +1471,18 @@ function reloadAfterLogin() {
         })
       } catch { /* connection may be unavailable */ }
 
+      // Settings gear: CSS hides it when data-uds-can-settings=0 (no slot override —
+      // registering sidebar.settings early used to crash / delay the whole plugin).
 
-      // Default ACL attrs before /api/me — anonymous stays locked until AuthBadge confirms.
-      ctx.effect(() => {
-        const root = document.documentElement
-        // Cookie alone is not enough; lock until /api/me sets real identity.
-        if (!getEmpNo()) {
-          root.setAttribute('data-uds-logged-in', '0')
-        } else if (!root.getAttribute('data-uds-logged-in')) {
-          // Optimistic cookie presence; AuthBadge will correct to 0/1.
-          root.setAttribute('data-uds-logged-in', '0')
-        }
-        if (!root.getAttribute('data-uds-auth-ready')) {
-          root.setAttribute('data-uds-auth-ready', '0')
-        }
-        if (!root.getAttribute('data-uds-can-create-ws')) {
-          root.setAttribute('data-uds-can-create-ws', '0')
-        }
-        if (!root.getAttribute('data-uds-can-settings')) {
-          root.setAttribute('data-uds-can-settings', '0')
-        }
-        return undefined
-      }, 'uds-auth: bootstrap-acl-attrs')
-
-
-      ctx.effect(() => {
-        const tag = document.createElement('style')
-        tag.id = 'uds-auth-client-css'
-        tag.setAttribute('data-plugin', name)
-        tag.textContent = CSS
-        document.head.appendChild(tag)
-        return () => tag.remove()
-      }, 'uds-auth: styles')
-
-      ctx.effect(() => {
-        let settingsGateDispose = null
-        const syncSettingsGate = async () => {
-          let canSettings = false
-          try {
-            const me = await fetchJson('/uds-auth/api/me')
-            canSettings = !!(me?.data?.permissions?.canAccessSettings)
-          } catch { canSettings = false }
-          if (canSettings) {
-            if (settingsGateDispose) { try { settingsGateDispose() } catch {} settingsGateDispose = null }
-            return
-          }
-          if (settingsGateDispose) return
-          settingsGateDispose = ctx.slots.register({
-            name: 'sidebar.settings',
-            id: 'uds-auth-settings-gate',
-            order: 9999,
-          }, function UdsAuthSettingsGate() { return null })
-        }
-        syncSettingsGate()
-        const mePoll = setInterval(syncSettingsGate, 15000)
-        const onFocus = () => { syncSettingsGate() }
-        window.addEventListener('focus', onFocus)
-        return () => {
-          clearInterval(mePoll)
-          window.removeEventListener('focus', onFocus)
-          if (settingsGateDispose) { try { settingsGateDispose() } catch {} }
-        }
-      }, 'uds-auth: settings-gate')
+      // Settings page section — after login badge; not on the critical path for first paint.
+      ctx.slots.inject('settings.section', () => ctx.slots.register({
+        name: 'settings.section',
+        id: 'uds-auth',
+        order: 22,
+        label: () => t('ui.settingsTitle'),
+        locale: LOCALE_NS,
+        icon: 'users',
+      }, AuthSettingsSection))
 
 
       // Defense in depth: never show Host session rows while UDS cookies are absent.
@@ -1660,27 +1650,37 @@ function reloadAfterLogin() {
           disposers = []
         }
         // Deny folder pick by default — no race with native directory picker.
-        installGate()
-        const sync = async () => {
-          let canCreate = false
-          try {
-            const me = await fetchJson('/uds-auth/api/me')
-            canCreate = !!(me && me.data && me.data.permissions && me.data.permissions.canCreateWorkspace)
-          } catch { canCreate = false }
+        const sync = () => {
+          // Attrs come from QR-triggered /api/me via AuthBadge — do not poll me here.
+          const canCreate = document.documentElement.getAttribute('data-uds-can-create-ws') === '1'
           if (canCreate) clearGate()
           else installGate()
         }
+        const injectOffs = [
+          'sidebar.workspaces.directoryFlow',
+          'conversation.hero.workspace.directoryFlow',
+        ].map((slotName) => {
+          try {
+            return ctx.slots.inject(slotName, () => { sync() })
+          } catch {
+            return null
+          }
+        })
         sync()
-        const timer = setInterval(sync, 15000)
-        const onFocus = () => { sync() }
         const onAuth = () => { sync() }
-        window.addEventListener('focus', onFocus)
         window.addEventListener('uds-auth-changed', onAuth)
+        const mo = new MutationObserver(sync)
+        mo.observe(document.documentElement, {
+          attributes: true,
+          attributeFilter: ['data-uds-can-create-ws', 'data-uds-logged-in'],
+        })
         return () => {
-          clearInterval(timer)
-          window.removeEventListener('focus', onFocus)
           window.removeEventListener('uds-auth-changed', onAuth)
+          mo.disconnect()
           clearGate()
+          for (const off of injectOffs) {
+            try { if (typeof off === 'function') off() } catch { /* ignore */ }
+          }
         }
       }, 'uds-auth: directory-flow-gate')
 
@@ -1796,40 +1796,26 @@ function reloadAfterLogin() {
             workspaceDispose = null
           }
         }
-        // Deny open-workspace by default until /api/me proves canCreateWorkspace.
-        if (!canOpenWorkspace()) installWorkspaceLock()
+        // Deny open-workspace by default until QR-triggered /api/me proves canCreateWorkspace.
         freezeChoosers()
 
-        const syncWorkspaceSlot = async () => {
-          let canCreate = document.documentElement.getAttribute('data-uds-can-create-ws') === '1'
-          try {
-            const me = await fetchJson('/uds-auth/api/me')
-            const user = me && me.authenticated && me.data ? me.data : null
-            const perms = user && user.permissions ? user.permissions : {}
-            canCreate = !!perms.canCreateWorkspace
-            document.documentElement.setAttribute('data-uds-logged-in', user ? '1' : '0')
-            document.documentElement.setAttribute('data-uds-can-create-ws', canCreate ? '1' : '0')
-            document.documentElement.setAttribute(
-              'data-uds-can-settings',
-              user && perms.canAccessSettings ? '1' : '0',
-            )
-          } catch {
-            if (!getEmpNo()) {
-              canCreate = false
-              document.documentElement.setAttribute('data-uds-logged-in', '0')
-              document.documentElement.setAttribute('data-uds-can-create-ws', '0')
-            }
-          }
+        const syncWorkspaceSlot = () => {
+          // Use AuthBadge DOM attrs only — no default /api/me.
+          const canCreate = document.documentElement.getAttribute('data-uds-can-create-ws') === '1'
           if (canCreate) clearWorkspaceLock()
           else installWorkspaceLock()
           freezeChoosers()
         }
+        let workspaceInjectOff = null
+        try {
+          workspaceInjectOff = ctx.slots.inject('conversation.hero.workspace', () => {
+            syncWorkspaceSlot()
+          })
+        } catch { /* ignore */ }
         syncWorkspaceSlot()
-        const timer = setInterval(syncWorkspaceSlot, 10000)
         const onAuth = () => { syncWorkspaceSlot() }
         window.addEventListener('uds-auth-changed', onAuth)
-        window.addEventListener('focus', onAuth)
-        const mo = new MutationObserver(() => { freezeChoosers() })
+        const mo = new MutationObserver(() => { freezeChoosers(); syncWorkspaceSlot() })
         mo.observe(document.documentElement, {
           childList: true,
           subtree: true,
@@ -1838,14 +1824,13 @@ function reloadAfterLogin() {
         })
 
         return () => {
-          clearInterval(timer)
           mo.disconnect()
           document.removeEventListener('click', block, true)
           document.removeEventListener('pointerdown', block, true)
           document.removeEventListener('mousedown', block, true)
           window.removeEventListener('uds-auth-changed', onAuth)
-          window.removeEventListener('focus', onAuth)
           clearWorkspaceLock()
+          try { if (typeof workspaceInjectOff === 'function') workspaceInjectOff() } catch { /* ignore */ }
         }
       }, 'uds-auth: workspace-click-lock')
       ctx.effect(() => {
@@ -1941,27 +1926,6 @@ function reloadAfterLogin() {
           window.removeEventListener('uds-auth-changed', onAuth)
         }
       }, 'uds-auth: session-only-sidebar')
-
-
-
-
-
-      // sidebar.footer.action; layout effect lays footArea as one row: Settings | UAC login
-      ctx.slots.inject('sidebar.footer.action', () => ctx.slots.register({
-        name: 'sidebar.footer.action',
-        id: 'uds-auth-login',
-        order: 100,
-        label: 'UAC',
-      }, AuthBadge))
-
-      ctx.slots.inject('settings.section', () => ctx.slots.register({
-        name: 'settings.section',
-        id: 'uds-auth',
-        order: 22,
-        label: () => t('ui.settingsTitle'),
-        locale: LOCALE_NS,
-        icon: 'users',
-      }, AuthSettingsSection))
     }
 
     exports.name = name

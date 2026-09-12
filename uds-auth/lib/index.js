@@ -724,7 +724,14 @@ function handleRequest(req, res) {
     // 基础端点
     if (url === '/api/me' && method === 'GET') {
       if (ctx2.empNo) {
-        try { ctx2.provisionedWorkspace = await ensureUserWorkspace(ctx2.empNo) } catch { ctx2.provisionedWorkspace = null }
+        // Never block login badge / ACL on workspaceRegistry (can wait up to 30s).
+        // Serve cached mapping immediately; provision in background.
+        try {
+          ctx2.provisionedWorkspace = _userWorkspaces?.get?.(ctx2.empNo) || null
+        } catch {
+          ctx2.provisionedWorkspace = null
+        }
+        void ensureUserWorkspace(ctx2.empNo).catch(() => {})
       }
       await _apiHandlers.getCurrentUser(ctx2); return
     }
@@ -788,7 +795,7 @@ function notifyWorkspaceRegistryReady(registry) {
 }
 
 /** Wait until workspaceRegistry inject fires (or timeout). */
-function whenWorkspaceRegistry(timeoutMs = 30000) {
+function whenWorkspaceRegistry(timeoutMs = 2500) {
   if (_workspaceRegistry) return Promise.resolve(_workspaceRegistry)
   return new Promise((resolve) => {
     const entry = {
@@ -808,7 +815,7 @@ async function ensureUserWorkspace(empNo) {
   try {
     let registry = _workspaceRegistry
     if (!registry) {
-      registry = await whenWorkspaceRegistry(30000)
+      registry = await whenWorkspaceRegistry(2500)
     }
     const root = _currentConfig?.workspaceRoot
     if (!registry) {
