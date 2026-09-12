@@ -486,7 +486,7 @@ window.__ModuleLoader__.load({
     }
 
     function clearSessionIfAnonymous(sessions) {
-      // No startup /api/me — treat as anonymous until QR-triggered me sets logged-in.
+      // Until /api/me confirms login, treat as anonymous (AuthBadge refreshes me on mount).
       if (isLoggedInInUi()) return
       try {
         if (sessions && typeof sessions.clear === 'function') sessions.clear()
@@ -1214,7 +1214,9 @@ function reloadAfterLogin() {
       }, [fbUser, fbPass, refreshUser])
 
       useEffect(() => {
-        // Do NOT call /api/me on mount — only when loading the login QR (startQr).
+        // Restore session after login reload / refresh — cookie alone does not set the badge.
+        // (Previously me ran only inside startQr, so a click on「未登录」was required.)
+        void refreshUser()
         fetchJson('/uds-auth/config.get')
           .then((data) => { if (data?.value) setConfig((prev) => ({ ...prev, ...data.value })) })
           .catch(() => {})
@@ -1222,7 +1224,7 @@ function reloadAfterLogin() {
           .then((st) => setFallbackEnabled(!!st.enabled))
           .catch(() => { /* keep default true — do not hide emergency login */ })
         return () => { stopQr() }
-      }, [stopQr])
+      }, [refreshUser, stopQr])
 
       useEffect(() => {
         if (!open || user) return undefined
@@ -1651,7 +1653,7 @@ function reloadAfterLogin() {
         }
         // Deny folder pick by default — no race with native directory picker.
         const sync = () => {
-          // Attrs come from QR-triggered /api/me via AuthBadge — do not poll me here.
+          // Attrs come from AuthBadge /api/me (mount + login) — do not poll me here.
           const canCreate = document.documentElement.getAttribute('data-uds-can-create-ws') === '1'
           if (canCreate) clearGate()
           else installGate()
@@ -1796,7 +1798,7 @@ function reloadAfterLogin() {
             workspaceDispose = null
           }
         }
-        // Deny open-workspace by default until QR-triggered /api/me proves canCreateWorkspace.
+        // Deny open-workspace by default until AuthBadge /api/me proves canCreateWorkspace.
         freezeChoosers()
 
         const syncWorkspaceSlot = () => {
