@@ -54,12 +54,13 @@ export function createApiHandlers(config, sessionStore, rolesStore, extra = {}) 
     for (const name of [
       'UDS_FALLBACK_USER',
       'UDS_FALLBACK_UI',
+      'UDS_LOCAL_ADMIN',
       'PORTALSSOUser',
       'PORTALSSOCookie',
       'ZTEDPGSSOUser',
       'ZTEDPGSSOCookie',
     ]) {
-      const httpOnly = name === 'UDS_FALLBACK_USER'
+      const httpOnly = name === 'UDS_FALLBACK_USER' || name === 'UDS_LOCAL_ADMIN'
       const base = httpOnly
         ? (name + '=; Max-Age=0; Path=/; HttpOnly; SameSite=Lax')
         : (name + '=; Max-Age=0; Path=/; SameSite=Lax')

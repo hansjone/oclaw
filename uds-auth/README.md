@@ -28,6 +28,14 @@ Bundled skill: [skills/uds-skill-auth](skills/uds-skill-auth). Handoff notes: [d
 
 Loopback agent APIs: `GET|POST /uds-auth/agent-credentials`, `POST /uds-auth/outbound`.
 
+### Local admin unlock (optional, decrypt-to-login)
+
+1. `node scripts/seal-local-admin.mjs "your-passphrase"`
+2. Set printed `UDS_AUTH_LOCAL_ADMIN_BOX=...` on the Harness process (ciphertext only)
+3. Login panel → “Unlock with local key” → enter passphrase
+
+Env alone does **not** grant admin. Legacy `UDS_AUTH_LOCAL_ADMIN_KEY` is ignored.
+
 ## Layout
 
 | Piece | Path | Role |

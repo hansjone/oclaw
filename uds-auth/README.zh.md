@@ -41,6 +41,11 @@ originSystemCode: ''
 - `POST /uds-auth/outbound` — **loopback**：白名单出站并注入鉴权头
 - 用户管理 / 兜底管理员：见 `/uds-auth/api/users*`、`/uds-auth/api/fallback/*`
 - **默认兜底账号**（扫码不可用时）：用户名 `administrator`，密码 `Admin@123`（首次启动自动启用；可在设置中改密或关闭）
+- **本机密钥解锁（可选，解密才登录）**：
+  1. 生成密封盒：`node scripts/seal-local-admin.mjs "你的口令"`  
+  2. 把输出的 `UDS_AUTH_LOCAL_ADMIN_BOX=...` 设到 **Harness 进程环境**（这是密文，不是口令）  
+  3. 登录面板 →「本机密钥解锁」→ 输入口令；**必须解密成功才有 admin**  
+  仅设置环境变量、不知道口令 → **无法登录**。旧变量 `UDS_AUTH_LOCAL_ADMIN_KEY` 已忽略。
 - **ACL**：`super_admin` / 兜底 `administrator` 可见全部会话（含 `@` 提及）；`admin` / `user` 仅可见 **自己拥有的** 或 **自己工作区路径下的** 会话。侧栏、`session/search` 与 `@` 候选共用同一规则
 
 ## Skill 认证（给他人改造 skill 时）

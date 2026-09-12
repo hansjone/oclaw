@@ -67,6 +67,10 @@ export const MESSAGES = {
     'ui.fallbackLink': 'UAC 不可用？应急账号登录',
     'ui.fallbackLogin': '应急登录',
     'ui.fallbackDetail': 'UAC / 扫码不可用时使用',
+    'ui.localKeyLink': '本机密钥解锁',
+    'ui.localKeyLogin': '本机密钥解锁',
+    'ui.localKeyDetail': '用密封盒口令解密后登录（仅设环境变量不会自动登录）',
+    'ui.localKey': '解密密钥',
     'ui.username': '用户名',
     'ui.password': '密码',
     'ui.login': '登录',
@@ -136,6 +140,10 @@ export const MESSAGES = {
     'err.upstream_failed': '上游请求失败',
     'err.skill_credentials_not_ready': 'skill 凭证未就绪',
     'err.outbound_not_ready': 'outbound 未就绪',
+    'err.local_admin_not_configured': '未配置本机管理员密封盒',
+    'err.key_required': '请输入解密密钥',
+    'err.decrypt_failed': '密钥无法解密，登录失败',
+    'err.rate_limited': '尝试过多，请稍后再试',
 
     // API success
     'ok.logged_out': '已退出登录',
@@ -146,6 +154,7 @@ export const MESSAGES = {
     'ok.fallback_password_set': '应急管理员密码已设置',
     'ok.fallback_password_cleared': '应急管理员密码已清除',
     'ok.fallback_login': '应急管理员登录成功',
+    'ok.local_admin_unlock': '本机密钥解锁成功',
   },
   en: {
     'role.super_admin': 'Super admin',
@@ -200,6 +209,10 @@ export const MESSAGES = {
     'ui.fallbackLink': 'UAC down? Emergency account',
     'ui.fallbackLogin': 'Emergency login',
     'ui.fallbackDetail': 'Use when UAC / QR is unavailable',
+    'ui.localKeyLink': 'Unlock with local key',
+    'ui.localKeyLogin': 'Local key unlock',
+    'ui.localKeyDetail': 'Decrypt the sealed box with your passphrase (env alone does nothing)',
+    'ui.localKey': 'Decryption key',
     'ui.username': 'Username',
     'ui.password': 'Password',
     'ui.login': 'Sign in',
@@ -266,6 +279,10 @@ export const MESSAGES = {
     'err.upstream_failed': 'upstream failed',
     'err.skill_credentials_not_ready': 'skill credentials not ready',
     'err.outbound_not_ready': 'outbound not ready',
+    'err.local_admin_not_configured': 'Local admin sealed box is not configured',
+    'err.key_required': 'Decryption key required',
+    'err.decrypt_failed': 'Key could not decrypt — sign-in failed',
+    'err.rate_limited': 'Too many attempts, try later',
 
     'ok.logged_out': 'Signed out',
     'ok.config_saved': 'Config saved',
@@ -275,6 +292,7 @@ export const MESSAGES = {
     'ok.fallback_password_set': 'Emergency admin password set',
     'ok.fallback_password_cleared': 'Emergency admin password cleared',
     'ok.fallback_login': 'Emergency admin signed in',
+    'ok.local_admin_unlock': 'Local admin unlocked',
   },
 }
 

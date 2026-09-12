@@ -10,7 +10,8 @@ import { searchUserByEmpNoToken } from '../uds/user-search.js'
  * （带 X-Emp-No / X-Auth-Value）直连内网拉用户详情；成功才建会话。
  * 出站请求绕过 HTTP(S)_PROXY。
  *
- * 兜底登录：仅认可已由 /api/fallback/login 写好的 administrator 会话。
+ * 兜底登录：仅认可已由 /api/fallback/login 或 /api/local-admin/unlock 写好的
+ * administrator 会话；重启后若仅有 UDS_FALLBACK_USER cookie，会重建内存会话。
  *
  * 可选 onSkillCredentials(empNo, token)：UI 会话写入成功后并行写入 skill 凭证缓存。
  */
@@ -91,6 +92,25 @@ export function createAuthMiddleware(config, sessionStore, rolesStore, hooks = {
     return false
   }
 
+  async function attachUser(ctx, empNo, userContext, kind, { persist = false } = {}) {
+    if (persist || slidingExpiration) {
+      userContext.lastActiveAt = new Date().toISOString()
+      await sessionStore.setex(
+        empNo,
+        Math.floor(cookieMaxAge / 1000),
+        userContext,
+      )
+    }
+    if (userContext.token) {
+      try { onSkillCredentials?.(empNo, userContext.token) } catch { /* ignore */ }
+    }
+    const role = await resolveRole(empNo, kind)
+    ctx.userContext = userContext
+    ctx.empNo = empNo
+    ctx.role = role
+    ctx.permissions = computePermissions(role)
+  }
+
   async function authMiddleware(ctx, next) {
     const { req } = ctx
     const cookieHeader = req.headers.cookie || ''
@@ -125,26 +145,26 @@ export function createAuthMiddleware(config, sessionStore, rolesStore, hooks = {
     }
 
     if (userContext) {
-      if (slidingExpiration) {
-        userContext.lastActiveAt = new Date().toISOString()
-        await sessionStore.setex(
-          extracted.empNo,
-          Math.floor(cookieMaxAge / 1000),
-          userContext,
-        )
-      }
-      if (userContext.token) {
-        try { onSkillCredentials?.(extracted.empNo, userContext.token) } catch { /* ignore */ }
-      }
-      const role = await resolveRole(extracted.empNo, extracted.kind)
-      ctx.userContext = userContext
-      ctx.empNo = extracted.empNo
-      ctx.role = role
-      ctx.permissions = computePermissions(role)
+      await attachUser(ctx, extracted.empNo, userContext, extracted.kind)
       return next()
     }
 
+    // Fallback cookie survives process restart; memory session does not — rebuild.
     if (extracted.kind === 'fallback') {
+      const empNo = extracted.empNo || 'administrator'
+      userContext = {
+        empNo,
+        userId: empNo,
+        username: 'Fallback Administrator',
+        displayName: 'Fallback Administrator',
+        isAuthenticated: true,
+        role: ROLES.FALLBACK_ADMIN,
+        authMode: 'fallback-cookie',
+        authenticatedAt: new Date().toISOString(),
+        lastActiveAt: new Date().toISOString(),
+        sessionCreatedAt: new Date().toISOString(),
+      }
+      await attachUser(ctx, empNo, userContext, 'fallback', { persist: true })
       return next()
     }
 

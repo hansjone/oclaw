@@ -72,6 +72,10 @@ window.__ModuleLoader__.load({
     "ui.fallbackLink": "UAC 不可用？应急账号登录",
     "ui.fallbackLogin": "应急登录",
     "ui.fallbackDetail": "UAC / 扫码不可用时使用",
+    "ui.localKeyLink": "本机密钥解锁",
+    "ui.localKeyLogin": "本机密钥解锁",
+    "ui.localKeyDetail": "用密封盒口令解密后登录（仅设环境变量不会自动登录）",
+    "ui.localKey": "解密密钥",
     "ui.username": "用户名",
     "ui.password": "密码",
     "ui.login": "登录",
@@ -109,6 +113,10 @@ window.__ModuleLoader__.load({
     "err.last_super_admin_demote": "系统至少需要 1 个超级管理员，不能降级最后一个",
     "err.last_super_admin_delete": "系统至少需要 1 个超级管理员，不能删除最后一个",
     "err.password_too_short": "密码至少 6 位",
+    "err.local_admin_not_configured": "未配置本机管理员密封盒",
+    "err.key_required": "请输入解密密钥",
+    "err.decrypt_failed": "密钥无法解密，登录失败",
+    "err.rate_limited": "尝试过多，请稍后再试",
     "err.config_not_ready": "配置未初始化",
     "err.request_failed": "请求失败",
     "err.method_not_allowed": "方法不允许",
@@ -142,7 +150,8 @@ window.__ModuleLoader__.load({
     "ok.user_removed": "{empNo} 已删除",
     "ok.fallback_password_set": "应急管理员密码已设置",
     "ok.fallback_password_cleared": "应急管理员密码已清除",
-    "ok.fallback_login": "应急管理员登录成功"
+    "ok.fallback_login": "应急管理员登录成功",
+    "ok.local_admin_unlock": "本机密钥解锁成功"
   },
   "en": {
     "role.super_admin": "Super admin",
@@ -195,6 +204,10 @@ window.__ModuleLoader__.load({
     "ui.fallbackLink": "UAC down? Emergency account",
     "ui.fallbackLogin": "Emergency login",
     "ui.fallbackDetail": "Use when UAC / QR is unavailable",
+    "ui.localKeyLink": "Unlock with local key",
+    "ui.localKeyLogin": "Local key unlock",
+    "ui.localKeyDetail": "Decrypt the sealed box with your passphrase (env alone does nothing)",
+    "ui.localKey": "Decryption key",
     "ui.username": "Username",
     "ui.password": "Password",
     "ui.login": "Sign in",
@@ -232,6 +245,10 @@ window.__ModuleLoader__.load({
     "err.last_super_admin_demote": "At least one super admin is required; cannot demote the last one",
     "err.last_super_admin_delete": "At least one super admin is required; cannot delete the last one",
     "err.password_too_short": "Password must be at least 6 characters",
+    "err.local_admin_not_configured": "Local admin sealed box is not configured",
+    "err.key_required": "Decryption key required",
+    "err.decrypt_failed": "Key could not decrypt — sign-in failed",
+    "err.rate_limited": "Too many attempts, try later",
     "err.config_not_ready": "Config not initialized",
     "err.request_failed": "Request failed",
     "err.method_not_allowed": "Method not allowed",
@@ -265,7 +282,8 @@ window.__ModuleLoader__.load({
     "ok.user_removed": "{empNo} removed",
     "ok.fallback_password_set": "Emergency admin password set",
     "ok.fallback_password_cleared": "Emergency admin password cleared",
-    "ok.fallback_login": "Emergency admin signed in"
+    "ok.fallback_login": "Emergency admin signed in",
+    "ok.local_admin_unlock": "Local admin unlocked"
   }
 }
     const UDS_HOST_ARIA = {
@@ -462,7 +480,7 @@ window.__ModuleLoader__.load({
     }
 
     function clearAuthCookies() {
-      const names = ['PORTALSSOUser', 'PORTALSSOCookie', 'ZTEDPGSSOUser', 'ZTEDPGSSOCookie', 'UDS_FALLBACK_USER', 'UDS_FALLBACK_UI']
+      const names = ['PORTALSSOUser', 'PORTALSSOCookie', 'ZTEDPGSSOUser', 'ZTEDPGSSOCookie', 'UDS_FALLBACK_USER', 'UDS_FALLBACK_UI', 'UDS_LOCAL_ADMIN']
       for (const key of names) {
         // Match both Secure and non-Secure variants; HttpOnly ones need server clear.
         document.cookie = encodeURIComponent(key) + '=; Max-Age=0; Path=/; SameSite=Lax'
@@ -992,8 +1010,10 @@ function reloadAfterLogin() {
       // Default true (server enables fallback by default). If status fetch fails
       // while QR is also down, keep the emergency link visible so admins can still sign in.
       const [fallbackEnabled, setFallbackEnabled] = useState(true)
+      const [localKeyEnabled, setLocalKeyEnabled] = useState(false)
       const [fbUser, setFbUser] = useState('administrator')
       const [fbPass, setFbPass] = useState('')
+      const [localKey, setLocalKey] = useState('')
       const [fbBusy, setFbBusy] = useState(false)
       const [fbErr, setFbErr] = useState('')
       const qrRef = useRef({ key: null, value: null, timer: null, timeout: null, deadline: 0 })
@@ -1213,6 +1233,26 @@ function reloadAfterLogin() {
         }
       }, [fbUser, fbPass, refreshUser])
 
+      const submitLocalKey = useCallback(async () => {
+        setFbBusy(true)
+        setFbErr('')
+        try {
+          await fetchJson('/uds-auth/api/local-admin/unlock', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ key: localKey }),
+          })
+          setLocalKey('')
+          await refreshUser()
+          setOpen(false)
+          reconnectAfterLogin()
+        } catch (err) {
+          setFbErr(apiMessage(err) || t('err.decrypt_failed'))
+        } finally {
+          setFbBusy(false)
+        }
+      }, [localKey, refreshUser])
+
       useEffect(() => {
         // Restore session after login reload / refresh — cookie alone does not set the badge.
         // (Previously me ran only inside startQr, so a click on「未登录」was required.)
@@ -1223,6 +1263,9 @@ function reloadAfterLogin() {
         fetchJson('/uds-auth/api/fallback/status')
           .then((st) => setFallbackEnabled(!!st.enabled))
           .catch(() => { /* keep default true — do not hide emergency login */ })
+        fetchJson('/uds-auth/api/local-admin/status')
+          .then((st) => setLocalKeyEnabled(!!st.enabled))
+          .catch(() => { setLocalKeyEnabled(false) })
         return () => { stopQr() }
       }, [refreshUser, stopQr])
 
@@ -1344,6 +1387,42 @@ function reloadAfterLogin() {
               className: 'uds-auth-btn-link',
               onClick: () => { stopQr(); setLoginMode('fallback'); setFbErr('') },
             }, t('ui.fallbackLink')),
+            localKeyEnabled && h('button', {
+              type: 'button',
+              className: 'uds-auth-btn-link',
+              onClick: () => { stopQr(); setLoginMode('localKey'); setFbErr(''); setLocalKey('') },
+            }, t('ui.localKeyLink')),
+          )
+          : loginMode === 'localKey'
+          ? h(React.Fragment, null,
+            h('div', { className: 'uds-auth-info' },
+              h('div', { className: 'uds-auth-info-name' }, t('ui.localKeyLogin')),
+              h('div', { className: 'uds-auth-info-detail' }, t('ui.localKeyDetail')),
+            ),
+            h('div', { className: 'uds-auth-fallback' },
+              h('label', { htmlFor: 'uds-local-key' }, t('ui.localKey')),
+              h('input', {
+                id: 'uds-local-key',
+                type: 'password',
+                value: localKey,
+                onChange: (e) => setLocalKey(e.target.value),
+                autoComplete: 'current-password',
+                onKeyDown: (e) => { if (e.key === 'Enter') submitLocalKey() },
+              }),
+              fbErr && h('div', { className: 'uds-auth-settings-msg err' }, fbErr),
+              h('button', {
+                type: 'button',
+                className: 'uds-auth-btn uds-auth-btn-primary',
+                style: { width: '100%', margin: '12px 0 0' },
+                disabled: fbBusy || !localKey,
+                onClick: submitLocalKey,
+              }, fbBusy ? t('ui.loggingIn') : t('ui.login')),
+            ),
+            h('button', {
+              type: 'button',
+              className: 'uds-auth-btn-link',
+              onClick: () => setLoginMode('qr'),
+            }, t('ui.backToQr')),
           )
           : h(React.Fragment, null,
             h('div', { className: 'uds-auth-info' },

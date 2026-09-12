@@ -10,6 +10,16 @@ import { resolve, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createRequire } from 'node:module'
 import { createHash, randomBytes } from 'node:crypto'
+import {
+  logLocalAdminStatus,
+  appendLocalAdminCookie,
+  isLocalAdminBoxConfigured,
+  readLocalAdminBox,
+  openLocalAdminBox,
+  allowUnlockAttempt,
+  buildLocalAdminUserContext,
+  LOCAL_ADMIN_BOX_ENV,
+} from './local-admin.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const require = createRequire(import.meta.url)
@@ -454,6 +464,30 @@ function isHttpsRequest(req) {
   return xf === 'https'
 }
 
+function setFallbackAdminCookies(req, res, extraCookies = []) {
+  const fbMaxAge = 7 * 24 * 60 * 60
+  const secure = isHttpsRequest(req)
+  const partsUser = [
+    'UDS_FALLBACK_USER=administrator',
+    `Max-Age=${fbMaxAge}`,
+    'Path=/',
+    'HttpOnly',
+    'SameSite=Lax',
+  ]
+  const partsUi = [
+    'UDS_FALLBACK_UI=administrator',
+    `Max-Age=${fbMaxAge}`,
+    'Path=/',
+    'SameSite=Lax',
+  ]
+  if (secure) {
+    partsUser.push('Secure')
+    partsUi.push('Secure')
+  }
+  const list = [partsUser.join('; '), partsUi.join('; '), ...extraCookies]
+  res.setHeader('Set-Cookie', list)
+}
+
 async function handleFallbackLogin(req, res) {
   let body = ''
   for await (const chunk of req) body += chunk
@@ -488,31 +522,65 @@ async function handleFallbackLogin(req, res) {
   await _sessionStore.setex(empNo, Math.floor(INTERNAL.session.cookieMaxAge / 1000), userContext)
   await ensureUserWorkspace(empNo)
 
-  // 给浏览器设 cookie，让后续请求 auth-middleware 能识别
-  const fbMaxAge = Math.floor(INTERNAL.session.cookieMaxAge / 1000)
-  res.setHeader('Set-Cookie', (() => {
-    const secure = isHttpsRequest(req)
-    const partsUser = [
-      'UDS_FALLBACK_USER=administrator',
-      `Max-Age=${fbMaxAge}`,
-      'Path=/',
-      'HttpOnly',
-      'SameSite=Lax',
-    ]
-    const partsUi = [
-      'UDS_FALLBACK_UI=administrator',
-      `Max-Age=${fbMaxAge}`,
-      'Path=/',
-      'SameSite=Lax',
-    ]
-    if (secure) {
-      partsUser.push('Secure')
-      partsUi.push('Secure')
-    }
-    return [partsUser.join('; '), partsUi.join('; ')]
-  })())
+  setFallbackAdminCookies(req, res)
 
   sendOkMsg(res, req, 'fallback_login', null, userContext, {
+    success: true,
+    empNo,
+    role: 'fallback_admin',
+  })
+}
+
+/**
+ * Decrypt UDS_AUTH_LOCAL_ADMIN_BOX with operator passphrase → admin session.
+ * Env ciphertext alone never grants login.
+ */
+async function handleLocalAdminUnlock(req, res) {
+  if (!isLocalAdminBoxConfigured()) {
+    return sendErr(res, req, 404, 'local_admin_not_configured')
+  }
+  const ip = req.socket?.remoteAddress || 'unknown'
+  if (!allowUnlockAttempt(ip)) {
+    return sendErr(res, req, 429, 'rate_limited')
+  }
+
+  let body = ''
+  for await (const chunk of req) body += chunk
+  let parsed
+  try { parsed = JSON.parse(body) } catch { parsed = {} }
+  const key = String(parsed.key || parsed.passphrase || parsed.password || '').trim()
+  if (!key) {
+    return sendErr(res, req, 400, 'key_required')
+  }
+
+  const opened = openLocalAdminBox(readLocalAdminBox(), key)
+  if (!opened.ok) {
+    return sendErr(res, req, 401, 'decrypt_failed')
+  }
+
+  const empNo = opened.empNo
+  const userContext = buildLocalAdminUserContext()
+  await _sessionStore.setex(empNo, Math.floor(INTERNAL.session.cookieMaxAge / 1000), userContext)
+  await ensureUserWorkspace(empNo)
+
+  // Build local-admin session cookie into the same Set-Cookie batch.
+  const fakeRes = {
+    headersSent: false,
+    _cookies: [],
+    getHeader(name) {
+      if (String(name).toLowerCase() === 'set-cookie') return this._cookies
+      return undefined
+    },
+    setHeader(name, value) {
+      if (String(name).toLowerCase() === 'set-cookie') {
+        this._cookies = Array.isArray(value) ? value : [value]
+      }
+    },
+  }
+  appendLocalAdminCookie(fakeRes, req)
+  setFallbackAdminCookies(req, res, fakeRes._cookies)
+
+  sendOkMsg(res, req, 'local_admin_unlock', null, userContext, {
     success: true,
     empNo,
     role: 'fallback_admin',
@@ -662,6 +730,16 @@ function handleRequest(req, res) {
     }
     if (url === '/api/fallback/status' && method === 'GET') {
       return sendJSON(res, 200, { enabled: _rolesStore.isFallbackEnabled() })
+    }
+    if (url === '/api/local-admin/status' && method === 'GET') {
+      return sendJSON(res, 200, {
+        enabled: isLocalAdminBoxConfigured(),
+        env: LOCAL_ADMIN_BOX_ENV,
+      })
+    }
+    if (url === '/api/local-admin/unlock' && method === 'POST') {
+      await handleLocalAdminUnlock(req, res)
+      return
     }
 
     // 以下都需要登录态
@@ -931,6 +1009,7 @@ async function initServices(ctx, config) {
     const rolesFile = resolve(__dirname, '..', 'roles.json')
     _rolesStore = new RolesStore({ rolesFile })
     await _rolesStore.init()
+    logLocalAdminStatus(ctx.logger || console)
 
     _sessionAcl = new SessionAclStore({ ownersFile: resolve(__dirname, '..', 'session-owners.json') })
     await _sessionAcl.init()
