@@ -2,11 +2,24 @@
  * Bridge UDS cookies → AsyncLocalStorage and wrap DSH session/workspace/settings.
  */
 import { createRequire } from 'node:module'
+import { resolve as resolvePath, sep as pathSep } from 'node:path'
 import { withUserContext, getUserContext, runWithUserContext } from './context.js'
-import { computePermissions, ROLES } from './roles.js'
 import { resolveLocale, t } from './i18n.js'
 
 const require = createRequire(import.meta.url)
+
+/** True when path is outside per-user workspace root (channel/bot/harness cwd). */
+export function isOutsideUserWorkspaceRoot(candidatePath, workspaceRoot) {
+  if (!candidatePath) return true
+  if (!workspaceRoot) return true
+  try {
+    const base = resolvePath(String(workspaceRoot))
+    const cand = resolvePath(String(candidatePath))
+    return cand !== base && !cand.startsWith(base + pathSep)
+  } catch {
+    return true
+  }
+}
 
 function parseCookie(header, name) {
   if (!header || typeof header !== 'string') return null
@@ -174,7 +187,7 @@ export function resolveIdentityFromRequestSync(req, deps) {
   return {
     empNo: String(empNo),
     role,
-    permissions: computePermissions(role),
+    permissions: rolesStore.resolvePermissions(empNo, role),
     userContext: {
       empNo: String(empNo),
       userId: String(empNo),
@@ -229,7 +242,7 @@ export async function resolveIdentityFromRequest(req, deps) {
     } catch { /* keep getRole */ }
   }
 
-  const permissions = computePermissions(role)
+  const permissions = rolesStore.resolvePermissions(empNo, role)
   return {
     empNo: String(empNo),
     role,
@@ -372,7 +385,11 @@ function throwForbidden(code) {
 
 /**
  * Shared session visibility helpers (sidebar + @ mention + query reads).
- * Visibility: super_admin / fallback_admin see all; others see owner OR own workspace.
+ * Visibility:
+ * - canViewAllSessions (super/fallback toggle): see all
+ * - else: own owner stamp OR own user-workspace path
+ * - canViewSystemSessions (admin+): also see system/channel sessions whose cwd
+ *   is outside the per-user workspace root (IM bots, harness cwd, unstamped)
  */
 export function createSessionAccess({
   sessionAcl,
@@ -380,17 +397,25 @@ export function createSessionAccess({
   getWorkspaceRoot,
   getWorkspaceRegistry,
   resolveLiveCwd,
+  rolesStore,
 }) {
+  const empOf = (identity) => identity?.empNo || identity?.userContext?.empNo || null
+
+  /** Always re-read prefs from live rolesStore — never trust frozen WS identity.permissions. */
   const canSeeAll = (identity) => {
     if (!identity) return false
+    const empNo = empOf(identity)
+    const store = typeof rolesStore === 'function' ? rolesStore() : rolesStore
+    if (empNo && store && typeof store.resolvePermissions === 'function') {
+      // Do not pass identity.role — store.getRole(empNo) is source of truth.
+      return !!store.resolvePermissions(empNo).canViewAllSessions
+    }
     if (identity.permissions?.canViewAllSessions) return true
+    // No store (tests / misconfig): keep legacy super visibility.
     const role = identity.role || identity.userContext?.role
-    if (role === 'fallback_admin' || role === 'super_admin') return true
-    if (String(identity.empNo || identity.userContext?.empNo || '') === 'administrator') return true
-    return false
+    return role === 'super_admin' || role === 'fallback_admin'
+      || String(empNo) === 'administrator'
   }
-
-  const empOf = (identity) => identity?.empNo || identity?.userContext?.empNo || null
 
   const resolveRegistry = () => {
     try {
@@ -436,14 +461,21 @@ export function createSessionAccess({
     const root = getWorkspaceRoot()
     const wid = ws.id ?? ws.workspaceId
     const path = ws.path
-    return userWorkspaces.isUserPath(empNo, path, root)
+    if (userWorkspaces.isUserPath(empNo, path, root)
       || (userWorkspaces.get(empNo)?.workspaceId
-        && String(userWorkspaces.get(empNo).workspaceId) === String(wid))
+        && String(userWorkspaces.get(empNo).workspaceId) === String(wid))) {
+      return true
+    }
+    // Channel / bot / shared harness workspaces live outside user-workspaces.
+    if (identity.permissions?.canViewSystemSessions && isOutsideUserWorkspaceRoot(path, root)) {
+      return true
+    }
+    return false
   }
 
   /**
    * Owner stamp OR cwd/workspace under the caller's provisioned path.
-   * Missing owner alone does not deny (legacy sessions rely on workspace/cwd).
+   * Settings roles also see unowned system/channel sessions (cwd outside user-workspaces).
    */
   const canAccessSession = (sessionId, identity, rowHint) => {
     if (!identity || !empOf(identity)) return false
@@ -457,12 +489,23 @@ export function createSessionAccess({
     const cwd = resolveSessionCwd(sessionId, rowHint)
     if (cwd && userWorkspaces.isUserPath(empNo, cwd, root)) return true
 
+    const foreignOwner = !!(owner && String(owner) !== String(empNo))
+
+    // IM/channel (and other host-internal) sessions: often unstamped + bot cwd.
+    // Let admin+ see those; never leak another user's stamped private session.
+    if (!foreignOwner && !owner && identity.permissions?.canViewSystemSessions
+      && isOutsideUserWorkspaceRoot(cwd, root)) {
+      return true
+    }
+
     const registry = resolveRegistry()
     if (!registry || typeof registry.list !== 'function') return false
     let workspaces = []
     try { workspaces = registry.list() || [] } catch { return false }
     for (const ws of workspaces) {
       if (!isVisibleWorkspace(identity, ws)) continue
+      // Foreign-owned sessions must not become visible via channel/system workspaces.
+      if (foreignOwner && isOutsideUserWorkspaceRoot(ws?.path, root)) continue
       if (workspaceContainsSession(ws, sessionId)) return true
     }
     return false
@@ -480,47 +523,66 @@ export function createSessionAccess({
 
 /**
  * Install Host ACL wrappers.
+ * `getRolesStore` / `rolesStore` is read live on every ACL check so plugin reload
+ * and preference toggles take effect without re-wrapping Host controllers.
  */
 export function installDshAcl(ctx, {
   sessionAcl,
   userWorkspaces,
   getWorkspaceRoot,
   rolesStore,
+  getRolesStore,
   ensureUserWorkspace,
   getWorkspaceRegistry,
 }) {
   const disposers = []
+  const resolveRolesStore = () => {
+    if (typeof getRolesStore === 'function') {
+      try { return getRolesStore() } catch { return null }
+    }
+    if (typeof rolesStore === 'function') {
+      try { return rolesStore() } catch { return null }
+    }
+    return rolesStore || null
+  }
 
-  const access = createSessionAccess({
-    sessionAcl,
-    userWorkspaces,
-    getWorkspaceRoot,
-    getWorkspaceRegistry: () => {
-      try {
-        if (typeof getWorkspaceRegistry === 'function') {
-          const r = getWorkspaceRegistry()
-          if (r) return r
+  // Shared live bag: re-install updates this even when Host controllers are already wrapped.
+  const live = installDshAcl._live || (installDshAcl._live = { access: null })
+  const rebuildAccess = () => {
+    live.access = createSessionAccess({
+      sessionAcl,
+      userWorkspaces,
+      getWorkspaceRoot,
+      rolesStore: resolveRolesStore,
+      getWorkspaceRegistry: () => {
+        try {
+          if (typeof getWorkspaceRegistry === 'function') {
+            const r = getWorkspaceRegistry()
+            if (r) return r
+          }
+        } catch { /* ignore */ }
+        try { return ctx.get('workspaceRegistry') } catch { return null }
+      },
+      resolveLiveCwd: (sessionId) => {
+        try {
+          const agents = ctx.get('agents')
+          const agent = agents?.get?.(sessionId)
+          return agent?.session?.header?.cwd || null
+        } catch {
+          return null
         }
-      } catch { /* ignore */ }
-      try { return ctx.get('workspaceRegistry') } catch { return null }
-    },
-    resolveLiveCwd: (sessionId) => {
-      try {
-        const agents = ctx.get('agents')
-        const agent = agents?.get?.(sessionId)
-        return agent?.session?.header?.cwd || null
-      } catch {
-        return null
-      }
-    },
-  })
-  const {
-    canSeeAll,
-    empOf,
-    resolveRegistry,
-    isVisibleWorkspace,
-    canAccessSession,
-  } = access
+      },
+    })
+  }
+  rebuildAccess()
+
+  const canSeeAll = (identity) => live.access.canSeeAll(identity)
+  const empOf = (identity) => live.access.empOf(identity)
+  const resolveRegistry = () => live.access.resolveRegistry()
+  const isVisibleWorkspace = (identity, ws) => live.access.isVisibleWorkspace(identity, ws)
+  const canAccessSession = (sessionId, identity, rowHint) => (
+    live.access.canAccessSession(sessionId, identity, rowHint)
+  )
 
   // Stamp owner on session create
   const offCreated = ctx.on('session/created', (session) => {
@@ -880,12 +942,7 @@ ctx.inject(['workspaceController'], (wctx) => {
     // the ungrouped bucket).
     const canSeeAllWorkspaces = (identity) => {
       if (!identity) return false
-      if (identity.permissions?.canViewAllSessions) return true
-      const role = identity.role || identity.userContext?.role
-      if (role === 'fallback_admin' || role === 'super_admin') return true
-      // Fallback cookie user is always administrator
-      if (String(identity.empNo || identity.userContext?.empNo || '') === 'administrator') return true
-      return false
+      return canSeeAll(identity)
     }
 
     const allowWorkspace = (identity, ws) => {
@@ -894,9 +951,16 @@ ctx.inject(['workspaceController'], (wctx) => {
       const empNo = identity.empNo || identity.userContext?.empNo
       const root = getWorkspaceRoot()
       const wid = ws?.workspaceId ?? ws?.id
-      return userWorkspaces.isUserPath(empNo, ws?.path, root)
+      if (userWorkspaces.isUserPath(empNo, ws?.path, root)
         || (userWorkspaces.get(empNo)?.workspaceId
-          && String(userWorkspaces.get(empNo).workspaceId) === String(wid))
+          && String(userWorkspaces.get(empNo).workspaceId) === String(wid))) {
+        return true
+      }
+      if (identity.permissions?.canViewSystemSessions
+        && isOutsideUserWorkspaceRoot(ws?.path, root)) {
+        return true
+      }
+      return false
     }
 
     const filterBaseline = (identity, baseline) => {
@@ -921,6 +985,20 @@ ctx.inject(['workspaceController'], (wctx) => {
         const allowed = new Set()
         const mapped = userWorkspaces.get(empNo)?.workspaceId
         if (mapped != null) allowed.add(String(mapped))
+        // Keep channel/bot workspaces for admin+ (same rule as allowWorkspace).
+        if (identity?.permissions?.canViewSystemSessions) {
+          try {
+            const root = getWorkspaceRoot()
+            const registry = resolveRegistry()
+            const list = typeof registry?.list === 'function' ? (registry.list() || []) : []
+            for (const ws of list) {
+              const id = ws?.id ?? ws?.workspaceId
+              if (id != null && isOutsideUserWorkspaceRoot(ws?.path, root)) {
+                allowed.add(String(id))
+              }
+            }
+          } catch { /* ignore */ }
+        }
         return {
           ...frame,
           workspaceIds: (frame.workspaceIds || []).filter((id) => allowed.has(String(id))),

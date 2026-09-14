@@ -46,7 +46,7 @@ originSystemCode: ''
   2. 把输出的 `UDS_AUTH_LOCAL_ADMIN_BOX=...` 设到 **Harness 进程环境**（这是密文，不是口令）  
   3. 登录面板 →「本机密钥解锁」→ 输入口令；**必须解密成功才有 admin**  
   仅设置环境变量、不知道口令 → **无法登录**。旧变量 `UDS_AUTH_LOCAL_ADMIN_KEY` 已忽略。
-- **ACL**：`super_admin` / 兜底 `administrator` 可见全部会话（含 `@` 提及）；`admin` / `user` 仅可见 **自己拥有的** 或 **自己工作区路径下的** 会话。侧栏、`session/search` 与 `@` 候选共用同一规则
+- **ACL / 侧栏**：未登录与普通用户看不到设置齿轮；**仅超管/应急**可见设置。`admin` 无设置齿轮，但可看渠道/系统会话。`super_admin` / 兜底默认可见全部会话（可关）。布局：设置在左、登录在右。
 
 ## Skill 认证（给他人改造 skill 时）
 

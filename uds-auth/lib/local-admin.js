@@ -189,10 +189,13 @@ export function buildLocalAdminUserContext() {
 export function buildLocalAdminIdentity(rolesStore) {
   const empNo = DEFAULT_FALLBACK_USERNAME
   const role = rolesStore?.getRole?.(empNo) || ROLES.FALLBACK_ADMIN
+  const permissions = typeof rolesStore?.resolvePermissions === 'function'
+    ? rolesStore.resolvePermissions(empNo, role)
+    : computePermissions(role)
   return {
     empNo,
     role,
-    permissions: computePermissions(role),
+    permissions,
     userContext: buildLocalAdminUserContext(),
     kind: 'fallback',
   }

@@ -66,6 +66,11 @@ window.__ModuleLoader__.load({
     "ui.nextPage": "下一页",
     "ui.add": "添加",
     "ui.department": "部门",
+    "ui.viewAllSessionsTitle": "查看全部会话",
+    "ui.viewAllSessionsIntro": "超级管理员默认可见全部会话（含渠道）。关闭后仅看自己的；侧栏与 @ 提及规则相同。",
+    "ui.viewAllSessionsToggle": "显示所有人的会话",
+    "ui.viewAllSessionsOn": "已开启：可见全部会话",
+    "ui.viewAllSessionsOff": "已关闭：仅可见自己的会话",
     "ui.notLoggedIn": "未登录",
     "ui.pleaseScan": "请使用 iCenter 扫码登录",
     "ui.refreshQr": "刷新二维码",
@@ -106,6 +111,7 @@ window.__ModuleLoader__.load({
     "err.forbidden_remove_user": "只有超级管理员可以删除用户",
     "err.forbidden_set_fallback": "只有超级管理员可以设置应急密码",
     "err.forbidden_clear_fallback": "只有超级管理员可以清除应急密码",
+    "err.forbidden_view_all_sessions": "当前角色不能开启查看全部会话",
     "err.invalid_role_params": "参数错误: empNo 和 role 必填",
     "err.emp_no_required": "empNo 必填",
     "err.username_password_required": "用户名和密码必填",
@@ -151,7 +157,9 @@ window.__ModuleLoader__.load({
     "ok.fallback_password_set": "应急管理员密码已设置",
     "ok.fallback_password_cleared": "应急管理员密码已清除",
     "ok.fallback_login": "应急管理员登录成功",
-    "ok.local_admin_unlock": "本机密钥解锁成功"
+    "ok.local_admin_unlock": "本机密钥解锁成功",
+    "ok.view_all_sessions_on": "已开启查看全部会话",
+    "ok.view_all_sessions_off": "已关闭查看全部会话"
   },
   "en": {
     "role.super_admin": "Super admin",
@@ -198,6 +206,11 @@ window.__ModuleLoader__.load({
     "ui.nextPage": "Next",
     "ui.add": "Add",
     "ui.department": "Department",
+    "ui.viewAllSessionsTitle": "View all sessions",
+    "ui.viewAllSessionsIntro": "Super admins see all sessions by default (including channels). Turn off to only see your own; sidebar and @ mentions share the same rule.",
+    "ui.viewAllSessionsToggle": "Show everyone’s sessions",
+    "ui.viewAllSessionsOn": "On: all sessions visible",
+    "ui.viewAllSessionsOff": "Off: only your own sessions",
     "ui.notLoggedIn": "Not signed in",
     "ui.pleaseScan": "Scan with iCenter to sign in",
     "ui.refreshQr": "Refresh QR",
@@ -238,6 +251,7 @@ window.__ModuleLoader__.load({
     "err.forbidden_remove_user": "Only super admins can remove users",
     "err.forbidden_set_fallback": "Only super admins can set the emergency password",
     "err.forbidden_clear_fallback": "Only super admins can clear the emergency password",
+    "err.forbidden_view_all_sessions": "Your role cannot enable view-all sessions",
     "err.invalid_role_params": "Invalid params: empNo and role required",
     "err.emp_no_required": "empNo required",
     "err.username_password_required": "Username and password required",
@@ -283,7 +297,9 @@ window.__ModuleLoader__.load({
     "ok.fallback_password_set": "Emergency admin password set",
     "ok.fallback_password_cleared": "Emergency admin password cleared",
     "ok.fallback_login": "Emergency admin signed in",
-    "ok.local_admin_unlock": "Local admin unlocked"
+    "ok.local_admin_unlock": "Local admin unlocked",
+    "ok.view_all_sessions_on": "View-all sessions enabled",
+    "ok.view_all_sessions_off": "View-all sessions disabled"
   }
 }
     const UDS_HOST_ARIA = {
@@ -396,14 +412,21 @@ window.__ModuleLoader__.load({
 
 
     const CSS = [
-      '.uds-auth-host{position:relative;display:inline-flex;align-items:center;height:32px;margin:0;flex-shrink:0;pointer-events:auto}.uds-auth-host.is-rail{justify-content:center;width:100%}[data-uds-auth-foot="row"]{display:flex!important;flex-direction:row!important;align-items:center!important;gap:8px;width:100%}[data-uds-auth-foot="row"]>*:nth-child(1){order:2;flex:none!important;width:auto!important;min-width:0;margin-left:auto!important}[data-uds-auth-foot="row"]>*:nth-child(2){order:1;flex:none!important;width:auto!important;min-width:0}',
-      'html[data-uds-can-settings="0"] [data-uds-auth-foot="row"]>*:not(:has([data-uds-auth-host])){display:none!important}html[data-uds-can-create-ws="0"] button[aria-label="添加工作区"],html[data-uds-can-create-ws="0"] button[aria-label="Add workspace"]{display:none!important}html[data-uds-logged-in="0"] [role="tree"][aria-label="会话"],html[data-uds-logged-in="0"] [role="tree"][aria-label="Sessions"],html[data-uds-logged-in="0"] [class*="WorkspaceBrowser"],html[data-uds-logged-in="0"] [class*="workspaceBrowser"],html[data-uds-logged-in="0"] .dsh-ct-entry,html[data-uds-logged-in="0"] .dsh-ct-region,html[data-uds-logged-in="0"] .dsh-ct-main,html[data-uds-logged-in="0"] [data-dsh-ct-mode="on"] .dsh-ct-region{display:none!important}html[data-uds-can-create-ws="0"] button[aria-label="选择工作区"],html[data-uds-can-create-ws="0"] button[aria-label="Choose workspace"],html[data-uds-can-create-ws="0"] [aria-label="选择工作区"],html[data-uds-can-create-ws="0"] [aria-label="Choose workspace"]{display:none!important}html[data-uds-logged-in="0"] [class*="cardWorkspaceTrigger"],html[data-uds-logged-in="0"] [data-composer-card][class*="cardWorkspaceTrigger"]{pointer-events:none!important;opacity:.45!important;cursor:not-allowed!important}/* uds-anon-hide-workspaces *//* uds-anon-hide-conversation:removed */html[data-uds-logged-in="0"] [class*="WorkspaceBrowser"],html[data-uds-logged-in="0"] [class*="workspaceBrowser"],html[data-uds-logged-in="0"] [class*="workspaceRow"],html[data-uds-logged-in="0"] [class*="WorkspaceRow"]{display:none!important}',
+      '.uds-auth-host{position:relative;display:inline-flex!important;align-items:center;height:32px;margin:0;flex-shrink:0;pointer-events:auto;visibility:visible!important;opacity:1!important}.uds-auth-host.is-rail{justify-content:center;width:100%}',
+      /* Foot: Settings left, login right. Marked via data-uds-foot-slot by AuthBadge. */
+      '[data-uds-auth-foot="row"]{display:flex!important;flex-direction:row!important;flex-wrap:nowrap!important;align-items:center!important;gap:8px;width:100%}',
+      '[data-uds-auth-foot="row"]>[data-uds-foot-slot="settings"]{order:1;flex:none!important;width:auto!important;min-width:0}',
+      '[data-uds-auth-foot="row"]>[data-uds-foot-slot="login"]{order:2;flex:none!important;width:auto!important;min-width:0;margin-left:auto!important}',
+      /* Hide settings when logged out or no settings permission (super/fallback only). */
+      'html[data-uds-can-settings="0"] [data-uds-foot-slot="settings"],html[data-uds-logged-in="0"] [data-uds-foot-slot="settings"]{display:none!important}',
+      'html[data-uds-can-settings="0"] button[aria-label="设置"],html[data-uds-can-settings="0"] button[aria-label="Settings"],html[data-uds-logged-in="0"] button[aria-label="设置"],html[data-uds-logged-in="0"] button[aria-label="Settings"]{display:none!important}',
+      'html[data-uds-can-create-ws="0"] button[aria-label="添加工作区"],html[data-uds-can-create-ws="0"] button[aria-label="Add workspace"]{display:none!important}html[data-uds-logged-in="0"] [role="tree"][aria-label="会话"],html[data-uds-logged-in="0"] [role="tree"][aria-label="Sessions"],html[data-uds-logged-in="0"] [class*="WorkspaceBrowser"],html[data-uds-logged-in="0"] [class*="workspaceBrowser"],html[data-uds-logged-in="0"] .dsh-ct-entry,html[data-uds-logged-in="0"] .dsh-ct-region,html[data-uds-logged-in="0"] .dsh-ct-main,html[data-uds-logged-in="0"] [data-dsh-ct-mode="on"] .dsh-ct-region{display:none!important}html[data-uds-can-create-ws="0"] button[aria-label="选择工作区"],html[data-uds-can-create-ws="0"] button[aria-label="Choose workspace"],html[data-uds-can-create-ws="0"] [aria-label="选择工作区"],html[data-uds-can-create-ws="0"] [aria-label="Choose workspace"]{display:none!important}html[data-uds-logged-in="0"] [class*="cardWorkspaceTrigger"],html[data-uds-logged-in="0"] [data-composer-card][class*="cardWorkspaceTrigger"]{pointer-events:none!important;opacity:.45!important;cursor:not-allowed!important}/* uds-anon-hide-workspaces *//* uds-anon-hide-conversation:removed */html[data-uds-logged-in="0"] [class*="WorkspaceBrowser"],html[data-uds-logged-in="0"] [class*="workspaceBrowser"],html[data-uds-logged-in="0"] [class*="workspaceRow"],html[data-uds-logged-in="0"] [class*="WorkspaceRow"]{display:none!important}',
       /* uds-session-only-sidebar */
       'html[data-uds-can-create-ws="0"][data-uds-logged-in="1"] [class*="projectRow"]:not([class*="dsh-ct-project"]),html[data-uds-can-create-ws="0"][data-uds-logged-in="1"] [class*="ProjectRow"]:not([class*="dsh-ct-project"]){display:none!important}',
       '.uds-auth-badge{display:inline-flex;align-items:center;justify-content:flex-start;gap:0;max-width:min(160px,42vw);min-width:0;height:32px;padding:0 8px;box-sizing:border-box;border:none;border-radius:8px;background:transparent;color:var(--dsw-alias-label-primary);font-family:inherit;font-size:13px;font-weight:400;line-height:20px;cursor:pointer;overflow:hidden}',
       '.uds-auth-badge:hover{background:var(--dsw-alias-interactive-bg-hover)}',
       '.uds-auth-host.is-rail .uds-auth-badge{width:auto;max-width:100%;height:32px;padding:0 6px;border-radius:8px}',
-      '.uds-auth-badge-unauth{color:var(--dsw-alias-label-tertiary,#8f959e)}',
+      '.uds-auth-badge-unauth{color:var(--dsw-alias-label-primary,#e8eaed)}',
       '.uds-auth-avatar{display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:50%;flex:none;font-size:10px;line-height:1;color:var(--dsw-alias-label-secondary,#646a73);background:transparent;border:none}',
       '.uds-auth-badge-unauth .uds-auth-avatar{background:var(--dsw-alias-bg-module-platform,rgba(242,243,245,1));color:var(--dsw-alias-label-tertiary,#8f959e)}',
       '.uds-auth-badge-label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
@@ -461,6 +484,10 @@ window.__ModuleLoader__.load({
       '.uds-auth-settings-msg.ok{color:var(--dsw-alias-state-success-primary,#20a162)}',
       '.uds-auth-settings-msg.err{color:var(--dsw-alias-state-error-primary,#d54941)}',
       '.uds-auth-settings-empty{padding:24px;text-align:center;color:var(--dsw-alias-label-tertiary,#8f959e);font-size:13px}',
+      '.uds-auth-settings-toggle{display:flex;align-items:flex-start;gap:10px;margin:8px 0 4px;cursor:pointer;user-select:none}',
+      '.uds-auth-settings-toggle input{margin-top:3px;flex-shrink:0}',
+      '.uds-auth-settings-toggle span{font-size:13px;line-height:1.4;color:var(--dsw-alias-label-primary,#1f2329)}',
+      '.uds-auth-settings-toggle-status{margin:4px 0 0;font-size:12px;color:var(--dsw-alias-label-secondary,#646a73)}',
     ].join('')
 
     function getCookie(cookieName) {
@@ -844,6 +871,8 @@ function reloadAfterLogin() {
       const [msg, setMsg] = useState('')
       const [msgKind, setMsgKind] = useState('')
       const [busy, setBusy] = useState(false)
+      const [viewAllBusy, setViewAllBusy] = useState(false)
+      const [viewAllMsg, setViewAllMsg] = useState('')
 
       useEffect(() => {
         let cancelled = false
@@ -869,6 +898,8 @@ function reloadAfterLogin() {
       const perms = me?.permissions || {}
       const canManage = !!perms.canManageUsers
       const canSettings = !!perms.canAccessSettings
+      const canToggleViewAll = !!perms.canToggleViewAllSessions
+      const viewAllOn = !!perms.canViewAllSessions
 
       const saveConfig = async () => {
         setBusy(true)
@@ -889,6 +920,31 @@ function reloadAfterLogin() {
         }
       }
 
+      const setViewAllSessions = async (enabled) => {
+        setViewAllBusy(true)
+        setViewAllMsg('')
+        try {
+          const res = await fetchJson('/uds-auth/api/me/view-all-sessions', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ enabled: !!enabled }),
+          })
+          setMe((prev) => prev ? {
+            ...prev,
+            permissions: res.permissions || {
+              ...prev.permissions,
+              canViewAllSessions: !!enabled,
+            },
+          } : prev)
+          setViewAllMsg(res.message || (enabled ? t('ui.viewAllSessionsOn') : t('ui.viewAllSessionsOff')))
+          try { softReconnectAuth() } catch { /* ignore */ }
+        } catch (err) {
+          setViewAllMsg(apiMessage(err) || t('ui.saveFailed'))
+        } finally {
+          setViewAllBusy(false)
+        }
+      }
+
       const field = (key, label) => h('div', { className: 'uds-auth-settings-field' },
         h('label', { htmlFor: 'uds-auth-' + key }, label),
         h('input', {
@@ -905,8 +961,24 @@ function reloadAfterLogin() {
           h('p', { className: 'uds-auth-settings-intro' }, t('ui.settingsIntro')),
         ),
         !me && h('div', { className: 'uds-auth-settings-empty' }, t('ui.loginRequiredPage')),
-        me && !canSettings && !canManage && h('div', { className: 'uds-auth-settings-empty' },
+        me && !canSettings && !canManage && !canToggleViewAll && h('div', { className: 'uds-auth-settings-empty' },
           t('ui.roleHint', { role: me.role || 'user' })
+        ),
+        canToggleViewAll && h('div', { className: 'uds-auth-settings-card' },
+          h('h3', null, t('ui.viewAllSessionsTitle')),
+          h('p', { className: 'uds-auth-settings-intro' }, t('ui.viewAllSessionsIntro')),
+          h('label', { className: 'uds-auth-settings-toggle' },
+            h('input', {
+              type: 'checkbox',
+              checked: viewAllOn,
+              disabled: viewAllBusy,
+              onChange: (e) => setViewAllSessions(e.target.checked),
+            }),
+            h('span', null, t('ui.viewAllSessionsToggle')),
+          ),
+          h('p', { className: 'uds-auth-settings-toggle-status' },
+            viewAllMsg || (viewAllOn ? t('ui.viewAllSessionsOn') : t('ui.viewAllSessionsOff')),
+          ),
         ),
         canSettings && h('div', { className: 'uds-auth-settings-card' },
           h('h3', null, t('ui.deployConfig')),
@@ -987,13 +1059,23 @@ function reloadAfterLogin() {
         let footArea = null
         for (let el = host.parentElement; el && el !== document.body; el = el.parentElement) {
           if (el.childElementCount < 2) continue
-          const mine = [...el.children].some((c) => c.contains(host))
-          const other = [...el.children].some((c) => !c.contains(host))
+          const mine = [...el.children].some((c) => c.contains(host) || c === host)
+          const other = [...el.children].some((c) => !(c.contains(host) || c === host))
           if (mine && other) { footArea = el; break }
         }
         if (!footArea) return undefined
         footArea.setAttribute('data-uds-auth-foot', 'row')
-        return () => { footArea.removeAttribute('data-uds-auth-foot') }
+        const marked = []
+        for (const child of footArea.children) {
+          const isLogin = child === host || child.contains(host)
+          const slot = isLogin ? 'login' : 'settings'
+          child.setAttribute('data-uds-foot-slot', slot)
+          marked.push(child)
+        }
+        return () => {
+          footArea.removeAttribute('data-uds-auth-foot')
+          for (const child of marked) child.removeAttribute('data-uds-foot-slot')
+        }
       }, [])
       const [open, setOpen] = useState(false)
       const [anchor, setAnchor] = useState(null)
@@ -1517,6 +1599,9 @@ function reloadAfterLogin() {
         tag.setAttribute('data-plugin', name)
         tag.textContent = CSS
         document.head.appendChild(tag)
+      } else {
+        // Hot reload / plugin update: refresh rules (e.g. login-host visibility fix).
+        document.getElementById('uds-auth-client-css').textContent = CSS
       }
       // Register login entry before heavy gates / settings section.
       ctx.slots.inject('sidebar.footer.action', () => ctx.slots.register({

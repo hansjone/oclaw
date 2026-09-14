@@ -1,13 +1,15 @@
 /**
  * uds-auth 角色存储 + 权限管理
- * 
+ *
  * 角色:
- *   super_admin     所有权限 + 用户管理 + 可见全部会话（含 @）
+ *   super_admin     所有权限 + 用户管理；默认可见全部会话（可在设置中关闭）
  *   fallback_admin  等同 super_admin（兜底 administrator）
- *   admin           设置权限 + 仅看自己会话（含 @）
+ *   admin           无设置齿轮；仅看自己会话（含 @）；可见渠道/系统会话
  *   user            仅看自己会话，无设置
  *
- * 持久化: roles.json (单实例文件) + MemoryStore 同步
+ * 超管/应急默认全览开启；prefs.viewAllSessions === false 时关闭。
+ * 设置齿轮仅超管/应急（canAccessSettings）。
+ * 持久化: roles.json (roles + prefs + fallbackPasswordHash)
  */
 import { createHash, randomBytes } from 'node:crypto'
 import { readFile, writeFile, mkdir } from 'node:fs/promises'
@@ -30,38 +32,58 @@ export const ROLES = {
 /** zh labels for list/search; UI should translate via i18n role.* keys. */
 export const ROLE_LABELS = ROLE_LABELS_ZH
 
-/** 计算角色权限 (纯函数) */
-export function computePermissions(role) {
+/**
+ * 计算角色权限 (纯函数)
+ * @param {string} role
+ * @param {{ viewAllSessions?: boolean }} [opts] 个人偏好；超管默认可见全部
+ */
+export function computePermissions(role, opts = {}) {
+  const viewAll = !!opts.viewAllSessions
   switch (role) {
     case ROLES.SUPER_ADMIN:
       return {
         canManageUsers: true,
         canAccessSettings: true,
-        canViewAllSessions: true,
+        canToggleViewAllSessions: true,
+        canViewAllSessions: viewAll,
+        canViewSystemSessions: true,
         canCreateWorkspace: true,
       }
     case ROLES.FALLBACK_ADMIN:
       return {
         canManageUsers: true,
         canAccessSettings: true,
-        canViewAllSessions: true,
+        canToggleViewAllSessions: true,
+        canViewAllSessions: viewAll,
+        canViewSystemSessions: true,
         canCreateWorkspace: true,
       }
     case ROLES.ADMIN:
       return {
         canManageUsers: false,
-        canAccessSettings: true,
+        // 设置齿轮仅超管/应急；admin 仍可看渠道/系统会话
+        canAccessSettings: false,
+        canToggleViewAllSessions: false,
         canViewAllSessions: false,
+        canViewSystemSessions: true,
         canCreateWorkspace: false,
       }
     default: // user / undefined
       return {
         canManageUsers: false,
         canAccessSettings: false,
+        canToggleViewAllSessions: false,
         canViewAllSessions: false,
+        canViewSystemSessions: false,
         canCreateWorkspace: false,
       }
   }
+}
+
+/** 角色是否允许开启「查看全部会话」（仅超管 / 应急） */
+export function canToggleViewAllSessions(role) {
+  return role === ROLES.SUPER_ADMIN
+    || role === ROLES.FALLBACK_ADMIN
 }
 
 function hashPassword(password) {
@@ -82,6 +104,7 @@ export const DEFAULT_FALLBACK_USERNAME = 'administrator'
 export class RolesStore {
   constructor(options = {}) {
     this._roles = new Map()              // empNo → role
+    this._prefs = new Map()              // empNo → { viewAllSessions?: boolean }
     this._firstBootLock = Promise.resolve()
     this._rolesFile = options.rolesFile ? resolve(options.rolesFile) : null
     this._fallbackPasswordHash = null     // SHA-256 hex，null = 未启用
@@ -111,6 +134,11 @@ export class RolesStore {
         for (const [empNo, role] of Object.entries(data.roles || {})) {
           this._roles.set(empNo, role)
         }
+        for (const [empNo, prefs] of Object.entries(data.prefs || {})) {
+          if (prefs && typeof prefs === 'object') {
+            this._prefs.set(String(empNo), { ...prefs })
+          }
+        }
         if (Object.prototype.hasOwnProperty.call(data, 'fallbackPasswordHash')) {
           loadedHash = data.fallbackPasswordHash || null
           if (loadedHash) this._fallbackPasswordHash = loadedHash
@@ -132,7 +160,16 @@ export class RolesStore {
   _markDirty() {
     this._dirty = true
     if (this._saveTimer) return
-    this._saveTimer = setTimeout(() => this._save(), 2000)
+    this._saveTimer = setTimeout(() => { void this._save() }, 2000)
+  }
+
+  /** Flush pending roles/prefs to disk immediately (e.g. view-all toggle). */
+  async flush() {
+    if (this._saveTimer) {
+      clearTimeout(this._saveTimer)
+      this._saveTimer = null
+    }
+    await this._save()
   }
 
   async _save() {
@@ -142,14 +179,18 @@ export class RolesStore {
     try {
       const data = {
         roles: Object.fromEntries(this._roles),
+        prefs: Object.fromEntries(this._prefs),
         fallbackPasswordHash: this._fallbackPasswordHash,
         savedAt: new Date().toISOString(),
       }
       await mkdir(dirname(this._rolesFile), { recursive: true })
       await writeFile(this._rolesFile, JSON.stringify(data, null, 2), 'utf-8')
     } catch (err) {
+      this._dirty = true
       console.warn('[uds-auth:RolesStore] Failed to save roles file:', err.message)
     }
+    // Changes during await writeFile — schedule another save.
+    if (this._dirty) this._markDirty()
   }
 
   // === 首次部署 bootstrap ===
@@ -181,6 +222,49 @@ export class RolesStore {
   getRole(empNo) {
     if (empNo === 'administrator') return ROLES.FALLBACK_ADMIN
     return this._roles.get(empNo) || ROLES.USER
+  }
+
+  /**
+   * 个人偏好：超管/应急默认开启查看全部；显式 false 才关闭。
+   * admin/user 不会走到这里（resolvePermissions 里 allowToggle=false）。
+   */
+  isViewAllSessionsEnabled(empNo) {
+    if (!empNo) return false
+    const prefs = this._prefs.get(String(empNo))
+    if (prefs && Object.prototype.hasOwnProperty.call(prefs, 'viewAllSessions')) {
+      return !!prefs.viewAllSessions
+    }
+    return true
+  }
+
+  /**
+   * 设置「查看全部会话」偏好（调用方需校验 canToggleViewAllSessions）
+   * @param {string} empNo
+   * @param {boolean} enabled
+   */
+  setViewAllSessions(empNo, enabled) {
+    const key = String(empNo || '').trim()
+    if (!key) throw codedError('emp_no_required')
+    const role = this.getRole(key)
+    if (!canToggleViewAllSessions(role)) {
+      throw codedError('forbidden_view_all_sessions')
+    }
+    const cur = { ...(this._prefs.get(key) || {}) }
+    // Persist explicit true/false — deleting the key would fall back to default-on.
+    cur.viewAllSessions = !!enabled
+    this._prefs.set(key, cur)
+    this._markDirty()
+    return true
+  }
+
+  /** 角色 + 个人偏好 → 有效权限 */
+  resolvePermissions(empNo, role) {
+    const id = empNo != null ? String(empNo) : ''
+    const r = role || this.getRole(id)
+    const allowToggle = canToggleViewAllSessions(r)
+    return computePermissions(r, {
+      viewAllSessions: allowToggle && this.isViewAllSessionsEnabled(id),
+    })
   }
 
   hasRole(empNo) {
@@ -271,6 +355,7 @@ export class RolesStore {
       }
     }
     this._roles.delete(empNo)
+    this._prefs.delete(empNo)
     this._markDirty()
     return true
   }

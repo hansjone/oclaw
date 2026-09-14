@@ -768,6 +768,9 @@ function handleRequest(req, res) {
     if (url === '/api/fallback/clear' && method === 'POST') {
       await _apiHandlers.clearFallbackPassword(ctx2); return
     }
+    if (url === '/api/me/view-all-sessions' && method === 'POST') {
+      await _apiHandlers.setViewAllSessions(ctx2); return
+    }
 
     // 配置端点 (admin / super_admin：canAccessSettings)
     if (url === '/api/config' && method === 'GET') {
@@ -1100,7 +1103,7 @@ async function initServices(ctx, config) {
       sessionAcl: _sessionAcl,
       userWorkspaces: _userWorkspaces,
       getWorkspaceRoot: () => _currentConfig?.workspaceRoot,
-      rolesStore: _rolesStore,
+      getRolesStore: () => _rolesStore,
       ensureUserWorkspace,
       getWorkspaceRegistry: () => _workspaceRegistry,
     })
@@ -1141,6 +1144,10 @@ async function initServices(ctx, config) {
         }
       },
       canViewAllJobs(identity) {
+        const empNo = identity?.empNo || identity?.userContext?.empNo
+        if (empNo && _rolesStore?.resolvePermissions) {
+          return !!_rolesStore.resolvePermissions(empNo, identity?.role).canViewAllSessions
+        }
         return !!identity?.permissions?.canViewAllSessions
       },
       getRole(empNo) {
@@ -1156,7 +1163,8 @@ async function initServices(ctx, config) {
         const id = String(empNo || '').trim()
         if (!id || id.startsWith('__')) return null
         const role = _rolesStore?.getRole?.(id) || 'user'
-        const permissions = computePermissions(role)
+        const permissions = _rolesStore?.resolvePermissions?.(id, role)
+          || computePermissions(role)
         const workspacePath = (() => {
           try {
             const row = _userWorkspaces?.get(id)

@@ -60,6 +60,13 @@ export const MESSAGES = {
     'ui.add': '添加',
     'ui.department': '部门',
 
+    // privacy / session visibility
+    'ui.viewAllSessionsTitle': '查看全部会话',
+    'ui.viewAllSessionsIntro': '超级管理员默认可见全部会话（含渠道）。关闭后仅看自己的；侧栏与 @ 提及规则相同。',
+    'ui.viewAllSessionsToggle': '显示所有人的会话',
+    'ui.viewAllSessionsOn': '已开启：可见全部会话',
+    'ui.viewAllSessionsOff': '已关闭：仅可见自己的会话',
+
     // login panel
     'ui.notLoggedIn': '未登录',
     'ui.pleaseScan': '请使用 iCenter 扫码登录',
@@ -107,6 +114,7 @@ export const MESSAGES = {
     'err.forbidden_remove_user': '只有超级管理员可以删除用户',
     'err.forbidden_set_fallback': '只有超级管理员可以设置应急密码',
     'err.forbidden_clear_fallback': '只有超级管理员可以清除应急密码',
+    'err.forbidden_view_all_sessions': '当前角色不能开启查看全部会话',
     'err.invalid_role_params': '参数错误: empNo 和 role 必填',
     'err.emp_no_required': 'empNo 必填',
     'err.username_password_required': '用户名和密码必填',
@@ -155,6 +163,8 @@ export const MESSAGES = {
     'ok.fallback_password_cleared': '应急管理员密码已清除',
     'ok.fallback_login': '应急管理员登录成功',
     'ok.local_admin_unlock': '本机密钥解锁成功',
+    'ok.view_all_sessions_on': '已开启查看全部会话',
+    'ok.view_all_sessions_off': '已关闭查看全部会话',
   },
   en: {
     'role.super_admin': 'Super admin',
@@ -203,6 +213,12 @@ export const MESSAGES = {
     'ui.add': 'Add',
     'ui.department': 'Department',
 
+    'ui.viewAllSessionsTitle': 'View all sessions',
+    'ui.viewAllSessionsIntro': 'Super admins see all sessions by default (including channels). Turn off to only see your own; sidebar and @ mentions share the same rule.',
+    'ui.viewAllSessionsToggle': 'Show everyone’s sessions',
+    'ui.viewAllSessionsOn': 'On: all sessions visible',
+    'ui.viewAllSessionsOff': 'Off: only your own sessions',
+
     'ui.notLoggedIn': 'Not signed in',
     'ui.pleaseScan': 'Scan with iCenter to sign in',
     'ui.refreshQr': 'Refresh QR',
@@ -246,6 +262,7 @@ export const MESSAGES = {
     'err.forbidden_remove_user': 'Only super admins can remove users',
     'err.forbidden_set_fallback': 'Only super admins can set the emergency password',
     'err.forbidden_clear_fallback': 'Only super admins can clear the emergency password',
+    'err.forbidden_view_all_sessions': 'Your role cannot enable view-all sessions',
     'err.invalid_role_params': 'Invalid params: empNo and role required',
     'err.emp_no_required': 'empNo required',
     'err.username_password_required': 'Username and password required',
@@ -293,6 +310,8 @@ export const MESSAGES = {
     'ok.fallback_password_cleared': 'Emergency admin password cleared',
     'ok.fallback_login': 'Emergency admin signed in',
     'ok.local_admin_unlock': 'Local admin unlocked',
+    'ok.view_all_sessions_on': 'View-all sessions enabled',
+    'ok.view_all_sessions_off': 'View-all sessions disabled',
   },
 }
 

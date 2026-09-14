@@ -1,6 +1,6 @@
 import { UdsClient } from '../uds/client.js'
 import { UdsValidator } from '../uds/validator.js'
-import { ROLES, computePermissions } from '../roles.js'
+import { ROLES } from '../roles.js'
 import { searchUserByEmpNoToken } from '../uds/user-search.js'
 
 /**
@@ -108,7 +108,7 @@ export function createAuthMiddleware(config, sessionStore, rolesStore, hooks = {
     ctx.userContext = userContext
     ctx.empNo = empNo
     ctx.role = role
-    ctx.permissions = computePermissions(role)
+    ctx.permissions = rolesStore.resolvePermissions(empNo, role)
   }
 
   async function authMiddleware(ctx, next) {
@@ -207,7 +207,7 @@ export function createAuthMiddleware(config, sessionStore, rolesStore, hooks = {
     ctx.userContext = userContext
     ctx.empNo = profile.empNo
     ctx.role = role
-    ctx.permissions = computePermissions(role)
+    ctx.permissions = rolesStore.resolvePermissions(profile.empNo, role)
     return next()
   }
 

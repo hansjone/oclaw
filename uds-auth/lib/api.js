@@ -188,6 +188,27 @@ export function createApiHandlers(config, sessionStore, rolesStore, extra = {}) 
     })
   }
 
+  async function setViewAllSessions(ctx) {
+    if (!requirePermission(ctx, 'canToggleViewAllSessions')) {
+      return fail(ctx, 'forbidden_view_all_sessions', 403)
+    }
+    const body = await readBody(ctx.req)
+    const enabled = !!(body && body.enabled)
+    try {
+      rolesStore.setViewAllSessions(ctx.empNo, enabled)
+      if (typeof rolesStore.flush === 'function') {
+        await rolesStore.flush()
+      }
+      ctx.permissions = rolesStore.resolvePermissions(ctx.empNo, ctx.role)
+      await ok(ctx, enabled ? 'view_all_sessions_on' : 'view_all_sessions_off', null, {
+        permissions: ctx.permissions,
+        viewAllSessions: enabled,
+      })
+    } catch (err) {
+      await mapThrown(ctx, err, 403)
+    }
+  }
+
   return {
     logout,
     getCurrentUser,
@@ -198,6 +219,7 @@ export function createApiHandlers(config, sessionStore, rolesStore, extra = {}) 
     setFallbackPassword,
     clearFallbackPassword,
     fallbackStatus,
+    setViewAllSessions,
   }
 }
 

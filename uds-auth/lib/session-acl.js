@@ -104,7 +104,10 @@ export function identityFromAls(rolesStore) {
   return {
     empNo: ctx.empNo,
     role,
-    permissions: ctx.permissions || computePermissions(role),
+    // Prefer live prefs — ALS identity.permissions may be frozen at WS connect.
+    permissions: typeof rolesStore.resolvePermissions === 'function'
+      ? rolesStore.resolvePermissions(ctx.empNo, role)
+      : (ctx.permissions || computePermissions(role)),
   }
 }
 
