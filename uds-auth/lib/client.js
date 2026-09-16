@@ -1981,51 +1981,14 @@ function reloadAfterLogin() {
           event.stopPropagation()
         }, true)
 
-        let workspaceDispose = null
-        const LockedWorkspace = function UdsAuthLockedWorkspace(props) {
-          React.useEffect(() => {
-            if (props && props.open) {
-              try { props.onClose && props.onClose() } catch { /* ignore */ }
-            }
-          }, [props && props.open])
-          return null
-        }
-        const installWorkspaceLock = () => {
-          if (workspaceDispose) return
-          try {
-            workspaceDispose = ctx.slots.register({
-              name: 'conversation.hero.workspace',
-              id: 'uds-auth-workspace-lock',
-              order: 9999,
-            }, LockedWorkspace)
-          } catch { /* slot may be undeclared briefly */ }
-        }
-        const clearWorkspaceLock = () => {
-          if (workspaceDispose) {
-            try { workspaceDispose() } catch { /* ignore */ }
-            workspaceDispose = null
-          }
-        }
-        // Deny open-workspace by default until AuthBadge /api/me proves canCreateWorkspace.
+        // Do NOT register into conversation.hero.workspace. A null lock at the
+        // default priority 0 steals the shipped picker (same single-slot clash as
+        // directoryFlow); clearing it never restores the occupant, so workspaces
+        // cannot be selected and sessions cannot be created in the DSH UI.
         freezeChoosers()
-
-        const syncWorkspaceSlot = () => {
-          // Use AuthBadge DOM attrs only — no default /api/me.
-          const canCreate = document.documentElement.getAttribute('data-uds-can-create-ws') === '1'
-          if (canCreate) clearWorkspaceLock()
-          else installWorkspaceLock()
-          freezeChoosers()
-        }
-        let workspaceInjectOff = null
-        try {
-          workspaceInjectOff = ctx.slots.inject('conversation.hero.workspace', () => {
-            syncWorkspaceSlot()
-          })
-        } catch { /* ignore */ }
-        syncWorkspaceSlot()
-        const onAuth = () => { syncWorkspaceSlot() }
+        const onAuth = () => { freezeChoosers() }
         window.addEventListener('uds-auth-changed', onAuth)
-        const mo = new MutationObserver(() => { freezeChoosers(); syncWorkspaceSlot() })
+        const mo = new MutationObserver(() => { freezeChoosers() })
         mo.observe(document.documentElement, {
           childList: true,
           subtree: true,
@@ -2039,8 +2002,6 @@ function reloadAfterLogin() {
           document.removeEventListener('pointerdown', block, true)
           document.removeEventListener('mousedown', block, true)
           window.removeEventListener('uds-auth-changed', onAuth)
-          clearWorkspaceLock()
-          try { if (typeof workspaceInjectOff === 'function') workspaceInjectOff() } catch { /* ignore */ }
         }
       }, 'uds-auth: workspace-click-lock')
       ctx.effect(() => {
