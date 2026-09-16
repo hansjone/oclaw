@@ -219,8 +219,11 @@ export function createAuthMiddleware(config, sessionStore, rolesStore, hooks = {
 
 export function requirePermission(ctx, permission) {
   if (!ctx?.permissions) return false
+  // Legacy alias: "super_admin" means admin-class identity (超管 / 应急 / 管理员).
   if (permission === 'super_admin') {
-    return ctx.role === ROLES.SUPER_ADMIN || ctx.role === ROLES.FALLBACK_ADMIN
+    return ctx.role === ROLES.SUPER_ADMIN
+      || ctx.role === ROLES.FALLBACK_ADMIN
+      || ctx.role === ROLES.ADMIN
   }
   return !!ctx.permissions[permission]
 }

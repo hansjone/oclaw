@@ -1,6 +1,6 @@
 {
   "name": "uds-auth",
-  "version": "0.2.6",
+  "version": "0.2.11",
   "description": "UDS authentication plugin for DeepSeek Harness with multi-tenant session isolation",
   "type": "module",
   "main": "lib/index.js",
@@ -65,7 +65,8 @@
       "immediately": true,
       "inject": [
         "@deepseek-ai/dsh-client-ui-slots",
-        "@deepseek-ai/dsh-client-locale"
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-workspace"
       ]
     }
   }

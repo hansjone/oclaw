@@ -111,6 +111,9 @@ export function identityFromAls(rolesStore) {
   }
 }
 
+/** @deprecated prefer isAdminClass — 超管只是身份，与 admin / 应急同权 */
 export function isSuperLike(role) {
-  return role === ROLES.SUPER_ADMIN || role === ROLES.FALLBACK_ADMIN
+  return role === ROLES.SUPER_ADMIN
+    || role === ROLES.FALLBACK_ADMIN
+    || role === ROLES.ADMIN
 }

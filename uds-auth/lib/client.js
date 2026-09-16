@@ -15,7 +15,7 @@ window.__ModuleLoader__.load({
     const { useCallback, useEffect, useLayoutEffect, useRef, useState } = React
 
     const name = 'uds-auth'
-    const inject = ['slots', 'locale']
+    const inject = ['slots', 'locale', 'uiWorkspace']
     const PAGE_SIZE = 50
     const LOCALE_NS = 'uds-auth'
 
@@ -33,7 +33,7 @@ window.__ModuleLoader__.load({
     "ui.settingsTitle": "UAC 认证",
     "ui.settingsIntro": "工号+token 双校验；UAC 挂死时用应急账号 administrator 密码登录。",
     "ui.loginRequiredPage": "请先登录后查看此页",
-    "ui.roleHint": "当前角色：{role}。首位扫码登录且 roles.json 为空时会自动成为超管；普通 admin 需超管在「用户管理」提权后再扫码登录。应急账号 administrator 需超管先设密码，再在登录面板用账密登录。",
+    "ui.roleHint": "当前角色：{role}。超管只是身份标签，与管理员权限相同；首位扫码登录且 roles.json 为空时自动获得超管身份，也可在「用户管理」设为管理员。应急账号 administrator 需先设密码，再在登录面板用账密登录。",
     "ui.deployConfig": "部署配置",
     "ui.userSearchUrl": "用户搜索 URL（token 校验）",
     "ui.workspaceRoot": "工作区根目录（空=$DSH_HOME/user-workspaces）",
@@ -173,7 +173,7 @@ window.__ModuleLoader__.load({
     "ui.settingsTitle": "UAC Auth",
     "ui.settingsIntro": "EmpNo + token verification; when UAC is down, sign in with emergency account administrator.",
     "ui.loginRequiredPage": "Sign in to view this page",
-    "ui.roleHint": "Current role: {role}. The first QR login with an empty roles.json becomes super admin; grant admin in User management then re-scan. Set the emergency password before using administrator on the login panel.",
+    "ui.roleHint": "Current role: {role}. Super admin is only an identity label with the same permissions as admin; the first QR login with an empty roles.json gets that identity, or grant admin in User management. Set the emergency password before using administrator on the login panel.",
     "ui.deployConfig": "Deploy config",
     "ui.userSearchUrl": "User search URL (token verify)",
     "ui.workspaceRoot": "Workspace root (empty=$DSH_HOME/user-workspaces)",
@@ -1793,17 +1793,71 @@ function reloadAfterLogin() {
 
 
 
+      // Fallback directoryFlow at priority 1 (NOT 0).
+      // Single-slot cells collide only on the exact priority; the shipped
+      // native/browse picker owns 0 ("lowest renders"). We occupy priority 1 so
+      // entries(hole).length > 0 → Add workspace button renders even when the
+      // official picker failed to mount, without crashing Loader.
       ctx.effect(() => {
-        let disposers = []
-        const Gate = function UdsAuthDirectoryFlowGate(props) {
-          React.useEffect(() => {
-            if (props && props.open) {
-              try { props.onCancel && props.onCancel() } catch { /* ignore */ }
+        const Flow = function UdsAuthDirectoryFlow(props) {
+          const open = !!(props && props.open)
+          const armed = useRef(false)
+          const outcome = useRef(props)
+          outcome.current = props
+          const alive = useRef(true)
+          useEffect(() => {
+            alive.current = true
+            return () => { alive.current = false }
+          }, [])
+          useEffect(() => {
+            if (!open) {
+              armed.current = false
+              return
             }
-          }, [props && props.open])
+            if (armed.current) return
+            armed.current = true
+            const can = document.documentElement.getAttribute('data-uds-can-create-ws') === '1'
+            if (!can) {
+              try { outcome.current.onCancel && outcome.current.onCancel() } catch { /* ignore */ }
+              return
+            }
+            let pickPromise
+            try {
+              const ui = ctx.uiWorkspace
+              if (ui && typeof ui.pickDirectory === 'function') {
+                pickPromise = ui.pickDirectory()
+              } else {
+                pickPromise = Promise.reject(new Error('directory picker unavailable'))
+              }
+            } catch (err) {
+              pickPromise = Promise.reject(err)
+            }
+            pickPromise.then(
+              (path) => {
+                if (!alive.current) return
+                if (path == null) {
+                  try { outcome.current.onCancel && outcome.current.onCancel() } catch { /* ignore */ }
+                } else {
+                  try { outcome.current.onPicked && outcome.current.onPicked(path) } catch { /* ignore */ }
+                }
+              },
+              (reason) => {
+                if (!alive.current) return
+                const msg = reason instanceof Error ? reason.message : String(reason)
+                try { outcome.current.onError && outcome.current.onError(msg) } catch { /* ignore */ }
+              },
+            )
+          }, [open])
           return null
         }
-        const installGate = () => {
+
+        const disposers = []
+        const clear = () => {
+          for (const d of disposers.splice(0)) {
+            try { d() } catch { /* ignore */ }
+          }
+        }
+        const install = () => {
           if (disposers.length) return
           for (const slotName of [
             'sidebar.workspaces.directoryFlow',
@@ -1812,61 +1866,37 @@ function reloadAfterLogin() {
             try {
               disposers.push(ctx.slots.register({
                 name: slotName,
-                id: 'uds-auth-dir-gate',
-                order: 9999,
-              }, Gate))
-            } catch { /* slot may be undeclared briefly */ }
+                id: 'uds-auth-dir-flow',
+                // Must differ from shipped picker priority 0.
+                priority: 1,
+              }, Flow))
+            } catch { /* slot undeclared, or priority already taken — ignore */ }
           }
         }
-        const clearGate = () => {
-          for (const d of disposers) {
-            try { d() } catch { /* ignore */ }
-          }
-          disposers = []
-        }
-        // Only shadow directoryFlow while anonymous. Logged-in users (including
-        // non-creators) keep the native/browse occupant so "Add workspace" still
-        // renders; CSS + RPC + Host ACL deny create for users without permission.
-        // Never location.reload() here — remount attr flips caused infinite refresh.
-        const sync = () => {
-          const loggedIn = document.documentElement.getAttribute('data-uds-logged-in') === '1'
-          if (loggedIn) {
-            clearGate()
-            return
-          }
-          installGate()
-        }
+
         const injectOffs = [
           'sidebar.workspaces.directoryFlow',
           'conversation.hero.workspace.directoryFlow',
         ].map((slotName) => {
           try {
-            return ctx.slots.inject(slotName, () => { sync() })
+            return ctx.slots.inject(slotName, () => { install() })
           } catch {
             return null
           }
         })
-        sync()
-        const onAuth = () => { sync() }
-        window.addEventListener('uds-auth-changed', onAuth)
-        const mo = new MutationObserver(sync)
-        mo.observe(document.documentElement, {
-          attributes: true,
-          attributeFilter: ['data-uds-can-create-ws', 'data-uds-logged-in', 'data-uds-auth-ready'],
-        })
+        install()
         return () => {
-          window.removeEventListener('uds-auth-changed', onAuth)
-          mo.disconnect()
-          clearGate()
+          clear()
           for (const off of injectOffs) {
             try { if (typeof off === 'function') off() } catch { /* ignore */ }
           }
         }
-      }, 'uds-auth: directory-flow-gate')
+      }, 'uds-auth: directory-flow-fallback')
 
+      // Anonymous / non-creators: CSS (data-uds-can-create-ws) + click lock + Host ACL.
 
       ctx.effect(() => {
-        // Open/choose workspace: admin / super_admin / fallback_admin (canCreateWorkspace).
+        // Open/choose workspace: admin-class (canCreateWorkspace).
         // Everyone else uses the auto-provisioned per-user workspace and must not open the picker.
         const CHOOSER = hostAriaSel('chooseWorkspace')
         // Inert composer: onClick lives on the card (cardWorkspaceTrigger), not the labeled node.

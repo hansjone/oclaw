@@ -1,15 +1,15 @@
 /**
  * uds-auth 角色存储 + 权限管理
  *
- * 角色:
- *   super_admin     所有权限 + 用户管理；默认可见全部会话（可在设置中关闭）
- *   fallback_admin  等同 super_admin（兜底 administrator）
- *   admin           无设置齿轮；仅看自己会话（含 @）；可见渠道/系统会话；可创建工作区
- *   user            仅看自己会话，无设置
+ * 角色（身份标签；admin 级权限相同）:
+ *   super_admin     身份：首位扫码 bootstrap / 显式提权；权限 = admin 级
+ *   fallback_admin  身份：应急账号 administrator；权限 = admin 级
+ *   admin           身份：用户管理中提权；权限 = admin 级
+ *   user            仅看自己会话，无设置 / 不可建工作区
  *
- * 超管/应急默认全览开启；prefs.viewAllSessions === false 时关闭。
- * 设置齿轮仅超管/应急（canAccessSettings）。
- * 创建工作区：super_admin / fallback_admin / admin（扫码不可用时现场通常只有 admin）。
+ * admin 级（isAdminClass）权限相同：用户管理、设置、建工作区、默认可看全部会话。
+ * 超管只是身份；默认可持有该身份的包括 admin，以及首位扫码加入者（bootstrap）。
+ * prefs.viewAllSessions === false 时关闭全览。
  * 持久化: roles.json (roles + prefs + fallbackPasswordHash)
  */
 import { createHash, randomBytes } from 'node:crypto'
@@ -33,58 +33,44 @@ export const ROLES = {
 /** zh labels for list/search; UI should translate via i18n role.* keys. */
 export const ROLE_LABELS = ROLE_LABELS_ZH
 
+/** admin 级身份：超管 / 应急 / 管理员（权限相同，仅身份标签不同） */
+export function isAdminClass(role) {
+  return role === ROLES.SUPER_ADMIN
+    || role === ROLES.FALLBACK_ADMIN
+    || role === ROLES.ADMIN
+}
+
 /**
  * 计算角色权限 (纯函数)
  * @param {string} role
- * @param {{ viewAllSessions?: boolean }} [opts] 个人偏好；超管默认可见全部
+ * @param {{ viewAllSessions?: boolean }} [opts] 个人偏好；admin 级默认可见全部
  */
 export function computePermissions(role, opts = {}) {
   const viewAll = !!opts.viewAllSessions
-  switch (role) {
-    case ROLES.SUPER_ADMIN:
-      return {
-        canManageUsers: true,
-        canAccessSettings: true,
-        canToggleViewAllSessions: true,
-        canViewAllSessions: viewAll,
-        canViewSystemSessions: true,
-        canCreateWorkspace: true,
-      }
-    case ROLES.FALLBACK_ADMIN:
-      return {
-        canManageUsers: true,
-        canAccessSettings: true,
-        canToggleViewAllSessions: true,
-        canViewAllSessions: viewAll,
-        canViewSystemSessions: true,
-        canCreateWorkspace: true,
-      }
-    case ROLES.ADMIN:
-      return {
-        canManageUsers: false,
-        // 设置齿轮仅超管/应急；admin 仍可看渠道/系统会话，并可创建工作区
-        canAccessSettings: false,
-        canToggleViewAllSessions: false,
-        canViewAllSessions: false,
-        canViewSystemSessions: true,
-        canCreateWorkspace: true,
-      }
-    default: // user / undefined
-      return {
-        canManageUsers: false,
-        canAccessSettings: false,
-        canToggleViewAllSessions: false,
-        canViewAllSessions: false,
-        canViewSystemSessions: false,
-        canCreateWorkspace: false,
-      }
+  if (isAdminClass(role)) {
+    return {
+      canManageUsers: true,
+      canAccessSettings: true,
+      canToggleViewAllSessions: true,
+      canViewAllSessions: viewAll,
+      canViewSystemSessions: true,
+      canCreateWorkspace: true,
+    }
+  }
+  // user / undefined
+  return {
+    canManageUsers: false,
+    canAccessSettings: false,
+    canToggleViewAllSessions: false,
+    canViewAllSessions: false,
+    canViewSystemSessions: false,
+    canCreateWorkspace: false,
   }
 }
 
-/** 角色是否允许开启「查看全部会话」（仅超管 / 应急） */
+/** 角色是否允许开启「查看全部会话」（admin 级） */
 export function canToggleViewAllSessions(role) {
-  return role === ROLES.SUPER_ADMIN
-    || role === ROLES.FALLBACK_ADMIN
+  return isAdminClass(role)
 }
 
 function hashPassword(password) {
@@ -226,8 +212,8 @@ export class RolesStore {
   }
 
   /**
-   * 个人偏好：超管/应急默认开启查看全部；显式 false 才关闭。
-   * admin/user 不会走到这里（resolvePermissions 里 allowToggle=false）。
+   * 个人偏好：admin 级默认开启查看全部；显式 false 才关闭。
+   * user 不会走到这里（resolvePermissions 里 allowToggle=false）。
    */
   isViewAllSessionsEnabled(empNo) {
     if (!empNo) return false
@@ -318,18 +304,18 @@ export class RolesStore {
     return n
   }
 
-  // === 角色管理 (super_admin only) ===
+  // === 角色管理 (admin 级) ===
 
   /**
    * 设置用户角色
-   * 保护性 invariant: 至少保留 1 个 super_admin
+   * 保护性 invariant: 至少保留 1 个 super_admin 身份（若表中曾有）
    */
   async setRole(empNo, newRole, currentAdminRole) {
-    if (currentAdminRole !== ROLES.SUPER_ADMIN) {
+    if (!isAdminClass(currentAdminRole)) {
       throw codedError('forbidden_set_role')
     }
 
-    // invariant: 不能让系统变成 0 个 super_admin
+    // invariant: 不能让系统变成 0 个 super_admin（身份仍保留）
     const currentRole = this._roles.get(empNo)
     if (currentRole === ROLES.SUPER_ADMIN && newRole !== ROLES.SUPER_ADMIN) {
       const superAdmins = await this.countByRole(ROLES.SUPER_ADMIN)
@@ -345,7 +331,7 @@ export class RolesStore {
 
   /** 删除用户 */
   async removeUser(empNo, currentAdminRole) {
-    if (currentAdminRole !== ROLES.SUPER_ADMIN) {
+    if (!isAdminClass(currentAdminRole)) {
       throw codedError('forbidden_remove_user')
     }
     const currentRole = this._roles.get(empNo)
@@ -363,7 +349,7 @@ export class RolesStore {
 
   /** 确保用户存在 (如果不存在设为 user) */
   ensureUser(empNo, currentAdminRole) {
-    if (currentAdminRole !== ROLES.SUPER_ADMIN) {
+    if (!isAdminClass(currentAdminRole)) {
       throw codedError('forbidden_add_user')
     }
     if (!this._roles.has(empNo)) {
@@ -376,7 +362,7 @@ export class RolesStore {
   // === Fallback Administrator ===
 
   setFallbackPassword(password, currentAdminRole) {
-    if (currentAdminRole !== ROLES.SUPER_ADMIN && currentAdminRole !== ROLES.FALLBACK_ADMIN) {
+    if (!isAdminClass(currentAdminRole)) {
       throw codedError('forbidden_set_fallback')
     }
     if (!password || password.length < 6) {
@@ -388,7 +374,7 @@ export class RolesStore {
   }
 
   clearFallbackPassword(currentAdminRole) {
-    if (currentAdminRole !== ROLES.SUPER_ADMIN && currentAdminRole !== ROLES.FALLBACK_ADMIN) {
+    if (!isAdminClass(currentAdminRole)) {
       throw codedError('forbidden_clear_fallback')
     }
     this._fallbackPasswordHash = null

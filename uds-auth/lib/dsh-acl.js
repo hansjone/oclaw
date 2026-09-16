@@ -411,9 +411,13 @@ export function createSessionAccess({
       return !!store.resolvePermissions(empNo).canViewAllSessions
     }
     if (identity.permissions?.canViewAllSessions) return true
-    // No store (tests / misconfig): keep legacy super visibility.
+    // No store (tests / misconfig): admin-class sees all by default.
+    // If permissions were supplied and view-all is off, respect that.
+    if (identity.permissions && Object.prototype.hasOwnProperty.call(identity.permissions, 'canViewAllSessions')) {
+      return !!identity.permissions.canViewAllSessions
+    }
     const role = identity.role || identity.userContext?.role
-    return role === 'super_admin' || role === 'fallback_admin'
+    return role === 'super_admin' || role === 'fallback_admin' || role === 'admin'
       || String(empNo) === 'administrator'
   }
 

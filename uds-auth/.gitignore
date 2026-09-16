@@ -7,5 +7,11 @@ config.runtime.json
 .DS_Store
 Thumbs.db
 session-owners.json
+session-owners.json.bak*
 user-workspaces.json
 skill-credentials.json
+
+# Local one-off probes / scratch (do not commit)
+scripts/find-dsh-process.ps1
+scripts/inspect-session-sample.cjs
+scripts/merge-sessions-into-workspace.ps1
