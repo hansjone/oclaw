@@ -1102,9 +1102,18 @@ function reloadAfterLogin() {
       const QR_TIMEOUT_MS = 60 * 1000
 
       useEffect(() => {
-        const perms = user?.permissions || {}
+        const perms = user?.permissions && !Array.isArray(user.permissions)
+          ? user.permissions
+          : {}
+        const role = typeof user?.role === 'string' ? user.role : ''
         const canSettings = user ? !!perms.canAccessSettings : false
-        const canCreateWs = user ? !!perms.canCreateWorkspace : false
+        // Prefer permissions; also trust admin-class roles if /api/me omitted the flag.
+        const canCreateWs = user ? !!(
+          perms.canCreateWorkspace
+          || role === 'super_admin'
+          || role === 'fallback_admin'
+          || role === 'admin'
+        ) : false
         const prev = document.documentElement.getAttribute('data-uds-logged-in')
         document.documentElement.setAttribute('data-uds-logged-in', user ? '1' : '0')
         document.documentElement.setAttribute('data-uds-can-settings', canSettings ? '1' : '0')
@@ -1154,6 +1163,10 @@ function reloadAfterLogin() {
             return false
           }
           const d = me.data
+          const rawPerms = d.permissions
+          const permissions = rawPerms && typeof rawPerms === 'object' && !Array.isArray(rawPerms)
+            ? rawPerms
+            : {}
           setUser({
             empNo: d.empNo || d.userId,
             userName: d.displayName || d.username || d.userName || d.empNo,
@@ -1161,7 +1174,7 @@ function reloadAfterLogin() {
             email: d.email || '',
             phone: d.phone || '',
             role: d.role || 'user',
-            permissions: d.permissions || {},
+            permissions,
           })
           window.dispatchEvent(new Event('uds-auth-changed'))
           return true
@@ -1815,12 +1828,32 @@ function reloadAfterLogin() {
           }
           disposers = []
         }
-        // Deny folder pick by default — no race with native directory picker.
+        // Deny folder pick until AuthBadge proves canCreateWorkspace. Occupying the
+        // directoryFlow hole with a null Gate shadows the native/browse picker; when
+        // permission later becomes true we must reload once so the real occupant
+        // rebinds — otherwise "Add workspace" never renders (empty hole).
         const sync = () => {
-          // Attrs come from AuthBadge /api/me (mount + login) — do not poll me here.
+          const ready = document.documentElement.getAttribute('data-uds-auth-ready') === '1'
           const canCreate = document.documentElement.getAttribute('data-uds-can-create-ws') === '1'
-          if (canCreate) clearGate()
-          else installGate()
+          if (!ready) {
+            installGate()
+            return
+          }
+          if (canCreate) {
+            const stolen = disposers.length > 0
+            clearGate()
+            if (stolen) {
+              try {
+                if (!window.sessionStorage.getItem('uds-auth-dirflow-reloaded')) {
+                  window.sessionStorage.setItem('uds-auth-dirflow-reloaded', '1')
+                  window.location.reload()
+                }
+              } catch { /* ignore */ }
+            }
+            return
+          }
+          try { window.sessionStorage.removeItem('uds-auth-dirflow-reloaded') } catch { /* ignore */ }
+          installGate()
         }
         const injectOffs = [
           'sidebar.workspaces.directoryFlow',
@@ -1838,7 +1871,7 @@ function reloadAfterLogin() {
         const mo = new MutationObserver(sync)
         mo.observe(document.documentElement, {
           attributes: true,
-          attributeFilter: ['data-uds-can-create-ws', 'data-uds-logged-in'],
+          attributeFilter: ['data-uds-can-create-ws', 'data-uds-logged-in', 'data-uds-auth-ready'],
         })
         return () => {
           window.removeEventListener('uds-auth-changed', onAuth)
