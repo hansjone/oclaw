@@ -929,7 +929,10 @@ ctx.inject(['workspaceController'], (wctx) => {
     wc.create = async (request) => {
       const identity = getUserContext()
       if (identity?._internalProvision) return origCreate(request)
-      if (!identity?.permissions?.canCreateWorkspace) {
+      // No ALS identity: Host-side plugins (IM / cron) create workspaces without a
+      // browser login. Authenticated browser calls always run under user context;
+      // there admin / super_admin / fallback_admin must have canCreateWorkspace.
+      if (identity && !identity.permissions?.canCreateWorkspace) {
         throwForbidden('workspace_create_forbidden')
       }
       return origCreate(request)
@@ -1060,7 +1063,7 @@ ctx.inject(['workspaceController'], (wctx) => {
     }
   })
 
-    // directory picker: only super_admin may pick/create dirs (others get auto workspaces)
+    // directory picker: admin / super_admin / fallback_admin (canCreateWorkspace)
   ctx.inject(['directoryPicker'], (dctx) => {
     const dp = dctx.directoryPicker
     if (!dp || dp.__udsAcl) return

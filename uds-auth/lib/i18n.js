@@ -101,7 +101,7 @@ export const MESSAGES = {
 
     // client gates
     'ui.cronLoginRequired': '登录后才能使用定时任务',
-    'ui.workspaceCreateForbidden': '只有超级管理员可以创建工作区',
+    'ui.workspaceCreateForbidden': '只有管理员可以创建工作区',
     'ui.workspaceLoginRequired': '登录后才能使用工作区',
 
     // API / ACL errors (stable codes)
@@ -137,7 +137,7 @@ export const MESSAGES = {
     'err.session_forbidden': '无权访问该会话',
     'err.session_workspace_only': '只能在自己的工作区创建会话',
     'err.workspace_path_only': '只能打开自己的工作区路径',
-    'err.workspace_create_forbidden': '只有超级管理员可以创建工作区',
+    'err.workspace_create_forbidden': '只有管理员可以创建工作区',
     'err.no_skill_credentials': '请先完成 UAC 扫码登录',
     'err.loopback_only_credentials': 'agent-credentials 仅允许本机访问',
     'err.loopback_only_outbound': 'outbound 仅允许本机访问',
@@ -250,7 +250,7 @@ export const MESSAGES = {
     'ui.qrGenerateFailed': 'Failed to generate QR',
 
     'ui.cronLoginRequired': 'Sign in to use scheduled tasks',
-    'ui.workspaceCreateForbidden': 'Only super admins can create workspaces',
+    'ui.workspaceCreateForbidden': 'Only admins can create workspaces',
     'ui.workspaceLoginRequired': 'Sign in to use workspaces',
 
     'err.not_logged_in': 'Not signed in',
@@ -285,7 +285,7 @@ export const MESSAGES = {
     'err.session_forbidden': 'No access to this session',
     'err.session_workspace_only': 'Sessions can only be created in your own workspace',
     'err.workspace_path_only': 'You can only open your own workspace path',
-    'err.workspace_create_forbidden': 'Only super admins can create workspaces',
+    'err.workspace_create_forbidden': 'Only admins can create workspaces',
     'err.no_skill_credentials': 'Complete UAC QR sign-in first',
     'err.loopback_only_credentials': 'agent-credentials is loopback-only',
     'err.loopback_only_outbound': 'outbound is loopback-only',

@@ -192,4 +192,11 @@ describe('RolesStore view-all prefs', () => {
     assert.throws(() => store.setViewAllSessions('u1', true), (err) => err.code === 'forbidden_view_all_sessions')
     assert.throws(() => store.setViewAllSessions('a1', true), (err) => err.code === 'forbidden_view_all_sessions')
   })
+
+  it('lets admin, super_admin, and fallback_admin create workspaces', () => {
+    assert.equal(computePermissions(ROLES.SUPER_ADMIN).canCreateWorkspace, true)
+    assert.equal(computePermissions(ROLES.FALLBACK_ADMIN).canCreateWorkspace, true)
+    assert.equal(computePermissions(ROLES.ADMIN).canCreateWorkspace, true)
+    assert.equal(computePermissions(ROLES.USER).canCreateWorkspace, false)
+  })
 })

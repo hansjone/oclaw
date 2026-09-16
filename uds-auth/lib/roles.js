@@ -4,11 +4,12 @@
  * 角色:
  *   super_admin     所有权限 + 用户管理；默认可见全部会话（可在设置中关闭）
  *   fallback_admin  等同 super_admin（兜底 administrator）
- *   admin           无设置齿轮；仅看自己会话（含 @）；可见渠道/系统会话
+ *   admin           无设置齿轮；仅看自己会话（含 @）；可见渠道/系统会话；可创建工作区
  *   user            仅看自己会话，无设置
  *
  * 超管/应急默认全览开启；prefs.viewAllSessions === false 时关闭。
  * 设置齿轮仅超管/应急（canAccessSettings）。
+ * 创建工作区：super_admin / fallback_admin / admin（扫码不可用时现场通常只有 admin）。
  * 持久化: roles.json (roles + prefs + fallbackPasswordHash)
  */
 import { createHash, randomBytes } from 'node:crypto'
@@ -61,12 +62,12 @@ export function computePermissions(role, opts = {}) {
     case ROLES.ADMIN:
       return {
         canManageUsers: false,
-        // 设置齿轮仅超管/应急；admin 仍可看渠道/系统会话
+        // 设置齿轮仅超管/应急；admin 仍可看渠道/系统会话，并可创建工作区
         canAccessSettings: false,
         canToggleViewAllSessions: false,
         canViewAllSessions: false,
         canViewSystemSessions: true,
-        canCreateWorkspace: false,
+        canCreateWorkspace: true,
       }
     default: // user / undefined
       return {

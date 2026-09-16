@@ -100,7 +100,7 @@ window.__ModuleLoader__.load({
     "ui.networkError": "网络错误...",
     "ui.qrGenerateFailed": "生成二维码失败",
     "ui.cronLoginRequired": "登录后才能使用定时任务",
-    "ui.workspaceCreateForbidden": "只有超级管理员可以创建工作区",
+    "ui.workspaceCreateForbidden": "只有管理员可以创建工作区",
     "ui.workspaceLoginRequired": "登录后才能使用工作区",
     "err.not_logged_in": "未登录",
     "err.forbidden_settings": "当前账号无设置权限",
@@ -138,7 +138,7 @@ window.__ModuleLoader__.load({
     "err.session_forbidden": "无权访问该会话",
     "err.session_workspace_only": "只能在自己的工作区创建会话",
     "err.workspace_path_only": "只能打开自己的工作区路径",
-    "err.workspace_create_forbidden": "只有超级管理员可以创建工作区",
+    "err.workspace_create_forbidden": "只有管理员可以创建工作区",
     "err.no_skill_credentials": "请先完成 UAC 扫码登录",
     "err.loopback_only_credentials": "agent-credentials 仅允许本机访问",
     "err.loopback_only_outbound": "outbound 仅允许本机访问",
@@ -240,7 +240,7 @@ window.__ModuleLoader__.load({
     "ui.networkError": "Network error...",
     "ui.qrGenerateFailed": "Failed to generate QR",
     "ui.cronLoginRequired": "Sign in to use scheduled tasks",
-    "ui.workspaceCreateForbidden": "Only super admins can create workspaces",
+    "ui.workspaceCreateForbidden": "Only admins can create workspaces",
     "ui.workspaceLoginRequired": "Sign in to use workspaces",
     "err.not_logged_in": "Not signed in",
     "err.forbidden_settings": "No settings permission",
@@ -278,7 +278,7 @@ window.__ModuleLoader__.load({
     "err.session_forbidden": "No access to this session",
     "err.session_workspace_only": "Sessions can only be created in your own workspace",
     "err.workspace_path_only": "You can only open your own workspace path",
-    "err.workspace_create_forbidden": "Only super admins can create workspaces",
+    "err.workspace_create_forbidden": "Only admins can create workspaces",
     "err.no_skill_credentials": "Complete UAC QR sign-in first",
     "err.loopback_only_credentials": "agent-credentials is loopback-only",
     "err.loopback_only_outbound": "outbound is loopback-only",
@@ -1852,7 +1852,7 @@ function reloadAfterLogin() {
 
 
       ctx.effect(() => {
-        // Open/choose workspace is super_admin-only (canCreateWorkspace).
+        // Open/choose workspace: admin / super_admin / fallback_admin (canCreateWorkspace).
         // Everyone else uses the auto-provisioned per-user workspace and must not open the picker.
         const CHOOSER = hostAriaSel('chooseWorkspace')
         // Inert composer: onClick lives on the card (cardWorkspaceTrigger), not the labeled node.
