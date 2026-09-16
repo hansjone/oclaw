@@ -386,10 +386,9 @@ function throwForbidden(code) {
 /**
  * Shared session visibility helpers (sidebar + @ mention + query reads).
  * Visibility:
- * - canViewAllSessions (super/fallback toggle): see all
- * - else: own owner stamp OR own user-workspace path
- * - canViewSystemSessions (admin+): also see system/channel sessions whose cwd
- *   is outside the per-user workspace root (IM bots, harness cwd, unstamped)
+ * - canViewAllSessions (admin-class preference, default on): see all
+ * - else: own owner stamp OR own user-workspace path only
+ *   (shared project / channel roots are not exposed when view-all is off)
  */
 export function createSessionAccess({
   sessionAcl,
