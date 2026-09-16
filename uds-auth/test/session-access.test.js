@@ -119,16 +119,56 @@ describe('createSessionAccess', () => {
     assert.equal(canAccessSession('legacy-other', user, { cwd: '/ws/u2' }), false)
   })
 
-  it('admin can see unowned channel/system sessions outside user-workspaces', () => {
+  it('view-all off: admin only sees own sessions, not channel/shared workspaces', () => {
     const store = new RolesStore()
     store._roles.set('u1', ROLES.ADMIN)
     store.setViewAllSessions('u1', false)
     const accessOff = createSessionAccess({
       sessionAcl: { getOwner: () => null },
       userWorkspaces: {
-        get: () => null,
-        isUserPath: () => false,
+        get: (empNo) => (empNo === 'u1' ? { path: '/ws/u1', workspaceId: 'ws-u1' } : null),
+        isUserPath: (empNo, candidate) => {
+          if (empNo !== 'u1' || !candidate) return false
+          const path = String(candidate).replace(/\\/g, '/')
+          return path === '/ws/u1' || path.startsWith('/ws/u1/')
+        },
       },
+      getWorkspaceRoot: () => '/ws',
+      getWorkspaceRegistry: () => ({
+        list: () => ([
+          { id: 'ws-u1', path: '/ws/u1', sessionIds: ['mine'] },
+          { id: 'bot-ws', path: '/bots/whatsapp', sessionIds: ['ch-1'] },
+          { id: 'shared', path: '/project/chatgpt', sessionIds: ['peer'] },
+        ]),
+      }),
+      rolesStore: store,
+    })
+    const admin = {
+      empNo: 'u1',
+      role: 'admin',
+      permissions: computePermissions('admin', { viewAllSessions: false }),
+    }
+    assert.equal(accessOff.canSeeAll(admin), false)
+    assert.equal(accessOff.canAccessSession('mine', admin, { cwd: '/ws/u1/a' }), true)
+    assert.equal(accessOff.canAccessSession('ch-1', admin, { cwd: '/bots/whatsapp' }), false)
+    assert.equal(accessOff.canAccessSession('peer', admin, { cwd: '/project/chatgpt' }), false)
+    assert.equal(accessOff.isVisibleWorkspace(admin, { id: 'ws-u1', path: '/ws/u1' }), true)
+    assert.equal(accessOff.isVisibleWorkspace(admin, { id: 'bot-ws', path: '/bots/whatsapp' }), false)
+    assert.equal(accessOff.isVisibleWorkspace(admin, { id: 'shared', path: '/project/chatgpt' }), false)
+
+    store.setViewAllSessions('u1', true)
+    assert.equal(accessOff.canAccessSession('ch-1', admin, { cwd: '/bots/whatsapp' }), true)
+    assert.equal(accessOff.canAccessSession('peer', admin, { cwd: '/project/chatgpt' }), true)
+  })
+
+  it('view-all off: foreign-owned session stays hidden even in shared workspace', () => {
+    const store = new RolesStore()
+    store._roles.set('u1', ROLES.ADMIN)
+    store.setViewAllSessions('u1', false)
+    const ownersMap = new Map([['ch-owned', 'u2']])
+    const accessOwned = createSessionAccess({
+      sessionAcl: { getOwner: (id) => ownersMap.get(String(id)) || null },
+      userWorkspaces: { get: () => null, isUserPath: () => false },
       getWorkspaceRoot: () => '/ws',
       getWorkspaceRegistry: () => ({ list: () => [] }),
       rolesStore: store,
@@ -138,27 +178,7 @@ describe('createSessionAccess', () => {
       role: 'admin',
       permissions: computePermissions('admin', { viewAllSessions: false }),
     }
-    const user = {
-      empNo: 'u1',
-      role: 'user',
-      permissions: computePermissions('user'),
-    }
-    assert.equal(accessOff.canAccessSession('ch-1', admin, { cwd: '/bots/whatsapp' }), true)
-    assert.equal(accessOff.canAccessSession('ch-1', user, { cwd: '/bots/whatsapp' }), false)
-    assert.equal(accessOff.canAccessSession('s-peer', admin, { cwd: '/ws/u2/x' }), false)
-
-    const ownersMap = new Map([['ch-owned', 'u2']])
-    const accessOwned = createSessionAccess({
-      sessionAcl: { getOwner: (id) => ownersMap.get(String(id)) || null },
-      userWorkspaces: { get: () => null, isUserPath: () => false },
-      getWorkspaceRoot: () => '/ws',
-      getWorkspaceRegistry: () => ({ list: () => [] }),
-      rolesStore: store,
-    })
     assert.equal(accessOwned.canAccessSession('ch-owned', admin, { cwd: '/bots/wa' }), false)
-
-    assert.equal(accessOff.isVisibleWorkspace(admin, { id: 'bot-ws', path: '/bots/whatsapp' }), true)
-    assert.equal(accessOff.isVisibleWorkspace(user, { id: 'bot-ws', path: '/bots/whatsapp' }), false)
   })
 
   it('live rolesStore prefs override stale identity.permissions', () => {

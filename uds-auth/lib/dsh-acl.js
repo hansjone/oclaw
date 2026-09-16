@@ -465,21 +465,20 @@ export function createSessionAccess({
     const root = getWorkspaceRoot()
     const wid = ws.id ?? ws.workspaceId
     const path = ws.path
+    // View-all off: only the caller's provisioned user workspace — not shared
+    // project folders (chatgpt/harness/…) or channel roots. Those stay under view-all.
     if (userWorkspaces.isUserPath(empNo, path, root)
       || (userWorkspaces.get(empNo)?.workspaceId
         && String(userWorkspaces.get(empNo).workspaceId) === String(wid))) {
-      return true
-    }
-    // Channel / bot / shared harness workspaces live outside user-workspaces.
-    if (identity.permissions?.canViewSystemSessions && isOutsideUserWorkspaceRoot(path, root)) {
       return true
     }
     return false
   }
 
   /**
-   * Owner stamp OR cwd/workspace under the caller's provisioned path.
-   * Settings roles also see unowned system/channel sessions (cwd outside user-workspaces).
+   * Owner stamp OR cwd under the caller's provisioned path.
+   * View-all off means only those — no "unowned outside user-workspaces" leak
+   * (shared project sessions were incorrectly treated as channel/system).
    */
   const canAccessSession = (sessionId, identity, rowHint) => {
     if (!identity || !empOf(identity)) return false
@@ -495,21 +494,13 @@ export function createSessionAccess({
 
     const foreignOwner = !!(owner && String(owner) !== String(empNo))
 
-    // IM/channel (and other host-internal) sessions: often unstamped + bot cwd.
-    // Let admin+ see those; never leak another user's stamped private session.
-    if (!foreignOwner && !owner && identity.permissions?.canViewSystemSessions
-      && isOutsideUserWorkspaceRoot(cwd, root)) {
-      return true
-    }
-
     const registry = resolveRegistry()
     if (!registry || typeof registry.list !== 'function') return false
     let workspaces = []
     try { workspaces = registry.list() || [] } catch { return false }
     for (const ws of workspaces) {
       if (!isVisibleWorkspace(identity, ws)) continue
-      // Foreign-owned sessions must not become visible via channel/system workspaces.
-      if (foreignOwner && isOutsideUserWorkspaceRoot(ws?.path, root)) continue
+      if (foreignOwner) continue
       if (workspaceContainsSession(ws, sessionId)) return true
     }
     return false
@@ -963,10 +954,7 @@ ctx.inject(['workspaceController'], (wctx) => {
           && String(userWorkspaces.get(empNo).workspaceId) === String(wid))) {
         return true
       }
-      if (identity.permissions?.canViewSystemSessions
-        && isOutsideUserWorkspaceRoot(ws?.path, root)) {
-        return true
-      }
+      // View-all off: hide shared/channel workspaces from the sidebar partitions.
       return false
     }
 
@@ -992,20 +980,6 @@ ctx.inject(['workspaceController'], (wctx) => {
         const allowed = new Set()
         const mapped = userWorkspaces.get(empNo)?.workspaceId
         if (mapped != null) allowed.add(String(mapped))
-        // Keep channel/bot workspaces for admin+ (same rule as allowWorkspace).
-        if (identity?.permissions?.canViewSystemSessions) {
-          try {
-            const root = getWorkspaceRoot()
-            const registry = resolveRegistry()
-            const list = typeof registry?.list === 'function' ? (registry.list() || []) : []
-            for (const ws of list) {
-              const id = ws?.id ?? ws?.workspaceId
-              if (id != null && isOutsideUserWorkspaceRoot(ws?.path, root)) {
-                allowed.add(String(id))
-              }
-            }
-          } catch { /* ignore */ }
-        }
         return {
           ...frame,
           workspaceIds: (frame.workspaceIds || []).filter((id) => allowed.has(String(id))),

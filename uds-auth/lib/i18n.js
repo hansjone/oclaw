@@ -62,7 +62,7 @@ export const MESSAGES = {
 
     // privacy / session visibility
     'ui.viewAllSessionsTitle': '查看全部会话',
-    'ui.viewAllSessionsIntro': '超级管理员默认可见全部会话（含渠道）。关闭后仅看自己的；侧栏与 @ 提及规则相同。',
+    'ui.viewAllSessionsIntro': '默认可见全部会话（含渠道与共享工作区）。关闭后仅看自己名下的会话与个人工作区。',
     'ui.viewAllSessionsToggle': '显示所有人的会话',
     'ui.viewAllSessionsOn': '已开启：可见全部会话',
     'ui.viewAllSessionsOff': '已关闭：仅可见自己的会话',
@@ -214,7 +214,7 @@ export const MESSAGES = {
     'ui.department': 'Department',
 
     'ui.viewAllSessionsTitle': 'View all sessions',
-    'ui.viewAllSessionsIntro': 'Super admins see all sessions by default (including channels). Turn off to only see your own; sidebar and @ mentions share the same rule.',
+    'ui.viewAllSessionsIntro': 'All sessions are visible by default (including channels and shared workspaces). Turn off to only see sessions you own and your personal workspace.',
     'ui.viewAllSessionsToggle': 'Show everyone’s sessions',
     'ui.viewAllSessionsOn': 'On: all sessions visible',
     'ui.viewAllSessionsOff': 'Off: only your own sessions',
