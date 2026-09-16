@@ -1123,12 +1123,8 @@ function reloadAfterLogin() {
           clearSessionIfAnonymous(window.__udsAuthSessions)
           try { softReconnectAuth() } catch { /* ignore */ }
         }
-        return () => {
-          // Keep locked while remounting; do not leave attrs missing (CSS/click lock needs "0").
-          document.documentElement.setAttribute('data-uds-logged-in', '0')
-          document.documentElement.setAttribute('data-uds-can-settings', '0')
-          document.documentElement.setAttribute('data-uds-can-create-ws', '0')
-        }
+        // Do not reset auth attrs in the effect cleanup: React remount/strict-mode
+        // would briefly look logged-out and trigger flat↔workspace reload loops.
       }, [user]) /* uds-auth: logout-reconnect-on-null */
 
       const stopQr = useCallback(() => {
@@ -1828,31 +1824,16 @@ function reloadAfterLogin() {
           }
           disposers = []
         }
-        // Deny folder pick until AuthBadge proves canCreateWorkspace. Occupying the
-        // directoryFlow hole with a null Gate shadows the native/browse picker; when
-        // permission later becomes true we must reload once so the real occupant
-        // rebinds — otherwise "Add workspace" never renders (empty hole).
+        // Only shadow directoryFlow while anonymous. Logged-in users (including
+        // non-creators) keep the native/browse occupant so "Add workspace" still
+        // renders; CSS + RPC + Host ACL deny create for users without permission.
+        // Never location.reload() here — remount attr flips caused infinite refresh.
         const sync = () => {
-          const ready = document.documentElement.getAttribute('data-uds-auth-ready') === '1'
-          const canCreate = document.documentElement.getAttribute('data-uds-can-create-ws') === '1'
-          if (!ready) {
-            installGate()
-            return
-          }
-          if (canCreate) {
-            const stolen = disposers.length > 0
+          const loggedIn = document.documentElement.getAttribute('data-uds-logged-in') === '1'
+          if (loggedIn) {
             clearGate()
-            if (stolen) {
-              try {
-                if (!window.sessionStorage.getItem('uds-auth-dirflow-reloaded')) {
-                  window.sessionStorage.setItem('uds-auth-dirflow-reloaded', '1')
-                  window.location.reload()
-                }
-              } catch { /* ignore */ }
-            }
             return
           }
-          try { window.sessionStorage.removeItem('uds-auth-dirflow-reloaded') } catch { /* ignore */ }
           installGate()
         }
         const injectOffs = [
