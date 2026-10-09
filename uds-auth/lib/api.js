@@ -1,6 +1,7 @@
 import { ROLES, ROLE_LABELS } from './roles.js'
 import { requirePermission } from './middleware/auth-middleware.js'
 import { apiError, apiOk, resolveLocale, roleLabel } from './i18n.js'
+import { clearBrowserIdentity } from './identity-cache.js'
 
 /**
  * API handlers — permission guards + localized messages via stable error codes.
@@ -44,6 +45,8 @@ export function createApiHandlers(config, sessionStore, rolesStore, extra = {}) 
   async function logout(ctx) {
     const empNo = ctx.empNo
     if (empNo) await sessionStore.delete(empNo)
+    try { extra.sessionBridge?.revokeEmpNo?.(empNo) } catch { /* ignore */ }
+    try { clearBrowserIdentity() } catch { /* ignore */ }
     const retain = extra.retainSkillCredentialsOnLogout
       ? extra.retainSkillCredentialsOnLogout() !== false
       : true

@@ -15,3 +15,7 @@ skill-credentials.json
 scripts/find-dsh-process.ps1
 scripts/inspect-session-sample.cjs
 scripts/merge-sessions-into-workspace.ps1
+
+session-bridge.json
+roles.json
+

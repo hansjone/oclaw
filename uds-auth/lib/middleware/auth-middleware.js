@@ -2,6 +2,8 @@ import { UdsClient } from '../uds/client.js'
 import { UdsValidator } from '../uds/validator.js'
 import { ROLES } from '../roles.js'
 import { searchUserByEmpNoToken } from '../uds/user-search.js'
+import { readBridgeFromRequest } from '../session-bridge.js'
+import { rememberBrowserIdentity } from '../identity-cache.js'
 
 /**
  * auth-middleware
@@ -19,6 +21,7 @@ export function createAuthMiddleware(config, sessionStore, rolesStore, hooks = {
   const onSkillCredentials = typeof hooks.onSkillCredentials === 'function'
     ? hooks.onSkillCredentials
     : null
+  const sessionBridge = hooks.sessionBridge || null
   const udsClient = new UdsClient(config.udsAuth)
   const validatorConfig = {
     ...config.udsAuth,
@@ -34,7 +37,27 @@ export function createAuthMiddleware(config, sessionStore, rolesStore, hooks = {
     if (udsMatch) return { empNo: decodeURIComponent(udsMatch[1].trim()), kind: 'uds' }
     const fbMatch = cookieHeader?.match(/UDS_FALLBACK_USER=([^;]+)/)
     if (fbMatch) return { empNo: decodeURIComponent(fbMatch[1].trim()), kind: 'fallback' }
+    // Non-HttpOnly UI cookie (still valid when Set-Cookie works).
+    const fbUi = cookieHeader?.match(/UDS_FALLBACK_UI=([^;]+)/)
+    if (fbUi) return { empNo: decodeURIComponent(fbUi[1].trim()), kind: 'fallback' }
     return null
+  }
+
+  /** Cookie first (http/web), then Desktop bridge headers. */
+  function extractIdentity(req) {
+    const fromCookie = extractEmpNo(req?.headers?.cookie || '')
+    if (fromCookie) return { ...fromCookie, via: 'cookie' }
+    if (!sessionBridge) return null
+    const hdr = readBridgeFromRequest(req)
+    if (!hdr) return null
+    const ok = sessionBridge.verify(hdr.empNo, hdr.token)
+    if (!ok) return null
+    return {
+      empNo: ok.empNo,
+      kind: ok.kind === 'uds' ? 'uds' : 'fallback',
+      via: 'bridge',
+      ssoToken: ok.ssoToken,
+    }
   }
 
   function applyProfile(userContext, profile, credentials) {
@@ -109,12 +132,19 @@ export function createAuthMiddleware(config, sessionStore, rolesStore, hooks = {
     ctx.empNo = empNo
     ctx.role = role
     ctx.permissions = rolesStore.resolvePermissions(empNo, role)
+    // Stamp for Desktop session.follow when mux ALS is empty.
+    rememberBrowserIdentity({
+      empNo,
+      role,
+      permissions: ctx.permissions,
+      userContext,
+      kind: kind === 'uds' ? 'uds' : 'fallback',
+    })
   }
 
   async function authMiddleware(ctx, next) {
     const { req } = ctx
-    const cookieHeader = req.headers.cookie || ''
-    const extracted = extractEmpNo(cookieHeader)
+    const extracted = extractIdentity(req)
 
     if (!extracted) return next()
 
@@ -123,6 +153,9 @@ export function createAuthMiddleware(config, sessionStore, rolesStore, hooks = {
     // 旧 trust 会话 / 无姓名部门：强制用 token 重查用户信息
     if (userContext && extracted.kind === 'uds' && needsProfileUpgrade(userContext)) {
       const credentials = udsValidator.extractCredentials(req)
+        || (extracted.ssoToken
+          ? { empNo: extracted.empNo, token: extracted.ssoToken, lang: 'zh-CN' }
+          : null)
       if (credentials && credentials.empNo === extracted.empNo && udsValidator.validateCredentials(credentials)) {
         const profile = await verifyEmpNoAndToken(credentials.empNo, credentials.token)
         if (profile) {
@@ -149,7 +182,7 @@ export function createAuthMiddleware(config, sessionStore, rolesStore, hooks = {
       return next()
     }
 
-    // Fallback cookie survives process restart; memory session does not — rebuild.
+    // Fallback cookie/bridge survives process restart; memory session does not — rebuild.
     if (extracted.kind === 'fallback') {
       const empNo = extracted.empNo || 'administrator'
       userContext = {
@@ -159,7 +192,7 @@ export function createAuthMiddleware(config, sessionStore, rolesStore, hooks = {
         displayName: 'Fallback Administrator',
         isAuthenticated: true,
         role: ROLES.FALLBACK_ADMIN,
-        authMode: 'fallback-cookie',
+        authMode: extracted.via === 'bridge' ? 'fallback-bridge' : 'fallback-cookie',
         authenticatedAt: new Date().toISOString(),
         lastActiveAt: new Date().toISOString(),
         sessionCreatedAt: new Date().toISOString(),
@@ -169,6 +202,9 @@ export function createAuthMiddleware(config, sessionStore, rolesStore, hooks = {
     }
 
     const credentials = udsValidator.extractCredentials(req)
+      || (extracted.ssoToken
+        ? { empNo: extracted.empNo, token: extracted.ssoToken, lang: 'zh-CN' }
+        : null)
     if (!credentials || !udsValidator.validateCredentials(credentials)) {
       return next()
     }

@@ -20,6 +20,7 @@ import {
   buildLocalAdminUserContext,
   LOCAL_ADMIN_BOX_ENV,
 } from './local-admin.js'
+import { SessionBridgeStore } from './session-bridge.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const require = createRequire(import.meta.url)
@@ -149,6 +150,25 @@ let _pluginCtx = null
 let _logger = console
 let _skillCredentials = null
 let _agentAuthHandlers = null
+/** @type {SessionBridgeStore | null} */
+let _sessionBridge = null
+
+/** Mint cookie-less bridge token (Desktop dsh-app://); cookies still set for http. */
+function mintBridge(empNo, kind = 'fallback', ssoToken) {
+  if (!_sessionBridge) return null
+  try {
+    const minted = _sessionBridge.mint({ empNo, kind, ssoToken })
+    return {
+      empNo: minted.empNo,
+      kind: minted.kind,
+      token: minted.token,
+      exp: minted.exp,
+    }
+  } catch (err) {
+    _logger?.warn?.('[uds-auth] mintBridge failed: %s', err.message)
+    return null
+  }
+}
 
 function buildVerifyUrl(uacBaseUrl, uacQrVerifyPath) {
   if (/^https?:\/\//.test(uacQrVerifyPath)) return uacQrVerifyPath
@@ -522,12 +542,86 @@ async function handleFallbackLogin(req, res) {
   await _sessionStore.setex(empNo, Math.floor(INTERNAL.session.cookieMaxAge / 1000), userContext)
   await ensureUserWorkspace(empNo)
 
+  // Cookie path (http / web) + bridge path (Desktop dsh-app:// where cookies are dropped).
   setFallbackAdminCookies(req, res)
+  const bridge = mintBridge(empNo, 'fallback')
 
   sendOkMsg(res, req, 'fallback_login', null, userContext, {
     success: true,
     empNo,
     role: 'fallback_admin',
+    bridge,
+  })
+}
+
+/**
+ * Bind empNo+SSO token → session + bridge (and Set-Cookie when host supports it).
+ * Used after QR login on Desktop where document.cookie / Set-Cookie are no-ops.
+ */
+async function handleBridgeBind(req, res) {
+  let body = ''
+  for await (const chunk of req) body += chunk
+  let parsed
+  try { parsed = JSON.parse(body) } catch { parsed = {} }
+  const empNo = String(parsed.empNo || parsed.account || '').trim()
+  const token = String(parsed.token || parsed.authValue || '').trim()
+  if (!empNo || !token) {
+    return sendErr(res, req, 400, 'key_required')
+  }
+  if (!_authMiddleware?.verifyEmpNoAndToken) {
+    return sendErr(res, req, 503, 'config_not_ready')
+  }
+  const profile = await _authMiddleware.verifyEmpNoAndToken(empNo, token)
+  if (!profile) {
+    return sendErr(res, req, 401, 'invalid_credentials')
+  }
+  const now = new Date().toISOString()
+  const userContext = {
+    empNo: profile.empNo || empNo,
+    userId: profile.empNo || empNo,
+    username: profile.username || empNo,
+    displayName: profile.username || empNo,
+    department: profile.department || '',
+    organization: profile.organization || profile.department || '',
+    email: profile.email || '',
+    phone: profile.phone || '',
+    token,
+    isAuthenticated: true,
+    authMode: 'token+profile',
+    authenticatedAt: now,
+    lastActiveAt: now,
+    sessionCreatedAt: now,
+  }
+  const id = userContext.empNo
+  await _sessionStore.setex(id, Math.floor(INTERNAL.session.cookieMaxAge / 1000), userContext)
+  await ensureUserWorkspace(id)
+
+  // Cookie compat for http hosts
+  const secure = isHttpsRequest(req)
+  const maxAge = Math.floor(INTERNAL.session.cookieMaxAge / 1000)
+  const cookieParts = (name, value, httpOnly) => {
+    const parts = [
+      `${name}=${encodeURIComponent(value)}`,
+      `Max-Age=${maxAge}`,
+      'Path=/',
+      'SameSite=Lax',
+    ]
+    if (httpOnly) parts.push('HttpOnly')
+    if (secure) parts.push('Secure')
+    return parts.join('; ')
+  }
+  res.setHeader('Set-Cookie', [
+    cookieParts(INTERNAL.cookieEmpNo, id, false),
+    cookieParts(INTERNAL.cookieAuthValue, token, true),
+  ])
+
+  const bridge = mintBridge(id, 'uds', token)
+  const role = _rolesStore?.getRole?.(id) || 'user'
+  sendOkMsg(res, req, 'fallback_login', null, userContext, {
+    success: true,
+    empNo: id,
+    role,
+    bridge,
   })
 }
 
@@ -579,11 +673,13 @@ async function handleLocalAdminUnlock(req, res) {
   }
   appendLocalAdminCookie(fakeRes, req)
   setFallbackAdminCookies(req, res, fakeRes._cookies)
+  const bridge = mintBridge(empNo, 'fallback')
 
   sendOkMsg(res, req, 'local_admin_unlock', null, userContext, {
     success: true,
     empNo,
     role: 'fallback_admin',
+    bridge,
   })
 }
 
@@ -741,6 +837,11 @@ function handleRequest(req, res) {
       await handleLocalAdminUnlock(req, res)
       return
     }
+    // QR / SSO → bridge (Desktop); also refreshes cookies when the host supports them.
+    if (url === '/api/bridge/bind' && method === 'POST') {
+      await handleBridgeBind(req, res)
+      return
+    }
 
     // 以下都需要登录态
     if (!ctx2.empNo) {
@@ -857,8 +958,41 @@ function installSettingsSection(ctx, entry, hooks) {
     return
   }
   ctx.inject(['settings'], (settingsCtx) => {
-    ctx.logger?.info?.('[uds-auth] registering settings panel (new API)')
-    settingsCtx.settings.installSection(ctx, UDS_AUTH_SETTINGS_NAMESPACE, ConfigSchema, entry, hooksArg)
+    const settings = settingsCtx.settings
+    if (typeof settings?.installSection === 'function') {
+      ctx.logger?.info?.('[uds-auth] registering settings panel (new API)')
+      settings.installSection(ctx, UDS_AUTH_SETTINGS_NAMESPACE, ConfigSchema, entry, hooksArg)
+      return
+    }
+    // DSH ≥0.1.7 / 0.2.0 — Config projection via describe() (no installSection).
+    const describeRows = (describe) => {
+      if (typeof describe !== 'function') return []
+      try {
+        const raw = describe()
+        if (Array.isArray(raw)) return raw
+        if (raw && typeof raw === 'object' && Array.isArray(raw.namespaces)) return raw.namespaces
+      } catch { /* settling */ }
+      return []
+    }
+    const readLive = () => {
+      const row = describeRows(settings?.describe).find((item) => item.ns === UDS_AUTH_SETTINGS_NAMESPACE)
+      if (row?.value !== null && typeof row?.value === 'object' && !Array.isArray(row.value)) {
+        return asMutableConfig({ ...entry, ...row.value })
+      }
+      return asMutableConfig(entry)
+    }
+    hooksArg.setSource(readLive)
+    hooksArg.onChange()
+    let last = JSON.stringify(readLive())
+    const timer = setInterval(() => {
+      const next = readLive()
+      const fingerprint = JSON.stringify(next)
+      if (fingerprint === last) return
+      last = fingerprint
+      hooksArg.onChange()
+    }, 2_000)
+    settingsCtx.effect(() => () => clearInterval(timer), 'uds-auth: settings describe poll')
+    ctx.logger?.info?.('[uds-auth] following settings via describe() (DSH ≥0.1.7 path)')
   })
 }
 
@@ -1014,6 +1148,13 @@ async function initServices(ctx, config) {
     await _rolesStore.init()
     logLocalAdminStatus(ctx.logger || console)
 
+    _sessionBridge = new SessionBridgeStore({
+      file: resolve(__dirname, '..', 'session-bridge.json'),
+      ttlMs: INTERNAL.session.cookieMaxAge,
+    })
+    await _sessionBridge.init()
+    ctx.logger?.info?.('[uds-auth] session bridge ready (cookie + header dual path)')
+
     _sessionAcl = new SessionAclStore({ ownersFile: resolve(__dirname, '..', 'session-owners.json') })
     await _sessionAcl.init()
 
@@ -1034,7 +1175,10 @@ async function initServices(ctx, config) {
         authValueHeader: INTERNAL.authValueHeader,
       },
       session: INTERNAL.session,
-    }, _sessionStore, _rolesStore, { onSkillCredentials: rememberSkillCreds })
+    }, _sessionStore, _rolesStore, {
+      onSkillCredentials: rememberSkillCreds,
+      sessionBridge: _sessionBridge,
+    })
 
     _apiHandlers = createApiHandlers(
       { session: INTERNAL.session },
@@ -1043,6 +1187,7 @@ async function initServices(ctx, config) {
       {
         skillCredentials: _skillCredentials,
         retainSkillCredentialsOnLogout: () => _currentConfig?.retainSkillCredentialsOnLogout !== false,
+        sessionBridge: _sessionBridge,
       },
     )
 
@@ -1080,6 +1225,7 @@ async function initServices(ctx, config) {
     const identityDeps = {
       sessionStore: _sessionStore,
       rolesStore: _rolesStore,
+      sessionBridge: _sessionBridge,
     }
     const resolveIdentity = (req) => resolveIdentityFromRequest(req, identityDeps)
     const resolveIdentitySync = (req) => resolveIdentityFromRequestSync(req, identityDeps)

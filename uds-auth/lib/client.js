@@ -516,8 +516,126 @@ window.__ModuleLoader__.load({
       }
     }
 
+    /** Desktop dsh-app:// drops cookies — persist verified bridge token in localStorage. */
+    const BRIDGE_STORAGE_KEY = 'uds-auth.session-bridge'
+
+    function readBridge() {
+      try {
+        const raw = window.localStorage.getItem(BRIDGE_STORAGE_KEY)
+        if (!raw) return null
+        const o = JSON.parse(raw)
+        if (o && o.empNo && o.token) return o
+      } catch { /* ignore */ }
+      return null
+    }
+
+    function writeBridge(bridge) {
+      try {
+        if (!bridge || !bridge.empNo || !bridge.token) {
+          window.localStorage.removeItem(BRIDGE_STORAGE_KEY)
+          return
+        }
+        window.localStorage.setItem(BRIDGE_STORAGE_KEY, JSON.stringify({
+          empNo: String(bridge.empNo),
+          token: String(bridge.token),
+          kind: String(bridge.kind || 'fallback'),
+          exp: bridge.exp || null,
+        }))
+      } catch { /* ignore */ }
+    }
+
+    function clearBridge() {
+      writeBridge(null)
+    }
+
+    /** Adopt server-issued bridge; still try cookies for http hosts. */
+    function adoptAuthSession(data) {
+      if (data?.bridge?.empNo && data?.bridge?.token) {
+        writeBridge(data.bridge)
+      }
+      const emp = data?.bridge?.empNo || data?.empNo
+      const kind = data?.bridge?.kind || (emp === 'administrator' ? 'fallback' : 'uds')
+      if (emp && kind === 'fallback') {
+        try { setCookie('UDS_FALLBACK_UI', emp, 7) } catch { /* Desktop may ignore */ }
+      }
+      // Ensure mux reconnects with bridge query (soft path before full reload).
+      try {
+        window.__udsAuthBridgeMuxPrimed = false
+        if (typeof window.__udsAuthReconnect === 'function') {
+          setTimeout(() => {
+            try { window.__udsAuthReconnect() } catch { /* ignore */ }
+          }, 50)
+        }
+      } catch { /* ignore */ }
+    }
+
+    function bridgeAuthHeaders() {
+      const b = readBridge()
+      if (!b) return {}
+      return {
+        'X-UDS-Bridge-EmpNo': b.empNo,
+        'X-UDS-Bridge-Token': b.token,
+        'X-UDS-Bridge-Kind': b.kind || 'fallback',
+      }
+    }
+
+    /** Append bridge to WS URL — browsers cannot set custom WS headers; Desktop has no cookies. */
+    function withBridgeQuery(url) {
+      const b = readBridge()
+      if (!b) return url
+      try {
+        const parsed = new URL(String(url), typeof location !== 'undefined' ? location.href : 'http://localhost/')
+        if (parsed.searchParams.has('udsBridgeToken')) return parsed.toString()
+        parsed.searchParams.set('udsBridgeEmpNo', b.empNo)
+        parsed.searchParams.set('udsBridgeToken', b.token)
+        parsed.searchParams.set('udsBridgeKind', b.kind || 'fallback')
+        return parsed.toString()
+      } catch {
+        return url
+      }
+    }
+
+    // Install once at module load so login→reconnect WS already carries bridge.
+    if (typeof window !== 'undefined' && !window.__udsAuthBridgeTransportPatched) {
+      window.__udsAuthBridgeTransportPatched = true
+      try {
+        const OrigWS = window.WebSocket
+        if (typeof OrigWS === 'function') {
+          function UdsAuthWebSocket(url, protocols) {
+            const next = withBridgeQuery(url)
+            if (protocols === undefined) return new OrigWS(next)
+            return new OrigWS(next, protocols)
+          }
+          UdsAuthWebSocket.prototype = OrigWS.prototype
+          Object.assign(UdsAuthWebSocket, OrigWS)
+          window.WebSocket = UdsAuthWebSocket
+        }
+      } catch { /* ignore */ }
+      try {
+        const origFetch = window.fetch.bind(window)
+        window.fetch = async function udsAuthBridgeFetch(input, init) {
+          const bHeaders = bridgeAuthHeaders()
+          if (!bHeaders['X-UDS-Bridge-Token']) {
+            return origFetch(input, init)
+          }
+          const opts = init ? { ...init } : {}
+          const prev = opts.headers
+          if (prev && typeof prev.forEach === 'function') {
+            const h = { ...bHeaders }
+            prev.forEach((v, k) => { h[k] = v })
+            opts.headers = h
+          } else {
+            opts.headers = { ...bHeaders, ...(prev || {}) }
+          }
+          if (opts.credentials == null) opts.credentials = 'include'
+          return origFetch(input, opts)
+        }
+      } catch { /* ignore */ }
+    }
+
     function getEmpNo() {
-      return getCookie('PORTALSSOUser') || getCookie('ZTEDPGSSOUser') || getCookie('UDS_FALLBACK_USER') || getCookie('UDS_FALLBACK_UI') || null
+      return getCookie('PORTALSSOUser') || getCookie('ZTEDPGSSOUser') || getCookie('UDS_FALLBACK_USER') || getCookie('UDS_FALLBACK_UI')
+        || readBridge()?.empNo || null
     }
 
     /** Prefer /api/me-driven attr: fallback login cookie is HttpOnly and invisible to document.cookie. */
@@ -660,8 +778,17 @@ function reloadAfterLogin() {
       return getCookie('PORTALSSOCookie') || getCookie('ZTEDPGSSOCookie') || null
     }
 
-    async function fetchJson(url, options) {
-      const res = await fetch(url, options)
+    async function fetchJson(url, options = {}) {
+      const baseHeaders = bridgeAuthHeaders()
+      const optHeaders = options.headers || {}
+      const headers = (optHeaders && typeof optHeaders.forEach === 'function')
+        ? (() => {
+          const h = { ...baseHeaders }
+          optHeaders.forEach((v, k) => { h[k] = v })
+          return h
+        })()
+        : { ...baseHeaders, ...optHeaders }
+      const res = await fetch(url, { credentials: 'include', ...options, headers })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) {
         const err = new Error(data.message || data.error || res.statusText || t('err.request_failed'))
@@ -1253,6 +1380,7 @@ function reloadAfterLogin() {
                 const empNo = other.account || other.empNo || ''
                 const token = other.token || other.authValue || ''
                 if (empNo && token) {
+                  // Cookie path (http/web). Desktop dsh-app:// ignores these — bridge/bind below.
                   setCookie('PORTALSSOUser', empNo, 7)
                   setCookie('PORTALSSOCookie', token, 7)
                   try {
@@ -1273,6 +1401,17 @@ function reloadAfterLogin() {
                   } catch (err) {
                     setQrStatus(t('ui.userInfoFailed') + ': ' + (err.message || err))
                     return
+                  }
+                  try {
+                    const bound = await fetchJson('/uds-auth/api/bridge/bind', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ empNo, token }),
+                    })
+                    adoptAuthSession(bound)
+                  } catch (err) {
+                    console.warn('[uds-auth] bridge/bind after QR failed', err)
+                    // http hosts may still have cookies; Desktop will stay logged out without bridge.
                   }
                   setQrStatus(t('ui.loginSuccess'))
                   await refreshUser()
@@ -1308,11 +1447,12 @@ function reloadAfterLogin() {
         setFbBusy(true)
         setFbErr('')
         try {
-          await fetchJson('/uds-auth/api/fallback/login', {
+          const data = await fetchJson('/uds-auth/api/fallback/login', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ username: fbUser.trim(), password: fbPass }),
           })
+          adoptAuthSession(data)
           setFbPass('')
           await refreshUser()
           setOpen(false)
@@ -1328,11 +1468,12 @@ function reloadAfterLogin() {
         setFbBusy(true)
         setFbErr('')
         try {
-          await fetchJson('/uds-auth/api/local-admin/unlock', {
+          const data = await fetchJson('/uds-auth/api/local-admin/unlock', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ key: localKey }),
           })
+          adoptAuthSession(data)
           setLocalKey('')
           await refreshUser()
           setOpen(false)
@@ -1564,6 +1705,7 @@ function reloadAfterLogin() {
             onClick: async () => {
               try { await fetchJson('/uds-auth/api/logout', { method: 'POST' }) } catch { /* ignore */ }
               clearAuthCookies()
+              clearBridge()
               setUser(null)
               setOpen(false)
               document.documentElement.setAttribute('data-uds-logged-in', '0')
@@ -1642,6 +1784,19 @@ function reloadAfterLogin() {
         ctx.inject(['connection'], (cctx) => {
           window.__udsAuthReconnect = () => {
             try { cctx.connection.reconnect() } catch { window.location.reload() }
+          }
+          // Desktop ownsHost: mux WS often connects before this client patches
+          // WebSocket. If a bridge already exists, reconnect once so upgrade
+          // carries ?udsBridge* (history/follow ACL depends on it).
+          if (
+            readBridge()
+            && window.__DSH_TRANSPORT__?.ownsHost
+            && !window.__udsAuthBridgeMuxPrimed
+          ) {
+            window.__udsAuthBridgeMuxPrimed = true
+            setTimeout(() => {
+              try { cctx.connection.reconnect() } catch { /* ignore */ }
+            }, 250)
           }
         })
       } catch { /* connection may be unavailable */ }

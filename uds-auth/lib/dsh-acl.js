@@ -3,8 +3,10 @@
  */
 import { createRequire } from 'node:module'
 import { resolve as resolvePath, sep as pathSep } from 'node:path'
-import { withUserContext, getUserContext, runWithUserContext } from './context.js'
+import { withUserContext, getUserContext, runWithUserContext, enterUserContext } from './context.js'
 import { resolveLocale, t } from './i18n.js'
+import { readBridgeFromRequest } from './session-bridge.js'
+import { rememberBrowserIdentity, peekBrowserIdentity } from './identity-cache.js'
 
 const require = createRequire(import.meta.url)
 
@@ -43,6 +45,38 @@ function parseCookie(header, name) {
 
 /** @type {WeakMap<object, object|null|undefined>} */
 const upgradeSocketIdentity = new WeakMap()
+
+function empNoOfIdentity(identity) {
+  return identity?.empNo || identity?.userContext?.empNo || null
+}
+
+function fallbackBrowserIdentity() {
+  return peekBrowserIdentity()
+}
+
+/** Re-resolve when prior bind left null/empty (do not treat null as final). */
+function resolveUpgradeIdentity(req, socket, resolveIdentitySync) {
+  let identity
+  try {
+    if (req && Object.prototype.hasOwnProperty.call(req, '__udsAuthIdentity')) {
+      identity = req.__udsAuthIdentity
+    } else if (socket) {
+      identity = upgradeSocketIdentity.get(socket)
+    }
+  } catch {
+    identity = undefined
+  }
+  if (!empNoOfIdentity(identity) && typeof resolveIdentitySync === 'function') {
+    try {
+      identity = resolveIdentitySync(req)
+    } catch {
+      identity = identity ?? null
+    }
+    try { if (req) req.__udsAuthIdentity = identity } catch { /* ignore */ }
+    if (socket) upgradeSocketIdentity.set(socket, identity)
+  }
+  return identity ?? null
+}
 
 function loadWsModules(requireFn) {
   const found = []
@@ -96,16 +130,21 @@ function bindWebSocketListenersToIdentity(ws, identity) {
   if (!ws || ws.__udsAuthBound) return
   ws.__udsAuthBound = true
   try { ws.__udsAuthIdentity = identity || null } catch { /* ignore */ }
+  if (empNoOfIdentity(identity)) rememberBrowserIdentity(identity)
   // Gateway RemoteStreamMuxConnection registers sync `message` listeners that
-  // kick off async pump()/session.follow after the listener returns. als.run()
-  // would exit too early and drop empNo → "登录后才能访问会话". enterWith keeps
-  // the upgrade-time identity for the deferred stream work on this connection.
+  // kick off async pump()/session.follow after the listener returns.
+  // als.run() exits too early → empNo dropped → "登录后才能访问会话".
+  // enterWith keeps upgrade-time identity for deferred stream / history work.
   const wrap = (listener) => {
     if (typeof listener !== 'function') return listener
     return function udsAuthBoundListener(...args) {
-      // als.run preserves store across orphaned async pump()/session.follow started
-      // inside the sync Gateway message listener (Node async_hooks).
-      return runWithUserContext(identity || null, () => listener.apply(this, args))
+      // Prefer live socket identity; fall back to last HTTP/WS bridged login.
+      const live = empNoOfIdentity(identity) ? identity : fallbackBrowserIdentity()
+      // enterWith only — do NOT wrap in als.run(): run() restores the previous
+      // store when the sync listener returns, which drops empNo before
+      // pump()/session.follow (history) continues on the same connection.
+      enterUserContext(live || null)
+      return listener.apply(this, args)
     }
   }
   for (const method of ['on', 'once', 'addListener', 'prependListener', 'prependOnceListener']) {
@@ -126,14 +165,7 @@ function patchOneWebSocketServer(WebSocketServer, resolveIdentitySync) {
   function udsAuthHandleUpgrade(req, socket, head, cb) {
     let identity
     try {
-      identity = (req && Object.prototype.hasOwnProperty.call(req, '__udsAuthIdentity'))
-        ? req.__udsAuthIdentity
-        : (socket ? upgradeSocketIdentity.get(socket) : undefined)
-      if (identity === undefined && typeof resolveIdentitySync === 'function') {
-        identity = resolveIdentitySync(req)
-        try { if (req) req.__udsAuthIdentity = identity } catch { /* ignore */ }
-        if (socket) upgradeSocketIdentity.set(socket, identity)
-      }
+      identity = resolveUpgradeIdentity(req, socket, resolveIdentitySync)
     } catch {
       identity = null
     }
@@ -164,19 +196,44 @@ function patchWebSocketServerForUdsIdentity(resolveIdentitySync) {
 /**
  * Sync ACL identity from cookies + roles (no sessionStore). Used on WS upgrade/messages.
  */
-export function resolveIdentityFromRequestSync(req, deps) {
+function identityFromCookieOrBridge(req, deps) {
   const cookie = req?.headers?.cookie || ''
-  const empNo = parseCookie(cookie, 'PORTALSSOUser')
+  let empNo = parseCookie(cookie, 'PORTALSSOUser')
     || parseCookie(cookie, 'ZTEDPGSSOUser')
     || parseCookie(cookie, 'UDS_FALLBACK_USER')
     || parseCookie(cookie, 'UDS_FALLBACK_UI')
-  if (!empNo) return null
-
-  const token = parseCookie(cookie, 'PORTALSSOCookie')
+  let token = parseCookie(cookie, 'PORTALSSOCookie')
     || parseCookie(cookie, 'ZTEDPGSSOCookie')
-  const isFallback = empNo === 'administrator'
+  let via = empNo ? 'cookie' : null
+  let isFallback = empNo === 'administrator'
     || !!parseCookie(cookie, 'UDS_FALLBACK_USER')
     || !!parseCookie(cookie, 'UDS_FALLBACK_UI')
+
+  // Desktop dsh-app://: cookies are dropped — accept verified bridge
+  // (HTTP headers or WS upgrade query params).
+  if (!empNo && deps?.sessionBridge) {
+    try {
+      const hdr = readBridgeFromRequest(req)
+      if (hdr) {
+        const ok = deps.sessionBridge.verify(hdr.empNo, hdr.token)
+        if (ok) {
+          empNo = ok.empNo
+          token = ok.ssoToken || token
+          via = 'bridge'
+          isFallback = ok.kind !== 'uds' || empNo === 'administrator'
+        }
+      }
+    } catch { /* ignore */ }
+  }
+
+  if (!empNo) return null
+  return { empNo: String(empNo), token, via, isFallback }
+}
+
+export function resolveIdentityFromRequestSync(req, deps) {
+  const extracted = identityFromCookieOrBridge(req, deps)
+  if (!extracted) return null
+  const { empNo, token, via, isFallback } = extracted
 
   // Bare portal empNo without token is NOT enough — otherwise logout/未登录
   // still leaks workspace names via leftover SSO cookies on the WebSocket.
@@ -192,7 +249,9 @@ export function resolveIdentityFromRequestSync(req, deps) {
       empNo: String(empNo),
       userId: String(empNo),
       isAuthenticated: true,
-      authMode: isFallback ? 'fallback-cookie' : 'cookie-sync',
+      authMode: isFallback
+        ? (via === 'bridge' ? 'fallback-bridge' : 'fallback-cookie')
+        : (via === 'bridge' ? 'bridge-sync' : 'cookie-sync'),
       token: token || undefined,
     },
     kind: isFallback ? 'fallback' : 'uds',
@@ -200,12 +259,9 @@ export function resolveIdentityFromRequestSync(req, deps) {
 }
 
 export async function resolveIdentityFromRequest(req, deps) {
-  const cookie = req?.headers?.cookie || ''
-  const empNo = parseCookie(cookie, 'PORTALSSOUser')
-    || parseCookie(cookie, 'ZTEDPGSSOUser')
-    || parseCookie(cookie, 'UDS_FALLBACK_USER')
-    || parseCookie(cookie, 'UDS_FALLBACK_UI')
-  if (!empNo) return null
+  const extracted = identityFromCookieOrBridge(req, deps)
+  if (!extracted) return null
+  const { empNo, token, via, isFallback } = extracted
 
   const { sessionStore, rolesStore } = deps
   let userContext = null
@@ -215,20 +271,16 @@ export async function resolveIdentityFromRequest(req, deps) {
     userContext = null
   }
 
-  const token = parseCookie(cookie, 'PORTALSSOCookie')
-    || parseCookie(cookie, 'ZTEDPGSSOCookie')
-  const isFallback = empNo === 'administrator'
-    || !!parseCookie(cookie, 'UDS_FALLBACK_USER')
-    || !!parseCookie(cookie, 'UDS_FALLBACK_UI')
-
   if (!userContext) {
-    // Require session, token, or fallback cookie — never empNo alone.
+    // Require session, token, or fallback cookie/bridge — never empNo alone.
     if (!token && !isFallback) return null
     userContext = {
       empNo: String(empNo),
       userId: String(empNo),
       isAuthenticated: true,
-      authMode: token ? 'cookie-acl' : 'fallback-cookie',
+      authMode: token
+        ? (via === 'bridge' ? 'bridge-acl' : 'cookie-acl')
+        : (via === 'bridge' ? 'fallback-bridge' : 'fallback-cookie'),
       token: token || undefined,
       lastActiveAt: new Date().toISOString(),
     }
@@ -333,8 +385,13 @@ export function patchWebServerWithIdentity(server, resolveIdentity, resolveIdent
     } catch {
       identity = syncIdentity
     }
+    // If async path missed bridge query, force a fresh sync resolve.
+    if (!empNoOfIdentity(identity) && typeof resolveIdentitySync === 'function') {
+      try { identity = resolveIdentitySync(req) || identity } catch { /* keep */ }
+    }
     try { req.__udsAuthIdentity = identity } catch { /* ignore */ }
     if (socket) upgradeSocketIdentity.set(socket, identity)
+    if (empNoOfIdentity(identity)) rememberBrowserIdentity(identity)
     return withUserContext(identity, () => prev(req, socket, head))
   }
 
@@ -848,10 +905,22 @@ export function installDshAcl(ctx, {
       // Host-internal: do not burn 800ms waiting for a browser cookie that will never appear.
       if (identity === undefined) return identity
       if (empOf(identity)) return identity
+      // Desktop mux: follow/history often sees ALS=null; use last bridged login
+      // (HTTP /api/me or WS upgrade — see identity-cache.js).
+      const cached = fallbackBrowserIdentity()
+      if (cached && empOf(cached)) {
+        enterUserContext(cached)
+        return cached
+      }
       const deadline = Date.now() + ms
       while (!empOf(identity) && Date.now() < deadline) {
         await new Promise((r) => setTimeout(r, 40))
         identity = getUserContext()
+        const again = fallbackBrowserIdentity()
+        if (!empOf(identity) && again && empOf(again)) {
+          enterUserContext(again)
+          return again
+        }
       }
       return identity
     }
@@ -862,15 +931,18 @@ export function installDshAcl(ctx, {
       // follow is an async generator: assert inside so we can await identity.
       if (methodName === 'follow') {
         sc.follow = async function* (request, signal) {
-          await waitForIdentity()
+          const identity = await waitForIdentity()
           assertCanAccess(request)
+          // Long-lived generator: pin ALS so history frames keep empNo after awaits.
+          if (identity !== undefined) enterUserContext(identity)
           yield* orig(request, signal)
         }
         return
       }
       sc[methodName] = async (request, signal) => {
-        await waitForIdentity()
+        const identity = await waitForIdentity()
         assertCanAccess(request)
+        if (identity !== undefined) enterUserContext(identity)
         return orig(request, signal)
       }
     }
