@@ -48,6 +48,11 @@ originSystemCode: ''
   仅设置环境变量、不知道口令 → **无法登录**。旧变量 `UDS_AUTH_LOCAL_ADMIN_KEY` 已忽略。
 - **ACL / 侧栏**：未登录与普通用户看不到设置齿轮；**仅超管/应急**可见设置。`admin` 无设置齿轮，但可看渠道/系统会话。`super_admin` / 兜底默认可见全部会话（可关）。布局：设置在左、登录在右。
 
+## Desktop 离线 tgz（无 npm 外网）
+
+**≥0.2.20**：`qrcode` 已打进 `lib/qrcode-bundled.cjs`，`dependencies` 为空。  
+打包机：`npm pack`（会跑 `prepack` 重打 bundle）。现场 Desktop「添加插件」填 **绝对路径** `D:\…\uds-auth-0.2.20.tgz`，装包日志不应再出现 `registry.npmjs.org/qrcode`。
+
 ## Skill 认证（给他人改造 skill 时）
 
 发整个 **uds-auth 插件** 即可，内含：

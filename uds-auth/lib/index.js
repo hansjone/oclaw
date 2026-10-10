@@ -175,22 +175,24 @@ function buildVerifyUrl(uacBaseUrl, uacQrVerifyPath) {
   return (uacBaseUrl.replace(/\/$/, '') + '/' + uacQrVerifyPath.replace(/^\//, ''))
 }
 
-// Prefer npm `qrcode`; fall back to vendored copy if present.
+// Prefer offline bundle (shipped in tgz); fall back to npm / legacy vendored tree.
 async function loadQRCodeLib() {
   if (_qrcodeLib) return _qrcodeLib
-  try {
-    _qrcodeLib = require('qrcode')
-    return _qrcodeLib
-  } catch {
+  const candidates = [
+    resolve(__dirname, 'qrcode-bundled.cjs'),
+    'qrcode',
+    resolve(__dirname, 'qrcode-lib', 'lib', 'browser.js'),
+  ]
+  for (const candidate of candidates) {
     try {
-      const libPath = resolve(__dirname, 'qrcode-lib', 'lib', 'browser.js')
-      _qrcodeLib = require(libPath)
+      _qrcodeLib = require(candidate)
       return _qrcodeLib
-    } catch (e) {
-      _logger.error?.('[uds-auth] Failed to load qrcode library:', e)
-      return null
+    } catch {
+      // try next
     }
   }
+  _logger.error?.('[uds-auth] Failed to load qrcode library (no bundled/npm/vendored copy)')
+  return null
 }
 
 /** Start a UAC TwoDIMAuth QR challenge (no browser jQuery plugins required). */
