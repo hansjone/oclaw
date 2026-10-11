@@ -33,7 +33,7 @@ window.__ModuleLoader__.load({
     "ui.settingsTitle": "UAC 认证",
     "ui.settingsIntro": "工号+token 双校验；UAC 挂死时用应急账号 administrator 密码登录。",
     "ui.loginRequiredPage": "请先登录后查看此页",
-    "ui.roleHint": "当前角色：{role}。超管只是身份标签，与管理员权限相同；首位扫码登录且 roles.json 为空时自动获得超管身份，也可在「用户管理」设为管理员。应急账号 administrator 需先设密码，再在登录面板用账密登录。",
+    "ui.roleHint": "当前角色：{role}。超管只是身份标签，与管理员权限相同；显式配置的初始管理员在首次登录时获得超管身份，也可在「用户管理」设为管理员。应急账号 administrator 需先设密码，再在登录面板用账密登录。",
     "ui.deployConfig": "部署配置",
     "ui.userSearchUrl": "用户搜索 URL（token 校验）",
     "ui.workspaceRoot": "工作区根目录（空=$DSH_HOME/user-workspaces）",
@@ -45,7 +45,7 @@ window.__ModuleLoader__.load({
     "ui.fallbackStatus": "状态：{status}。可在此改密或关闭。仅在扫码不可用时从登录面板切换。",
     "ui.enabled": "已启用",
     "ui.disabled": "未启用",
-    "ui.fallbackPassword": "应急密码（至少 6 位）",
+    "ui.fallbackPassword": "应急密码（至少 10 位）",
     "ui.saveFallbackPassword": "保存应急密码",
     "ui.fallbackPasswordSet": "应急密码已设置",
     "ui.confirmClearFallback": "确认清除应急密码？",
@@ -75,6 +75,9 @@ window.__ModuleLoader__.load({
     "ui.pleaseScan": "请使用 iCenter 扫码登录",
     "ui.refreshQr": "刷新二维码",
     "ui.fallbackLink": "UAC 不可用？应急账号登录",
+    "ui.fallbackDisabledLink": "应急登录（未启用）",
+    "ui.fallbackDisabledHint": "应急密码未配置或已停用。请用已登录的管理员在「账户 / 权限」中设置新的独立强密码后重试。旧共享默认密码不可用。",
+    "ui.fallbackDisabledDetail": "当前未启用应急密码。用已授权管理员登录后，在设置中配置新密码即可恢复此入口。",
     "ui.fallbackLogin": "应急登录",
     "ui.fallbackDetail": "UAC / 扫码不可用时使用",
     "ui.localKeyLink": "本机密钥解锁",
@@ -118,7 +121,9 @@ window.__ModuleLoader__.load({
     "err.invalid_credentials": "用户名或密码错误",
     "err.last_super_admin_demote": "系统至少需要 1 个超级管理员，不能降级最后一个",
     "err.last_super_admin_delete": "系统至少需要 1 个超级管理员，不能删除最后一个",
-    "err.password_too_short": "密码至少 6 位",
+    "err.password_too_short": "密码至少 10 位",
+    "err.password_too_common": "不能使用已知默认口令",
+    "err.account_disabled": "账号已停用",
     "err.local_admin_not_configured": "未配置本机管理员密封盒",
     "err.key_required": "请输入解密密钥",
     "err.decrypt_failed": "密钥无法解密，登录失败",
@@ -173,7 +178,7 @@ window.__ModuleLoader__.load({
     "ui.settingsTitle": "UAC Auth",
     "ui.settingsIntro": "EmpNo + token verification; when UAC is down, sign in with emergency account administrator.",
     "ui.loginRequiredPage": "Sign in to view this page",
-    "ui.roleHint": "Current role: {role}. Super admin is only an identity label with the same permissions as admin; the first QR login with an empty roles.json gets that identity, or grant admin in User management. Set the emergency password before using administrator on the login panel.",
+    "ui.roleHint": "Current role: {role}. Super admin is only an identity label with the same permissions as admin; the explicitly configured initial administrator receives that identity on first login, or grant admin in User management. Set the emergency password before using administrator on the login panel.",
     "ui.deployConfig": "Deploy config",
     "ui.userSearchUrl": "User search URL (token verify)",
     "ui.workspaceRoot": "Workspace root (empty=$DSH_HOME/user-workspaces)",
@@ -185,7 +190,7 @@ window.__ModuleLoader__.load({
     "ui.fallbackStatus": "Status: {status}. Change or disable here. Switch from the login panel only when QR is unavailable.",
     "ui.enabled": "Enabled",
     "ui.disabled": "Disabled",
-    "ui.fallbackPassword": "Emergency password (min 6 chars)",
+    "ui.fallbackPassword": "Emergency password (min 10 chars)",
     "ui.saveFallbackPassword": "Save emergency password",
     "ui.fallbackPasswordSet": "Emergency password set",
     "ui.confirmClearFallback": "Clear emergency password?",
@@ -215,6 +220,9 @@ window.__ModuleLoader__.load({
     "ui.pleaseScan": "Scan with iCenter to sign in",
     "ui.refreshQr": "Refresh QR",
     "ui.fallbackLink": "UAC down? Emergency account",
+    "ui.fallbackDisabledLink": "Emergency login (disabled)",
+    "ui.fallbackDisabledHint": "Emergency password is not configured or was disabled. Ask a signed-in admin to set a new strong password under Account / Permissions. The old shared default password cannot be used.",
+    "ui.fallbackDisabledDetail": "Emergency password is off. After an authorized admin sets a new password in settings, this entry works again.",
     "ui.fallbackLogin": "Emergency login",
     "ui.fallbackDetail": "Use when UAC / QR is unavailable",
     "ui.localKeyLink": "Unlock with local key",
@@ -258,7 +266,9 @@ window.__ModuleLoader__.load({
     "err.invalid_credentials": "Invalid username or password",
     "err.last_super_admin_demote": "At least one super admin is required; cannot demote the last one",
     "err.last_super_admin_delete": "At least one super admin is required; cannot delete the last one",
-    "err.password_too_short": "Password must be at least 6 characters",
+    "err.password_too_short": "Password must be at least 10 characters",
+    "err.password_too_common": "Cannot use the known default password",
+    "err.account_disabled": "Account is disabled",
     "err.local_admin_not_configured": "Local admin sealed box is not configured",
     "err.key_required": "Decryption key required",
     "err.decrypt_failed": "Key could not decrypt — sign-in failed",
@@ -421,8 +431,10 @@ window.__ModuleLoader__.load({
       'html[data-uds-can-settings="0"] [data-uds-foot-slot="settings"],html[data-uds-logged-in="0"] [data-uds-foot-slot="settings"]{display:none!important}',
       'html[data-uds-can-settings="0"] button[aria-label="设置"],html[data-uds-can-settings="0"] button[aria-label="Settings"],html[data-uds-logged-in="0"] button[aria-label="设置"],html[data-uds-logged-in="0"] button[aria-label="Settings"]{display:none!important}',
       'html[data-uds-can-create-ws="0"] button[aria-label="添加工作区"],html[data-uds-can-create-ws="0"] button[aria-label="Add workspace"]{display:none!important}html[data-uds-logged-in="0"] [role="tree"][aria-label="会话"],html[data-uds-logged-in="0"] [role="tree"][aria-label="Sessions"],html[data-uds-logged-in="0"] [class*="WorkspaceBrowser"],html[data-uds-logged-in="0"] [class*="workspaceBrowser"],html[data-uds-logged-in="0"] .dsh-ct-entry,html[data-uds-logged-in="0"] .dsh-ct-region,html[data-uds-logged-in="0"] .dsh-ct-main,html[data-uds-logged-in="0"] [data-dsh-ct-mode="on"] .dsh-ct-region{display:none!important}html[data-uds-can-create-ws="0"] button[aria-label="选择工作区"],html[data-uds-can-create-ws="0"] button[aria-label="Choose workspace"],html[data-uds-can-create-ws="0"] [aria-label="选择工作区"],html[data-uds-can-create-ws="0"] [aria-label="Choose workspace"]{display:none!important}html[data-uds-logged-in="0"] [class*="cardWorkspaceTrigger"],html[data-uds-logged-in="0"] [data-composer-card][class*="cardWorkspaceTrigger"]{pointer-events:none!important;opacity:.45!important;cursor:not-allowed!important}/* uds-anon-hide-workspaces *//* uds-anon-hide-conversation:removed */html[data-uds-logged-in="0"] [class*="WorkspaceBrowser"],html[data-uds-logged-in="0"] [class*="workspaceBrowser"],html[data-uds-logged-in="0"] [class*="workspaceRow"],html[data-uds-logged-in="0"] [class*="WorkspaceRow"]{display:none!important}',
-      /* uds-session-only-sidebar */
-      'html[data-uds-can-create-ws="0"][data-uds-logged-in="1"] [class*="projectRow"]:not([class*="dsh-ct-project"]),html[data-uds-can-create-ws="0"][data-uds-logged-in="1"] [class*="ProjectRow"]:not([class*="dsh-ct-project"]){display:none!important}',
+      /* Session-only sidebar: hide workspace project rows only after we force flat
+         (data-uds-session-only). Do not key on can-create-ws alone — a race to 0
+         would hide named workspaces and leave only「未分组」visible. */
+      'html[data-uds-session-only="1"][data-uds-logged-in="1"] [class*="projectRow"]:not([class*="dsh-ct-project"]),html[data-uds-session-only="1"][data-uds-logged-in="1"] [class*="ProjectRow"]:not([class*="dsh-ct-project"]){display:none!important}',
       '.uds-auth-badge{display:inline-flex;align-items:center;justify-content:flex-start;gap:0;max-width:min(160px,42vw);min-width:0;height:32px;padding:0 8px;box-sizing:border-box;border:none;border-radius:8px;background:transparent;color:var(--dsw-alias-label-primary);font-family:inherit;font-size:13px;font-weight:400;line-height:20px;cursor:pointer;overflow:hidden}',
       '.uds-auth-badge:hover{background:var(--dsw-alias-interactive-bg-hover)}',
       '.uds-auth-host.is-rail .uds-auth-badge{width:auto;max-width:100%;height:32px;padding:0 6px;border-radius:8px}',
@@ -558,14 +570,12 @@ window.__ModuleLoader__.load({
       if (emp && kind === 'fallback') {
         try { setCookie('UDS_FALLBACK_UI', emp, 7) } catch { /* Desktop may ignore */ }
       }
-      // Ensure mux reconnects with bridge query (soft path before full reload).
+      // Prefetch WS tickets then soft-reconnect — sync XHR mint is unreliable on Desktop.
       try {
         window.__udsAuthBridgeMuxPrimed = false
-        if (typeof window.__udsAuthReconnect === 'function') {
-          setTimeout(() => {
-            try { window.__udsAuthReconnect() } catch { /* ignore */ }
-          }, 50)
-        }
+        setTimeout(() => {
+          try { void reconnectWithWsTicket() } catch { /* ignore */ }
+        }, 50)
       } catch { /* ignore */ }
     }
 
@@ -579,16 +589,302 @@ window.__ModuleLoader__.load({
       }
     }
 
-    /** Append bridge to WS URL — browsers cannot set custom WS headers; Desktop has no cookies. */
+    /** Resolve fetch/WS input to absolute URL (R01). */
+    function resolveTransportUrl(input) {
+      try {
+        if (typeof Request !== 'undefined' && input instanceof Request) {
+          return new URL(input.url)
+        }
+        const base = typeof location !== 'undefined' ? location.href : 'http://localhost/'
+        return new URL(String(input), base)
+      } catch {
+        return null
+      }
+    }
+
+    function defaultPort(protocol) {
+      if (protocol === 'https:' || protocol === 'wss:') return '443'
+      if (protocol === 'http:' || protocol === 'ws:') return '80'
+      return ''
+    }
+
+    function hostnameIsLoopback(hostname) {
+      const h = String(hostname || '').toLowerCase()
+      const bare = h.startsWith('[') && h.endsWith(']') ? h.slice(1, -1) : h
+      return bare === 'localhost' || bare === '127.0.0.1' || bare === '::1'
+    }
+
+    /** Desktop boot exposes the real Host HTTP origin for mux/WS. */
+    function getDesktopTransportBase() {
+      try {
+        const base = globalThis.__DSH_TRANSPORT__?.streamBaseUrl
+        if (!base) return null
+        return new URL(base)
+      } catch {
+        return null
+      }
+    }
+
+    function sameHostAuthority(a, b) {
+      if (!a || !b) return false
+      const aSecure = a.protocol === 'https:' || a.protocol === 'wss:'
+      const bSecure = b.protocol === 'https:' || b.protocol === 'wss:'
+      if (aSecure !== bSecure) return false
+      return a.hostname === b.hostname
+        && String(a.port || defaultPort(a.protocol)) === String(b.port || defaultPort(b.protocol))
+    }
+
+    /**
+     * A05/D01/D02: attach bridge only to the current Host authority.
+     * Desktop dsh-app:// maps relative Host routes + streamBaseUrl / loopback Gateway.
+     * HTTP↔WS and HTTPS↔WSS map as the same Host; never HTTPS→WS.
+     */
+    function isTrustedHostUrl(input) {
+      if (typeof location === 'undefined') return false
+      const parsed = resolveTransportUrl(input)
+      if (!parsed) return false
+      const urlProto = parsed.protocol
+
+      // Desktop renderer: document is dsh-app://app — Host is a separate HTTP origin.
+      // 0.3.9 behavior (regression in 0.3.10): when streamBaseUrl is not ready yet,
+      // still trust loopback Gateway so WS tickets attach; otherwise workspace follow
+      // stays anonymous and every session lands under「未分组」.
+      if (location.protocol === 'dsh-app:') {
+        if (location.hostname !== 'app') return false
+        if (urlProto === 'dsh-app:') return parsed.hostname === 'app' && !parsed.port
+        if (!['http:', 'https:', 'ws:', 'wss:'].includes(urlProto)) return false
+        const transport = getDesktopTransportBase()
+        if (transport) {
+          return sameHostAuthority(parsed, {
+            protocol: transport.protocol,
+            hostname: transport.hostname,
+            port: transport.port,
+          })
+        }
+        return hostnameIsLoopback(parsed.hostname)
+      }
+
+      const locProto = location.protocol
+      const locSecure = locProto === 'https:' || locProto === 'wss:'
+      const urlSecure = urlProto === 'https:' || urlProto === 'wss:'
+      if (locSecure !== urlSecure) return false
+      if (!['http:', 'https:', 'ws:', 'wss:'].includes(urlProto)) return false
+      return parsed.hostname === location.hostname
+        && String(parsed.port || defaultPort(urlProto))
+          === String(location.port || defaultPort(locProto))
+    }
+
+    /**
+     * T01: one-time WS tickets. WebSocket ctor is sync, so we keep a small
+     * prefetched cache filled by async fetch (same path as login /api/me).
+     *
+     * Desktop regression: sync XHR to absolute streamBaseUrl trips CORS
+     * (custom bridge headers + OPTIONS→401), and relative sync XHR often
+     * returns an empty body on dsh-app://. Mux then upgrades anonymously;
+     * workspace follow cannot “wait” its way into an identity →「未分组」.
+     */
+    const _wsTicketCache = []
+    let _wsTicketPrefetch = null
+
+    function wsTicketRequestUrls() {
+      const urls = ['/uds-auth/api/ws-ticket']
+      try {
+        if (typeof location !== 'undefined' && location.protocol === 'dsh-app:') {
+          const transport = getDesktopTransportBase()
+          // Absolute only as async-fetch fallback (never sync XHR — CORS).
+          if (transport) urls.push(new URL('/uds-auth/api/ws-ticket', transport).toString())
+        }
+      } catch { /* ignore */ }
+      return urls
+    }
+
+    async function prefetchWsTickets(count = 2) {
+      const b = readBridge()
+      if (!b?.empNo || !b?.token) return 0
+      const need = Math.max(0, Number(count) || 0)
+      if (need <= 0) return 0
+      if (_wsTicketPrefetch) {
+        try { await _wsTicketPrefetch } catch { /* ignore */ }
+      }
+      let minted = 0
+      const run = (async () => {
+        for (let i = 0; i < need; i++) {
+          let got = null
+          for (const ticketUrl of wsTicketRequestUrls()) {
+            try {
+              const res = await fetch(ticketUrl, {
+                method: 'POST',
+                credentials: 'include',
+                redirect: 'error',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'X-UDS-Bridge-EmpNo': b.empNo,
+                  'X-UDS-Bridge-Token': b.token,
+                  ...(b.kind ? { 'X-UDS-Bridge-Kind': b.kind } : {}),
+                },
+                body: '{}',
+              })
+              if (!res.ok) continue
+              const data = await res.json().catch(() => ({}))
+              if (data?.ticket) {
+                got = String(data.ticket)
+                break
+              }
+            } catch {
+              /* try next URL */
+            }
+          }
+          if (!got) break
+          _wsTicketCache.push(got)
+          minted++
+        }
+      })()
+      _wsTicketPrefetch = run.finally(() => {
+        if (_wsTicketPrefetch === run) _wsTicketPrefetch = null
+      })
+      try { await _wsTicketPrefetch } catch { /* ignore */ }
+      return minted
+    }
+
+    function mintWsTicketSync() {
+      if (_wsTicketCache.length) {
+        const ticket = _wsTicketCache.shift()
+        if (_wsTicketCache.length < 1) {
+          try { void prefetchWsTickets(2) } catch { /* ignore */ }
+        }
+        return ticket
+      }
+      const b = readBridge()
+      if (!b?.empNo || !b?.token) return null
+      // Last resort: same-origin sync XHR only (unit harness / http Host UI).
+      // Skip absolute Host URLs here — custom headers require CORS preflight.
+      try {
+        const xhr = new XMLHttpRequest()
+        xhr.open('POST', '/uds-auth/api/ws-ticket', false)
+        xhr.setRequestHeader('Content-Type', 'application/json')
+        xhr.setRequestHeader('X-UDS-Bridge-EmpNo', b.empNo)
+        xhr.setRequestHeader('X-UDS-Bridge-Token', b.token)
+        if (b.kind) xhr.setRequestHeader('X-UDS-Bridge-Kind', b.kind || 'fallback')
+        xhr.send('{}')
+        if (xhr.status >= 200 && xhr.status < 300) {
+          const data = JSON.parse(xhr.responseText || '{}')
+          if (data.ticket) return String(data.ticket)
+        }
+      } catch { /* ignore */ }
+      try {
+        console.warn('[uds-auth] WS ticket mint failed — workspace sidebar may stay empty until reconnect')
+      } catch { /* ignore */ }
+      return null
+    }
+
+    let _wsAuthRetryTimer = null
+    let _wsAuthRetryCount = 0
+    let _wsAuthReconnectShared = null
+    let _softReconnectTimer = null
+    let _softReconnectQuietUntil = 0
+
+    /**
+     * Soft mux reconnect with debounce + quiet period.
+     *
+     * Desktop boot used to fire two ticketed reconnects (~200ms AuthBadge +
+     * ~250ms connection-inject). WorkspaceStateStream accepts the anonymous
+     * empty baseline, then dies terminally when a second CarrierError lands
+     * before the authenticated baseline is accepted (attempt>1 while
+     * connection.generation is live). Sidebar stays「未分组」forever even
+     * though a fresh follow with a ticket returns every workspace.
+     */
+    /**
+     * Ask every client cache to re-read after the principal changes (login,
+     * identity attach after reconnect, logout). Debounced: one reset per burst.
+     */
+    let _authResetTimer = null
+    function scheduleAuthReset(delay = 1500) {
+      try {
+        if (_authResetTimer) clearTimeout(_authResetTimer)
+        _authResetTimer = setTimeout(() => {
+          _authResetTimer = null
+          try { window.__udsAuthEmitReset?.() } catch { /* ignore */ }
+        }, delay)
+      } catch { /* ignore */ }
+    }
+
+    function softReconnectAuth(opts = {}) {
+      const force = !!(opts && opts.force)
+      const now = Date.now()
+      if (!force && now < _softReconnectQuietUntil) return
+      if (_softReconnectTimer) {
+        clearTimeout(_softReconnectTimer)
+        _softReconnectTimer = null
+      }
+      const delay = force ? 0 : 450
+      _softReconnectTimer = setTimeout(() => {
+        _softReconnectTimer = null
+        if (!force && Date.now() < _softReconnectQuietUntil) return
+        try {
+          if (typeof window.__udsAuthReconnect === 'function') {
+            window.__udsAuthReconnect()
+          } else {
+            window.location.reload()
+            return
+          }
+          // Keep a quiet window so the authenticated workspace baseline can land.
+          _softReconnectQuietUntil = Date.now() + 2800
+          scheduleAuthReset(1500)
+        } catch {
+          try { window.location.reload() } catch { /* ignore */ }
+        }
+      }, delay)
+    }
+
+    async function reconnectWithWsTicket() {
+      if (_wsAuthReconnectShared) return _wsAuthReconnectShared
+      _wsAuthReconnectShared = (async () => {
+        // One ticket is enough for the coalesced reconnect; spare is filled after quiet.
+        let minted = 0
+        try { minted = await prefetchWsTickets(1) } catch { minted = 0 }
+        // Even with 0 tickets, reconnect — withBridgeQuery falls back to loopback
+        // bridge query params so workspace follow still gets an identity.
+        softReconnectAuth()
+        setTimeout(() => {
+          try { void prefetchWsTickets(1) } catch { /* ignore */ }
+        }, 3000)
+        if (minted <= 0 && readBridge() && _wsAuthRetryCount < 5) {
+          _wsAuthRetryCount += 1
+          if (_wsAuthRetryTimer) clearTimeout(_wsAuthRetryTimer)
+          _wsAuthRetryTimer = setTimeout(() => {
+            try { void reconnectWithWsTicket() } catch { /* ignore */ }
+          }, 800 * _wsAuthRetryCount)
+        } else if (minted > 0) {
+          _wsAuthRetryCount = 0
+        }
+      })().finally(() => {
+        _wsAuthReconnectShared = null
+      })
+      return _wsAuthReconnectShared
+    }
+
+    /** Append one-time WS ticket (preferred) or loopback bridge query (Desktop fallback). */
     function withBridgeQuery(url) {
       const b = readBridge()
       if (!b) return url
+      if (!isTrustedHostUrl(url)) return url
       try {
-        const parsed = new URL(String(url), typeof location !== 'undefined' ? location.href : 'http://localhost/')
-        if (parsed.searchParams.has('udsBridgeToken')) return parsed.toString()
-        parsed.searchParams.set('udsBridgeEmpNo', b.empNo)
-        parsed.searchParams.set('udsBridgeToken', b.token)
-        parsed.searchParams.set('udsBridgeKind', b.kind || 'fallback')
+        const parsed = resolveTransportUrl(url)
+        if (!parsed) return url
+        if (!['ws:', 'wss:'].includes(parsed.protocol) || parsed.pathname !== '/api/remote.mux') return url
+        if (parsed.searchParams.has('udsWsTicket') || parsed.searchParams.has('udsBridgeToken')) {
+          return parsed.toString()
+        }
+        const ticket = mintWsTicketSync()
+        if (ticket) {
+          parsed.searchParams.set('udsWsTicket', ticket)
+          return parsed.toString()
+        }
+        // 0.3.9 Desktop path: ticket mint often fails on dsh-app:// (empty XHR /
+        // CORS). Loopback Host accepts udsBridge* on upgrade only.
+        parsed.searchParams.set('udsBridgeEmpNo', String(b.empNo))
+        parsed.searchParams.set('udsBridgeToken', String(b.token))
+        if (b.kind) parsed.searchParams.set('udsBridgeKind', String(b.kind))
         return parsed.toString()
       } catch {
         return url
@@ -615,11 +911,11 @@ window.__ModuleLoader__.load({
         const origFetch = window.fetch.bind(window)
         window.fetch = async function udsAuthBridgeFetch(input, init) {
           const bHeaders = bridgeAuthHeaders()
-          if (!bHeaders['X-UDS-Bridge-Token']) {
+          if (!bHeaders['X-UDS-Bridge-Token'] || !isTrustedHostUrl(input)) {
             return origFetch(input, init)
           }
           const opts = init ? { ...init } : {}
-          const prev = opts.headers
+          const prev = opts.headers || (typeof input === 'object' ? input.headers : null)
           if (prev && typeof prev.forEach === 'function') {
             const h = { ...bHeaders }
             prev.forEach((v, k) => { h[k] = v })
@@ -628,6 +924,9 @@ window.__ModuleLoader__.load({
             opts.headers = { ...bHeaders, ...(prev || {}) }
           }
           if (opts.credentials == null) opts.credentials = 'include'
+          // Custom bridge headers are not stripped like Authorization on redirects.
+          // Refuse redirects while attaching a credential to the owned Host.
+          opts.redirect = 'error'
           return origFetch(input, opts)
         }
       } catch { /* ignore */ }
@@ -706,6 +1005,7 @@ window.__ModuleLoader__.load({
         if (root.getAttribute('data-uds-logged-in') !== '1') return false
         // Must be explicit 0 — missing/default must not force flat for supers.
         if (root.getAttribute('data-uds-can-create-ws') !== '0') return false
+        try { root.setAttribute('data-uds-session-only', '1') } catch { /* ignore */ }
         const state = readViewState()
         if (state.groupBy === 'flat') {
           try { window.localStorage.setItem(FORCED_FLAT_KEY, '1') } catch { /* ignore */ }
@@ -727,6 +1027,7 @@ window.__ModuleLoader__.load({
         if (root.getAttribute('data-uds-auth-ready') !== '1') return false
         if (root.getAttribute('data-uds-logged-in') !== '1') return false
         if (root.getAttribute('data-uds-can-create-ws') !== '1') return false
+        try { root.setAttribute('data-uds-session-only', '0') } catch { /* ignore */ }
         const state = readViewState()
         if (state.groupBy === 'workspace') {
           try { window.localStorage.removeItem(FORCED_FLAT_KEY) } catch { /* ignore */ }
@@ -753,19 +1054,16 @@ window.__ModuleLoader__.load({
     }
 
 function reloadAfterLogin() {
-      // Login Set-Cookie must land before WS upgrade — hard reload is required.
-      try { ensureFlatSessionSidebar() } catch { /* ignore */ }
-      try { window.location.reload() } catch { /* ignore */ }
-    }
-
-    /** Soft WS reconnect (logout / auth flip). Prefer this over full reload. */
-    function softReconnectAuth() {
+      // Login Set-Cookie / bridge must land before WS upgrade — hard reload is required.
+      // Admin-class (incl. sealed_box) must restore workspace grouping; only
+      // non-creators are forced into the flat session list.
       try {
-        if (typeof window.__udsAuthReconnect === 'function') {
-          window.__udsAuthReconnect()
-          return
+        if (document.documentElement.getAttribute('data-uds-can-create-ws') === '1') {
+          ensureWorkspaceGroupedSidebar()
+        } else {
+          ensureFlatSessionSidebar()
         }
-      } catch { /* fall through */ }
+      } catch { /* ignore */ }
       try { window.location.reload() } catch { /* ignore */ }
     }
 
@@ -1064,7 +1362,7 @@ function reloadAfterLogin() {
             },
           } : prev)
           setViewAllMsg(res.message || (enabled ? t('ui.viewAllSessionsOn') : t('ui.viewAllSessionsOff')))
-          try { softReconnectAuth() } catch { /* ignore */ }
+          try { softReconnectAuth({ force: true }) } catch { /* ignore */ }
         } catch (err) {
           setViewAllMsg(apiMessage(err) || t('ui.saveFailed'))
         } finally {
@@ -1245,10 +1543,18 @@ function reloadAfterLogin() {
         document.documentElement.setAttribute('data-uds-logged-in', user ? '1' : '0')
         document.documentElement.setAttribute('data-uds-can-settings', canSettings ? '1' : '0')
         document.documentElement.setAttribute('data-uds-can-create-ws', canCreateWs ? '1' : '0')
+        // Admin-class must not keep session-only CSS (would hide named workspaces).
+        if (canCreateWs) {
+          document.documentElement.setAttribute('data-uds-session-only', '0')
+        } else if (user) {
+          document.documentElement.setAttribute('data-uds-session-only', '1')
+        } else {
+          document.documentElement.setAttribute('data-uds-session-only', '0')
+        }
         // Drop stale remote.mux identity after logout so workspace names disappear.
         if (prev === '1' && !user) {
           clearSessionIfAnonymous(window.__udsAuthSessions)
-          try { softReconnectAuth() } catch { /* ignore */ }
+          try { softReconnectAuth({ force: true }) } catch { /* ignore */ }
         }
         // Do not reset auth attrs in the effect cleanup: React remount/strict-mode
         // would briefly look logged-out and trigger flat↔workspace reload loops.
@@ -1259,6 +1565,7 @@ function reloadAfterLogin() {
         if (qrRef.current.timeout) { clearTimeout(qrRef.current.timeout); qrRef.current.timeout = null }
         qrRef.current.key = null
         qrRef.current.value = null
+        qrRef.current.binding = null
         qrRef.current.deadline = 0
       }, [])
 
@@ -1281,6 +1588,8 @@ function reloadAfterLogin() {
         try {
           const me = await fetchJson('/uds-auth/api/me')
           if (!me?.authenticated || !me?.data) {
+            try { window.__udsAuthWsAuthedOnce = false } catch { /* ignore */ }
+            try { window.__udsAuthResetEmp = null } catch { /* ignore */ }
             setUser(null)
             window.dispatchEvent(new Event('uds-auth-changed'))
             return false
@@ -1300,6 +1609,24 @@ function reloadAfterLogin() {
             permissions,
           })
           window.dispatchEvent(new Event('uds-auth-changed'))
+          try {
+            const resetEmp = String(d.empNo || d.userId || '')
+            if (resetEmp && window.__udsAuthResetEmp !== resetEmp) {
+              window.__udsAuthResetEmp = resetEmp
+              scheduleAuthReset(1500)
+            }
+          } catch { /* ignore */ }
+          // Desktop: first mux open often races ahead of bridge/ticket. Prefetch
+          // then one coalesced soft-reconnect — never on every /api/me refresh.
+          try {
+            if (readBridge() && !window.__udsAuthWsAuthedOnce) {
+              _wsAuthRetryCount = 0
+              window.__udsAuthWsAuthedOnce = true
+              setTimeout(() => {
+                try { void reconnectWithWsTicket() } catch { /* ignore */ }
+              }, 200)
+            }
+          } catch { /* ignore */ }
           return true
         } catch {
           setUser(null)
@@ -1334,9 +1661,10 @@ function reloadAfterLogin() {
             setQrImg('')
             return
           }
-          const { qrCodeStr, qrCodeKey, qrCodeValue, loginSystemCode, originSystemCode } = started
+          const { qrCodeStr, qrCodeKey, qrCodeValue, browserBinding, loginSystemCode, originSystemCode } = started
           qrRef.current.key = qrCodeKey
           qrRef.current.value = qrCodeValue
+          qrRef.current.binding = browserBinding
           qrRef.current.deadline = Date.now() + QR_TIMEOUT_MS
           setQrImg('/uds-auth/qr?data=' + encodeURIComponent(qrCodeStr))
           setQrStatus(t('ui.qrScanPrompt'))
@@ -1345,81 +1673,39 @@ function reloadAfterLogin() {
             markQrExpired()
           }, QR_TIMEOUT_MS)
           qrRef.current.timer = setInterval(async () => {
-            if (!qrRef.current.key) return
+            if (!qrRef.current.key || qrRef.current.polling) return
             if (qrRef.current.deadline && Date.now() >= qrRef.current.deadline) {
               markQrExpired()
               return
             }
             try {
-              const verify = await fetchJson(
-                '/uds-auth/verify-code?qrCodeKey=' + encodeURIComponent(qrRef.current.key)
-                + '&qrCodeValue=' + encodeURIComponent(qrRef.current.value)
-                + '&loginClientIp=' + encodeURIComponent('127.0.0.1')
-                + '&loginSystemCode=' + encodeURIComponent(loginSystemCode || config.loginSystemCode)
-                + '&originSystemCode=' + encodeURIComponent(originSystemCode || config.originSystemCode || ''),
-              )
+              qrRef.current.polling = true
               const result = await fetchJson('/uds-auth/qr-proxy', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  qrCodeKey: qrRef.current.key,
-                  qrCodeValue: qrRef.current.value,
-                  loginClientIp: '127.0.0.1',
-                  originSystemCode: originSystemCode || config.originSystemCode || '',
-                  loginSystemCode: loginSystemCode || config.loginSystemCode,
-                  verifyCode: verify.verifyCode,
-                }),
+                headers: { 'Content-Type': 'application/json', 'X-UDS-QR-Binding': browserBinding },
+                body: JSON.stringify({ qrCodeKey, qrCodeValue }),
               })
+              if (qrRef.current.key !== qrCodeKey) return
               const codeCode = result.code?.code || ''
               const boCode = result.bo?.code || ''
               if (codeCode === '0000' && boCode === '0000') {
                 stopQr()
                 setQrExpired(false)
                 setQrFailed(false)
-                const other = result.other || {}
-                const empNo = other.account || other.empNo || ''
-                const token = other.token || other.authValue || ''
-                if (empNo && token) {
-                  // Cookie path (http/web). Desktop dsh-app:// ignores these — bridge/bind below.
-                  setCookie('PORTALSSOUser', empNo, 7)
-                  setCookie('PORTALSSOCookie', token, 7)
-                  try {
-                    const info = await fetchJson(
-                      '/uds-auth/user-info?empNo=' + encodeURIComponent(empNo)
-                      + '&token=' + encodeURIComponent(token),
-                    )
-                    const ic = info?.code?.code ?? info?.code
-                    const list = Array.isArray(info?.bo) ? info.bo
-                      : Array.isArray(info?.bo?.rows) ? info.bo.rows
-                        : Array.isArray(info?.bo?.list) ? info.bo.list
-                          : []
-                    if ((ic !== '0000' && ic !== 0 && ic !== '0') || !list.length) {
-                      setQrStatus(t('ui.userInfoFailed'))
-                      console.warn('[uds-auth] user-info after QR failed', info)
-                      return
-                    }
-                  } catch (err) {
-                    setQrStatus(t('ui.userInfoFailed') + ': ' + (err.message || err))
-                    return
-                  }
-                  try {
-                    const bound = await fetchJson('/uds-auth/api/bridge/bind', {
-                      method: 'POST',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({ empNo, token }),
-                    })
-                    adoptAuthSession(bound)
-                  } catch (err) {
-                    console.warn('[uds-auth] bridge/bind after QR failed', err)
-                    // http hosts may still have cookies; Desktop will stay logged out without bridge.
-                  }
-                  setQrStatus(t('ui.loginSuccess'))
-                  await refreshUser()
-                  setOpen(false)
-                  reconnectAfterLogin()
-                } else {
-                  setQrStatus(t('ui.missingToken'))
+                const auth = result.auth
+                if (!auth?.success || !auth?.bridge?.token) {
+                  setQrStatus(t('ui.loginFailed'))
+                  return
                 }
+                adoptAuthSession(auth)
+                setQrStatus(t('ui.loginSuccess'))
+                await refreshUser()
+                if (document.documentElement.getAttribute('data-uds-logged-in') !== '1') {
+                  setQrStatus(t('ui.loginFailed'))
+                  return
+                }
+                setOpen(false)
+                reconnectAfterLogin()
                 return
               }
               if (codeCode === '0000' && boCode === '4002') {
@@ -1435,7 +1721,9 @@ function reloadAfterLogin() {
               setQrFailed(false)
               setQrStatus(result.bo?.msg || boCode || t('ui.loginFailed'))
             } catch {
-              setQrStatus(t('ui.networkError'))
+              if (qrRef.current.key === qrCodeKey) setQrStatus(t('ui.networkError'))
+            } finally {
+              qrRef.current.polling = false
             }
           }, 2000)
         } catch (err) {
@@ -1508,6 +1796,9 @@ function reloadAfterLogin() {
         fetchJson('/uds-auth/api/fallback/status')
           .then((st) => { if (!cancelled) setFallbackEnabled(!!st.enabled) })
           .catch(() => {})
+        fetchJson('/uds-auth/api/local-admin/status')
+          .then((st) => { if (!cancelled) setLocalKeyEnabled(!!st.enabled) })
+          .catch(() => { if (!cancelled) setLocalKeyEnabled(false) })
         return () => { cancelled = true }
       }, [open, user])
 
@@ -1613,12 +1904,17 @@ function reloadAfterLogin() {
               ),
               !qrOverlay && h('div', { className: 'uds-auth-qr-status' }, qrStatus || t('ui.loading')),
             ),
-            // Always offer emergency login when QR failed/expired; otherwise only if enabled.
-            (fallbackEnabled || qrFailed || qrExpired) && h('button', {
+            // U01: emergency password always discoverable — disabled state is shown, not hidden.
+            // Local sealed-box unlock stays hidden unless Host actually has a box configured.
+            h('button', {
               type: 'button',
               className: 'uds-auth-btn-link',
-              onClick: () => { stopQr(); setLoginMode('fallback'); setFbErr('') },
-            }, t('ui.fallbackLink')),
+              onClick: () => {
+                stopQr()
+                setLoginMode('fallback')
+                setFbErr(fallbackEnabled ? '' : t('ui.fallbackDisabledHint'))
+              },
+            }, fallbackEnabled ? t('ui.fallbackLink') : t('ui.fallbackDisabledLink')),
             localKeyEnabled && h('button', {
               type: 'button',
               className: 'uds-auth-btn-link',
@@ -1659,7 +1955,8 @@ function reloadAfterLogin() {
           : h(React.Fragment, null,
             h('div', { className: 'uds-auth-info' },
               h('div', { className: 'uds-auth-info-name' }, t('ui.fallbackLogin')),
-              h('div', { className: 'uds-auth-info-detail' }, t('ui.fallbackDetail')),
+              h('div', { className: 'uds-auth-info-detail' },
+                fallbackEnabled ? t('ui.fallbackDetail') : t('ui.fallbackDisabledDetail')),
             ),
             h('div', { className: 'uds-auth-fallback' },
               h('label', { htmlFor: 'uds-fb-user' }, t('ui.username')),
@@ -1668,6 +1965,7 @@ function reloadAfterLogin() {
                 value: fbUser,
                 onChange: (e) => setFbUser(e.target.value),
                 autoComplete: 'username',
+                disabled: !fallbackEnabled,
               }),
               h('label', { htmlFor: 'uds-fb-pass' }, t('ui.password')),
               h('input', {
@@ -1676,14 +1974,15 @@ function reloadAfterLogin() {
                 value: fbPass,
                 onChange: (e) => setFbPass(e.target.value),
                 autoComplete: 'current-password',
-                onKeyDown: (e) => { if (e.key === 'Enter') submitFallback() },
+                disabled: !fallbackEnabled,
+                onKeyDown: (e) => { if (e.key === 'Enter' && fallbackEnabled) submitFallback() },
               }),
               fbErr && h('div', { className: 'uds-auth-settings-msg err' }, fbErr),
               h('button', {
                 type: 'button',
                 className: 'uds-auth-btn uds-auth-btn-primary',
                 style: { width: '100%', margin: '12px 0 0' },
-                disabled: fbBusy,
+                disabled: fbBusy || !fallbackEnabled,
                 onClick: submitFallback,
               }, fbBusy ? t('ui.loggingIn') : t('ui.login')),
             ),
@@ -1706,6 +2005,8 @@ function reloadAfterLogin() {
               try { await fetchJson('/uds-auth/api/logout', { method: 'POST' }) } catch { /* ignore */ }
               clearAuthCookies()
               clearBridge()
+              try { window.__udsAuthWsAuthedOnce = false } catch { /* ignore */ }
+              try { window.__udsAuthResetEmp = null } catch { /* ignore */ }
               setUser(null)
               setOpen(false)
               document.documentElement.setAttribute('data-uds-logged-in', '0')
@@ -1713,7 +2014,7 @@ function reloadAfterLogin() {
               document.documentElement.setAttribute('data-uds-can-create-ws', '0')
               clearSessionIfAnonymous(window.__udsAuthSessions)
               window.dispatchEvent(new Event('uds-auth-changed'))
-              try { softReconnectAuth() } catch { /* ignore */ }
+              try { softReconnectAuth({ force: true }) } catch { /* ignore */ }
             },
           }, t('ui.logout')),
         ),
@@ -1785,17 +2086,24 @@ function reloadAfterLogin() {
           window.__udsAuthReconnect = () => {
             try { cctx.connection.reconnect() } catch { window.location.reload() }
           }
-          // Desktop ownsHost: mux WS often connects before this client patches
-          // WebSocket. If a bridge already exists, reconnect once so upgrade
-          // carries ?udsBridge* (history/follow ACL depends on it).
+          // connection.reconnect() only re-opens streams; it does not emit
+          // connection/reset, so boot-time caches (settings describe mirror →
+          // Settings › Models "key missing") keep the anonymous projection.
+          window.__udsAuthEmitReset = () => {
+            try { cctx.emit('connection/reset') } catch { /* ignore */ }
+          }
+          // Desktop ownsHost: mux WS often connects before tickets are cached.
+          // Claim the once-flag so AuthBadge refreshUser does not fire a second
+          // ticketed reconnect (that kills WorkspaceStateStream — see softReconnectAuth).
           if (
             readBridge()
             && window.__DSH_TRANSPORT__?.ownsHost
             && !window.__udsAuthBridgeMuxPrimed
           ) {
             window.__udsAuthBridgeMuxPrimed = true
+            window.__udsAuthWsAuthedOnce = true
             setTimeout(() => {
-              try { cctx.connection.reconnect() } catch { /* ignore */ }
+              try { void reconnectWithWsTicket() } catch { /* ignore */ }
             }, 250)
           }
         })

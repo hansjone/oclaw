@@ -1,5 +1,8 @@
 import { describe, it, after } from 'node:test'
 import assert from 'node:assert/strict'
+import { mkdirSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { tmpdir } from 'node:os'
 import {
   LOCAL_ADMIN_BOX_ENV,
   LOCAL_ADMIN_ENV,
@@ -38,6 +41,8 @@ describe('local-admin sealed box', () => {
 
   it('env box alone does not imply auto-login; only configures unlock', () => {
     delete process.env[LOCAL_ADMIN_BOX_ENV]
+    // Isolate from a developer machine's ~/.uds-auth/local-admin.box
+    process.env.UDS_AUTH_DATA_DIR = join(tmpdir(), `uds-auth-box-${Date.now()}`)
     assert.equal(isLocalAdminBoxConfigured(), false)
 
     const box = sealLocalAdminBox('another-strong-key')
@@ -49,5 +54,18 @@ describe('local-admin sealed box', () => {
     process.env[LOCAL_ADMIN_ENV] = 'aaaaaaaaaaaaaaaa'
     const stillNeedDecrypt = openLocalAdminBox(box, process.env[LOCAL_ADMIN_ENV])
     assert.equal(stillNeedDecrypt.ok, false)
+  })
+
+  it('reads sealed box from profile local-admin.box when env is unset', () => {
+    delete process.env[LOCAL_ADMIN_BOX_ENV]
+    const dir = join(tmpdir(), `uds-auth-box-file-${Date.now()}`)
+    mkdirSync(dir, { recursive: true })
+    process.env.UDS_AUTH_DATA_DIR = dir
+    assert.equal(isLocalAdminBoxConfigured(), false)
+
+    const box = sealLocalAdminBox('file-backed-passphrase')
+    writeFileSync(join(dir, 'local-admin.box'), box, 'utf8')
+    assert.equal(isLocalAdminBoxConfigured(), true)
+    assert.equal(readLocalAdminBox(), box)
   })
 })

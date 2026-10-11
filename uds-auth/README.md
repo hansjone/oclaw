@@ -1,53 +1,83 @@
 # uds-auth
 
-UDS authentication plugin for DeepSeek Harness: fixed sidebar login badge + host session/role APIs.
+0.3.10: [升级与协议变更说明](docs/upgrade-0.3.10.zh.md) · [SBOM](docs/sbom.cdx.json) · [第三方许可证](docs/THIRD-PARTY-NOTICES.txt)
+
+UDS authentication plugin for DeepSeek Harness (**trusted single-instance** access control — **not** strong multi-tenant isolation).
+
+See `package.json` for the current 0.3.x version (breaking auth protocol vs 0.2.x — re-login required).
+
+## Support boundary
+
+| Item | Notes |
+|------|--------|
+| Runtime | Node `^22.19.0 \|\| >=24` (aligned with DSH Host) |
+| Mode | Single Host, trusted enterprise users, controlled skills |
+| Out of scope | Untrusted multi-tenant execution isolation; multi-instance without shared session store |
 
 ## Install
 
 ```bash
-dsh plugin --profile web add -w "D:/project/chatgpt/oclaw/uds-auth"
+dsh plugin --profile web add -w "<abs>/oclaw/uds-auth"
+# or clean tarball
+dsh plugin add -w "<abs>/uds-auth-0.3.9.tgz"
 ```
 
-Restart Harness after install. The badge mounts on `sidebar.footer.action` (root scope).
+Empty roles table requires `UDS_AUTH_INITIAL_ADMIN` or `initialAdminEmpNo`. Restart Harness after install.
 
-Version `0.2.21` provides `ctx.get('udsAuth').runAsHost(callback)` for trusted Host plugins. It isolates UDS browser identity during synchronous and asynchronous background operations and restores the caller afterward. Use with `dsh-im-ops >= 4.9.1-ops.38` to fix WhatsApp background Session creation rejected as signed out; update both plugins and restart the Host. The callback adds no remote endpoint and preserves browser login and workspace ACL checks.
+`ctx.get('udsAuth').runAsHost(cb)` — Host background ALS.  
+`ctx.get('udsAuth').mintTaskCapability({ empNo, dshSessionId, scopes, ttlSeconds })` — inject `UDS_TASK_CAPABILITY` for cron/skill.
 
 ## Config
 
 ```yaml
-uacBaseUrl: https://uac.zte.com.cn
-userSearchUrl: https://icenterapi.zte.com.cn/zte-km-icenter-addresearch/user/plain/docs/search
+uacBaseUrl: https://uac.zte.com.cn   # HTTPS required at startup/merge
+userSearchUrl: https://icenterapi.zte.com.cn/...
 loginSystemCode: '100000455558'
-originSystemCode: ''
+initialAdminEmpNo: ''
+allowOpenRegistration: true
+allowRawAgentToken: false
+outboundAllowedHosts: icenterapi.zte.com.cn,icentermsg.dt.zte.com.cn
+trustedHosts: ''               # empty = loopback Host only; proxies must set allowlist
 retainSkillCredentialsOnLogout: true
 skillCredentialTtlSeconds: 604800
-outboundAllowedHosts: icenterapi.zte.com.cn,icentermsg.dt.zte.com.cn
 ```
 
-Skill auth standard (Chinese): [docs/skill-auth-standard.zh.md](docs/skill-auth-standard.zh.md).
+Durable state defaults to `~/.uds-auth/` (roles / owners / credentials / bridge / sessions / `config.runtime.json`; override with `UDS_AUTH_DATA_DIR`). Security toggles take effect on the next request after Settings save. Empty outbound allowlist denies all.
 
-Bundled skill: [skills/uds-skill-auth](skills/uds-skill-auth). Handoff notes: [docs/uds-skill-auth.zh.md](docs/uds-skill-auth.zh.md).
+## Sessions
 
-Loopback agent APIs: `GET|POST /uds-auth/agent-credentials`, `POST /uds-auth/outbound`.
+- **Lifetime**: 30-minute idle timeout that slides on activity, 7-day absolute cap. The Desktop bridge token slides with its session.
+- **Survives restarts**: the default in-memory store is persisted to `~/.uds-auth/sessions.json` and restored on Host start (emergency admins have no SSO re-login, so they depend on this).
+  - Only the SHA-256 hash of each session token is stored; user data (may include the UAC token) is AES-256-GCM encrypted with the plugin key `.uds-auth-secret-key`.
+  - Expired, undecryptable or tampered rows are dropped on load; disabled-account and emergency-password rotation checks still run on every request.
+  - **Delete `sessions.json` and restart to sign everyone out.** If the key file is unavailable, sessions are simply not persisted.
+- Not used when a Redis session store is configured.
 
-### Local admin unlock (optional, decrypt-to-login)
+## Admin / emergency
 
-1. `node scripts/seal-local-admin.mjs "your-passphrase"`
-2. Set printed `UDS_AUTH_LOCAL_ADMIN_BOX=...` on the Harness process (ciphertext only)
-3. Login panel → “Unlock with local key” → enter passphrase
+- `super_admin` / `admin` / `fallback_admin` share the same admin-class permissions (identity labels, not stronger isolation).
+- No shared default password. Set emergency password in Settings (≥10 chars; `Admin@123` rejected). Legacy default hashes are cleared on upgrade.
+- Local unlock: `node scripts/seal-local-admin.mjs` (interactive / `--stdin` — **no argv passphrase**) → `UDS_AUTH_LOCAL_ADMIN_BOX`.
+- Removing a user disables the account by default (open registration cannot auto-revive).
 
-Env alone does **not** grant admin. Legacy `UDS_AUTH_LOCAL_ADMIN_KEY` is ignored.
+## DSH compatibility
 
-## Layout
+Verified on **DeepSeek Harness Desktop 0.2.0-rc.2**. The plugin relies on DSH internals that are not a public API; after a DSH upgrade run `npm test` and check login, workspaces and Settings → Models on a real install:
 
-| Piece | Path | Role |
-|-------|------|------|
-| Host | `lib/index.js` | Cordis `apply`: settings, RPC, `/uds-auth/*` |
-| Client | `lib/client.js` | ModuleLoader + React footer login card |
-| Bundle | `cordis.patch.yml` | layer `insert` only |
-| Meta | `package.json` `dsh.client` | `./client` + slots inject |
+- Gateway `prepareInvocation` / `resolveDescriptor` / `openRemoteEvents` / `receiveRemoteEventResult` (if missing, the ACL refuses to install instead of failing open);
+- the client `connection/reset` event (emitted after login so boot-time caches such as the settings mirror re-read);
+- endpoint names `workspace/follow`, `workspace/initializeDefault`, and the Desktop welcome reads `settings/describe`, `llm/listConfigurableProviders`, `credentials/describe`, `account/getState`.
 
-The login panel uses `position: fixed` with a measured trigger anchor (same pattern as CordisPanel) so the sidebar overflow clip cannot hide it.
+Desktop opens its connection anonymously at boot and reconnects after login. The plugin therefore:
+- parks anonymous stream calls (e.g. account state) without data instead of failing them (a failure is terminal for DSH and shows "sign-in failed / add API key");
+- answers anonymous `workspace/follow` with an empty list and anonymous `workspace/initializeDefault` with "nothing created";
+- holds `/api/*` requests for up to 15 s while the gateway ACL is still installing, instead of returning 403.
+
+## Skill / cron
+
+Prefer Host-minted `UDS_TASK_CAPABILITY` + `DSH_SESSION_ID` with `/uds-auth/outbound`. Raw `/agent-credentials` stays off unless explicitly enabled. Python helper: `skill-helpers/python/uds_skill_auth.py`.
+
+Chinese docs: [README.zh.md](README.zh.md), [docs/skill-auth-standard.zh.md](docs/skill-auth-standard.zh.md).
 
 ## License
 

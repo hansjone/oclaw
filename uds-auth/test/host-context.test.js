@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { getUserContext, runAsHost, withUserContext } from '../lib/context.js'
 import { installDshAcl } from '../lib/dsh-acl.js'
+import { MemoryStore } from '../lib/session/memory-store.js'
 
 test('Host callback context is isolated across concurrent browser identities and exceptions', async () => {
   const identities = [null, { empNo: 'u1' }, { empNo: 'u2' }]
@@ -22,6 +23,8 @@ test('Host callback context is isolated across concurrent browser identities and
 test('trusted Host creation works from browser ALS while unauthenticated browser creation stays denied', async () => {
   let creations = 0
   const owners = []
+  const sessionStore = new MemoryStore()
+  const minted = await sessionStore.create({ empNo: 'u1' }, 600)
   const controller = {
     async list() { return { items: [] } },
     async search() { return { items: [] } },
@@ -41,6 +44,7 @@ test('trusted Host creation works from browser ALS while unauthenticated browser
     userWorkspaces: { isUserPath: (empNo, path) => path === `/ws/${empNo}`, get() { return null } },
     getWorkspaceRoot: () => '/ws',
     getWorkspaceRegistry: () => undefined,
+    getSessionStore: () => sessionStore,
   })
   await withUserContext(null, async () => {
     await assert.rejects(controller.create({ cwd: '/bot' }), error => (
@@ -53,7 +57,11 @@ test('trusted Host creation works from browser ALS while unauthenticated browser
   })
   assert.equal(creations, 1)
   assert.deepEqual(owners, [], 'background sessions must not inherit a browser owner')
-  await withUserContext({ empNo: 'u1', permissions: {} }, async () => {
+  await withUserContext({
+    empNo: 'u1',
+    sessionId: minted.sessionId,
+    permissions: {},
+  }, async () => {
     await assert.rejects(controller.create({ cwd: '/other' }), error => (
       error.details.udsError === 'session_workspace_only'
     ))

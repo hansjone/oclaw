@@ -23,12 +23,12 @@ uds-auth/skills/uds-skill-auth/
 
 ## 给其它 Skill 用
 
-业务 skill 的 Python 脚本里，把本 skill 的 `scripts/` 加入 `sys.path` 后：
+业务 skill 的 Python 脚本里，把本 skill 的 `scripts/` 加入 `sys.path` 后。**推荐**走 `request()`（outbound）；`resolve()` 仅在 Host 开启 `allowRawAgentToken` 且任务注入了 `credentials` scope 的 `UDS_TASK_CAPABILITY` 时可用。
 
 ```python
-from uds_skill_auth import resolve, request, UdsAuthError
+from uds_skill_auth import request, UdsAuthError
 
-creds = resolve()
+# 需要环境：DSH_SESSION_ID +（推荐）UDS_TASK_CAPABILITY
 out = request("POST", "https://icenterapi.zte.com.cn/...", headers={...}, body={...})
 ```
 
@@ -51,10 +51,11 @@ def load_uds_skill_auth():
 
 也可设置 `UDS_AUTH_HELPERS` 指向本 skill 的 `scripts` 绝对路径。
 
-## 环境变量（Agent 已注入，勿教模型打印密钥）
+## 环境变量（Agent / 任务注入，勿教模型打印密钥）
 
 - `DSH_SESSION_ID`
 - `DSH_WEB_URL`
+- `UDS_TASK_CAPABILITY`（Host `mintTaskCapability`；scopes 按任务最小授权）
 
 ## 标准文档
 

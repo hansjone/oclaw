@@ -19,3 +19,6 @@ scripts/merge-sessions-into-workspace.ps1
 session-bridge.json
 roles.json
 
+sessions.json
+local-admin.box
+.uds-auth-secret-key

@@ -2,11 +2,13 @@
  * Per-user workspace provisioning under workspaceRoot/<empNo>.
  */
 import { mkdir } from 'node:fs/promises'
-import { join, resolve, sep } from 'node:path'
+import { join, resolve } from 'node:path'
 import { homedir } from 'node:os'
-import { readFile, writeFile } from 'node:fs/promises'
+import { readFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import { withUserContext, getUserContext } from './context.js'
+import { sanitizeUserId, resolveUserDir, isPathInside } from './utils/safe-userid.js'
+import { atomicWriteJson } from './utils/atomic-write.js'
 
 function defaultWorkspaceRoot() {
   const home = process.env.DSH_HOME || process.env.DSH_PROFILE_DIR || join(homedir(), '.dsh')
@@ -56,16 +58,12 @@ export class UserWorkspaceStore {
     if (!this._dirty || !this._mapFile) return
     this._dirty = false
     try {
-      await mkdir(dirname(this._mapFile), { recursive: true })
-      await writeFile(
-        this._mapFile,
-        JSON.stringify({
-          users: Object.fromEntries(this._map),
-          savedAt: new Date().toISOString(),
-        }, null, 2),
-        'utf-8',
-      )
+      await atomicWriteJson(this._mapFile, {
+        users: Object.fromEntries(this._map),
+        savedAt: new Date().toISOString(),
+      }, { mode: 0o600 })
     } catch (err) {
+      this._dirty = true
       console.warn('[uds-auth:UserWorkspace] save failed:', err.message)
     }
   }
@@ -90,8 +88,15 @@ export class UserWorkspaceStore {
       // Fallback admin: still get a dedicated folder
       empNo = empNo || 'administrator'
     }
+    const safeId = sanitizeUserId(empNo)
+    if (!safeId) {
+      console.warn('[uds-auth] reject unsafe empNo for workspace:', String(empNo).slice(0, 32))
+      return null
+    }
+    empNo = safeId
     const root = resolveWorkspaceRoot(workspaceRoot)
-    const userPath = join(root, String(empNo))
+    const userPath = resolveUserDir(root, empNo)
+    if (!userPath) return null
     await mkdir(userPath, { recursive: true })
 
     // Cordis throws on ctx.workspaceRegistry without inject.
@@ -131,8 +136,12 @@ export class UserWorkspaceStore {
   isUserPath(empNo, candidatePath, workspaceRoot) {
     if (!empNo || !candidatePath) return false
     const root = resolveWorkspaceRoot(workspaceRoot)
-    const userPath = resolve(join(root, String(empNo)))
-    const cand = resolve(String(candidatePath))
-    return cand === userPath || cand.startsWith(userPath + sep)
+    const userPath = resolveUserDir(root, empNo)
+    if (!userPath) return false
+    // Candidate must stay under user dir; user dir must stay under workspace root.
+    if (!isPathInside(root, userPath)) return false
+    return isPathInside(userPath, candidatePath)
   }
 }
+
+export { sanitizeUserId, resolveUserDir }

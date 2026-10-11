@@ -6,9 +6,10 @@ Resolve SSO credentials via loopback Host APIs, or call intranet APIs through
 the outbound proxy.
 
 Environment:
-  DSH_SESSION_ID  — agent session id (injected by DSH shell-env)
-  DSH_WEB_URL     — optional base URL of the Harness web server
-  UDS_AUTH_BASE   — optional override, e.g. http://127.0.0.1:PORT/uds-auth
+  DSH_SESSION_ID         — agent session id (injected by DSH shell-env)
+  UDS_TASK_CAPABILITY    — short-lived Host-minted capability (preferred for cron/skill)
+  DSH_WEB_URL            — optional base URL of the Harness web server
+  UDS_AUTH_BASE          — optional override, e.g. http://127.0.0.1:PORT/uds-auth
 """
 from __future__ import annotations
 
@@ -29,17 +30,48 @@ class UdsAuthError(RuntimeError):
 
 
 def _base_url() -> str:
-    explicit = (os.environ.get("UDS_AUTH_BASE") or "").strip().rstrip("/")
-    if explicit:
-        return explicit
+    """Prefer loopback Host. Env override cannot point at non-loopback without explicit allow."""
+    managed = os.environ.get("DSH_UDS_AUTH_BASE")
+    explicit = (managed if managed is not None else os.environ.get("UDS_AUTH_BASE") or "").strip().rstrip("/")
     web = (os.environ.get("DSH_WEB_URL") or "").strip().rstrip("/")
-    if web:
-        return web + "/uds-auth"
-    return "http://127.0.0.1:8787/uds-auth"
+    base = explicit or (web + "/uds-auth" if web else "")
+    if managed is not None and not explicit:
+        raise UdsAuthError("Host did not authorize this session", code="no_session")
+    if not base:
+        raise UdsAuthError("Missing Host endpoint; load uds-auth shellEnv adapter", code="no_base")
+    parsed = urlparse(base)
+    if parsed.scheme not in ("http", "https") or parsed.hostname not in ("127.0.0.1", "localhost", "::1") or parsed.username or parsed.password or parsed.query or parsed.fragment:
+        raise UdsAuthError("UDS auth endpoint must be an owned loopback HTTP(S) URL", code="unsafe_base")
+    return base
 
 
 def _session_id() -> str:
     return (os.environ.get("DSH_SESSION_ID") or "").strip()
+
+
+def _task_capability() -> str:
+    managed = os.environ.get("DSH_UDS_TASK_CAPABILITY")
+    return (managed if managed is not None else os.environ.get("UDS_TASK_CAPABILITY") or os.environ.get("UDS_AUTH_TASK_CAPABILITY") or "").strip()
+
+
+def _auth_headers(extra: Optional[Dict[str, str]] = None) -> Dict[str, str]:
+    hdrs = dict(extra or {})
+    sid = _session_id()
+    if sid:
+        hdrs.setdefault("X-DSH-Session-Id", sid)
+    cap = _task_capability()
+    if cap:
+        hdrs["X-UDS-Task-Capability"] = cap
+    hdrs.setdefault("Accept", "application/json")
+    return hdrs
+
+
+def _is_loopback_url(url: str) -> bool:
+    try:
+        host = (urlparse(url).hostname or "").lower()
+    except Exception:
+        return False
+    return host in ("127.0.0.1", "localhost", "::1")
 
 
 def _opener_no_proxy():
@@ -68,9 +100,10 @@ def _http_json(
             data = json.dumps(body, ensure_ascii=False).encode("utf-8")
             hdrs.setdefault("Content-Type", "application/json;charset=UTF-8")
     req = urllib.request.Request(url, data=data, headers=hdrs, method=method.upper())
-    ctx = ssl._create_unverified_context()
+    # SEC-18: always use standard TLS verification — never unverified context.
+    ctx = ssl.create_default_context()
     try:
-        if "127.0.0.1" in url or "localhost" in url.lower():
+        if _is_loopback_url(url):
             opener = _opener_no_proxy()
             with opener.open(req, timeout=timeout) as resp:
                 raw = resp.read().decode("utf-8", errors="replace")
@@ -94,26 +127,43 @@ def _http_json(
     return status, parsed, raw
 
 
-def resolve(*, apply_env_aliases: bool = True) -> Dict[str, str]:
+def resolve(*, apply_env_aliases: bool = False) -> Dict[str, str]:
     """
     Fetch {empNo, token} for the current DSH session from Host.
-    Optionally set process-local EMP_NO / AUTH_VALUE (and coclaw_* aliases).
+    Prefer UDS_TASK_CAPABILITY (Host-minted) over a browser session cookie.
+    apply_env_aliases defaults False (SEC-18) — subprocesses inherit secrets if True.
+    Prefer request()/outbound instead of exposing raw tokens when possible.
     """
     sid = _session_id()
-    if not sid:
-        raise UdsAuthError("缺少 DSH_SESSION_ID，请在 Agent shell 中运行", code="no_session")
+    cap = _task_capability()
+    if not sid and not cap:
+        raise UdsAuthError(
+            "缺少 DSH_SESSION_ID 或 UDS_TASK_CAPABILITY",
+            code="no_session",
+        )
 
     url = _base_url() + "/agent-credentials"
+    body: Dict[str, Any] = {}
+    if sid:
+        body["sessionId"] = sid
+    if cap:
+        body["taskCapability"] = cap
     status, parsed, raw = _http_json(
         "POST",
         url,
-        headers={"X-DSH-Session-Id": sid, "Accept": "application/json"},
-        body={"sessionId": sid},
+        headers=_auth_headers(),
+        body=body,
         timeout=15.0,
     )
     if status == 401 or (isinstance(parsed, dict) and parsed.get("error") == "no_skill_credentials"):
         msg = (parsed or {}).get("message") if isinstance(parsed, dict) else None
         raise UdsAuthError(msg or "请先完成 UDS 扫码登录", code="no_credentials", status=status)
+    if status == 403 and isinstance(parsed, dict) and parsed.get("error") == "raw_token_disabled":
+        raise UdsAuthError(
+            "原始凭证接口已关闭，请使用 outbound()",
+            code="raw_token_disabled",
+            status=403,
+        )
     if status != 200 or not isinstance(parsed, dict):
         raise UdsAuthError(
             f"获取凭证失败 (HTTP {status})",
@@ -147,22 +197,29 @@ def request(
     Returns {statusCode, headers, body, json}.
     """
     sid = _session_id()
-    if not sid:
-        raise UdsAuthError("缺少 DSH_SESSION_ID，请在 Agent shell 中运行", code="no_session")
+    cap = _task_capability()
+    if not sid and not cap:
+        raise UdsAuthError(
+            "缺少 DSH_SESSION_ID 或 UDS_TASK_CAPABILITY",
+            code="no_session",
+        )
 
     host = urlparse(url).hostname or ""
-    payload = {
-        "sessionId": sid,
+    payload: Dict[str, Any] = {
         "method": method.upper(),
         "url": url,
         "headers": headers or {},
         "body": body,
         "timeoutMs": int(timeout * 1000),
     }
+    if sid:
+        payload["sessionId"] = sid
+    if cap:
+        payload["taskCapability"] = cap
     status, parsed, raw = _http_json(
         "POST",
         _base_url() + "/outbound",
-        headers={"X-DSH-Session-Id": sid, "Accept": "application/json"},
+        headers=_auth_headers(),
         body=payload,
         timeout=timeout + 5.0,
     )

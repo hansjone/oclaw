@@ -1,15 +1,16 @@
 /**
  * Local admin via sealed box (decrypt-to-unlock).
  *
- * Env holds only ciphertext:
- *   UDS_AUTH_LOCAL_ADMIN_BOX=<base64url sealed blob>
+ * Ciphertext sources (first match wins):
+ *   1) UDS_AUTH_LOCAL_ADMIN_BOX env
+ *   2) $UDS_AUTH_DATA_DIR/local-admin.box or ~/.uds-auth/local-admin.box
  *
  * Operator keeps the passphrase offline. Unlock API tries AES-GCM open;
  * success → administrator session. Setting/replacing env alone does not
  * log anyone in — the key must decrypt the box.
  *
  * Generate a box:
- *   node -e "import('./lib/local-admin.js').then(m => console.log(m.sealLocalAdminBox(process.argv[1])))" -- "your-passphrase"
+ *   node scripts/seal-local-admin.mjs
  */
 import {
   createCipheriv,
@@ -19,14 +20,26 @@ import {
   timingSafeEqual,
   createHash,
 } from 'node:crypto'
+import { readFileSync, existsSync } from 'node:fs'
+import { homedir } from 'node:os'
+import { join, resolve } from 'node:path'
 import { ROLES, computePermissions, DEFAULT_FALLBACK_USERNAME } from './roles.js'
+import { derivePasswordKey } from './utils/password-kdf.js'
 
 export const LOCAL_ADMIN_BOX_ENV = 'UDS_AUTH_LOCAL_ADMIN_BOX'
 /** @deprecated presence of KEY no longer grants access; use BOX + unlock */
 export const LOCAL_ADMIN_ENV = 'UDS_AUTH_LOCAL_ADMIN_KEY'
+export const LOCAL_ADMIN_BOX_FILENAME = 'local-admin.box'
 
 export const LOCAL_ADMIN_COOKIE = 'UDS_LOCAL_ADMIN'
 export const LOCAL_ADMIN_COOKIE_MAX_AGE = 7 * 24 * 60 * 60
+
+/** Profile dir used when env box is missing (Desktop Host often lacks User env). */
+export function resolveLocalAdminBoxFile(dataDir) {
+  const root = String(dataDir || process.env.UDS_AUTH_DATA_DIR || '').trim()
+    || join(homedir(), '.uds-auth')
+  return resolve(root, LOCAL_ADMIN_BOX_FILENAME)
+}
 
 const MAGIC = 'uds-local-admin-v1'
 const SCRYPT_N = 16384
@@ -116,8 +129,42 @@ export function openLocalAdminBox(box, passphrase) {
   }
 }
 
+function readLocalAdminBoxFile() {
+  try {
+    const path = resolveLocalAdminBoxFile()
+    if (!existsSync(path)) return null
+    const raw = readFileSync(path, 'utf8')
+    const line = String(raw || '').split(/\r?\n/).map((l) => l.trim()).find((l) => l && !l.startsWith('#'))
+    if (!line) return null
+    // Allow either bare box or KEY=value lines copied from seal CLI output.
+    const m = line.match(/^(?:export\s+)?UDS_AUTH_LOCAL_ADMIN_BOX=(.+)$/)
+    return String(m ? m[1] : line).trim().replace(/^["']|["']$/g, '') || null
+  } catch {
+    return null
+  }
+}
+
 export function readLocalAdminBox() {
-  return String(process.env[LOCAL_ADMIN_BOX_ENV] || '').trim() || null
+  const fromEnv = String(process.env[LOCAL_ADMIN_BOX_ENV] || '').trim()
+  if (fromEnv) return fromEnv
+  return readLocalAdminBoxFile()
+}
+
+/** Runtime unlock uses the same bounded, asynchronous KDF as password login. */
+export async function openLocalAdminBoxAsync(box, passphrase) {
+  if (!box || typeof passphrase !== 'string' || !passphrase) return { ok: false, reason: 'missing' }
+  const raw = b64urlDecode(box)
+  if (raw.length < 46 || raw.length > 256 || raw[0] !== 1) return { ok: false, reason: 'bad_box' }
+  const key = await derivePasswordKey(passphrase, raw.subarray(1, 17))
+  try {
+    const decipher = createDecipheriv('aes-256-gcm', key, raw.subarray(17, 29))
+    decipher.setAuthTag(raw.subarray(29, 45))
+    const plain = Buffer.concat([decipher.update(raw.subarray(45)), decipher.final()]).toString('utf8')
+    return plain === `${MAGIC}|${DEFAULT_FALLBACK_USERNAME}`
+      ? { ok: true, empNo: DEFAULT_FALLBACK_USERNAME } : { ok: false, reason: 'bad_payload' }
+  } catch {
+    return { ok: false, reason: 'decrypt_failed' }
+  }
 }
 
 export function isLocalAdminBoxConfigured() {
@@ -197,7 +244,7 @@ export function buildLocalAdminIdentity(rolesStore) {
     role,
     permissions,
     userContext: buildLocalAdminUserContext(),
-    kind: 'fallback',
+    kind: 'sealed_box',
   }
 }
 

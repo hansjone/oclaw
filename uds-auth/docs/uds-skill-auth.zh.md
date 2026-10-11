@@ -12,8 +12,10 @@ uds-auth/skills/uds-skill-auth/
 
 1. 安装 uds-auth 插件  
 2. 把 `uds-auth/skills/uds-skill-auth` 配进 Harness 的 skills 目录（或复制到工作区 `skills/uds-skill-auth`）  
-3. 用户扫码登录  
+3. 用户扫码登录（或由 Host 为 cron 注入 `UDS_TASK_CAPABILITY`）  
 4. 业务 skill 通过 sibling / skills 根找到本 skill 的 `scripts/`
+
+推荐：**优先** `request()` / outbound；原始 `resolve()` 依赖 `allowRawAgentToken`（默认关闭）。后台任务使用 `UDS_TASK_CAPABILITY`，不要依赖浏览器 Cookie。
 
 ## 业务 skill 引用
 
@@ -33,8 +35,10 @@ def load_uds_skill_auth():
 
 | 函数 | 用途 |
 |------|------|
-| `resolve()` | `POST /uds-auth/agent-credentials` → empNo+token |
-| `request(method, url, ...)` | `POST /uds-auth/outbound` 出站代贴鉴权 |
+| `resolve()` | 原始凭证（需显式开启 raw；可带 `UDS_TASK_CAPABILITY`） |
+| `request(method, url, ...)` | `POST /uds-auth/outbound`（推荐；支持 task capability） |
 | `UdsAuthError` | 未登录 / 连不上 Host 等 |
+
+环境变量：`DSH_SESSION_ID`、`UDS_TASK_CAPABILITY`（Host `mintTaskCapability` 签发）。
 
 完整契约：[skill-auth-standard.zh.md](./skill-auth-standard.zh.md)

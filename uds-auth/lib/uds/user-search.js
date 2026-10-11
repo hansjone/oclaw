@@ -2,13 +2,17 @@
  * Outbound HTTP(S) that must NOT use HTTP_PROXY / HTTPS_PROXY.
  * ZTE icenter / UAC user APIs are intranet-only; corporate forward proxies
  * typically return 401/403 and never reach the real service.
+ *
+ * SEC-16: subject must strictly equal requested empNo — no substring / digit-contains match.
  */
 import http from 'node:http'
 import https from 'node:https'
 
+const MAX_RESPONSE_BYTES = 2 * 1024 * 1024
+
 /**
  * @param {string|URL} url
- * @param {{ method?: string, headers?: Record<string,string|number>, body?: string|Buffer, timeoutMs?: number }} opts
+ * @param {{ method?: string, headers?: Record<string,string|number>, body?: string|Buffer, timeoutMs?: number, maxBytes?: number }} opts
  * @returns {Promise<{ statusCode: number, headers: object, body: string, json: any }>}
  */
 export function directRequest(url, opts = {}) {
@@ -21,7 +25,8 @@ export function directRequest(url, opts = {}) {
   if (body && headers['Content-Length'] == null && headers['content-length'] == null) {
     headers['Content-Length'] = body.length
   }
-  const timeoutMs = opts.timeoutMs ?? 3000
+  const timeoutMs = Math.min(Math.max(Number(opts.timeoutMs) || 3000, 500), 60000)
+  const maxBytes = opts.maxBytes ?? MAX_RESPONSE_BYTES
 
   // Fresh Agent — never inherit globalAgent (often patched by proxy bootstraps).
   const agent = new lib.Agent({ keepAlive: false })
@@ -38,7 +43,16 @@ export function directRequest(url, opts = {}) {
       timeout: timeoutMs,
     }, (res) => {
       const chunks = []
-      res.on('data', (c) => chunks.push(c))
+      let total = 0
+      res.on('data', (c) => {
+        total += c.length
+        if (total > maxBytes) {
+          req.destroy()
+          reject(new Error(`directRequest response too large (>${maxBytes})`))
+          return
+        }
+        chunks.push(c)
+      })
       res.on('end', () => {
         const text = Buffer.concat(chunks).toString('utf8')
         let json = null
@@ -61,8 +75,20 @@ export function directRequest(url, opts = {}) {
   })
 }
 
+function extractSubject(row) {
+  if (!row || typeof row !== 'object') return ''
+  return String(
+    row.employeeShortId || row.employeeNO || row.empUIID || row.empNo || '',
+  ).trim()
+}
+
+function subjectsEqual(a, b) {
+  return String(a || '').trim() === String(b || '').trim()
+}
+
 /**
  * POST userSearchUrl with X-Emp-No + X-Auth-Value (intranet, no proxy).
+ * Success requires: HTTP 2xx, business success code, exactly one subject-matching row.
  */
 export async function searchUserByEmpNoToken({
   userSearchUrl,
@@ -76,14 +102,15 @@ export async function searchUserByEmpNoToken({
   if (!userSearchUrl || !empNo || !token) {
     return { ok: false, reason: 'missing_args' }
   }
+  const want = String(empNo).trim()
   const body = JSON.stringify({
-    employeeShortId: empNo,
+    employeeShortId: want,
     enableLabel: true,
-    keyword: empNo,
+    keyword: want,
   })
   const headers = {
     'Content-Type': 'application/json;charset=UTF-8',
-    [empNoHeader]: empNo,
+    [empNoHeader]: want,
     [authValueHeader]: token,
   }
   if (origin) {
@@ -98,18 +125,21 @@ export async function searchUserByEmpNoToken({
     return { ok: false, reason: 'network', error: err.message }
   }
 
-  if (res.statusCode === 401 || res.statusCode === 403) {
+  // Only accept 2xx — do not treat HTTP 500 + biz success as ok (SEC-16).
+  if (res.statusCode < 200 || res.statusCode >= 300) {
     return {
       ok: false,
-      reason: 'http_auth',
+      reason: res.statusCode === 401 || res.statusCode === 403 ? 'http_auth' : 'http_status',
       statusCode: res.statusCode,
       msg: res.json?.code?.msg || res.json?.msg || res.body.slice(0, 200),
-      hint: 'userSearchUrl must be reachable on intranet WITHOUT HTTP(S)_PROXY',
+      hint: res.statusCode === 401 || res.statusCode === 403
+        ? 'userSearchUrl must be reachable on intranet WITHOUT HTTP(S)_PROXY'
+        : undefined,
     }
   }
 
   const result = res.json
-  if (!result) {
+  if (!result || typeof result !== 'object') {
     return { ok: false, reason: 'bad_json', statusCode: res.statusCode, raw: res.body.slice(0, 300) }
   }
 
@@ -129,35 +159,42 @@ export async function searchUserByEmpNoToken({
       : Array.isArray(result?.bo?.list) ? result.bo.list
         : []
   if (!list.length) {
-    return { ok: false, reason: 'empty', statusCode: res.statusCode, result }
+    return { ok: false, reason: 'empty', statusCode: res.statusCode }
   }
 
-  const emp = list[0]
-  const resolvedEmpNo = String(
-    emp.employeeShortId || emp.employeeNO || emp.empUIID || emp.empNo || empNo,
-  ).trim()
-  if (resolvedEmpNo && resolvedEmpNo !== String(empNo).trim()
-    && !String(empNo).includes(resolvedEmpNo)
-    && !resolvedEmpNo.includes(String(empNo).trim())) {
-    const a = String(empNo).replace(/\D/g, '')
-    const b = resolvedEmpNo.replace(/\D/g, '')
-    if (!a || !b || !(a.includes(b) || b.includes(a))) {
-      return { ok: false, reason: 'emp_mismatch', resolvedEmpNo }
+  // Strict subject equality — no substring / digit-contains (SEC-16).
+  const matches = list.filter((row) => subjectsEqual(extractSubject(row), want))
+  if (matches.length !== 1) {
+    return {
+      ok: false,
+      reason: matches.length === 0 ? 'emp_mismatch' : 'ambiguous',
+      statusCode: res.statusCode,
+      matchCount: matches.length,
     }
+  }
+
+  const emp = matches[0]
+  const subject = extractSubject(emp)
+  if (!subject || !subjectsEqual(subject, want)) {
+    return { ok: false, reason: 'emp_mismatch', resolvedEmpNo: subject }
+  }
+  // Reserved / emergency account names never come from UAC search.
+  if (subject === 'administrator' || subject.startsWith('__')) {
+    return { ok: false, reason: 'reserved_subject' }
   }
 
   return {
     ok: true,
     profile: {
-      empNo: String(empNo).trim(),
-      username: emp.name || emp.empName || emp.userName || empNo,
+      empNo: subject,
+      username: emp.name || emp.empName || emp.userName || subject,
       department: emp.deptFullName || emp.deptName || emp.deptShortName || emp.orgNamePath || emp.orgName || emp.department || '',
       organization: emp.orgNamePath || emp.orgName || '',
       email: emp.email || emp.mail || '',
       phone: emp.mobile || emp.phone || '',
-      raw: emp,
-      token,
+      // Omit raw upstream blob from default profile to limit accidental logging.
+      token: undefined,
     },
-    result,
+    result: { code: result.code },
   }
 }

@@ -1,9 +1,12 @@
 {
   "name": "uds-auth",
-  "version": "0.2.21",
-  "description": "UDS authentication plugin for DeepSeek Harness with multi-tenant session isolation",
+  "version": "0.3.15",
+  "description": "UDS authentication plugin for DeepSeek Harness — trusted single-instance access control (not strong multi-tenant isolation)",
   "type": "module",
   "main": "lib/index.js",
+  "bin": {
+    "uds-auth-seal-local-admin": "./scripts/seal-local-admin.mjs"
+  },
   "exports": {
     ".": "./lib/index.js",
     "./client": "./lib/client.js",
@@ -18,8 +21,10 @@
   },
   "scripts": {
     "bundle:qrcode": "bun run scripts/bundle-qrcode.mjs",
-    "prepack": "bun run scripts/bundle-qrcode.mjs",
-    "test": "node --test test/**/*.test.js"
+    "prepack": "bun run scripts/bundle-qrcode.mjs && node scripts/generate-sbom.mjs",
+    "pack:check": "node scripts/pack-check.mjs",
+    "test": "node --test test/**/*.test.js",
+    "sbom": "node scripts/generate-sbom.mjs"
   },
   "keywords": [
     "dsh-plugin",
@@ -28,13 +33,14 @@
     "authentication",
     "uds",
     "sso",
-    "session-management",
-    "multi-tenant"
+    "session-management"
   ],
   "files": [
     "lib",
     "skills",
     "skill-helpers",
+    "scripts/seal-local-admin.mjs",
+    "scripts/pack-check.mjs",
     "config.default.yaml",
     "cordis.patch.yml",
     "docs",
@@ -45,7 +51,7 @@
   "author": "",
   "license": "MIT",
   "engines": {
-    "node": ">=18.0.0"
+    "node": "^22.19.0 || >=24.0.0"
   },
   "dependencies": {},
   "devDependencies": {

@@ -35,12 +35,15 @@
 
 ## Agent 环境
 
-Shell 已注入（非密钥）：
+Shell / 任务 env（非密钥除非 Host 显式注入 capability）：
 
 - `DSH_SESSION_ID` — 当前 agent 会话  
 - `DSH_WEB_URL` — 可选，用于拼 Host 地址  
+- `UDS_TASK_CAPABILITY` — **推荐**：Host/`mintTaskCapability` 签发的短期令牌（scopes: `outbound` 和/或 `credentials`）
 
-Host 在 `session/created` 时会 `stampSessionOwner(sessionId, empNo)`。Cron 可按 `ownerEmpNo` 解析。
+Host 在 `session/created` 时会 `stampSessionOwner(sessionId, empNo)`。Cron 可按 `ownerEmpNo` 解析并 mint capability；**不要**依赖浏览器 Cookie。
+
+账号停用/删除会撤销该用户全部 task capability。
 
 ## 两种合法模式
 
@@ -49,13 +52,15 @@ Host 在 `session/created` 时会 `stampSessionOwner(sessionId, empNo)`。Cron �
 ```http
 POST /uds-auth/outbound
 X-DSH-Session-Id: <DSH_SESSION_ID>
+X-UDS-Task-Capability: <UDS_TASK_CAPABILITY>   # scope 须含 outbound
 { "url": "https://icenterapi.zte.com.cn/...", "method": "POST", "headers": {...}, "body": {...} }
 ```
 
 - 仅 **loopback**  
 - Host 注入 `X-Emp-No` / `X-Auth-Value`  
 - 剥离客户端自带鉴权头  
-- host 必须在白名单内  
+- host 必须在白名单内；URL 必须 **HTTPS**  
+- capability 仅 `credentials` scope 时 **不能** 调 outbound  
 
 Python（先把 `uds-skill-auth/scripts` 加入 `sys.path`）：
 
@@ -67,16 +72,20 @@ out = request("POST", url, headers={...}, body={...})
 
 ### Mode Creds（必须自管 HTTP 时）
 
+默认 `allowRawAgentToken=false`。开启后：
+
 ```http
 POST /uds-auth/agent-credentials
 X-DSH-Session-Id: <DSH_SESSION_ID>
+X-UDS-Task-Capability: <UDS_TASK_CAPABILITY>   # scope 须含 credentials
 ```
 
-返回 `{ empNo, token }`。可设进程内 `EMP_NO` / `AUTH_VALUE` 别名，**禁止**写进 SKILL.md 教模型 `printenv`。
+返回 `{ empNo, token }`。可设进程内 `EMP_NO` / `AUTH_VALUE` 别名，**禁止**写进 SKILL.md 教模型 `printenv`。仅 `outbound` scope 的 capability **不能**取 raw token。
 
 ```python
 from uds_skill_auth import resolve
-creds = resolve()  # empNo + token；默认写入 EMP_NO/AUTH_VALUE
+# 优先用 request()/outbound；仅在 allowRawAgentToken=true 时使用 resolve
+creds = resolve(apply_env_aliases=False)
 ```
 
 Helpers 来源：插件内 skill `uds-auth/skills/uds-skill-auth/scripts/`（装到 skills 路径后，或环境变量 `UDS_AUTH_HELPERS`）。

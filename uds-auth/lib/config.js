@@ -24,6 +24,11 @@ const DEFAULT_CONFIG = {
   retainSkillCredentialsOnLogout: true,
   skillCredentialTtlSeconds: 7 * 24 * 60 * 60,
   outboundAllowedHosts: 'icenterapi.zte.com.cn,icentermsg.dt.zte.com.cn',
+  initialAdminEmpNo: '',
+  allowOpenRegistration: true,
+  allowRawAgentToken: false,
+  /** Empty = loopback Host only; reverse proxies must set explicit authorities. */
+  trustedHosts: '',
 }
 
 // 内部常量（不暴露）
@@ -56,5 +61,13 @@ export function buildVerifyUrl(uacBaseUrl, uacQrVerifyPath) {
 
 export function validateConfig(config) {
   if (!config?.uacBaseUrl) throw new Error('uacBaseUrl is required')
+  const checkHttps = (v, name) => {
+    if (v == null || v === '') return
+    let u
+    try { u = new URL(String(v)) } catch { throw new Error(`invalid_${name}`) }
+    if (u.protocol !== 'https:') throw new Error(`${name}_must_be_https`)
+  }
+  checkHttps(config.uacBaseUrl, 'uacBaseUrl')
+  checkHttps(config.userSearchUrl, 'userSearchUrl')
   return true
 }

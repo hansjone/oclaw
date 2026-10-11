@@ -1,71 +1,95 @@
 # uds-auth
 
-DeepSeek Harness 的 UDS 统一认证插件：右上角登录徽章 + 设置页用户管理。
+0.3.10: [升级与协议变更说明](docs/upgrade-0.3.10.zh.md) · [SBOM](docs/sbom.cdx.json) · [第三方许可证](docs/THIRD-PARTY-NOTICES.txt)
+
+DeepSeek Harness 的 UDS 统一认证插件（**受信任单实例**访问控制增强，**不支持**互不信任多租户 / 任意代码执行隔离）。
+
+当前包版本见 `package.json`（0.3.x 起为安全协议破坏性变更：须重新登录）。
+
+## 支持范围
+
+| 项 | 说明 |
+|----|------|
+| 运行时 | Node `^22.19.0 \|\| >=24`（与 DSH Host engines 对齐） |
+| 部署 | 单 Host、受信任企业用户、受控 skill |
+| 不支持 | 不可信多租户、用户自上传任意代码的强隔离、多实例未共享 session store 时的会话一致性 |
 
 ## 安装
 
 ```bash
-dsh plugin --profile web add -w "D:/project/chatgpt/oclaw/uds-auth"
+# 开发树
+dsh plugin --profile web add -w "<绝对路径>/oclaw/uds-auth"
+
+# 或干净 tgz
+dsh plugin add -w "<绝对路径>/uds-auth-0.3.9.tgz"
 ```
 
-安装后重启 Harness。登录徽章在 `shell.overlay`（右上角）；用户管理/部署配置在 **设置 → UDS 认证**（`settings.section`）。
+首次空角色表须设置初始超管：环境变量 `UDS_AUTH_INITIAL_ADMIN=<工号>` 或配置 `initialAdminEmpNo`。
 
-`0.2.21` 提供仅供 Host 插件使用的 `ctx.get('udsAuth').runAsHost(callback)`：在回调及其异步操作内使用 Host 后台上下文，并恢复调用者的网页身份。配合 `dsh-im-ops >= 4.9.1-ops.38` 修复 WhatsApp 后台建会话误报“登录后才能创建会话”；更新两者后重启 Host。该方法不增加远程端点，网页登录及工作区 ACL 保持生效。
+安装后重启 Harness。登录徽章在 `shell.overlay`；用户管理在 **设置 → UDS 认证**。
+
+`ctx.get('udsAuth').runAsHost(callback)`：Host 后台上下文。`mintTaskCapability({ empNo, dshSessionId, scopes, ttlSeconds })` 为 cron/skill 签发短期能力令牌（注入 `UDS_TASK_CAPABILITY`）。
 
 ## 配置
 
-在 **设置 → UDS 认证** 或 `cordis.patch.yml` 中修改：
-
 ```yaml
-uacBaseUrl: https://uac.zte.com.cn
-userSearchUrl: https://icenterapi.zte.com.cn/zte-km-icenter-addresearch/user/plain/docs/search
+uacBaseUrl: https://uac.zte.com.cn   # 启动/合并时强制 HTTPS
+userSearchUrl: https://icenterapi.zte.com.cn/...
 loginSystemCode: '100000455558'
-originSystemCode: ''
+initialAdminEmpNo: ''          # 或环境变量 UDS_AUTH_INITIAL_ADMIN
+allowOpenRegistration: true    # false 时禁止未知用户自动注册
+allowRawAgentToken: false      # 原始 agent-credentials 默认关闭
+outboundAllowedHosts: icenterapi.zte.com.cn,icentermsg.dt.zte.com.cn
+trustedHosts: ''               # 精确 Host 白名单；空=仅 loopback Host
+retainSkillCredentialsOnLogout: true
+skillCredentialTtlSeconds: 604800
 ```
 
-## 标准 DSH 插件结构
+状态文件默认在 `~/.uds-auth/`（roles / owners / credentials / bridge / sessions / `config.runtime.json`）。可用环境变量 `UDS_AUTH_DATA_DIR` 覆盖。从安装目录升级时，若新数据目录为空且安装根仍有旧 `roles.json` 等，启动会一次性迁移（幂等、不覆盖已有目标文件）。公网或反代必须配置 `trustedHosts`。默认目录为**用户级**共享路径，不是按 DSH profile 隔离；单实例部署须知悉该边界。
 
-| 部分 | 路径 | 说明 |
-|------|------|------|
-| Host | `lib/index.js` | Cordis `apply`：HTTP `/uds-auth/*`、可选 schema 设置 |
-| Client | `lib/client.js` | 右上角登录 + 设置页用户管理 |
-| Bundle | `cordis.patch.yml` | `insert` 插件层（不含 client.entry） |
-| Meta | `package.json` → `dsh.client` | `exports["./client"]` + slots inject |
+安全开关经设置保存后**立即生效**（无需重启）。空 `outboundAllowedHosts` 表示拒绝全部出站。
 
-## API
+## 会话
 
-- `POST /uds-auth/qr-start` — 服务端生成扫码挑战
-- `GET /uds-auth/qr?data=` — 二维码 SVG
-- `POST /uds-auth/qr-proxy` — 代理 UAC 扫码校验
-- `GET /uds-auth/api/me` — 当前用户
-- `POST /uds-auth/api/logout` — 登出（UI 会话；skill 凭证是否保留见配置）
-- `GET|POST /uds-auth/agent-credentials` — **loopback**：按 `DSH_SESSION_ID` 取 skill 用 empNo+token
-- `POST /uds-auth/outbound` — **loopback**：白名单出站并注入鉴权头
-- 用户管理 / 兜底管理员：见 `/uds-auth/api/users*`、`/uds-auth/api/fallback/*`
-- **默认兜底账号**（扫码不可用时）：用户名 `administrator`，密码 `Admin@123`（首次启动自动启用；可在设置中改密或关闭）
-- **本机密钥解锁（可选，解密才登录）**：
-  1. 生成密封盒：`node scripts/seal-local-admin.mjs "你的口令"`  
-  2. 把输出的 `UDS_AUTH_LOCAL_ADMIN_BOX=...` 设到 **Harness 进程环境**（这是密文，不是口令）  
-  3. 登录面板 →「本机密钥解锁」→ 输入口令；**必须解密成功才有 admin**  
-  仅设置环境变量、不知道口令 → **无法登录**。旧变量 `UDS_AUTH_LOCAL_ADMIN_KEY` 已忽略。
-- **ACL / 侧栏**：未登录与普通用户看不到设置齿轮；**仅超管/应急**可见设置。`admin` 无设置齿轮，但可看渠道/系统会话。`super_admin` / 兜底默认可见全部会话（可关）。布局：设置在左、登录在右。
+- **有效期**：30 分钟无操作过期，有操作自动续期；从登录起最长 7 天。Desktop 的 bridge 令牌随会话一起续期。
+- **重启不掉线**：默认内存会话会写入 `~/.uds-auth/sessions.json`，Host / Harness 重启后自动恢复（应急账号没有 SSO 自动重登，尤其依赖这一点）。
+  - 文件只保存会话令牌的 SHA-256 哈希，不保存令牌本身；用户信息（可能含 UAC token）用插件密钥 `.uds-auth-secret-key` 做 AES-256-GCM 加密。
+  - 加载时丢弃已过期、解密失败或被篡改的记录；停用账号、应急口令轮换等检查仍在每次请求时执行。
+  - **删除 `sessions.json` 并重启 = 让所有人重新登录**。密钥文件丢失时会话不再持久化（不影响插件启动）。
+- 配置 Redis 会话存储时不使用该文件。
 
-## Desktop 离线 tgz（无 npm 外网）
+## 管理员与应急
 
-**≥0.2.20**：`qrcode` 已打进 `lib/qrcode-bundled.cjs`，`dependencies` 为空。  
-打包机：`npm pack`（会跑 `prepack` 重打 bundle）。现场 Desktop「添加插件」填 **绝对路径** `D:\…\uds-auth-0.2.20.tgz`，装包日志不应再出现 `registry.npmjs.org/qrcode`。
+- **三类管理员同权**（`super_admin` / `admin` / `fallback_admin`）：用户管理、设置、建工作区；标签不是更强隔离。
+- **无共享默认密码**。须在设置中显式设置应急口令（≥10 位，禁止 `Admin@123`）。旧安装若仍存该默认 hash，升级后自动禁用直至重置。
+- **本机密钥解锁**：`node scripts/seal-local-admin.mjs`（交互输入，勿把口令放 argv）→ 设置 `UDS_AUTH_LOCAL_ADMIN_BOX` → 登录面板解密。
+- **停用账号**：删除用户默认写入 disabled 状态，不会因开放注册自动复活。
 
-## Skill 认证（给他人改造 skill 时）
+## Skill / cron
 
-发整个 **uds-auth 插件** 即可，内含：
+1. 标准说明：`docs/skill-auth-standard.zh.md`、`docs/uds-skill-auth.zh.md`
+2. Python helper：`skill-helpers/python/uds_skill_auth.py`（与 `skills/...` 同源）
+3. 推荐：Host 在任务创建时 `mintTaskCapability`，注入 `UDS_TASK_CAPABILITY` + `DSH_SESSION_ID`，调用 `outbound`；不要依赖浏览器长会话。
+4. `resolve(apply_env_aliases=False)` 默认不写环境变量。
 
-1. **标准**：[docs/skill-auth-standard.zh.md](docs/skill-auth-standard.zh.md)  
-2. **公共 skill 说明**：[docs/uds-skill-auth.zh.md](docs/uds-skill-auth.zh.md)  
-3. **公共 skill 本体**：[skills/uds-skill-auth/](skills/uds-skill-auth/)（随插件提交）
+## DSH 兼容性
 
-现场：装插件 → 把 `skills/uds-skill-auth` 配进 skills 路径 → 扫码 → 再装业务 skill。
+已在 **DeepSeek Harness Desktop 0.2.0-rc.2** 上验证。插件依赖以下 DSH 内部行为（非公开 API），升级 DSH 后请先跑 `npm test` 并实机检查登录、工作区、设置 → 模型：
 
-可配置：`retainSkillCredentialsOnLogout`（默认 true）、`skillCredentialTtlSeconds`、`outboundAllowedHosts`。
+- Gateway 的 `prepareInvocation` / `resolveDescriptor` / `openRemoteEvents` / `receiveRemoteEventResult`（缺失时插件拒绝启动 ACL，不会静默放行）；
+- 客户端 `connection/reset` 事件（登录后用它让设置缓存等重新读取）；
+- 端点名 `workspace/follow`、`workspace/initializeDefault`，以及 Desktop 欢迎页使用的 `settings/describe`、`llm/listConfigurableProviders`、`credentials/describe`、`account/getState`。
+
+Desktop 启动时连接会先以匿名身份建立，登录后再重连。插件对此的处理：
+- 匿名的数据流请求（如账号状态）挂起等待，不返回错误（否则 DSH 会把账号永久标记为失败，弹出「登录失败 / 添加 API Key」）；
+- 匿名的工作区订阅返回空列表，匿名的「创建默认工作区」返回空结果（不报「无法创建默认工作区」，也不会真的创建）；
+- Gateway ACL 尚未就绪时，`/api/*` 请求最多等待 15 秒，而不是直接 403。
+
+## 升级注意
+
+- 旧 USER/UI Cookie、旧 bridge 失效，须重新扫码/登录。
+- 回滚到 0.2.x **不能**作为安全方案。
+- `npm run pack:check` / `npm test` 发布前必跑。
 
 ## License
 

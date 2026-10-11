@@ -1,0 +1,18 @@
+# SEC-24: keep secrets, caches, and local state out of the published tarball
+node_modules/
+test/
+*.tgz
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+.uds-auth-secret-key
+skill-credentials.json
+session-bridge.json
+session-owners.json
+session-owners.json.bak*
+user-workspaces.json
+roles.json
+config.runtime.json
+*.log
+.DS_Store
+pnpm-lock.yaml

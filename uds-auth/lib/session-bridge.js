@@ -5,8 +5,8 @@
  * localStorage and sends X-UDS-Bridge-* headers on subsequent /uds-auth requests.
  */
 import { randomBytes, timingSafeEqual, createHash } from 'node:crypto'
-import { readFile, writeFile, mkdir } from 'node:fs/promises'
-import { dirname } from 'node:path'
+import { readFile } from 'node:fs/promises'
+import { atomicWriteJson } from './utils/atomic-write.js'
 
 export const BRIDGE_EMPNO_HEADER = 'x-uds-bridge-empno'
 export const BRIDGE_TOKEN_HEADER = 'x-uds-bridge-token'
@@ -30,6 +30,8 @@ export class SessionBridgeStore {
     this._ttlMs = opts.ttlMs || DEFAULT_TTL_MS
     /** @type {Map<string, { empNo: string, kind: string, exp: number, ssoToken?: string }>} */
     this._byToken = new Map()
+    /** @type {Map<string, { empNo: string, bearer: string, exp: number }>} T01: one-time WS tickets */
+    this._wsTickets = new Map()
     this._saveTimer = null
   }
 
@@ -72,30 +74,31 @@ export class SessionBridgeStore {
         this._byToken.delete(token)
         continue
       }
+      // Persist bridge metadata only — strip upstream SSO token from disk (SEC-17).
       tokens[token] = {
         empNo: row.empNo,
         kind: row.kind,
         exp: row.exp,
-        ...(row.ssoToken ? { ssoToken: row.ssoToken } : {}),
       }
     }
     try {
-      await mkdir(dirname(this._file), { recursive: true })
-      await writeFile(this._file, JSON.stringify({ tokens }, null, 2), 'utf-8')
+      await atomicWriteJson(this._file, { tokens }, { mode: 0o600 })
     } catch (err) {
       console.warn('[uds-auth:SessionBridge] save failed:', err.message)
     }
   }
 
   /**
-   * @param {{ empNo: string, kind?: string, ssoToken?: string, ttlMs?: number }} row
+   * @param {{ empNo: string, kind?: string, ssoToken?: string, ttlMs?: number, token?: string }} row
    * @returns {{ empNo: string, kind: string, token: string, exp: number }}
    */
   mint(row) {
     const empNo = String(row.empNo || '').trim()
     if (!empNo) throw new Error('bridge_empNo_required')
     const kind = String(row.kind || 'fallback')
-    const token = randomBytes(32).toString('hex')
+    // Prefer caller-supplied token (local session bearer) so bridge ≡ session proof.
+    const token = row.token ? String(row.token) : randomBytes(32).toString('hex')
+    if (token.length < 32) throw new Error('bridge_token_too_short')
     const exp = Date.now() + (row.ttlMs || this._ttlMs)
     this._byToken.set(token, {
       empNo,
@@ -127,6 +130,33 @@ export class SessionBridgeStore {
     return { empNo: row.empNo, kind: row.kind, ssoToken: row.ssoToken }
   }
 
+  /**
+   * Slide bridge expiry with its local session (bridge token ≡ session bearer).
+   * Without this the bridge died at mint+TTL even while the session stayed active,
+   * leaving cookie-less Desktop (and emergency admins, who have no portal SSO
+   * re-mint path) anonymous on remote.mux.
+   * @param {string} token
+   * @param {number} [ttlMs]
+   * @returns {boolean}
+   */
+  touch(token, ttlMs) {
+    const t = String(token || '').trim()
+    if (!t) return false
+    const row = this._byToken.get(t)
+    if (!row) return false
+    const now = Date.now()
+    if (row.exp <= now) {
+      this._byToken.delete(t)
+      this._scheduleSave()
+      return false
+    }
+    const next = now + (Number(ttlMs) > 0 ? Number(ttlMs) : this._ttlMs)
+    if (next <= row.exp) return true
+    row.exp = next
+    this._scheduleSave()
+    return true
+  }
+
   /** Clear all bridge tokens for an empNo (logout). */
   revokeEmpNo(empNo) {
     const e = String(empNo || '').trim()
@@ -141,10 +171,62 @@ export class SessionBridgeStore {
     if (changed) this._scheduleSave()
   }
 
+  /**
+   * D04: revoke only bridges whose kind matches (password vs sealed_box).
+   * @param {string} empNo
+   * @param {string|string[]} kinds
+   */
+  revokeEmpNoKinds(empNo, kinds) {
+    const e = String(empNo || '').trim()
+    const allow = new Set(Array.isArray(kinds) ? kinds.map(String) : [String(kinds)])
+    if (!e || !allow.size) return 0
+    let n = 0
+    for (const [token, row] of this._byToken) {
+      if (row.empNo === e && allow.has(String(row.kind || 'fallback'))) {
+        this._byToken.delete(token)
+        n++
+      }
+    }
+    if (n) this._scheduleSave()
+    return n
+  }
+
   revokeToken(token) {
     const t = String(token || '').trim()
     if (!t) return
     if (this._byToken.delete(t)) this._scheduleSave()
+  }
+
+  /**
+   * T01: short-TTL, single-use WS handshake ticket (not a reusable session bearer).
+   * @param {{ empNo: string, bearer: string, ttlMs?: number }} input
+   */
+  mintWsTicket(input) {
+    const empNo = String(input?.empNo || '').trim()
+    const bearer = String(input?.bearer || '').trim()
+    if (!empNo || bearer.length < 16) throw new Error('ws_ticket_input_required')
+    const now = Date.now()
+    for (const [k, v] of this._wsTickets) if (v.exp <= now) this._wsTickets.delete(k)
+    if (this._wsTickets.size >= 5000) throw new Error('ws_ticket_capacity')
+    const ttl = Math.min(120_000, Math.max(15_000, Number(input.ttlMs) || 60_000))
+    const ticket = randomBytes(24).toString('hex')
+    const exp = Date.now() + ttl
+    this._wsTickets.set(ticket, { empNo, bearer, exp })
+    return { ticket, empNo, expiresAt: exp, expiresIn: Math.floor(ttl / 1000) }
+  }
+
+  /**
+   * Atomically consume a WS ticket. Replay returns null.
+   * @returns {{ empNo: string, bearer: string } | null}
+   */
+  consumeWsTicket(ticket) {
+    const id = String(ticket || '').trim()
+    if (!id) return null
+    const row = this._wsTickets.get(id)
+    if (!row) return null
+    this._wsTickets.delete(id)
+    if (row.exp <= Date.now()) return null
+    return { empNo: row.empNo, bearer: row.bearer }
   }
 }
 
@@ -163,34 +245,25 @@ export function readBridgeHeaders(req) {
 }
 
 /**
- * Headers first, then WebSocket upgrade query
- * (`?udsBridgeEmpNo=&udsBridgeToken=&udsBridgeKind=`).
- * Browser WS cannot set custom headers; Desktop also drops cookies.
+ * Headers only for reusable bridge credentials.
+ * T01: WS upgrade must use one-time `udsWsTicket` (see extractSessionBearer) —
+ * long-lived bridge tokens in the URL query are ignored.
  * @param {any} req
  * @returns {{ empNo: string, token: string, kind: string } | null}
  */
 export function readBridgeFromRequest(req) {
-  const fromHdr = readBridgeHeaders(req)
-  if (fromHdr) return fromHdr
+  return readBridgeHeaders(req)
+}
+
+/**
+ * Read one-time WS ticket id from upgrade URL (does not consume).
+ * @param {any} req
+ * @returns {string|null}
+ */
+export function readWsTicketFromRequest(req) {
   try {
     const url = new URL(req?.url || '/', 'http://uds-auth.local')
-    const empNo = String(
-      url.searchParams.get('udsBridgeEmpNo')
-      || url.searchParams.get('x-uds-bridge-empno')
-      || '',
-    ).trim()
-    const token = String(
-      url.searchParams.get('udsBridgeToken')
-      || url.searchParams.get('x-uds-bridge-token')
-      || '',
-    ).trim()
-    const kind = String(
-      url.searchParams.get('udsBridgeKind')
-      || url.searchParams.get('x-uds-bridge-kind')
-      || 'fallback',
-    ).trim() || 'fallback'
-    if (!empNo || !token) return null
-    return { empNo, token, kind }
+    return String(url.searchParams.get('udsWsTicket') || '').trim() || null
   } catch {
     return null
   }

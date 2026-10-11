@@ -4,10 +4,11 @@
  * Used with workspace/cwd checks in dsh-acl.js (owner OR own workspace).
  * Missing owner must NOT deny access by itself (legacy sessions).
  */
-import { readFile, writeFile, mkdir } from 'node:fs/promises'
-import { dirname, resolve } from 'node:path'
+import { readFile } from 'node:fs/promises'
+import { resolve } from 'node:path'
 import { getUserContext } from './context.js'
 import { ROLES, computePermissions } from './roles.js'
+import { atomicWriteJson } from './utils/atomic-write.js'
 
 export class SessionAclStore {
   /**
@@ -29,10 +30,15 @@ export class SessionAclStore {
         this._owners.set(String(sessionId), String(empNo))
       }
     } catch (err) {
-      if (err.code !== 'ENOENT') {
-        console.warn('[uds-auth:SessionAcl] load failed:', err.message)
-      }
+      if (err.code === 'ENOENT') return
+      // R09: corrupt ownership must fail closed — do not treat as empty/unowned.
+      console.error('[uds-auth:SessionAcl] load failed — fail closed:', err.message)
+      this._loadFailed = true
     }
+  }
+
+  get loadFailed() {
+    return !!this._loadFailed
   }
 
   _markDirty() {
@@ -46,16 +52,12 @@ export class SessionAclStore {
     if (!this._dirty || !this._ownersFile) return
     this._dirty = false
     try {
-      await mkdir(dirname(this._ownersFile), { recursive: true })
-      await writeFile(
-        this._ownersFile,
-        JSON.stringify({
-          owners: Object.fromEntries(this._owners),
-          savedAt: new Date().toISOString(),
-        }, null, 2),
-        'utf-8',
-      )
+      await atomicWriteJson(this._ownersFile, {
+        owners: Object.fromEntries(this._owners),
+        savedAt: new Date().toISOString(),
+      }, { mode: 0o600 })
     } catch (err) {
+      this._dirty = true
       console.warn('[uds-auth:SessionAcl] save failed:', err.message)
     }
   }
@@ -64,10 +66,21 @@ export class SessionAclStore {
     return this._owners.get(String(sessionId)) || null
   }
 
-  setOwner(sessionId, empNo) {
-    if (!sessionId || !empNo) return
-    this._owners.set(String(sessionId), String(empNo))
+  /**
+   * Stamp owner. Existing foreign owner is NOT overwritten unless force=true (SEC-13).
+   * @returns {boolean} true if written / already same owner
+   */
+  setOwner(sessionId, empNo, { force = false } = {}) {
+    if (!sessionId || !empNo) return false
+    const id = String(sessionId)
+    const next = String(empNo)
+    const existing = this._owners.get(id)
+    if (existing && String(existing) !== next && !force) {
+      return false
+    }
+    this._owners.set(id, next)
     this._markDirty()
+    return true
   }
 
   /** All stamped owners for export / analytics. */

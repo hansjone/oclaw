@@ -1,22 +1,16 @@
 /**
- * Last verified browser identity (bridge or cookie).
- * Desktop mux follow/history often runs with empty ALS; fall back here after
- * a successful /uds-auth HTTP auth or WS upgrade bind.
+ * Deprecated global last-user cache (SEC-06).
+ * Kept as no-ops so older imports do not crash; never restores a principal.
  */
 
-/** @type {object|null} */
-let lastBrowserIdentity = null
-
-export function rememberBrowserIdentity(identity) {
-  const emp = identity?.empNo || identity?.userContext?.empNo
-  if (!emp) return
-  lastBrowserIdentity = identity
+export function rememberBrowserIdentity(_identity) {
+  /* intentionally no-op — connection-bound identity only */
 }
 
 export function clearBrowserIdentity() {
-  lastBrowserIdentity = null
+  /* intentionally no-op */
 }
 
 export function peekBrowserIdentity() {
-  return lastBrowserIdentity
+  return null
 }
