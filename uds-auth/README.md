@@ -10,6 +10,8 @@ dsh plugin --profile web add -w "D:/project/chatgpt/oclaw/uds-auth"
 
 Restart Harness after install. The badge mounts on `sidebar.footer.action` (root scope).
 
+Version `0.2.21` provides `ctx.get('udsAuth').runAsHost(callback)` for trusted Host plugins. It isolates UDS browser identity during synchronous and asynchronous background operations and restores the caller afterward. Use with `dsh-im-ops >= 4.9.1-ops.38` to fix WhatsApp background Session creation rejected as signed out; update both plugins and restart the Host. The callback adds no remote endpoint and preserves browser login and workspace ACL checks.
+
 ## Config
 
 ```yaml

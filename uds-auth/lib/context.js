@@ -34,6 +34,17 @@ export function runWithUserContext(userContext, fn) {
 }
 
 /**
+ * Run a trusted in-process Host operation without a browser identity.
+ * Only Host plugins receive this callback API; it is not a remote endpoint.
+ * @param {Function} fn
+ * @returns {*} The operation's result, preserving synchronous and async calls.
+ */
+export function runAsHost(fn) {
+  if (typeof fn !== 'function') throw new TypeError('Host operation must be a function')
+  return userContextStorage.run(undefined, fn)
+}
+
+/**
  * Persist ALS for the rest of this async execution chain.
  * Needed for Gateway Remote stream mux: message handlers are sync but start
  * async `pump()` work that continues after the listener returns (so als.run

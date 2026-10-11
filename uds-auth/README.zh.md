@@ -10,6 +10,8 @@ dsh plugin --profile web add -w "D:/project/chatgpt/oclaw/uds-auth"
 
 安装后重启 Harness。登录徽章在 `shell.overlay`（右上角）；用户管理/部署配置在 **设置 → UDS 认证**（`settings.section`）。
 
+`0.2.21` 提供仅供 Host 插件使用的 `ctx.get('udsAuth').runAsHost(callback)`：在回调及其异步操作内使用 Host 后台上下文，并恢复调用者的网页身份。配合 `dsh-im-ops >= 4.9.1-ops.38` 修复 WhatsApp 后台建会话误报“登录后才能创建会话”；更新两者后重启 Host。该方法不增加远程端点，网页登录及工作区 ACL 保持生效。
+
 ## 配置
 
 在 **设置 → UDS 认证** 或 `cordis.patch.yml` 中修改：

@@ -21,6 +21,7 @@ import {
   LOCAL_ADMIN_BOX_ENV,
 } from './local-admin.js'
 import { SessionBridgeStore } from './session-bridge.js'
+import { runAsHost } from './context.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const require = createRequire(import.meta.url)
@@ -1267,6 +1268,7 @@ async function initServices(ctx, config) {
     }
 
     const udsAuth = {
+      runAsHost,
       async resolveRequestIdentity(req) {
         const identity = await resolveIdentity(req)
         if (!identity?.empNo) return null
