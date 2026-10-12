@@ -1,10 +1,10 @@
 # 升级到 0.3.10
 
-本版修复密码并发写入、Desktop 凭据附带范围、Gateway 全局接口遗漏、扫码浏览器绑定、任务授权注入和安全状态迁移。先备份 profile 中的安全状态及密钥，再替换插件并重启 Host；不要删除 roles/owners 文件，也不要恢复历史共享默认密码。
+本版修复密码并发写入、Desktop 凭据附带范围、Gateway 全局接口遗漏、扫码浏览器绑定、任务授权注入和安全状态迁移。先备份 profile 中的安全状态及密钥，再替换插件并重启 Host；不要删除 roles/owners 文件。
 
 ## 登录和 Desktop
 
-应急密码入口始终显示；未设置密码时保持禁用。已登录的授权管理员可在「账号 / 权限」设置至少 10 位的新密码。Local Admin 密封盒解锁保持独立，轮换或关闭应急密码不撤销密封盒会话。
+应急账号默认启用，账号为 `administrator`、密码为 `Admin@123`；首次登录后请尽快在「账号 / 权限」设置新密码，也可在此关闭应急账号。旧 roles 文件若没有应急账号状态会启用默认账号；显式关闭状态会保留。Local Admin 密封盒解锁保持独立，轮换或关闭应急密码不撤销密封盒会话。
 
 Desktop 只把 bridge 附到 `dsh-app://app` 或 Host 启动时提供的 `__DSH_TRANSPORT__.streamBaseUrl` 对应 authority。启动信息缺失时绝不向其他本机端口外发凭据；需要支持提供这个正式 transport 字段的 DSH 版本。带 bridge 的 fetch 拒绝重定向，保留原 Request headers。一次性 WS ticket 只用于 GET `/api/remote.mux` 的真正 WebSocket upgrade；普通 HTTP、其他路径和重放均无效。构造 WebSocket 仍采用同步 XHR 取票，需真实 Desktop 验证该协议桥。
 

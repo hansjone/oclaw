@@ -61,7 +61,7 @@ skillCredentialTtlSeconds: 604800
 ## 管理员与应急
 
 - **三类管理员同权**（`super_admin` / `admin` / `fallback_admin`）：用户管理、设置、建工作区；标签不是更强隔离。
-- **无共享默认密码**。须在设置中显式设置应急口令（≥10 位，禁止 `Admin@123`）。旧安装若仍存该默认 hash，升级后自动禁用直至重置。
+- **应急账号默认开启**：账号 `administrator`，密码 `Admin@123`。首次登录后建议立即在设置中修改；管理员也可关闭该账号。旧 roles 文件未记录应急账号状态时会启用此默认账号；已明确关闭的状态会保留。历史 `Admin@123` SHA-256 hash 会迁移为 scrypt hash。
 - **本机密钥解锁**：`node scripts/seal-local-admin.mjs`（交互输入，勿把口令放 argv）→ 设置 `UDS_AUTH_LOCAL_ADMIN_BOX` → 登录面板解密。
 - **停用账号**：删除用户默认写入 disabled 状态，不会因开放注册自动复活。
 

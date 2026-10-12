@@ -182,7 +182,7 @@ test('R13/R14: QR challenge store + live identity patch + docs (source)', () => 
   const acl = readFileSync(join(root, 'lib/dsh-acl.js'), 'utf8')
   assert.match(acl, /__udsAuthIdentityLive/)
   const readme = readFileSync(join(root, 'README.zh.md'), 'utf8')
-  assert.doesNotMatch(readme, /Admin@123.*首次启动自动启用/)
+  assert.match(readme, /administrator.*Admin@123/)
   assert.match(readme, /mintTaskCapability|UDS_TASK_CAPABILITY/)
 })
 

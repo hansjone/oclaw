@@ -29,7 +29,7 @@ const ACCOUNT_STATUS = {
   DISABLED: 'disabled',
 }
 
-/** Known shared default from pre-0.3 installs — must never remain usable (R10). */
+/** Shared emergency default requested for first boot and legacy migrations. */
 const LEGACY_DEFAULT_SHA256 = createHash('sha256').update('Admin@123').digest('hex')
 
 /**
@@ -141,7 +141,7 @@ export function canToggleViewAllSessions(role) {
   return isAdminClass(role)
 }
 
-/** Historical default — never enable automatically (R10). */
+/** Default emergency credentials. Rotate the password after first sign-in. */
 export const DEFAULT_FALLBACK_PASSWORD = 'Admin@123'
 export const DEFAULT_FALLBACK_USERNAME = 'administrator'
 
@@ -149,7 +149,7 @@ export const DEFAULT_FALLBACK_USERNAME = 'administrator'
  * RolesStore — 角色存储
  * 内存 Map + 可选 JSON 文件持久化
  *
- * fallback admin: 默认关闭；须在设置中显式设置 scrypt 口令（≥10，禁 Admin@123）。
+ * fallback admin: first boot uses the shared Admin@123 password; admins can rotate or disable it.
  *   登录路径: POST /uds-auth/api/fallback/login { username, password }
  */
 export class RolesStore {
@@ -170,18 +170,21 @@ export class RolesStore {
     this._saveTimer = null
   }
 
-  /**
-   * New installs do NOT enable a shared default password (SEC-08).
-   * Admins must set a password explicitly via settings / setFallbackPassword.
-   */
+  /** Seed the requested default emergency password on first initialization. */
   _ensureDefaultFallback() {
-    // no-op — kept for call-site compatibility
+    if (this._fallbackPasswordHash !== null) return false
+    this._fallbackPasswordHash = hashPasswordScrypt(DEFAULT_FALLBACK_PASSWORD)
+    this._fallbackNeedsRehash = false
+    this._fallbackCredVersion = Math.max(1, this._fallbackCredVersion + 1)
+    this._dirty = true
+    return true
   }
 
   // === 持久化 ===
 
   async init() {
     let loadedOk = false
+    let seedDefaultFallback = !this._rolesFile
     if (this._rolesFile) {
       try {
         const raw = await readFile(this._rolesFile, 'utf-8')
@@ -196,6 +199,9 @@ export class RolesStore {
         }
         if (Object.prototype.hasOwnProperty.call(data, 'fallbackPasswordHash')) {
           this._fallbackPasswordHash = data.fallbackPasswordHash || null
+        } else {
+          // Upgrade older roles files that predate explicit fallback state.
+          seedDefaultFallback = true
         }
         this._fallbackCredVersion = Number.isSafeInteger(data.fallbackCredVersion)
           && data.fallbackCredVersion >= 0 ? data.fallbackCredVersion : 0
@@ -207,9 +213,10 @@ export class RolesStore {
         loadedOk = true
       } catch (err) {
         if (err.code === 'ENOENT') {
-          // First boot — empty roles, fallback disabled until explicitly configured.
+          // First boot — seed and persist the requested default credentials.
+          seedDefaultFallback = true
           console.info(
-            '[uds-auth] roles file missing; fallback password disabled until configured'
+            '[uds-auth] roles file missing; enabling default emergency account administrator'
             + ` (set initialAdmin via UDS_AUTH_INITIAL_ADMIN)`,
           )
         } else {
@@ -219,17 +226,22 @@ export class RolesStore {
         }
       }
     }
-    // R10: known shared default hash cannot remain enabled after upgrade.
+    // Upgrade the historical SHA-256 default to a salted scrypt hash.
     if (loadedOk && this._fallbackPasswordHash
       && String(this._fallbackPasswordHash).toLowerCase() === LEGACY_DEFAULT_SHA256) {
-      console.warn('[uds-auth] refusing legacy shared default fallback password — disabled until reset')
-      this._fallbackPasswordHash = null
+      console.warn('[uds-auth] migrating legacy default fallback password to scrypt')
+      this._fallbackPasswordHash = hashPasswordScrypt(DEFAULT_FALLBACK_PASSWORD)
+      this._fallbackCredVersion = Math.max(1, this._fallbackCredVersion + 1)
       this._dirty = true
       await this._save()
     } else if (loadedOk && this._fallbackPasswordHash
       && /^[0-9a-f]{64}$/i.test(String(this._fallbackPasswordHash))) {
       this._fallbackNeedsRehash = true
       console.warn('[uds-auth] legacy SHA-256 fallback hash loaded — will upgrade on next successful login')
+    }
+    if (seedDefaultFallback && !this._loadFailed) {
+      this._ensureDefaultFallback()
+      await this.flush()
     }
     if (loadedOk && this._fallbackPasswordHash) {
       console.info('[uds-auth] fallback_admin password loaded from roles file')

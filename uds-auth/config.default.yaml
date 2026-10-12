@@ -15,5 +15,5 @@ skillCredentialTtlSeconds: 604800
 outboundAllowedHosts: icenterapi.zte.com.cn,icentermsg.dt.zte.com.cn
 # Optional exact Host allowlist for /uds-auth writes; empty = Origin must match Host only
 trustedHosts: ''
-# Emergency fallback password is NOT enabled by default. Set via Settings (min 10 chars).
-# Legacy Admin@123 hashes are refused on upgrade.
+# Emergency fallback account is enabled by default: administrator / Admin@123.
+# Change or disable it from Settings after signing in.

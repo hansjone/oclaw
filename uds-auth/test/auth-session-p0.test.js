@@ -234,11 +234,11 @@ test('SEC-06: identity-cache never restores a principal', () => {
   assert.equal(peekBrowserIdentity(), null)
 })
 
-test('SEC-08: new RolesStore does not enable shared default password', async () => {
+test('SEC-08: new RolesStore enables the default emergency password', async () => {
   const store = new RolesStore({})
   await store.init()
-  assert.equal(store.isFallbackEnabled(), false)
-  assert.equal(store.verifyFallback(DEFAULT_FALLBACK_PASSWORD, '127.0.0.1'), false)
+  assert.equal(store.isFallbackEnabled(), true)
+  assert.equal(store.verifyFallback(DEFAULT_FALLBACK_PASSWORD, '127.0.0.1'), true)
 })
 
 test('SEC-09: empty roles + non-initial admin cannot bootstrap via middleware helper', async () => {

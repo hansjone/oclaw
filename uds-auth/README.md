@@ -56,7 +56,7 @@ Durable state defaults to `~/.uds-auth/` (roles / owners / credentials / bridge 
 ## Admin / emergency
 
 - `super_admin` / `admin` / `fallback_admin` share the same admin-class permissions (identity labels, not stronger isolation).
-- No shared default password. Set emergency password in Settings (≥10 chars; `Admin@123` rejected). Legacy default hashes are cleared on upgrade.
+- The emergency account is enabled by default: username `administrator`, password `Admin@123`. Change it in Settings after first sign-in. Admins can also disable it. Older roles files without an explicit emergency-account state receive this default; an explicitly disabled account stays disabled. Historical SHA-256 hashes of `Admin@123` migrate to scrypt.
 - Local unlock: `node scripts/seal-local-admin.mjs` (interactive / `--stdin` — **no argv passphrase**) → `UDS_AUTH_LOCAL_ADMIN_BOX`.
 - Removing a user disables the account by default (open registration cannot auto-revive).
 
