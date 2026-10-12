@@ -108,16 +108,18 @@ test('password transactions queue set/set/clear and persist a restart-safe gener
   const dir = await temporary(t), file = join(dir, 'roles.json')
   const store = new RolesStore({ rolesFile: file })
   await store.init()
+  // init() seeds the default emergency password, so assert relative to that baseline.
+  const base = store.getFallbackCredVersion()
   await Promise.all([
     store.setFallbackPassword('password-first-0310', ROLES.SUPER_ADMIN),
     store.setFallbackPassword('password-second-0310', ROLES.SUPER_ADMIN),
     store.clearFallbackPassword(ROLES.SUPER_ADMIN),
   ])
   assert.equal(store.isFallbackEnabled(), false)
-  assert.equal(store.getFallbackCredVersion(), 3)
+  assert.equal(store.getFallbackCredVersion(), base + 3)
   const reopened = new RolesStore({ rolesFile: file }); await reopened.init()
   assert.equal(reopened.isFallbackEnabled(), false)
-  assert.equal(reopened.getFallbackCredVersion(), 3)
+  assert.equal(reopened.getFallbackCredVersion(), base + 3)
 })
 
 test('queued admin writes recheck the actor after a preceding demotion commits', async t => {
@@ -140,6 +142,7 @@ test('failed credential write cannot resurrect an uncommitted peer; next queued 
   const file = join(await temporary(t), 'roles.json')
   const store = new RolesStore({ rolesFile: file }); await store.init()
   await store.setFallbackPassword('original-password-0310', ROLES.SUPER_ADMIN)
+  const durable = store.getFallbackCredVersion()
   const originalFlush = store.flush.bind(store)
   let start, finish
   const started = new Promise(r => start = r), gate = new Promise(r => finish = r)
@@ -152,12 +155,12 @@ test('failed credential write cannot resurrect an uncommitted peer; next queued 
   const failure = assert.rejects(first, /injected-write-failure/)
   await started
   const second = store.setFallbackPassword('committed-second-0310', ROLES.SUPER_ADMIN)
-  assert.equal(store.getFallbackCredVersion(), 1, 'readers see only the durable generation')
+  assert.equal(store.getFallbackCredVersion(), durable, 'readers see only the durable generation')
   finish(); await failure; await second
   assert.equal(await store.verifyFallbackAsync('uncommitted-password-0310', 'ip1'), false)
   assert.equal(await store.verifyFallbackAsync('committed-second-0310', 'ip2'), true)
   const again = new RolesStore({ rolesFile: file }); await again.init()
-  assert.equal(again.getFallbackCredVersion(), 2)
+  assert.equal(again.getFallbackCredVersion(), durable + 1)
   assert.equal(await again.verifyFallbackAsync('committed-second-0310', 'ip3'), true)
 })
 
