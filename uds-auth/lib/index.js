@@ -1694,6 +1694,31 @@ async function initServices(ctx, config) {
       sessionBridge: _sessionBridge,
     })
 
+    // Revalidate QR-authenticated sessions against the UDS department profile.
+    // The session store still enforces the independent seven-day absolute limit.
+    const udsSessionCheckTimer = setInterval(async () => {
+      let sessions
+      try {
+        sessions = await _sessionStore.listUdsSessionsForValidation()
+      } catch (err) {
+        ctx.logger?.warn?.('[uds-auth] failed to enumerate UDS sessions for validation:', err?.message || err)
+        return
+      }
+      for (const session of sessions) {
+        try {
+          if (!session.token || !await _authMiddleware.verifyEmpNoAndToken(session.empNo, session.token)) {
+            await _sessionStore.revokeSession(session.sessionId)
+            ctx.logger?.info?.('[uds-auth] UDS session revoked after profile validation failed for %s', session.empNo)
+          }
+        } catch (err) {
+          await _sessionStore.revokeSession(session.sessionId).catch(() => {})
+          ctx.logger?.info?.('[uds-auth] UDS session revoked after profile validation error for %s: %s', session.empNo, err?.message || err)
+        }
+      }
+    }, 6 * 60 * 60 * 1000)
+    udsSessionCheckTimer.unref?.()
+    ctx.effect?.(() => () => clearInterval(udsSessionCheckTimer), 'uds-auth: UDS session validation')
+
     _apiHandlers = createApiHandlers(
       { session: INTERNAL.session },
       _sessionStore,

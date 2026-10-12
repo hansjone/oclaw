@@ -280,6 +280,20 @@ export class MemoryStore extends SessionStore {
     return this._publicRecord(this._purgeExpired(id))
   }
 
+  async listUdsSessionsForValidation() {
+    const sessions = []
+    for (const [sessionId, record] of this._sessions) {
+      const row = this._purgeExpired(sessionId)
+      if (!row || row.kind !== 'uds') continue
+      sessions.push({
+        sessionId: row.sessionId,
+        empNo: row.empNo,
+        token: typeof row.userData?.token === 'string' ? row.userData.token : '',
+      })
+    }
+    return sessions
+  }
+
   getBySessionIdSync(sessionId) {
     const id = String(sessionId || '').trim()
     if (!id) return null

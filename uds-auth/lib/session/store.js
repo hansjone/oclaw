@@ -27,6 +27,11 @@ export class SessionStore {
     throw new Error('SessionStore#getBySessionId must be implemented')
   }
 
+  /** Return active UDS sessions and their upstream token for periodic validation. */
+  async listUdsSessionsForValidation() {
+    throw new Error('SessionStore#listUdsSessionsForValidation must be implemented')
+  }
+
   async touch(sessionId, ttlSeconds) {
     throw new Error('SessionStore#touch must be implemented')
   }
