@@ -4,7 +4,7 @@
 
 import { requirePermission } from './middleware/auth-middleware.js'
 import { computePermissions } from './roles.js'
-import { apiError, apiOk, resolveLocale } from './i18n.js'
+import { apiError, apiOk, resolveLocale, MESSAGES } from './i18n.js'
 import { readFile, writeFile, mkdir } from 'node:fs/promises'
 import { resolve, dirname, isAbsolute, join } from 'node:path'
 import { homedir } from 'node:os'
@@ -420,6 +420,7 @@ async function handleQRProxy(req, res) {
       })
       proxyRes.on('end', () => {
         if (aborted || res.headersSent) return
+        let scannedEmpNo = ''
         void (async () => {
           let payload
           try { payload = JSON.parse(Buffer.concat(chunks).toString('utf8')) } catch {
@@ -441,6 +442,7 @@ async function handleQRProxy(req, res) {
             _logger?.warn?.('[uds-auth] qr-proxy upstream %s unexpected result code=%s bo=%s', url.hostname, top, boCode)
             return sendErr(res, req, 502, 'invalid_upstream_response', { host: url.hostname })
           }
+          scannedEmpNo = credentials.empNo
           const consumed = consumeQrChallenge(parsedBody.qrCodeKey, parsedBody.qrCodeValue,
             req.headers['x-uds-qr-binding'])
           if (!consumed.ok) return sendErr(res, req, 409, consumed.reason)
@@ -472,7 +474,11 @@ async function handleQRProxy(req, res) {
               userContext: { empNo: id, username: userContext.username, role, isAuthenticated: true } } })
         })().catch(err => {
           _logger?.warn?.('[uds-auth] qr-proxy post-scan login failed: %s %s', err?.code || '', err?.message || err)
-          if (!res.headersSent) sendErr(res, req, 502, 'login_finalize_failed', { detail: err?.code || err?.message || '' })
+          if (res.headersSent) return
+          // Codes with their own message (bootstrap_required, account_disabled, ...) must reach the user.
+          const known = err?.code && MESSAGES.zh['err.' + err.code]
+          if (known) return sendErr(res, req, 403, err.code, { empNo: scannedEmpNo })
+          sendErr(res, req, 502, 'login_finalize_failed', { detail: err?.code || err?.message || '' })
         })
       })
       proxyRes.on('error', (err) => {
@@ -886,7 +892,7 @@ async function handleBridgeBind(req, res) {
   try {
     role = await _authMiddleware.resolveRoleOnLogin(id)
   } catch (err) {
-    return sendErr(res, req, 403, err?.code || 'bootstrap_required')
+    return sendErr(res, req, 403, err?.code || 'bootstrap_required', { empNo: id })
   }
   const { bearer, bridge } = await mintLoginSession(id, userContext, 'uds', token)
   await ensureUserWorkspace(id)

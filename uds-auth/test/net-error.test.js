@@ -48,4 +48,13 @@ describe('upstream error messages', () => {
       assert.equal(client.split(`"err.${code}":`).length - 1, 2, code)
     }
   })
+
+  it('bootstrap_required names the scanned employee number and the way out', () => {
+    for (const locale of ['zh', 'en']) {
+      const m = apiError('bootstrap_required', locale, { empNo: '10012345' })
+      assert.equal(m.error, 'bootstrap_required')
+      assert.match(m.message, /UDS_AUTH_INITIAL_ADMIN=10012345/)
+      assert.doesNotMatch(m.message, /\{empNo\}/)
+    }
+  })
 })
