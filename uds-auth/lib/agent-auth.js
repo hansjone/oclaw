@@ -158,7 +158,16 @@ export function createAgentAuthHandlers(deps) {
 
     const creds = await deps.resolveCredentialsForSession(String(sessionId))
     if (!creds || String(creds.empNo) !== String(caller.empNo)) {
-      return { error: 'no_skill_credentials', creds: null, sessionId: String(sessionId) }
+      // Credentials follow the session OWNER (stamped at creation), not whoever scanned last.
+      // Emergency / local-admin owners never hold UAC credentials, so name the owner.
+      const owner = String(caller.empNo)
+      const noUac = owner === 'administrator' || owner.startsWith('__')
+      return {
+        error: noUac ? 'session_owner_no_uac' : 'no_skill_credentials',
+        vars: { owner },
+        creds: null,
+        sessionId: String(sessionId),
+      }
     }
     return { error: null, creds, sessionId: String(sessionId), caller }
   }
@@ -185,7 +194,7 @@ export function createAgentAuthHandlers(deps) {
     } catch (err) {
       return sendErr(req, res, err.statusCode || 400, err.code || 'invalid_json')
     }
-    const { error, creds, sessionId } = await resolveAuthorizedCreds(req, body, 'credentials')
+    const { error, creds, sessionId, vars } = await resolveAuthorizedCreds(req, body, 'credentials')
     if (error || !creds) {
       audit({
         action: 'agent_credentials',
@@ -194,7 +203,7 @@ export function createAgentAuthHandlers(deps) {
         meta: { sessionId },
       })
       return sendJSON(res, 401, {
-        ...apiError(error || 'no_skill_credentials', resolveLocale(req)),
+        ...apiError(error || 'no_skill_credentials', resolveLocale(req), vars),
         sessionId: sessionId || null,
       })
     }
@@ -220,9 +229,15 @@ export function createAgentAuthHandlers(deps) {
       return sendErr(req, res, 405, 'method_not_allowed')
     }
     const body = await readJsonBody(req)
-    const { error, creds } = await resolveAuthorizedCreds(req, body, 'outbound')
+    const { error, creds, vars, sessionId } = await resolveAuthorizedCreds(req, body, 'outbound')
     if (error || !creds) {
-      return sendErr(req, res, 401, error || 'no_skill_credentials')
+      audit({
+        action: 'agent_outbound',
+        decision: 'deny',
+        reasonCode: error || 'no_skill_credentials',
+        meta: { sessionId, owner: vars?.owner },
+      })
+      return sendErr(req, res, 401, error || 'no_skill_credentials', vars)
     }
 
     const targetUrl = body.url
