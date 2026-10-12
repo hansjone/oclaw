@@ -37,6 +37,8 @@ window.__ModuleLoader__.load({
     "ui.deployConfig": "部署配置",
     "ui.userSearchUrl": "用户搜索 URL（token 校验）",
     "ui.workspaceRoot": "工作区根目录（空=$DSH_HOME/user-workspaces）",
+    "ui.allowRawAgentToken": "允许 Skill 获取原始 UDS token",
+    "ui.allowRawAgentTokenHint": "开启后，具备当前任务 credentials scope 的本机 Skill 可获取工号和 token。只在业务确实需要原始 token 时开启。",
     "ui.saveConfig": "保存配置",
     "ui.saving": "保存中...",
     "ui.configSaved": "配置已保存",
@@ -182,6 +184,8 @@ window.__ModuleLoader__.load({
     "ui.deployConfig": "Deploy config",
     "ui.userSearchUrl": "User search URL (token verify)",
     "ui.workspaceRoot": "Workspace root (empty=$DSH_HOME/user-workspaces)",
+    "ui.allowRawAgentToken": "Allow Skills to read the raw UDS token",
+    "ui.allowRawAgentTokenHint": "Enables local Skills with the current task credentials scope to read the employee number and token. Turn this on only when a workflow needs the raw token.",
     "ui.saveConfig": "Save config",
     "ui.saving": "Saving...",
     "ui.configSaved": "Config saved",
@@ -1290,6 +1294,7 @@ function reloadAfterLogin() {
         loginSystemCode: '',
         originSystemCode: '',
         workspaceRoot: '',
+        allowRawAgentToken: false,
       })
       const [fallbackEnabled, setFallbackEnabled] = useState(false)
       const [fallbackPwd, setFallbackPwd] = useState('')
@@ -1412,6 +1417,16 @@ function reloadAfterLogin() {
           field('loginSystemCode', 'loginSystemCode'),
           field('originSystemCode', 'originSystemCode'),
           field('workspaceRoot', t('ui.workspaceRoot')),
+          h('label', { className: 'uds-auth-settings-toggle' },
+            h('input', {
+              type: 'checkbox',
+              checked: form.allowRawAgentToken === true,
+              disabled: !canSettings || busy,
+              onChange: (e) => setForm((prev) => ({ ...prev, allowRawAgentToken: e.target.checked })),
+            }),
+            h('span', null, t('ui.allowRawAgentToken')),
+          ),
+          h('p', { className: 'uds-auth-settings-intro' }, t('ui.allowRawAgentTokenHint')),
           h('div', { className: 'uds-auth-settings-actions' },
             h('button', {
               type: 'button',

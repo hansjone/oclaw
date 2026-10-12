@@ -1,5 +1,5 @@
 /** Host shellEnv adapter. Values are rebuilt after ordinary environment entries. */
-export function createTaskEnvironment({ getOwner, rolesStore, capabilities, getWebServer }) {
+export function createTaskEnvironment({ getOwner, rolesStore, capabilities, getWebServer, allowRawCredentials }) {
   const issued = new Map()
   const release = execution => {
     const key = execution?.token || execution
@@ -14,7 +14,7 @@ export function createTaskEnvironment({ getOwner, rolesStore, capabilities, getW
   const contributor = {
     name: 'uds-auth',
     variables: {
-      DSH_UDS_TASK_CAPABILITY: { description: 'Short-lived session-bound UDS outbound capability; never print or persist.' },
+      DSH_UDS_TASK_CAPABILITY: { description: 'Short-lived session-bound UDS capability; never print or persist.' },
       DSH_UDS_AUTH_BASE: { description: 'Owned loopback uds-auth endpoint of this Host.' },
     },
     resolve(execution) {
@@ -26,9 +26,12 @@ export function createTaskEnvironment({ getOwner, rolesStore, capabilities, getW
       const port = Number(server?.port)
       if (!owner || rolesStore.isDisabled(owner) || !Number.isInteger(port) || port <= 0 || port > 65535
         || execution?.signal?.aborted) return empty
+      const scopes = typeof allowRawCredentials === 'function' && allowRawCredentials()
+        ? ['outbound', 'credentials']
+        : ['outbound']
       const cap = capabilities.mint({
         empNo: owner, dshSessionId: String(sid), audience: 'uds-auth-agent',
-        scopes: ['outbound'], ttlSeconds: 600, mintedBy: 'host:shellEnv',
+        scopes, ttlSeconds: 600, mintedBy: 'host:shellEnv',
       })
       const row = { id: cap.id, sessionId: String(sid), signal: execution.signal, abort: () => release(execution) }
       issued.set(execution.token || execution, row)

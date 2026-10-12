@@ -436,6 +436,9 @@ async function handleQRProxy(req, res) {
             lastActiveAt: now, sessionCreatedAt: now }
           await ensureUserWorkspace(id)
           const { bearer, bridge } = await mintLoginSession(id, userContext, 'uds', credentials.token)
+          // The QR flow creates its session directly instead of passing through
+          // authMiddleware.mintSession(), so explicitly refresh the skill token cache.
+          try { _skillCredentials?.set(id, credentials.token) } catch { /* cache is best-effort */ }
           appendSessionCookie(req, res, bearer)
           sendJSON(res, 200, { code: { code: '0000' }, bo: { code: '0000' },
             auth: { success: true, empNo: id, role, bridge,
@@ -531,6 +534,7 @@ async function handleConfigGet(req, res) {
       retainSkillCredentialsOnLogout: c.retainSkillCredentialsOnLogout !== false,
       skillCredentialTtlSeconds: c.skillCredentialTtlSeconds,
       outboundAllowedHosts: c.outboundAllowedHosts,
+      allowRawAgentToken: c.allowRawAgentToken === true,
     },
   }))
 }
@@ -1676,6 +1680,12 @@ async function initServices(ctx, config) {
     const rememberSkillCreds = (empNo, token) => {
       try { _skillCredentials?.set(empNo, token) } catch { /* ignore */ }
     }
+    const revokeInvalidUdsAccount = async (empNo) => {
+      await _sessionStore.revokeEmpNo(empNo)
+      try { _sessionBridge?.revokeEmpNo?.(empNo) } catch { /* ignore */ }
+      try { _skillCredentials?.delete(empNo) } catch { /* ignore */ }
+      try { _taskCapabilities?.revokeEmpNo(empNo) } catch { /* ignore */ }
+    }
 
     _authMiddleware = createAuthMiddleware({
       get userSearchUrl() { return _currentConfig?.userSearchUrl },
@@ -1705,14 +1715,15 @@ async function initServices(ctx, config) {
         return
       }
       for (const session of sessions) {
+        if (!await _sessionStore.getBySessionId(session.sessionId)) continue
         try {
           if (!session.token || !await _authMiddleware.verifyEmpNoAndToken(session.empNo, session.token)) {
-            await _sessionStore.revokeSession(session.sessionId)
-            ctx.logger?.info?.('[uds-auth] UDS session revoked after profile validation failed for %s', session.empNo)
+            await revokeInvalidUdsAccount(session.empNo)
+            ctx.logger?.info?.('[uds-auth] UDS sessions revoked after profile validation failed for %s', session.empNo)
           }
         } catch (err) {
-          await _sessionStore.revokeSession(session.sessionId).catch(() => {})
-          ctx.logger?.info?.('[uds-auth] UDS session revoked after profile validation error for %s: %s', session.empNo, err?.message || err)
+          await revokeInvalidUdsAccount(session.empNo)
+          ctx.logger?.info?.('[uds-auth] UDS sessions revoked after profile validation error for %s: %s', session.empNo, err?.message || err)
         }
       }
     }, 6 * 60 * 60 * 1000)
@@ -1748,9 +1759,17 @@ async function initServices(ctx, config) {
 
     async function resolveCredentialsForEmpNo(empNo) {
       if (!empNo) return null
-      const row = _skillCredentials?.get(empNo)
-      if (!row?.token) return null
-      return { empNo: row.empNo, token: row.token, updatedAt: row.updatedAt }
+      const cached = _skillCredentials?.get(empNo)
+      if (cached?.token) return { empNo: cached.empNo, token: cached.token, updatedAt: cached.updatedAt }
+      // Older QR sessions may predate skill-cache population. Recover only from
+      // a currently live UDS session owned by this exact employee number.
+      const sessions = await _sessionStore?.listUdsSessionsForValidation?.() || []
+      const session = sessions
+        .filter(row => row.empNo === String(empNo) && row.token)
+        .sort((a, b) => Number(b.createdAt || 0) - Number(a.createdAt || 0))[0]
+      if (!session) return null
+      try { _skillCredentials?.set(session.empNo, session.token) } catch { /* cache is best-effort */ }
+      return { empNo: session.empNo, token: session.token, updatedAt: null }
     }
 
     async function resolveCredentialsForSession(sessionId) {
@@ -1971,6 +1990,7 @@ async function initServices(ctx, config) {
     const { createTaskEnvironment } = await import('./task-environment.js')
     ctx.inject(['shellEnv', 'webServer'], (sctx) => {
       const env = createTaskEnvironment({ getOwner: sid => _sessionAcl?.getOwner(sid),
+        allowRawCredentials: () => _currentConfig?.allowRawAgentToken === true,
         rolesStore: _rolesStore, capabilities: _taskCapabilities,
         getWebServer: () => tryGet(sctx, 'webServer') })
       sctx.shellEnv.register(env.contributor)

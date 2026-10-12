@@ -16,7 +16,7 @@ Desktop 只把 bridge 附到 `dsh-app://app` 或 Host 启动时提供的 `__DSH_
 
 ## Skill、cron 和后台 shell
 
-Host 加载 `shellEnv` 时自动注册 uds-auth contributor。每次 shell 执行根据真实 `execution.agent.session.header.id` 和服务端 owner 签发仅有 `outbound` scope 的 capability，默认 10 分钟，注入受保护的 `DSH_UDS_TASK_CAPABILITY` / `DSH_UDS_AUTH_BASE`。Python helper 优先读取这两个变量；兼容的手工 `UDS_TASK_CAPABILITY` / `UDS_AUTH_BASE` 仅在没有 Host 管理变量时使用。所有 base，包括旧 `DSH_WEB_URL`，都必须是 loopback HTTP(S)。不再猜测 8787 端口，也不允许 remote override 携带凭据。
+Host 加载 `shellEnv` 时自动注册 uds-auth contributor。每次 shell 执行根据真实 `execution.agent.session.header.id` 和服务端 owner 签发 capability，默认只有 `outbound` scope；仅当管理员显式开启 `allowRawAgentToken` 时增加 `credentials` scope，以供受信 skill 调用 `/agent-credentials`。默认 10 分钟，注入受保护的 `DSH_UDS_TASK_CAPABILITY` / `DSH_UDS_AUTH_BASE`。Python helper 优先读取这两个变量；兼容的手工 `UDS_TASK_CAPABILITY` / `UDS_AUTH_BASE` 仅在没有 Host 管理变量时使用。所有 base，包括旧 `DSH_WEB_URL`，都必须是 loopback HTTP(S)。不再猜测 8787 端口，也不允许 remote override 携带凭据。
 
 普通执行结束或取消即撤销。官方 shell 交给 jobs 的 background/promoted 执行绑定该 job，停止、结算、移除或 TTL 到期撤销；不跨任务复用。账号停用、owner 改变和 scope 不符均拒绝代理调用。长于 10 分钟的后台进程不能自动续期；应拆为新的受控调用。前台/后台都不会向 shell 注入 UAC 原始 token。需要 raw credentials 的受信 Host 调用必须显式申请 scope，且仍受 `allowRawAgentToken` 开关控制。
 

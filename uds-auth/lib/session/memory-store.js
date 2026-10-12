@@ -289,6 +289,7 @@ export class MemoryStore extends SessionStore {
         sessionId: row.sessionId,
         empNo: row.empNo,
         token: typeof row.userData?.token === 'string' ? row.userData.token : '',
+        createdAt: row.createdAt,
       })
     }
     return sessions
