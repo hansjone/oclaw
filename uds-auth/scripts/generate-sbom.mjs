@@ -5,7 +5,12 @@ const root = resolve(import.meta.dirname, '..')
 const pkg = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'))
 const lock = JSON.parse(await readFile(join(root, 'package-lock.json'), 'utf8'))
 const bundle = await readFile(join(root, 'lib/qrcode-bundled.cjs'))
-const sourceFiles = [...bundle.toString().matchAll(/^\/\/ node_modules\/(.+)$/gm)].map(m => m[1].trim())
+// Bun can emit pnpm's virtual-store metadata (node_modules/.pnpm/package.json)
+// in its source comments. It is not bundled application code and is not a
+// dependency component, so exclude it from the SBOM source inventory.
+const sourceFiles = [...bundle.toString().matchAll(/^\/\/ node_modules\/(.+)$/gm)]
+  .map(m => m[1].trim())
+  .filter(path => path !== '.pnpm/package.json')
 if (!sourceFiles.length) throw new Error('bundle source inventory missing')
 const names = [...new Set(sourceFiles.map(path => path.startsWith('@') ? path.split('/').slice(0, 2).join('/') : path.split('/')[0]))].sort()
 const components = [], notices = []
