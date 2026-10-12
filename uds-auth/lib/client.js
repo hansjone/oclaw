@@ -132,6 +132,16 @@ window.__ModuleLoader__.load({
     "err.rate_limited": "尝试过多，请稍后再试",
     "err.config_not_ready": "配置未初始化",
     "err.request_failed": "请求失败",
+    "err.upstream_dns": "无法解析 {host}（DNS 失败），请确认本机已接入公司内网 / VPN",
+    "err.upstream_timeout": "连接 {host} 超时，请确认本机已接入公司内网 / VPN，且未被防火墙拦截",
+    "err.upstream_unreachable": "无法连接 {host}（连接被拒绝或中断），请检查网络、防火墙与代理",
+    "err.upstream_cert": "与 {host} 的 TLS 证书校验失败：Node 不读取系统证书库，请设置 NODE_OPTIONS=--use-system-ca 或 NODE_EXTRA_CA_CERTS 后重启",
+    "err.upstream_error": "访问 {host} 失败，详见服务端日志",
+    "err.upstream_http_status": "{host} 返回 HTTP {status}",
+    "err.invalid_upstream_response": "{host} 返回了无法识别的响应",
+    "err.profile_http_status": "用户信息服务 {host} 返回 HTTP {status}（该服务需内网直连，不能经代理）",
+    "err.profile_rejected": "扫码成功，但用户信息校验未通过（{reason}）",
+    "err.login_finalize_failed": "扫码成功，但本机创建会话失败（{detail}），详见服务端日志",
     "err.method_not_allowed": "方法不允许",
     "err.missing_qr_params": "缺少 qrCodeKey 或 qrCodeValue",
     "err.missing_emp_token": "缺少 empNo 或 token",
@@ -279,6 +289,16 @@ window.__ModuleLoader__.load({
     "err.rate_limited": "Too many attempts, try later",
     "err.config_not_ready": "Config not initialized",
     "err.request_failed": "Request failed",
+    "err.upstream_dns": "Cannot resolve {host} (DNS failed). Make sure this machine is on the corporate network / VPN",
+    "err.upstream_timeout": "Connection to {host} timed out. Make sure this machine is on the corporate network / VPN and not firewalled",
+    "err.upstream_unreachable": "Cannot connect to {host} (refused or reset). Check network, firewall and proxy",
+    "err.upstream_cert": "TLS certificate check for {host} failed. Node ignores the OS cert store: set NODE_OPTIONS=--use-system-ca or NODE_EXTRA_CA_CERTS and restart",
+    "err.upstream_error": "Request to {host} failed; see server logs",
+    "err.upstream_http_status": "{host} returned HTTP {status}",
+    "err.invalid_upstream_response": "{host} returned an unrecognized response",
+    "err.profile_http_status": "User lookup service {host} returned HTTP {status} (needs direct intranet access, no proxy)",
+    "err.profile_rejected": "Scan succeeded but user lookup was rejected ({reason})",
+    "err.login_finalize_failed": "Scan succeeded but creating the local session failed ({detail}); see server logs",
     "err.method_not_allowed": "Method not allowed",
     "err.missing_qr_params": "Missing qrCodeKey or qrCodeValue",
     "err.missing_emp_token": "Missing empNo or token",
@@ -1735,8 +1755,11 @@ function reloadAfterLogin() {
               setQrExpired(false)
               setQrFailed(false)
               setQrStatus(result.bo?.msg || boCode || t('ui.loginFailed'))
-            } catch {
-              if (qrRef.current.key === qrCodeKey) setQrStatus(t('ui.networkError'))
+            } catch (err) {
+              // A reply from the local server carries a classified, localized message
+              // (DNS / timeout / TLS cert / lookup rejected); only a failed fetch is a real network error.
+              const detail = err && err.data && err.data.message
+              if (qrRef.current.key === qrCodeKey) setQrStatus(detail || t('ui.networkError'))
             } finally {
               qrRef.current.polling = false
             }

@@ -30,6 +30,7 @@ import {
   SESSION_COOKIE,
 } from './session/request-auth.js'
 import { checkRequestOrigin, requireJsonContentType } from './utils/origin-guard.js'
+import { classifyNetworkError, hostOfUrl } from './utils/net-error.js'
 import { requestIsLoopback } from './skill-credentials.js'
 import { atomicWriteJson } from './utils/atomic-write.js'
 import { readBodyLimited, MAX_QR_PROXY_BODY, MAX_QR_DATA_LEN, DEFAULT_MAX_BODY } from './utils/read-body.js'
@@ -302,6 +303,24 @@ function peekQrChallenge(key, value, binding) { return _qrChallenges.peek(key, v
 function consumeQrChallenge(key, value, binding) { return _qrChallenges.consume(key, value, binding) }
 function isQrLoginSuccessPayload(payload) { return !!qrLoginCredentials(payload) }
 
+/** Log the real cause server-side; give the browser a classified, actionable code. */
+function sendUpstreamErr(res, req, err, host, stage) {
+  _logger?.warn?.('[uds-auth] qr-proxy %s failed (host=%s): %s %s', stage, host,
+    err?.code || '', err?.message || '')
+  return sendErr(res, req, 502, classifyNetworkError(err), { host })
+}
+
+/** Why the post-scan profile lookup failed -> [status, code, vars]. */
+function profileLookupFailure(out) {
+  if (out?.reason === 'network') {
+    return [502, classifyNetworkError({ code: out.code, message: out.error }), { host: out.host || '' }]
+  }
+  if (out?.reason === 'http_auth' || out?.reason === 'http_status') {
+    return [502, 'profile_http_status', { host: out.host || '', status: out.statusCode || '' }]
+  }
+  return [401, 'profile_rejected', { reason: out?.reason || 'unknown' }]
+}
+
 async function handleQrStart(req, res) {
   if (req.method !== 'POST' && req.method !== 'GET') {
     res.writeHead(405, { 'Content-Type': 'application/json' })
@@ -404,10 +423,12 @@ async function handleQRProxy(req, res) {
         void (async () => {
           let payload
           try { payload = JSON.parse(Buffer.concat(chunks).toString('utf8')) } catch {
-            return sendErr(res, req, 502, 'invalid_upstream_response')
+            _logger?.warn?.('[uds-auth] qr-proxy upstream %s returned non-JSON (HTTP %s)', url.hostname, proxyRes.statusCode)
+            return sendErr(res, req, 502, 'invalid_upstream_response', { host: url.hostname })
           }
           if (proxyRes.statusCode < 200 || proxyRes.statusCode >= 300) {
-            return sendErr(res, req, 502, 'upstream_error')
+            _logger?.warn?.('[uds-auth] qr-proxy upstream %s returned HTTP %s', url.hostname, proxyRes.statusCode)
+            return sendErr(res, req, 502, 'upstream_http_status', { host: url.hostname, status: proxyRes.statusCode })
           }
           const credentials = qrLoginCredentials(payload)
           if (!credentials) {
@@ -417,14 +438,20 @@ async function handleQRProxy(req, res) {
             if (top === '0000' && ['4002', '1002'].includes(boCode)) {
               return sendJSON(res, 200, { code: { code: top }, bo: { code: boCode } })
             }
-            return sendErr(res, req, 502, 'invalid_upstream_response')
+            _logger?.warn?.('[uds-auth] qr-proxy upstream %s unexpected result code=%s bo=%s', url.hostname, top, boCode)
+            return sendErr(res, req, 502, 'invalid_upstream_response', { host: url.hostname })
           }
           const consumed = consumeQrChallenge(parsedBody.qrCodeKey, parsedBody.qrCodeValue,
             req.headers['x-uds-qr-binding'])
           if (!consumed.ok) return sendErr(res, req, 409, consumed.reason)
           // Reserve once before asynchronous profile validation or session minting.
-          const profile = await _authMiddleware.verifyEmpNoAndToken(credentials.empNo, credentials.token)
-          if (!profile) return sendErr(res, req, 401, 'invalid_credentials')
+          let lookupFailure = null
+          const profile = await _authMiddleware.verifyEmpNoAndToken(credentials.empNo, credentials.token,
+            { onFailure: (out) => { lookupFailure = out } })
+          if (!profile) {
+            const [status, code, vars] = profileLookupFailure(lookupFailure)
+            return sendErr(res, req, status, code, { host: hostOfUrl(_currentConfig.userSearchUrl), ...vars })
+          }
           const id = profile.empNo || credentials.empNo
           const role = await _authMiddleware.resolveRoleOnLogin(id)
           const now = new Date().toISOString()
@@ -444,20 +471,21 @@ async function handleQRProxy(req, res) {
             auth: { success: true, empNo: id, role, bridge,
               userContext: { empNo: id, username: userContext.username, role, isAuthenticated: true } } })
         })().catch(err => {
-          if (!res.headersSent) sendErr(res, req, 502, err.code || 'upstream_error')
+          _logger?.warn?.('[uds-auth] qr-proxy post-scan login failed: %s %s', err?.code || '', err?.message || err)
+          if (!res.headersSent) sendErr(res, req, 502, 'login_finalize_failed', { detail: err?.code || err?.message || '' })
         })
       })
-      proxyRes.on('error', () => {
-        if (!res.headersSent) sendErr(res, req, 502, 'upstream_error')
+      proxyRes.on('error', (err) => {
+        if (!res.headersSent) sendUpstreamErr(res, req, err, url.hostname, 'response')
       })
     })
 
     proxyReq.on('timeout', () => {
-      try { proxyReq.destroy() } catch { /* ignore */ }
+      try { proxyReq.destroy(Object.assign(new Error('upstream timeout'), { code: 'ETIMEDOUT' })) } catch { /* ignore */ }
     })
 
     proxyReq.on('error', (err) => {
-      if (!res.headersSent) sendErr(res, req, 502, 'upstream_error')
+      if (!res.headersSent) sendUpstreamErr(res, req, err, url.hostname, 'request')
     })
 
     proxyReq.write(body)

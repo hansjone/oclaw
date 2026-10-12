@@ -55,7 +55,8 @@ export function createAuthMiddleware(config, sessionStore, rolesStore, hooks = {
   ).trim()
   const initialAdminEmpNo = resolveInitialAdmin()
 
-  async function verifyEmpNoAndToken(empNo, token) {
+  /** @param {{ onFailure?: (out: object) => void }} [opts] lets callers surface why the lookup failed */
+  async function verifyEmpNoAndToken(empNo, token, opts = {}) {
     const out = await searchUserByEmpNoToken({
       userSearchUrl,
       empNo,
@@ -66,11 +67,13 @@ export function createAuthMiddleware(config, sessionStore, rolesStore, hooks = {
     })
     if (!out.ok) {
       console.warn('[uds-auth] verifyEmpNoAndToken failed:', out)
+      try { opts.onFailure?.(out) } catch { /* diagnostics only */ }
       return null
     }
     const subject = String(out.profile?.empNo || '').trim()
     if (!subject || subject !== String(empNo).trim()) {
       console.warn('[uds-auth] verifyEmpNoAndToken subject mismatch')
+      try { opts.onFailure?.({ ok: false, reason: 'emp_mismatch' }) } catch { /* diagnostics only */ }
       return null
     }
     return out.profile

@@ -122,7 +122,9 @@ export async function searchUserByEmpNoToken({
   try {
     res = await directRequest(userSearchUrl, { method: 'POST', headers, body, timeoutMs })
   } catch (err) {
-    return { ok: false, reason: 'network', error: err.message }
+    let host = ''
+    try { host = new URL(userSearchUrl).hostname } catch { /* diagnostics only */ }
+    return { ok: false, reason: 'network', error: err.message, code: err.code, host }
   }
 
   // Only accept 2xx — do not treat HTTP 500 + biz success as ok (SEC-16).
