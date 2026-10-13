@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from 'node:crypto'
-import { SessionStore, SESSION_ABSOLUTE_MAX_SECONDS } from './store.js'
+import { SessionStore, absoluteCapSeconds } from './store.js'
 
 function hashBearer(bearer) {
   return createHash('sha256').update(String(bearer)).digest('hex')
@@ -48,7 +48,7 @@ export class RedisStore extends SessionStore {
       userData: { ...userData },
       createdAt: now,
       expiresAt: now + ttl * 1000,
-      absoluteExpiresAt: now + SESSION_ABSOLUTE_MAX_SECONDS * 1000,
+      absoluteExpiresAt: now + absoluteCapSeconds(ttl) * 1000,
     }
     const payload = JSON.stringify(record)
     await this._client.setEx(this._sessKey(sessionId), ttl, payload)
@@ -120,6 +120,9 @@ export class RedisStore extends SessionStore {
     const row = await this._load(sessionId)
     if (!row) return null
     const ttl = Math.max(60, Number(ttlSeconds) || 1800)
+    if (absoluteCapSeconds(ttl) > absoluteCapSeconds(0)) {
+      row.absoluteExpiresAt = Math.max(row.absoluteExpiresAt || 0, Date.now() + ttl * 1000)
+    }
     const absLeft = row.absoluteExpiresAt
       ? Math.max(0, Math.floor((row.absoluteExpiresAt - Date.now()) / 1000))
       : ttl
@@ -132,6 +135,16 @@ export class RedisStore extends SessionStore {
     row.userData = { ...row.userData, lastActiveAt: new Date().toISOString() }
     await this._client.setEx(this._sessKey(sessionId), nextTtl, JSON.stringify(row))
     await this._client.setEx(this._bearerKey(row.bearerHash), nextTtl, sessionId)
+    return this._public(row)
+  }
+
+  async updateUserData(sessionId, patch) {
+    const row = await this._load(sessionId)
+    if (!row) return null
+    const left = Math.floor((Number(row.expiresAt) - Date.now()) / 1000)
+    if (left <= 0) return null
+    row.userData = { ...row.userData, ...patch }
+    await this._client.setEx(this._sessKey(sessionId), left, JSON.stringify(row))
     return this._public(row)
   }
 

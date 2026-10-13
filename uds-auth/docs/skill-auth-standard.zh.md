@@ -119,7 +119,7 @@ def load_uds_skill_auth():
 - 全局共享 token / 把 token 注入 `shellEnv`  
 - SKILL 教打印环境变量中的密钥  
 - 无白名单的开放代理  
-- 用 UI `sessionStore` 的 30min TTL 冒充 skill 长凭证  
+- 用 UI `sessionStore` 的闲置 TTL（`sessionIdleTimeoutHours`）冒充 skill 长凭证  
 - 业务 skill 硬编码插件源码路径（应用 `uds-skill-auth` skill）  
 
 ## 验收

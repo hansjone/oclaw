@@ -32,8 +32,10 @@ export function createAuthMiddleware(config, sessionStore, rolesStore, hooks = {
     authMode: config.udsAuth?.authMode || 'token+profile',
   }
   const udsValidator = new UdsValidator(validatorConfig)
-  const { cookieMaxAge, slidingExpiration } = config.session
-  const ttlSeconds = Math.floor(cookieMaxAge / 1000)
+  const { slidingExpiration } = config.session
+  // Read per request: cookieMaxAge follows the live sessionIdleTimeoutHours setting.
+  const ttlSeconds = () => Math.floor(config.session.cookieMaxAge / 1000)
+  const slidingIntervalMs = Math.max(0, Number(config.session.slidingInterval) || 0)
   const userSearchUrl = config.userSearchUrl || config.udsAuth?.userSearchUrl
   const uacBaseUrl = config.udsAuth?.baseUrl || ''
   /** R05: read live — do not freeze allowOpenRegistration at middleware create time. */
@@ -196,7 +198,7 @@ export function createAuthMiddleware(config, sessionStore, rolesStore, hooks = {
     }
     const userContext = { ...session.userData, empNo, _sessionId: session.sessionId }
     if (persistTouch || slidingExpiration) {
-      await sessionStore.touch(session.sessionId, ttlSeconds)
+      await sessionStore.touch(session.sessionId, ttlSeconds())
       userContext.lastActiveAt = new Date().toISOString()
     }
     const role = kind === 'fallback' || kind === 'sealed_box' || rolesStore.hasRole(empNo)
@@ -213,17 +215,19 @@ export function createAuthMiddleware(config, sessionStore, rolesStore, hooks = {
     ctx.authVia = 'session'
     ctx.authKind = kind
     if (res && req && session._bearerForCookie) {
-      const cookie = buildSessionCookie(session._bearerForCookie, ttlSeconds, {
-        secure: isHttpsRequest(req),
-      })
-      const prev = res.getHeader?.('Set-Cookie')
-      const list = Array.isArray(prev) ? [...prev, cookie] : (prev ? [prev, cookie] : [cookie])
-      res.setHeader?.('Set-Cookie', list)
+      appendSessionCookie(req, res, session._bearerForCookie)
     }
   }
 
+  function appendSessionCookie(req, res, bearer) {
+    const cookie = buildSessionCookie(bearer, ttlSeconds(), { secure: isHttpsRequest(req) })
+    const prev = res.getHeader?.('Set-Cookie')
+    const list = Array.isArray(prev) ? [...prev, cookie] : (prev ? [prev, cookie] : [cookie])
+    res.setHeader?.('Set-Cookie', list)
+  }
+
   async function mintSession(ctx, userContext, kind, { res, req } = {}) {
-    const { sessionId, bearer, record } = await sessionStore.create(userContext, ttlSeconds)
+    const { sessionId, bearer, record } = await sessionStore.create(userContext, ttlSeconds())
     if (userContext.token) {
       try { onSkillCredentials?.(userContext.empNo, userContext.token) } catch { /* ignore */ }
     }
@@ -262,7 +266,15 @@ export function createAuthMiddleware(config, sessionStore, rolesStore, hooks = {
           throw err
         }
         // Keep the Desktop bridge alive as long as its session (same bearer).
-        try { sessionBridge?.touch?.(extracted.bearer, ttlSeconds * 1000) } catch { /* ignore */ }
+        try { sessionBridge?.touch?.(extracted.bearer, ttlSeconds() * 1000) } catch { /* ignore */ }
+        // Slide the browser cookie with the server idle TTL. Without this UDS_SESSION kept
+        // the Max-Age from login and vanished 30 min later even for active users.
+        // Throttled by slidingInterval so not every request carries Set-Cookie.
+        if (slidingExpiration && extracted.via === 'cookie' && res && req
+          && !res.headersSent
+          && Date.now() + ttlSeconds() * 1000 - Number(session.expiresAt || 0) >= slidingIntervalMs) {
+          try { appendSessionCookie(req, res, extracted.bearer) } catch { /* ignore */ }
+        }
         return next()
       }
       // Explicit bearer presented but invalid — do not mix with portal cookies.

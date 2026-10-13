@@ -157,6 +157,21 @@ export class SessionBridgeStore {
     return true
   }
 
+  /**
+   * Slide every live bridge of an empNo. Used when activity arrives over the WS mux,
+   * where only the sessionId (not the bearer) is known. Safe: a bridge only carries
+   * the bearer — the session store still decides whether it authenticates.
+   * @param {string} empNo
+   * @param {number} [ttlMs]
+   */
+  touchEmpNo(empNo, ttlMs) {
+    const e = String(empNo || '').trim()
+    if (!e) return
+    for (const [token, row] of this._byToken) {
+      if (row.empNo === e) this.touch(token, ttlMs)
+    }
+  }
+
   /** Clear all bridge tokens for an empNo (logout). */
   revokeEmpNo(empNo) {
     const e = String(empNo || '').trim()

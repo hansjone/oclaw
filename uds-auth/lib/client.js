@@ -37,6 +37,12 @@ window.__ModuleLoader__.load({
     "ui.deployConfig": "部署配置",
     "ui.userSearchUrl": "用户搜索 URL（token 校验）",
     "ui.workspaceRoot": "工作区根目录（空=$DSH_HOME/user-workspaces）",
+    "ui.sessionIdleTimeoutHours": "会话闲置超时（小时，0 = 不自动退出）",
+    "ui.tokenExpiredTitle": "UAC 登录已过期",
+    "ui.tokenExpiredHint": "请扫码刷新，不影响当前会话和定时任务",
+    "ui.tokenRefreshed": "UAC 登录已刷新",
+    "ui.sessionExpiredSignedOut": "登录已过期，已自动退出",
+    "ui.sessionIdleTimeoutHint": "默认 0：只有手动退出才会退出，定时任务和进行中的会话不受影响。大于 0 时，闲置超过该时长自动退出（范围 0.5–168）。UAC token 过期不会退出，只会提示扫码刷新。",
     "ui.allowRawAgentToken": "允许 Skill 获取原始 UDS token",
     "ui.allowRawAgentTokenHint": "开启后，具备当前任务 credentials scope 的本机 Skill 可获取工号和 token。只在业务确实需要原始 token 时开启。",
     "ui.saveConfig": "保存配置",
@@ -195,6 +201,12 @@ window.__ModuleLoader__.load({
     "ui.deployConfig": "Deploy config",
     "ui.userSearchUrl": "User search URL (token verify)",
     "ui.workspaceRoot": "Workspace root (empty=$DSH_HOME/user-workspaces)",
+    "ui.sessionIdleTimeoutHours": "Session idle timeout (hours, 0 = never sign out)",
+    "ui.tokenExpiredTitle": "UAC sign-in expired",
+    "ui.tokenExpiredHint": "Scan to refresh it — your sessions and scheduled tasks keep running",
+    "ui.tokenRefreshed": "UAC sign-in refreshed",
+    "ui.sessionExpiredSignedOut": "Session expired — you have been signed out",
+    "ui.sessionIdleTimeoutHint": "Default 0: only a manual sign-out ends the session; scheduled tasks and running conversations are unaffected. Above 0, sessions idle that long sign out (range 0.5–168). An expired UAC token never signs out — it only prompts a QR refresh.",
     "ui.allowRawAgentToken": "Allow Skills to read the raw UDS token",
     "ui.allowRawAgentTokenHint": "Enables local Skills with the current task credentials scope to read the employee number and token. Turn this on only when a workflow needs the raw token.",
     "ui.saveConfig": "Save config",
@@ -468,6 +480,9 @@ window.__ModuleLoader__.load({
       '.uds-auth-avatar{display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:50%;flex:none;font-size:10px;line-height:1;color:var(--dsw-alias-label-secondary,#646a73);background:transparent;border:none}',
       '.uds-auth-badge-unauth .uds-auth-avatar{background:var(--dsw-alias-bg-module-platform,rgba(242,243,245,1));color:var(--dsw-alias-label-tertiary,#8f959e)}',
       '.uds-auth-badge-label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+      '.uds-auth-badge.has-token-warning::after{content:"";flex:none;width:6px;height:6px;margin-left:6px;border-radius:50%;background:var(--dsw-alias-state-warning-primary,#e37318)}',
+      '.uds-auth-token-warn{margin:8px 0 4px;padding:8px 10px;border-radius:6px;background:rgba(227,115,24,.08);font-size:12px;line-height:1.5;color:var(--dsw-alias-label-secondary,#646a73)}',
+      '.uds-auth-token-warn strong{display:block;color:var(--dsw-alias-state-warning-primary,#e37318);font-weight:500}',
       '.uds-auth-role{font-size:10px;padding:1px 6px;border-radius:10px;font-weight:600;flex-shrink:0}',
       '.uds-auth-role-super_admin{background:rgba(213,73,65,.12);color:var(--dsw-alias-state-error-primary,#d54941)}',
       '.uds-auth-role-admin{background:rgba(217,119,6,.12);color:var(--dsw-alias-state-warn-primary,#d97706)}',
@@ -973,6 +988,53 @@ window.__ModuleLoader__.load({
       return document.documentElement.getAttribute('data-uds-logged-in') === '1'
     }
 
+    /** Server error codes / messages meaning the caller's local session is gone. */
+    const SESSION_GONE_CODES = new Set(['session_revoked', 'login_required_session', 'not_logged_in'])
+    const SESSION_GONE_MESSAGES = new Set(['会话已失效，请重新登录', 'Session expired; please sign in again'])
+
+    function looksLikeSessionGone(error) {
+      if (!error || typeof error !== 'object') return false
+      const code = error.details?.udsError || error.data?.error || error.error
+      return SESSION_GONE_CODES.has(String(code || ''))
+        || SESSION_GONE_MESSAGES.has(String(error.message || '').trim())
+    }
+
+    let _sessionCheckInFlight = null
+    /**
+     * Ask the server whether our session is still alive. /uds-auth/session-status never
+     * slides the idle TTL, so the idle watcher cannot keep an unattended tab signed in.
+     * Only a definite alive=false signs out — network/server trouble never does.
+     */
+    function checkSessionAlive() {
+      if (!isLoggedInInUi()) return Promise.resolve(true)
+      if (_sessionCheckInFlight) return _sessionCheckInFlight
+      _sessionCheckInFlight = (async () => {
+        try {
+          const res = await fetch('/uds-auth/session-status', {
+            credentials: 'include',
+            cache: 'no-store',
+            headers: bridgeAuthHeaders(),
+          })
+          if (!res.ok) return true
+          const data = await res.json().catch(() => null)
+          if (data && data.alive === false && isLoggedInInUi()) {
+            window.dispatchEvent(new Event('uds-auth-expired'))
+            return false
+          }
+          // UAC token rejected → prompt a QR refresh; the session itself stays.
+          if (data && data.alive && typeof data.tokenValid === 'boolean') {
+            window.dispatchEvent(new Event(data.tokenValid ? 'uds-auth-token-ok' : 'uds-auth-token-expired'))
+          }
+          return true
+        } catch {
+          return true
+        } finally {
+          _sessionCheckInFlight = null
+        }
+      })()
+      return _sessionCheckInFlight
+    }
+
     function clearSessionIfAnonymous(sessions) {
       // Until /api/me confirms login, treat as anonymous (AuthBadge refreshes me on mount).
       if (isLoggedInInUi()) return
@@ -1114,6 +1176,7 @@ function reloadAfterLogin() {
         : { ...baseHeaders, ...optHeaders }
       const res = await fetch(url, { credentials: 'include', ...options, headers })
       const data = await res.json().catch(() => ({}))
+      if (res.status === 401) void checkSessionAlive()
       if (!res.ok) {
         const err = new Error(data.message || data.error || res.statusText || t('err.request_failed'))
         err.status = res.status
@@ -1316,6 +1379,7 @@ function reloadAfterLogin() {
         loginSystemCode: '',
         originSystemCode: '',
         workspaceRoot: '',
+        sessionIdleTimeoutHours: 0,
         allowRawAgentToken: false,
       })
       const [fallbackEnabled, setFallbackEnabled] = useState(false)
@@ -1439,6 +1503,20 @@ function reloadAfterLogin() {
           field('loginSystemCode', 'loginSystemCode'),
           field('originSystemCode', 'originSystemCode'),
           field('workspaceRoot', t('ui.workspaceRoot')),
+          h('div', { className: 'uds-auth-settings-field' },
+            h('label', { htmlFor: 'uds-auth-sessionIdleTimeoutHours' }, t('ui.sessionIdleTimeoutHours')),
+            h('input', {
+              id: 'uds-auth-sessionIdleTimeoutHours',
+              type: 'number',
+              min: 0,
+              max: 168,
+              step: 0.5,
+              value: form.sessionIdleTimeoutHours ?? '',
+              disabled: !canSettings || busy,
+              onChange: (e) => setForm((prev) => ({ ...prev, sessionIdleTimeoutHours: e.target.value })),
+            }),
+          ),
+          h('p', { className: 'uds-auth-settings-intro' }, t('ui.sessionIdleTimeoutHint')),
           h('label', { className: 'uds-auth-settings-toggle' },
             h('input', {
               type: 'checkbox',
@@ -1542,6 +1620,12 @@ function reloadAfterLogin() {
       const [open, setOpen] = useState(false)
       const [anchor, setAnchor] = useState(null)
       const [user, setUser] = useState(null)
+      const [sessionExpired, setSessionExpired] = useState(false)
+      const [tokenExpired, setTokenExpired] = useState(false)
+      const tokenExpiredRef = useRef(false)
+      const [tokenNotice, setTokenNotice] = useState('')
+      /** QR in refresh mode: a signed-in user re-scans to renew the UAC token in place. */
+      const refreshModeRef = useRef(false)
       
 
       const [loading, setLoading] = useState(false)
@@ -1682,8 +1766,9 @@ function reloadAfterLogin() {
         setQrStatus(t('ui.qrGenerating'))
         setQrImg('')
         // Me check in background — never block QR paint on /api/me.
+        const refreshing = refreshModeRef.current
         void refreshUser().then((loggedIn) => {
-          if (!loggedIn) return
+          if (!loggedIn || refreshing) return
           stopQr()
           setQrStatus('')
           setQrImg('')
@@ -1692,7 +1777,7 @@ function reloadAfterLogin() {
         try {
           const started = await fetchJson('/uds-auth/qr-start')
           // Already signed in while QR was starting — drop the code.
-          if (document.documentElement.getAttribute('data-uds-logged-in') === '1') {
+          if (!refreshing && document.documentElement.getAttribute('data-uds-logged-in') === '1') {
             stopQr()
             setQrStatus('')
             setQrImg('')
@@ -1720,7 +1805,7 @@ function reloadAfterLogin() {
               const result = await fetchJson('/uds-auth/qr-proxy', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'X-UDS-QR-Binding': browserBinding },
-                body: JSON.stringify({ qrCodeKey, qrCodeValue }),
+                body: JSON.stringify(refreshing ? { qrCodeKey, qrCodeValue, refresh: true } : { qrCodeKey, qrCodeValue }),
               })
               if (qrRef.current.key !== qrCodeKey) return
               const codeCode = result.code?.code || ''
@@ -1730,6 +1815,14 @@ function reloadAfterLogin() {
                 setQrExpired(false)
                 setQrFailed(false)
                 const auth = result.auth
+                if (auth?.success && auth.refreshed) {
+                  // Token renewed in place — no new session, no reload.
+                  tokenExpiredRef.current = false
+                  setTokenExpired(false)
+                  setTokenNotice(t('ui.tokenRefreshed'))
+                  setTimeout(() => { setOpen(false); setTokenNotice('') }, 1500)
+                  return
+                }
                 if (!auth?.success || !auth?.bridge?.token) {
                   setQrStatus(t('ui.loginFailed'))
                   return
@@ -1813,6 +1906,76 @@ function reloadAfterLogin() {
         }
       }, [localKey, refreshUser])
 
+      /** Drop local auth state. `expired`: server already dropped the session — skip /api/logout. */
+      const signOut = useCallback(async ({ expired = false } = {}) => {
+        if (!expired) {
+          try { await fetchJson('/uds-auth/api/logout', { method: 'POST' }) } catch { /* ignore */ }
+        }
+        clearAuthCookies()
+        clearBridge()
+        try { window.__udsAuthWsAuthedOnce = false } catch { /* ignore */ }
+        try { window.__udsAuthResetEmp = null } catch { /* ignore */ }
+        setUser(null)
+        tokenExpiredRef.current = false
+        setTokenExpired(false)
+        setSessionExpired(expired)
+        // Expired: open the panel once so the reason and a fresh QR are right there.
+        setOpen(expired)
+        document.documentElement.setAttribute('data-uds-logged-in', '0')
+        document.documentElement.setAttribute('data-uds-can-settings', '0')
+        document.documentElement.setAttribute('data-uds-can-create-ws', '0')
+        clearSessionIfAnonymous(window.__udsAuthSessions)
+        window.dispatchEvent(new Event('uds-auth-changed'))
+        try { softReconnectAuth({ force: true }) } catch { /* ignore */ }
+      }, [])
+
+      useEffect(() => {
+        const onExpired = () => { if (isLoggedInInUi()) void signOut({ expired: true }) }
+        window.addEventListener('uds-auth-expired', onExpired)
+        return () => window.removeEventListener('uds-auth-expired', onExpired)
+      }, [signOut])
+
+      useEffect(() => {
+        if (user) setSessionExpired(false)
+      }, [user])
+
+      // UAC token expired: open the panel once with a refresh QR. The session is untouched.
+      useEffect(() => {
+        const onTokenExpired = () => {
+          if (tokenExpiredRef.current || !isLoggedInInUi()) return
+          tokenExpiredRef.current = true
+          setTokenExpired(true)
+          setOpen(true)
+        }
+        const onTokenOk = () => {
+          tokenExpiredRef.current = false
+          setTokenExpired(false)
+        }
+        window.addEventListener('uds-auth-token-expired', onTokenExpired)
+        window.addEventListener('uds-auth-token-ok', onTokenOk)
+        return () => {
+          window.removeEventListener('uds-auth-token-expired', onTokenExpired)
+          window.removeEventListener('uds-auth-token-ok', onTokenOk)
+        }
+      }, [])
+
+      // Idle watcher: notice server-side idle expiry within a minute (and right away when
+      // the window comes back), instead of surfacing "please sign in again" on every call.
+      useEffect(() => {
+        if (!user) return undefined
+        const check = () => { void checkSessionAlive() }
+        const onVisible = () => { if (document.visibilityState === 'visible') check() }
+        const timer = setInterval(check, 60_000)
+        check()
+        window.addEventListener('focus', check)
+        document.addEventListener('visibilitychange', onVisible)
+        return () => {
+          clearInterval(timer)
+          window.removeEventListener('focus', check)
+          document.removeEventListener('visibilitychange', onVisible)
+        }
+      }, [user])
+
       useEffect(() => {
         // Restore session after login reload / refresh — cookie alone does not set the badge.
         // (Previously me ran only inside startQr, so a click on「未登录」was required.)
@@ -1842,10 +2005,12 @@ function reloadAfterLogin() {
         return () => { cancelled = true }
       }, [open, user])
 
+      refreshModeRef.current = !!(user && tokenExpired)
       useEffect(() => {
-        if (open && !user && loginMode === 'qr') startQr()
-        if (!open || loginMode !== 'qr') stopQr()
-      }, [open, user, loginMode, startQr, stopQr])
+        const wantQr = open && loginMode === 'qr' && (!user || tokenExpired)
+        if (wantQr) startQr()
+        else stopQr()
+      }, [open, user, tokenExpired, loginMode, startQr, stopQr])
 
       useLayoutEffect(() => {
         if (!open) { setAnchor(null); return undefined }
@@ -1882,6 +2047,49 @@ function reloadAfterLogin() {
         : (qrStatus || t('ui.qrGenerateFailed'))
       const qrOverlayHint = t('ui.qrExpiredHint')
 
+      const renderQr = () => (
+        h('div', { className: 'uds-auth-qr' },
+          (qrImg || qrOverlay) && h('div', {
+            className: 'uds-auth-qr-frame' + (qrOverlay ? ' is-expired' : ''),
+          },
+            qrImg ? h('img', { src: qrImg, alt: 'QR' }) : h('div', {
+              style: {
+                width: '100%',
+                height: '100%',
+                background: 'var(--dsw-alias-bg-module-platform, #f4f5f7)',
+              },
+            }),
+            qrOverlay && h('div', { className: 'uds-auth-qr-overlay' },
+              h('div', { className: 'uds-auth-qr-overlay-title' }, qrOverlayTitle),
+              h('div', { className: 'uds-auth-qr-overlay-hint' }, qrOverlayHint),
+              h('button', {
+                type: 'button',
+                className: 'uds-auth-qr-refresh',
+                'aria-label': t('ui.refreshQr'),
+                title: t('ui.refreshQr'),
+                onClick: startQr,
+              },
+                h('svg', {
+                  width: 22,
+                  height: 22,
+                  viewBox: '0 0 24 24',
+                  fill: 'none',
+                  stroke: 'currentColor',
+                  strokeWidth: 2.4,
+                  strokeLinecap: 'round',
+                  strokeLinejoin: 'round',
+                  'aria-hidden': 'true',
+                },
+                  h('path', { d: 'M21 12a9 9 0 1 1-2.6-6.2' }),
+                  h('polyline', { points: '21 3 21 9 15 9' }),
+                ),
+              ),
+            ),
+          ),
+          !qrOverlay && h('div', { className: 'uds-auth-qr-status' }, qrStatus || t('ui.loading')),
+        )
+      )
+
       return h('div', {
         ref: rootRef,
         className: 'uds-auth-host' + (wide ? '' : ' is-rail'),
@@ -1901,49 +2109,11 @@ function reloadAfterLogin() {
         ? (loginMode === 'qr'
           ? h(React.Fragment, null,
             h('div', { className: 'uds-auth-info' },
-              h('div', { className: 'uds-auth-info-name' }, qrOverlay ? qrOverlayTitle : t('ui.notLoggedIn')),
+              h('div', { className: 'uds-auth-info-name' },
+                qrOverlay ? qrOverlayTitle : (sessionExpired ? t('ui.sessionExpiredSignedOut') : t('ui.notLoggedIn'))),
               h('div', { className: 'uds-auth-info-detail' }, qrOverlay ? qrOverlayHint : t('ui.pleaseScan')),
             ),
-            h('div', { className: 'uds-auth-qr' },
-              (qrImg || qrOverlay) && h('div', {
-                className: 'uds-auth-qr-frame' + (qrOverlay ? ' is-expired' : ''),
-              },
-                qrImg ? h('img', { src: qrImg, alt: 'QR' }) : h('div', {
-                  style: {
-                    width: '100%',
-                    height: '100%',
-                    background: 'var(--dsw-alias-bg-module-platform, #f4f5f7)',
-                  },
-                }),
-                qrOverlay && h('div', { className: 'uds-auth-qr-overlay' },
-                  h('div', { className: 'uds-auth-qr-overlay-title' }, qrOverlayTitle),
-                  h('div', { className: 'uds-auth-qr-overlay-hint' }, qrOverlayHint),
-                  h('button', {
-                    type: 'button',
-                    className: 'uds-auth-qr-refresh',
-                    'aria-label': t('ui.refreshQr'),
-                    title: t('ui.refreshQr'),
-                    onClick: startQr,
-                  },
-                    h('svg', {
-                      width: 22,
-                      height: 22,
-                      viewBox: '0 0 24 24',
-                      fill: 'none',
-                      stroke: 'currentColor',
-                      strokeWidth: 2.4,
-                      strokeLinecap: 'round',
-                      strokeLinejoin: 'round',
-                      'aria-hidden': 'true',
-                    },
-                      h('path', { d: 'M21 12a9 9 0 1 1-2.6-6.2' }),
-                      h('polyline', { points: '21 3 21 9 15 9' }),
-                    ),
-                  ),
-                ),
-              ),
-              !qrOverlay && h('div', { className: 'uds-auth-qr-status' }, qrStatus || t('ui.loading')),
-            ),
+            renderQr(),
             // U01: emergency password always discoverable — disabled state is shown, not hidden.
             // Local sealed-box unlock stays hidden unless Host actually has a box configured.
             h('button', {
@@ -2039,32 +2209,26 @@ function reloadAfterLogin() {
             h('div', { className: 'uds-auth-info-detail' }, h('span', { className: 'uds-auth-info-detail-label' }, t('ui.role')), label || user.role || '-'),
             user.department && h('div', { className: 'uds-auth-info-detail' }, h('span', { className: 'uds-auth-info-detail-label' }, t('ui.department')), user.department),
           ),
+          tokenNotice && h('div', { className: 'uds-auth-qr-status', role: 'status' }, tokenNotice),
+          tokenExpired && h(React.Fragment, null,
+            h('div', { className: 'uds-auth-token-warn', role: 'status' },
+              h('strong', null, t('ui.tokenExpiredTitle')),
+              t('ui.tokenExpiredHint'),
+            ),
+            renderQr(),
+          ),
           h('button', {
             type: 'button', className: 'uds-auth-btn uds-auth-btn-danger',
-            onClick: async () => {
-              try { await fetchJson('/uds-auth/api/logout', { method: 'POST' }) } catch { /* ignore */ }
-              clearAuthCookies()
-              clearBridge()
-              try { window.__udsAuthWsAuthedOnce = false } catch { /* ignore */ }
-              try { window.__udsAuthResetEmp = null } catch { /* ignore */ }
-              setUser(null)
-              setOpen(false)
-              document.documentElement.setAttribute('data-uds-logged-in', '0')
-              document.documentElement.setAttribute('data-uds-can-settings', '0')
-              document.documentElement.setAttribute('data-uds-can-create-ws', '0')
-              clearSessionIfAnonymous(window.__udsAuthSessions)
-              window.dispatchEvent(new Event('uds-auth-changed'))
-              try { softReconnectAuth({ force: true }) } catch { /* ignore */ }
-            },
+            onClick: () => signOut(),
           }, t('ui.logout')),
         ),
       ),
       h('button', {
         type: 'button',
-        className: 'uds-auth-badge' + (user ? '' : ' uds-auth-badge-unauth'),
+        className: 'uds-auth-badge' + (user ? '' : ' uds-auth-badge-unauth') + (user && tokenExpired ? ' has-token-warning' : ''),
         'aria-expanded': open,
         'aria-label': displayName || 'UAC',
-        title: displayName || 'UAC',
+        title: user && tokenExpired ? t('ui.tokenExpiredTitle') : (displayName || 'UAC'),
         onClick: () => setOpen((v) => !v),
       },
       h('span', { className: 'uds-auth-badge-label' }, displayName),
@@ -2197,7 +2361,16 @@ function reloadAfterLogin() {
             rpc.__udsAuthListGate = true
             const origCall = rpc.call.bind(rpc)
             rpc.call = async function udsAuthRpcCall(channel, endpoint, payload, signal) {
-              const result = await origCall(channel, endpoint, payload, signal)
+              let result
+              try {
+                result = await origCall(channel, endpoint, payload, signal)
+              } catch (err) {
+                if (looksLikeSessionGone(err)) void checkSessionAlive()
+                throw err
+              }
+              if (result && result.ok === false && looksLikeSessionGone(result.error)) {
+                void checkSessionAlive()
+              }
               if (!isLoggedInInUi()) {
               if (channel === '/api') {
                 if (endpoint === 'session/list') return { ok: true, value: { items: [] } }

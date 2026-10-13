@@ -351,3 +351,42 @@ test('anonymous stream endpoints are parked until the carrier aborts (no termina
   for await (const f of authed.method()) frames.push(f)
   assert.deepEqual(frames, [{ status: 'credential-stored' }])
 })
+
+test('WS activity (assertPrincipalLive) reports the live session so its idle TTL slides', async () => {
+  const stores = makeStores()
+  const [, kind, ctxOf] = EMERGENCY_LOGINS[0]
+  const { bearer } = await login(stores, ctxOf(), kind)
+  const session = await stores.sessionStore.getByBearer(bearer)
+  const seen = []
+  const noop = async () => {}
+  const wc = {
+    create: noop, rename: noop, delete: noop, insertBefore: noop, insertSessionBefore: noop,
+    archiveSession: noop, unarchiveSession: noop, pinSession: noop, unpinSession: noop,
+    async *follow() { yield { type: 'baseline', value: { items: [], archivedSessionIds: [], pinnedSessionIds: [] } } },
+  }
+  installDshAcl({
+    inject(deps, cb) { if (deps.includes('workspaceController')) cb({ workspaceController: wc }) },
+    on() { return () => {} },
+    get() { throw new Error('no service') },
+  }, {
+    sessionAcl: { getOwner: () => null, setOwner() {} },
+    userWorkspaces: new UserWorkspaceStore({}),
+    getWorkspaceRoot: () => '',
+    getRolesStore: () => stores.roles,
+    getSessionStore: () => stores.sessionStore,
+    ensureUserWorkspace: async () => ({ workspaceId: 'ws-admin' }),
+    getWorkspaceRegistry: () => ({ list: () => [], get: () => null }),
+    onPrincipalActive: (sid, emp) => seen.push([sid, emp]),
+  })
+  await collect(wc, identityFromSessionRecord(session, stores.roles))
+  assert.deepEqual(seen[0], [session.sessionId, 'administrator'])
+})
+
+test('SessionBridgeStore.touchEmpNo slides every live bridge of that account only', () => {
+  const store = new SessionBridgeStore({ ttlMs: 60_000 })
+  const a = store.mint({ empNo: 'alice', kind: 'uds' })
+  const b = store.mint({ empNo: 'bob', kind: 'uds' })
+  store.touchEmpNo('alice', 10 * 60_000)
+  assert.ok(store._byToken.get(a.token).exp > Date.now() + 5 * 60_000)
+  assert.ok(store._byToken.get(b.token).exp <= Date.now() + 60_000)
+})

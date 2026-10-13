@@ -23,6 +23,7 @@ const DEFAULT_CONFIG = {
   originSystemCode: '',
   retainSkillCredentialsOnLogout: true,
   skillCredentialTtlSeconds: 7 * 24 * 60 * 60,
+  sessionIdleTimeoutHours: 0,
   outboundAllowedHosts: 'icenterapi.zte.com.cn,icentermsg.dt.zte.com.cn',
   initialAdminEmpNo: '',
   allowOpenRegistration: true,
@@ -44,7 +45,8 @@ const INTERNAL = {
     storeType: 'memory',
     redisUrl: 'redis://localhost:6379',
     cookieName: 'UDS_SESSION',
-    cookieMaxAge: 1800000,
+    // Default only; the live idle TTL comes from sessionIdleTimeoutHours (see lib/index.js).
+    cookieMaxAge: 24 * 60 * 60 * 1000,
   },
 }
 

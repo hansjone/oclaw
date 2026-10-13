@@ -40,13 +40,16 @@ outboundAllowedHosts: icenterapi.zte.com.cn,icentermsg.dt.zte.com.cn
 trustedHosts: ''               # empty = loopback Host only; proxies must set allowlist
 retainSkillCredentialsOnLogout: true
 skillCredentialTtlSeconds: 604800
+sessionIdleTimeoutHours: 0     # 0 = never auto sign out; 0.5–168h idle timeout; editable in Settings
 ```
 
 Durable state defaults to `~/.uds-auth/` (roles / owners / credentials / bridge / sessions / `config.runtime.json`; override with `UDS_AUTH_DATA_DIR`). Security toggles take effect on the next request after Settings save. Empty outbound allowlist denies all.
 
 ## Sessions
 
-- **Lifetime**: 30-minute idle timeout that slides on activity, 7-day absolute cap. The Desktop bridge token slides with its session.
+- **Lifetime**: by default (`sessionIdleTimeoutHours: 0`) sessions never sign out on their own — only a manual sign-out ends them, so running conversations and night-time scheduled tasks are never cut off. Setting 0.5–168 hours in Settings enables an idle timeout that slides on activity (HTTP requests and Desktop WS calls) with a 7-day absolute cap. The browser cookie and the Desktop bridge token slide with the session.
+- **UAC token check**: every 2 hours (and 1 minute after start) each QR session's UAC token is re-checked against the icenterapi department profile. A rejected token (401/403, business error code, employee not visible/mismatched) never signs out: the client shows a QR prompt, and the scan writes the new token into every live session of that account in place — no new session, no reload. Network errors, 5xx and malformed responses keep the previous verdict.
+- **Client probe**: `GET /uds-auth/session-status` (never slides the TTL) runs every minute and on window focus. It returns `alive` and `tokenValid`; a gone session signs the UI out, a rejected token opens the refresh QR once.
 - **Survives restarts**: the default in-memory store is persisted to `~/.uds-auth/sessions.json` and restored on Host start (emergency admins have no SSO re-login, so they depend on this).
   - Only the SHA-256 hash of each session token is stored; user data (may include the UAC token) is AES-256-GCM encrypted with the plugin key `.uds-auth-secret-key`.
   - Expired, undecryptable or tampered rows are dropped on load; disabled-account and emergency-password rotation checks still run on every request.

@@ -12,6 +12,9 @@ allowOpenRegistration: true
 allowRawAgentToken: false
 retainSkillCredentialsOnLogout: true
 skillCredentialTtlSeconds: 604800
+# Login session idle timeout in hours: 0 = never sign out automatically (manual sign-out only);
+# 0.5–168 = sign out after that long idle (slides while in use, 7-day absolute cap)
+sessionIdleTimeoutHours: 0
 outboundAllowedHosts: icenterapi.zte.com.cn,icentermsg.dt.zte.com.cn
 # Optional exact Host allowlist for /uds-auth writes; empty = Origin must match Host only
 trustedHosts: ''

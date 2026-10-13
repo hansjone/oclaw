@@ -43,6 +43,7 @@ outboundAllowedHosts: icenterapi.zte.com.cn,icentermsg.dt.zte.com.cn
 trustedHosts: ''               # 精确 Host 白名单；空=仅 loopback Host
 retainSkillCredentialsOnLogout: true
 skillCredentialTtlSeconds: 604800
+sessionIdleTimeoutHours: 0     # 0 = 不自动退出；0.5–168 = 闲置超时（小时）；设置页可改
 ```
 
 状态文件默认在 `~/.uds-auth/`（roles / owners / credentials / bridge / sessions / `config.runtime.json`）。可用环境变量 `UDS_AUTH_DATA_DIR` 覆盖。从安装目录升级时，若新数据目录为空且安装根仍有旧 `roles.json` 等，启动会一次性迁移（幂等、不覆盖已有目标文件）。公网或反代必须配置 `trustedHosts`。默认目录为**用户级**共享路径，不是按 DSH profile 隔离；单实例部署须知悉该边界。
@@ -51,7 +52,9 @@ skillCredentialTtlSeconds: 604800
 
 ## 会话
 
-- **有效期**：30 分钟无操作过期，有操作自动续期；从登录起最长 7 天。Desktop 的 bridge 令牌随会话一起续期。
+- **有效期**：默认（`sessionIdleTimeoutHours: 0`）不自动退出，只有手动退出才会结束会话，进行中的对话和夜间定时任务不会被打断。设置页填 0.5–168 小时可开启闲置超时：有操作（HTTP 请求及 Desktop 的 WS 调用）自动续期，最长 7 天。浏览器 cookie 和 Desktop 的 bridge 令牌随会话一起续期。
+- **UAC token 检查**：每 2 小时（启动 1 分钟后先查一次）用各扫码会话的 UAC token 调 icenterapi 查部门信息。token 被拒（401/403、业务错误码、查不到/工号不符）**不会退出**：客户端弹出扫码提示，扫码后新 token 原地写入该账号所有在线会话，不新建会话、不刷新页面。网络错误、5xx、返回格式异常保持上次结论不变。
+- **客户端探测**：每分钟及窗口重新获得焦点时调用 `GET /uds-auth/session-status`（不会续期），返回 `alive` 和 `tokenValid`：会话已不存在时界面自动退出；token 被拒时弹出一次刷新二维码。
 - **重启不掉线**：默认内存会话会写入 `~/.uds-auth/sessions.json`，Host / Harness 重启后自动恢复（应急账号没有 SSO 自动重登，尤其依赖这一点）。
   - 文件只保存会话令牌的 SHA-256 哈希，不保存令牌本身；用户信息（可能含 UAC token）用插件密钥 `.uds-auth-secret-key` 做 AES-256-GCM 加密。
   - 加载时丢弃已过期、解密失败或被篡改的记录；停用账号、应急口令轮换等检查仍在每次请求时执行。

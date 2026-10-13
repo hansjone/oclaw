@@ -1,6 +1,6 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
-import { SessionStore, SESSION_ABSOLUTE_MAX_SECONDS } from './store.js'
+import { SessionStore, absoluteCapSeconds } from './store.js'
 import { atomicWriteJson } from '../utils/atomic-write.js'
 import { loadOrCreateSecretKey, sealSecret, openSecret } from '../utils/secret-box.js'
 
@@ -26,6 +26,9 @@ function safeEqualHex(a, b) {
  * Persistence (opts.file + opts.dataDir): bearer hashes and expiry in clear,
  * userData (may carry the UAC token) sealed with the plugin AES-GCM key.
  */
+/** Longest delay setTimeout honors (2^31 - 1 ms). */
+const MAX_TIMER_MS = 2_147_483_647
+
 export class MemoryStore extends SessionStore {
   /**
    * @param {{ file?: string, dataDir?: string, logger?: any }} [opts]
@@ -178,10 +181,16 @@ export class MemoryStore extends SessionStore {
       this._timers.delete(sessionId)
     }
     if (!ttlSeconds || ttlSeconds <= 0) return
+    // setTimeout fires immediately past ~24.8 days; long TTLs re-arm in chunks.
+    const delay = Math.min(ttlSeconds * 1000, MAX_TIMER_MS)
     const timer = setTimeout(() => {
+      this._timers.delete(sessionId)
       const row = this._sessions.get(sessionId)
-      if (row) this._removeRecord(sessionId, row)
-    }, ttlSeconds * 1000)
+      if (!row) return
+      const left = row.expiresAt - Date.now()
+      if (left > 0) this._scheduleExpiry(sessionId, Math.ceil(left / 1000))
+      else this._removeRecord(sessionId, row)
+    }, delay)
     // Do not keep the process alive solely for session TTLs (tests / short-lived hosts).
     if (typeof timer.unref === 'function') timer.unref()
     this._timers.set(sessionId, timer)
@@ -210,7 +219,7 @@ export class MemoryStore extends SessionStore {
     const ttl = Math.max(60, Number(ttlSeconds) || 1800)
     // Idle TTL slides via touch(); absolute lifetime is a fixed 7 days. (Was min(ttl, 7d),
     // which capped every session at its 30-min idle TTL and made sliding a no-op.)
-    const absoluteCap = SESSION_ABSOLUTE_MAX_SECONDS
+    const absoluteCap = absoluteCapSeconds(ttl)
     const record = {
       sessionId,
       bearerHash,
@@ -305,6 +314,10 @@ export class MemoryStore extends SessionStore {
     const row = this._purgeExpired(String(sessionId || ''))
     if (!row) return null
     const ttl = Math.max(60, Number(ttlSeconds) || 1800)
+    // "No auto sign-out" TTLs also lift the cap of sessions minted under the 7-day default.
+    if (absoluteCapSeconds(ttl) > absoluteCapSeconds(0)) {
+      row.absoluteExpiresAt = Math.max(row.absoluteExpiresAt || 0, Date.now() + ttl * 1000)
+    }
     const absLeft = row.absoluteExpiresAt
       ? Math.max(0, Math.floor((row.absoluteExpiresAt - Date.now()) / 1000))
       : ttl
@@ -319,6 +332,14 @@ export class MemoryStore extends SessionStore {
       lastActiveAt: new Date().toISOString(),
     }
     this._scheduleExpiry(row.sessionId, nextTtl)
+    this._scheduleSave()
+    return this._publicRecord(row)
+  }
+
+  async updateUserData(sessionId, patch) {
+    const row = this._purgeExpired(String(sessionId || ''))
+    if (!row) return null
+    row.userData = { ...row.userData, ...patch }
     this._scheduleSave()
     return this._publicRecord(row)
   }

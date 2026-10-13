@@ -642,6 +642,7 @@ export function installDshAcl(ctx, {
   getSessionStore,
   ensureUserWorkspace,
   getWorkspaceRegistry,
+  onPrincipalActive,
 }) {
   const disposers = []
   const resolveRolesStore = () => {
@@ -746,6 +747,11 @@ export function installDshAcl(ctx, {
       if (generation != null && roles?.getFallbackCredVersion?.() !== Number(generation)) {
         throwForbidden('fallback_rotated')
       }
+    }
+    // Desktop works over the remote.mux WS, which never passes the HTTP auth middleware;
+    // report activity so the idle TTL slides instead of expiring mid-use.
+    if (sessionRow && typeof onPrincipalActive === 'function') {
+      try { onPrincipalActive(sessionRow.sessionId, emp) } catch { /* ignore */ }
     }
   }
 

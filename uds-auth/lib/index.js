@@ -101,6 +101,8 @@ const CONFIG_DEFAULTS = {
   retainSkillCredentialsOnLogout: true,
   /** skill 凭证 TTL（秒），默认 7 天 */
   skillCredentialTtlSeconds: 7 * 24 * 60 * 60,
+  /** 登录会话闲置超时（小时）；0 = 不自动退出（默认，只能手动退出）。>0 时活跃自动续期、最长 7 天 */
+  sessionIdleTimeoutHours: 0,
   /** outbound 白名单 host（逗号分隔或数组） */
   outboundAllowedHosts: 'icenterapi.zte.com.cn,icentermsg.dt.zte.com.cn',
   /** SEC-05: raw /agent-credentials token response off by default */
@@ -122,10 +124,26 @@ const INTERNAL = {
   session: {
     storeType: 'memory',        // 单实例足够；多实例需共享 store，不可静默切 memory
     redisUrl: 'redis://localhost:6379',
-    cookieMaxAge: 1800000,      // 30min idle TTL
+    /** Idle TTL (ms), read live from sessionIdleTimeoutHours so settings apply without restart. */
+    get cookieMaxAge() { return sessionIdleTimeoutMs(_currentConfig?.sessionIdleTimeoutHours) },
     slidingExpiration: true,
     slidingInterval: 300000,
   },
+}
+
+const SESSION_IDLE_MIN_HOURS = 0.5
+const SESSION_IDLE_MAX_HOURS = 7 * 24
+/** sessionIdleTimeoutHours = 0: sessions never expire on their own (10 years, still sliding). */
+const SESSION_NO_EXPIRY_MS = 10 * 365 * 24 * 60 * 60 * 1000
+
+function isValidSessionIdleHours(n) {
+  return Number.isFinite(n) && (n === 0 || (n >= SESSION_IDLE_MIN_HOURS && n <= SESSION_IDLE_MAX_HOURS))
+}
+
+function sessionIdleTimeoutMs(hours) {
+  const n = hours === '' || hours == null ? NaN : Number(hours)
+  const h = isValidSessionIdleHours(n) ? n : CONFIG_DEFAULTS.sessionIdleTimeoutHours
+  return h === 0 ? SESSION_NO_EXPIRY_MS : Math.round(h * 60 * 60 * 1000)
 }
 
 // 懒加载 schemastery Config schema（只在需要注册 DSH 设置面板时用）
@@ -144,6 +162,7 @@ function loadConfigSchemaAndSettings(ctx) {
       workspaceRoot: z.string().default(CONFIG_DEFAULTS.workspaceRoot),
       retainSkillCredentialsOnLogout: z.boolean().default(CONFIG_DEFAULTS.retainSkillCredentialsOnLogout),
       skillCredentialTtlSeconds: z.number().default(CONFIG_DEFAULTS.skillCredentialTtlSeconds),
+      sessionIdleTimeoutHours: z.number().default(CONFIG_DEFAULTS.sessionIdleTimeoutHours),
       outboundAllowedHosts: z.string().default(CONFIG_DEFAULTS.outboundAllowedHosts),
       initialAdminEmpNo: z.string().default(CONFIG_DEFAULTS.initialAdminEmpNo),
       allowOpenRegistration: z.boolean().default(CONFIG_DEFAULTS.allowOpenRegistration),
@@ -197,6 +216,8 @@ let _agentAuthHandlers = null
 let _taskCapabilities = null
 /** @type {SessionBridgeStore | null} */
 let _sessionBridge = null
+/** @type {import('./uds/session-revalidation.js').UdsTokenMonitor | null} */
+let _tokenMonitor = null
 /** SEC-20: false until init completes; routes return 503 when unready. */
 let _pluginReady = false
 let _pluginReadyError = null
@@ -222,6 +243,7 @@ function mintBridge(empNo, kind = 'fallback', ssoToken, bearer) {
       kind,
       ssoToken,
       token: bearer || undefined,
+      ttlMs: INTERNAL.session.cookieMaxAge,
     })
     return {
       empNo: minted.empNo,
@@ -233,6 +255,24 @@ function mintBridge(empNo, kind = 'fallback', ssoToken, bearer) {
     _logger?.warn?.('[uds-auth] mintBridge failed: %s', err.message)
     return null
   }
+}
+
+/** sessionId → last slide time; throttles WS-driven idle-TTL sliding. */
+const _lastSlideAt = new Map()
+
+/** Slide session + Desktop bridge idle TTL on WS/RPC activity (no HTTP request involved). */
+function slideActiveSession(sessionId, empNo) {
+  const now = Date.now()
+  if (now - (_lastSlideAt.get(sessionId) || 0) < INTERNAL.session.slidingInterval) return
+  _lastSlideAt.set(sessionId, now)
+  if (_lastSlideAt.size > 5000) {
+    for (const [sid, at] of _lastSlideAt) {
+      if (now - at >= INTERNAL.session.slidingInterval) _lastSlideAt.delete(sid)
+    }
+  }
+  const ttl = Math.floor(INTERNAL.session.cookieMaxAge / 1000)
+  Promise.resolve(_sessionStore?.touch(sessionId, ttl)).catch(() => {})
+  try { _sessionBridge?.touchEmpNo(empNo, INTERNAL.session.cookieMaxAge) } catch { /* ignore */ }
 }
 
 /** Create local session + bridge sharing the same bearer. */
@@ -366,6 +406,8 @@ async function handleQRProxy(req, res) {
   try {
     let parsedBody = {}
     try { parsedBody = JSON.parse(body) } catch { parsedBody = {} }
+    // Token refresh for a signed-in user: kept local, never forwarded upstream.
+    const refreshToken = parsedBody.refresh === true
     // A04: peek only — do not consume until upstream confirms login.
     const peeked = peekQrChallenge(parsedBody.qrCodeKey, parsedBody.qrCodeValue, req.headers['x-uds-qr-binding'])
     if (!peeked.ok) {
@@ -455,6 +497,18 @@ async function handleQRProxy(req, res) {
             return sendErr(res, req, status, code, { host: hostOfUrl(_currentConfig.userSearchUrl), ...vars })
           }
           const id = profile.empNo || credentials.empNo
+          if (refreshToken) {
+            // Refresh in place: no new session, no reload — conversations and cron continue.
+            const caller = await peekCallerSession(req)
+            if (!caller) return sendErr(res, req, 401, 'not_logged_in')
+            if (String(caller.empNo) !== String(id)) {
+              return sendErr(res, req, 409, 'token_refresh_emp_mismatch', { empNo: caller.empNo, scanned: id })
+            }
+            const refreshed = await refreshSessionToken(id, credentials.token, profile)
+            _logger?.info?.('[uds-auth] UAC token refreshed for %s (%d session(s))', id, refreshed)
+            return sendJSON(res, 200, { code: { code: '0000' }, bo: { code: '0000' },
+              auth: { success: true, refreshed: true, empNo: id } })
+          }
           const role = await _authMiddleware.resolveRoleOnLogin(id)
           const now = new Date().toISOString()
           const userContext = { empNo: id, userId: id, username: profile.username || id,
@@ -549,6 +603,58 @@ async function handleQRCode(req, res) {
   }
 }
 
+/** The caller's live local session, without sliding its TTL. */
+async function peekCallerSession(req) {
+  try {
+    const extracted = await extractSessionBearerAsync(req, {
+      sessionBridge: _sessionBridge,
+      isLiveBearer: async (b) => !!(await _sessionStore?.getByBearer(b)),
+    })
+    if (!extracted?.bearer) return null
+    const session = await _sessionStore.getByBearer(extracted.bearer)
+    if (!session) return null
+    if (extracted.bridgeEmpNo && String(extracted.bridgeEmpNo) !== String(session.empNo)) return null
+    if (_rolesStore?.isDisabled?.(session.empNo)) return null
+    return session
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Write a freshly verified UAC token into every live QR session of the account.
+ * Sessions, bridges and running conversations stay as they are.
+ */
+async function refreshSessionToken(empNo, token, profile) {
+  const ids = (await _sessionStore.listUdsSessionsForValidation())
+    .filter((s) => String(s.empNo) === String(empNo))
+    .map((s) => s.sessionId)
+  const now = new Date().toISOString()
+  const patch = {
+    token,
+    tokenRefreshedAt: now,
+    ...(profile?.department ? { department: profile.department } : {}),
+    ...(profile?.organization ? { organization: profile.organization } : {}),
+  }
+  for (const id of ids) await _sessionStore.updateUserData(id, patch)
+  try { _skillCredentials?.set(empNo, token) } catch { /* cache is best-effort */ }
+  _tokenMonitor?.markRefreshed(ids)
+  return ids.length
+}
+
+/** { alive, empNo, tokenValid } for the caller's session without touching it (see route comment). */
+async function handleSessionStatus(req, res) {
+  const session = await peekCallerSession(req)
+  res.setHeader('Cache-Control', 'no-store')
+  return sendJSON(res, 200, {
+    ok: true,
+    alive: !!session,
+    empNo: session?.empNo || null,
+    // false → UAC token rejected; client prompts a QR scan that refreshes it in place.
+    tokenValid: session ? !_tokenMonitor?.isTokenRejected(session.sessionId) : null,
+  })
+}
+
 // 客户端 config.get —— RPC 在 web 端以 HTTP 方式请求 /uds-auth/config.get
 async function handleConfigGet(req, res) {
   const c = _currentConfig || {}
@@ -567,6 +673,7 @@ async function handleConfigGet(req, res) {
       workspaceRoot: c.workspaceRoot,
       retainSkillCredentialsOnLogout: c.retainSkillCredentialsOnLogout !== false,
       skillCredentialTtlSeconds: c.skillCredentialTtlSeconds,
+      sessionIdleTimeoutHours: c.sessionIdleTimeoutHours ?? CONFIG_DEFAULTS.sessionIdleTimeoutHours,
       outboundAllowedHosts: c.outboundAllowedHosts,
       allowRawAgentToken: c.allowRawAgentToken === true,
     },
@@ -1038,6 +1145,7 @@ function validateConfigPatch(partial) {
     'workspaceRoot',
     'retainSkillCredentialsOnLogout',
     'skillCredentialTtlSeconds',
+    'sessionIdleTimeoutHours',
     'outboundAllowedHosts',
     'initialAdminEmpNo',
     'allowOpenRegistration',
@@ -1067,6 +1175,13 @@ function validateConfigPatch(partial) {
       throw err('invalid_ttl')
     }
   }
+  if (partial.sessionIdleTimeoutHours !== undefined) {
+    const raw = partial.sessionIdleTimeoutHours
+    const n = raw === '' || raw == null ? NaN : Number(raw)
+    if (!isValidSessionIdleHours(n)) {
+      throw err('invalid_session_idle_timeout')
+    }
+  }
   if (partial.outboundAllowedHosts !== undefined) {
     const raw = partial.outboundAllowedHosts
     const list = Array.isArray(raw)
@@ -1093,6 +1208,7 @@ async function saveRuntimeConfig(partial) {
     'workspaceRoot',
     'retainSkillCredentialsOnLogout',
     'skillCredentialTtlSeconds',
+    'sessionIdleTimeoutHours',
     'outboundAllowedHosts',
     'initialAdminEmpNo',
     'allowOpenRegistration',
@@ -1104,7 +1220,7 @@ async function saveRuntimeConfig(partial) {
     if (partial[k] !== undefined) {
       if (k === 'retainSkillCredentialsOnLogout' || k === 'allowOpenRegistration' || k === 'allowRawAgentToken') {
         next[k] = partial[k] === true || partial[k] === 'true'
-      } else if (k === 'skillCredentialTtlSeconds') {
+      } else if (k === 'skillCredentialTtlSeconds' || k === 'sessionIdleTimeoutHours') {
         next[k] = Number(partial[k])
       } else if (k === 'outboundAllowedHosts') {
         // Preserve [] / '' as deny-all; do not String([]) → "[]".
@@ -1221,6 +1337,12 @@ async function handleAllRoutes(req, res) {
     // 客户端配置（RPC config.get 在 web 端走 HTTP）
     if (pathname === '/uds-auth/config.get' && (method === 'GET' || method === 'POST')) {
       return await handleConfigGet(req, res)
+    }
+
+    // Read-only liveness probe for the client idle watcher. Deliberately bypasses the auth
+    // middleware: polling must not slide the idle TTL, or an idle tab would never expire.
+    if (pathname === '/uds-auth/session-status' && method === 'GET') {
+      return await handleSessionStatus(req, res)
     }
 
     // 下面都是 /uds-auth/api/* — 走 handleRequest（含鉴权）
@@ -1553,6 +1675,7 @@ export async function apply(ctx, config = {}) {
           userSearchUrl: next.userSearchUrl,
           outboundAllowedHosts: next.outboundAllowedHosts,
           skillCredentialTtlSeconds: next.skillCredentialTtlSeconds,
+          sessionIdleTimeoutHours: next.sessionIdleTimeoutHours,
           workspaceRoot: next.workspaceRoot || undefined,
           trustedHosts: next.trustedHosts,
         })
@@ -1571,6 +1694,7 @@ export async function apply(ctx, config = {}) {
           userSearchUrl: next.userSearchUrl,
           outboundAllowedHosts: next.outboundAllowedHosts,
           skillCredentialTtlSeconds: next.skillCredentialTtlSeconds,
+          sessionIdleTimeoutHours: next.sessionIdleTimeoutHours,
           workspaceRoot: next.workspaceRoot || undefined,
           trustedHosts: next.trustedHosts,
         })
@@ -1647,6 +1771,7 @@ async function initServices(ctx, config) {
         userSearchUrl: _currentConfig.userSearchUrl,
         outboundAllowedHosts: _currentConfig.outboundAllowedHosts,
         skillCredentialTtlSeconds: _currentConfig.skillCredentialTtlSeconds,
+        sessionIdleTimeoutHours: _currentConfig.sessionIdleTimeoutHours,
         workspaceRoot: _currentConfig.workspaceRoot || undefined,
         trustedHosts: _currentConfig.trustedHosts,
       })
@@ -1664,6 +1789,9 @@ async function initServices(ctx, config) {
     }
     if (!_currentConfig.skillCredentialTtlSeconds) {
       _currentConfig.skillCredentialTtlSeconds = CONFIG_DEFAULTS.skillCredentialTtlSeconds
+    }
+    if (_currentConfig.sessionIdleTimeoutHours == null || _currentConfig.sessionIdleTimeoutHours === '') {
+      _currentConfig.sessionIdleTimeoutHours = CONFIG_DEFAULTS.sessionIdleTimeoutHours
     }
     // R05: only default when field absent — empty string / [] means deny-all.
     if (_currentConfig.outboundAllowedHosts === undefined || _currentConfig.outboundAllowedHosts === null) {
@@ -1714,12 +1842,6 @@ async function initServices(ctx, config) {
     const rememberSkillCreds = (empNo, token) => {
       try { _skillCredentials?.set(empNo, token) } catch { /* ignore */ }
     }
-    const revokeInvalidUdsAccount = async (empNo) => {
-      await _sessionStore.revokeEmpNo(empNo)
-      try { _sessionBridge?.revokeEmpNo?.(empNo) } catch { /* ignore */ }
-      try { _skillCredentials?.delete(empNo) } catch { /* ignore */ }
-      try { _taskCapabilities?.revokeEmpNo(empNo) } catch { /* ignore */ }
-    }
 
     _authMiddleware = createAuthMiddleware({
       get userSearchUrl() { return _currentConfig?.userSearchUrl },
@@ -1738,31 +1860,32 @@ async function initServices(ctx, config) {
       sessionBridge: _sessionBridge,
     })
 
-    // Revalidate QR-authenticated sessions against the UDS department profile.
-    // The session store still enforces the independent seven-day absolute limit.
-    const udsSessionCheckTimer = setInterval(async () => {
-      let sessions
-      try {
-        sessions = await _sessionStore.listUdsSessionsForValidation()
-      } catch (err) {
-        ctx.logger?.warn?.('[uds-auth] failed to enumerate UDS sessions for validation:', err?.message || err)
-        return
+    // The UAC token is what actually expires. Check it every 2 hours; a rejected token is
+    // only flagged (client prompts a QR refresh) — never a sign-out, so conversations and
+    // night-time cron keep running. See uds/session-revalidation.js.
+    const {
+      UdsTokenMonitor,
+      UDS_TOKEN_CHECK_INTERVAL_MS,
+      UDS_TOKEN_FIRST_CHECK_MS,
+    } = await import('./uds/session-revalidation.js')
+    _tokenMonitor = new UdsTokenMonitor({
+      sessionStore: _sessionStore,
+      verify: (empNo, token, opts) => _authMiddleware.verifyEmpNoAndToken(empNo, token, opts),
+      logger: ctx.logger,
+    })
+    const runTokenCheck = async () => {
+      try { await _tokenMonitor.runRound() } catch (err) {
+        ctx.logger?.warn?.('[uds-auth] UAC token check failed: %s', err?.message || err)
       }
-      for (const session of sessions) {
-        if (!await _sessionStore.getBySessionId(session.sessionId)) continue
-        try {
-          if (!session.token || !await _authMiddleware.verifyEmpNoAndToken(session.empNo, session.token)) {
-            await revokeInvalidUdsAccount(session.empNo)
-            ctx.logger?.info?.('[uds-auth] UDS sessions revoked after profile validation failed for %s', session.empNo)
-          }
-        } catch (err) {
-          await revokeInvalidUdsAccount(session.empNo)
-          ctx.logger?.info?.('[uds-auth] UDS sessions revoked after profile validation error for %s: %s', session.empNo, err?.message || err)
-        }
-      }
-    }, 6 * 60 * 60 * 1000)
-    udsSessionCheckTimer.unref?.()
-    ctx.effect?.(() => () => clearInterval(udsSessionCheckTimer), 'uds-auth: UDS session validation')
+    }
+    const udsTokenFirstCheck = setTimeout(runTokenCheck, UDS_TOKEN_FIRST_CHECK_MS)
+    const udsTokenCheckTimer = setInterval(runTokenCheck, UDS_TOKEN_CHECK_INTERVAL_MS)
+    udsTokenFirstCheck.unref?.()
+    udsTokenCheckTimer.unref?.()
+    ctx.effect?.(() => () => {
+      clearTimeout(udsTokenFirstCheck)
+      clearInterval(udsTokenCheckTimer)
+    }, 'uds-auth: UAC token check')
 
     _apiHandlers = createApiHandlers(
       { session: INTERNAL.session },
@@ -1876,6 +1999,7 @@ async function initServices(ctx, config) {
       getSessionStore: () => _sessionStore,
       ensureUserWorkspace,
       getWorkspaceRegistry: () => _workspaceRegistry,
+      onPrincipalActive: slideActiveSession,
     })
 
     const { resolveWorkspaceRoot } = await import('./workspace-provision.js')

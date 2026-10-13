@@ -274,3 +274,62 @@ test('bearer hash is not reversible from store maps', async () => {
   assert.ok(store._byBearer.has(hash))
   assert.equal([...store._byBearer.keys()].includes(bearer), false)
 })
+
+test('active cookie session re-issues UDS_SESSION so the browser cookie slides too', async () => {
+  const store = new MemoryStore()
+  const roles = mockRoles({ '12345': ROLES.USER })
+  const mw = createAuthMiddleware({
+    userSearchUrl: 'http://127.0.0.1:9/never',
+    udsAuth: { baseUrl: 'http://127.0.0.1:9' },
+    session: { cookieMaxAge: 1800000, slidingExpiration: true, slidingInterval: 300000 },
+  }, store, roles, {})
+  const { sessionId, bearer } = await store.create({ empNo: '12345', isAuthenticated: true }, 1800)
+  const call = async () => {
+    const headers = {}
+    const res = { getHeader: (k) => headers[k], setHeader: (k, v) => { headers[k] = v } }
+    const ctx = { req: { headers: { cookie: `${SESSION_COOKIE}=${bearer}` }, socket: {} }, res }
+    await mw(ctx, async () => {})
+    assert.equal(ctx.empNo, '12345')
+    return [].concat(headers['Set-Cookie'] || []).find((c) => c.startsWith(`${SESSION_COOKIE}=`))
+  }
+
+  // Fresh session (within slidingInterval of login): no Set-Cookie churn.
+  assert.equal(await call(), undefined)
+
+  // 20 min later the idle window has drifted past slidingInterval → cookie re-issued.
+  store._sessions.get(sessionId).expiresAt = Date.now() + 10 * 60 * 1000
+  const cookie = await call()
+  assert.ok(cookie, 'UDS_SESSION re-issued')
+  assert.match(cookie, /Max-Age=1800/)
+  assert.match(cookie, /HttpOnly/)
+})
+
+test('idle TTL follows the live session config (sessionIdleTimeoutHours) without restart', async () => {
+  const store = new MemoryStore()
+  const roles = mockRoles({ '12345': ROLES.USER })
+  let hours = 24
+  const session = {
+    get cookieMaxAge() { return hours * 60 * 60 * 1000 },
+    slidingExpiration: true,
+    slidingInterval: 300000,
+  }
+  const mw = createAuthMiddleware({
+    userSearchUrl: 'http://127.0.0.1:9/never',
+    udsAuth: { baseUrl: 'http://127.0.0.1:9' },
+    session,
+  }, store, roles, {})
+  const { sessionId, bearer } = await store.create({ empNo: '12345', isAuthenticated: true }, 60)
+  const call = async () => {
+    const headers = {}
+    const res = { getHeader: (k) => headers[k], setHeader: (k, v) => { headers[k] = v } }
+    await mw({ req: { headers: { cookie: `${SESSION_COOKIE}=${bearer}` }, socket: {} }, res }, async () => {})
+    return [].concat(headers['Set-Cookie'] || []).find((c) => c.startsWith(`${SESSION_COOKIE}=`))
+  }
+  assert.match(await call(), /Max-Age=86400/)
+  assert.ok(store._sessions.get(sessionId).expiresAt > Date.now() + 23 * 60 * 60_000)
+
+  hours = 2
+  store._sessions.get(sessionId).expiresAt = Date.now() + 60_000
+  assert.match(await call(), /Max-Age=7200/)
+  assert.ok(store._sessions.get(sessionId).expiresAt <= Date.now() + 2 * 60 * 60_000)
+})

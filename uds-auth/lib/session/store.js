@@ -36,6 +36,11 @@ export class SessionStore {
     throw new Error('SessionStore#touch must be implemented')
   }
 
+  /** Merge fields into a live session's userData (e.g. a refreshed UAC token). */
+  async updateUserData(sessionId, patch) {
+    throw new Error('SessionStore#updateUserData must be implemented')
+  }
+
   async revokeSession(sessionId) {
     throw new Error('SessionStore#revokeSession must be implemented')
   }
@@ -92,3 +97,11 @@ export const SESSION_COOKIE = 'UDS_SESSION'
 export const SESSION_HEADER = 'x-uds-session'
 /** Absolute session lifetime; idle expiry (cookieMaxAge) slides within it. */
 export const SESSION_ABSOLUTE_MAX_SECONDS = 7 * 24 * 60 * 60
+
+/**
+ * Absolute lifetime for a session with this idle TTL. A TTL above 7 days means
+ * "no automatic sign-out" (sessionIdleTimeoutHours = 0), so the cap follows the TTL.
+ */
+export function absoluteCapSeconds(ttlSeconds) {
+  return Math.max(SESSION_ABSOLUTE_MAX_SECONDS, Number(ttlSeconds) || 0)
+}

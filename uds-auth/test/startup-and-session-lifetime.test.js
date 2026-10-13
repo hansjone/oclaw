@@ -67,3 +67,65 @@ test('other origin/host rejections still fail immediately', async () => {
   assert.equal(handled, 0)
   assert.ok(Date.now() - started < 1000)
 })
+
+test('session-status probe is routed outside the auth middleware and never slides the TTL', async () => {
+  const { readFileSync } = await import('node:fs')
+  const src = readFileSync(new URL('../lib/index.js', import.meta.url), 'utf8')
+  const probe = src.indexOf("pathname === '/uds-auth/session-status'")
+  const authed = src.indexOf("if (pathname.startsWith('/uds-auth/api/')) {")
+  assert.ok(probe > 0 && probe < authed, 'probe answers before /uds-auth/api/* auth dispatch')
+  const body = src.slice(src.indexOf('async function handleSessionStatus'), src.indexOf('// 客户端 config.get'))
+  assert.doesNotMatch(body, /touch\(|_authMiddleware/)
+
+  // getByBearer (what the probe uses) must not slide the idle TTL.
+  const store = new MemoryStore()
+  const { sessionId, bearer } = await store.create({ empNo: 'u1' }, 1800)
+  const before = store._sessions.get(sessionId).expiresAt
+  await new Promise((r) => setTimeout(r, 5))
+  assert.ok(await store.getByBearer(bearer))
+  assert.equal(store._sessions.get(sessionId).expiresAt, before)
+})
+
+test('client signs out on confirmed idle expiry instead of prompting on every call', async () => {
+  const { readFileSync } = await import('node:fs')
+  const src = readFileSync(new URL('../lib/client.js', import.meta.url), 'utf8')
+  // Expiry is only acted on after the non-sliding probe says alive=false.
+  assert.match(src, /fetch\('\/uds-auth\/session-status'/)
+  assert.match(src, /data\.alive === false && isLoggedInInUi\(\)\) \{\s*window\.dispatchEvent\(new Event\('uds-auth-expired'\)\)/)
+  // RPC failures and HTTP 401s trigger the probe; an idle timer and focus do too.
+  assert.match(src, /looksLikeSessionGone\(result\.error\)\) \{\s*void checkSessionAlive\(\)/)
+  assert.match(src, /if \(res\.status === 401\) void checkSessionAlive\(\)/)
+  assert.match(src, /setInterval\(check, 60_000\)/)
+  // Expired sign-out skips /api/logout and tells the user why.
+  assert.match(src, /signOut\(\{ expired: true \}\)/)
+  assert.match(src, /sessionExpired \? t\('ui\.sessionExpiredSignedOut'\)/)
+})
+
+test('QR refresh renews the UAC token in place instead of minting a new session', async () => {
+  const { readFileSync } = await import('node:fs')
+  const src = readFileSync(new URL('../lib/index.js', import.meta.url), 'utf8')
+  // refresh flag is read locally and never forwarded upstream (body is rebuilt from contract fields).
+  assert.match(src, /const refreshToken = parsedBody\.refresh === true/)
+  const branch = src.slice(src.indexOf('if (refreshToken) {'), src.indexOf("const role = await _authMiddleware.resolveRoleOnLogin(id)\n          const now"))
+  assert.match(branch, /peekCallerSession\(req\)/)
+  assert.match(branch, /token_refresh_emp_mismatch/)
+  assert.match(branch, /refreshSessionToken\(id, credentials\.token, profile\)/)
+  assert.doesNotMatch(branch, /mintLoginSession|appendSessionCookie/)
+  // Default: no automatic sign-out; token rejections are flagged, not revoked.
+  assert.match(src, /sessionIdleTimeoutHours: 0,/)
+  assert.match(src, /tokenValid: session \? !_tokenMonitor\?\.isTokenRejected\(session\.sessionId\) : null/)
+  assert.doesNotMatch(src, /revokeInvalidUdsAccount|UdsSessionRevalidator/)
+})
+
+test('client prompts a refresh QR on token expiry without signing out', async () => {
+  const { readFileSync } = await import('node:fs')
+  const src = readFileSync(new URL('../lib/client.js', import.meta.url), 'utf8')
+  assert.match(src, /new Event\(data\.tokenValid \? 'uds-auth-token-ok' : 'uds-auth-token-expired'\)/)
+  // expiry opens the panel once; the token handler never calls signOut
+  const handler = src.slice(src.indexOf('const onTokenExpired = () => {'), src.indexOf('const onTokenOk = () => {'))
+  assert.match(handler, /setOpen\(true\)/)
+  assert.doesNotMatch(handler, /signOut/)
+  assert.match(src, /refreshing \? \{ qrCodeKey, qrCodeValue, refresh: true \}/)
+  assert.match(src, /if \(auth\?\.success && auth\.refreshed\) \{/)
+  assert.match(src, /const wantQr = open && loginMode === 'qr' && \(!user \|\| tokenExpired\)/)
+})
